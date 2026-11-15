@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/curated-note.schema.json",
+  "title": "CuratedNote",
+  "description": "Front matter of a curated note: notes/<advisory-id>.md. The Markdown body below the front matter is the note text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "advisory",
+    "products",
+    "audience",
+    "exposure",
+    "assumptions",
+    "actions",
+    "status",
+    "authorship"
+  ],
+  "properties": {
+    "advisory": {
+      "$ref": "defs.schema.json#/$defs/advisoryId",
+      "description": "The advisory id this note is about. Must equal the file name without .md."
+    },
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "defs.schema.json#/$defs/slug" }
+    },
+    "audience": { "$ref": "#/$defs/audience" },
+    "exposure": { "$ref": "#/$defs/exposure" },
+    "assumptions": { "$ref": "#/$defs/assumptions" },
+    "actions": { "$ref": "#/$defs/actions" },
+    "status": {
+      "description": "draft: unreviewed, shown greyed out, never sent by the image. reviewed: checked by a reviewer, shown with reviewer and date, included in the feed. disputed: reported wrong, exposure hidden until resolved. superseded: replaced by newer information.",
+      "type": "string",
+      "enum": ["draft", "reviewed", "disputed", "superseded"]
+    },
+    "authorship": { "$ref": "#/$defs/authorship" },
+    "written_by": { "$ref": "defs.schema.json#/$defs/githubHandle" },
+    "reviewed_by": { "$ref": "defs.schema.json#/$defs/githubHandle" },
+    "reviewed_at": { "$ref": "defs.schema.json#/$defs/date" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "reviewed" } } },
+      "then": {
+        "required": ["reviewed_by", "reviewed_at"],
+        "properties": { "authorship": { "not": { "const": "model-drafted" } } }
+      }
+    },
+    { "$ref": "#/$defs/assumptionsRule" }
+  ],
+  "$defs": {
+    "audience": {
+      "type": "string",
+      "enum": ["generic-selfhosters", "coolify-selfhosters"]
+    },
+    "exposure": {
+      "description": "Whether a default self-hosted setup is exposed. Always shown together with the assumptions.",
+      "type": "string",
+      "enum": ["default-exposed", "conditional", "not-default", "unknown"]
+    },
+    "assumptions": {
+      "description": "The setup the exposure judgement assumes. Required (at least one) when exposure is conditional or not-default.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 300 }
+    },
+    "assumptionsRule": {
+      "if": {
+        "required": ["exposure"],
+        "properties": { "exposure": { "enum": ["conditional", "not-default"] } }
+      },
+      "then": { "properties": { "assumptions": { "minItems": 1 } } }
+    },
+    "authorship": {
+      "type": "string",
+      "enum": ["human", "model-drafted-human-reviewed", "model-drafted"]
+    },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "action": {
+      "title": "NoteAction",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["upgrade", "backup", "commands", "config", "restart", "read"]
+        },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "code": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "if": { "properties": { "kind": { "const": "commands" } } },
+      "then": { "required": ["code"] }
+    },
+    "feedNote": {
+      "title": "FeedNote",
+      "description": "A reviewed note as it appears inside a published advisory. Only reviewed notes are ever published.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "audience",
+        "exposure",
+        "assumptions",
+        "actions",
+        "authorship",
+        "reviewed_by",
+        "reviewed_at",
+        "body"
+      ],
+      "properties": {
+        "status": { "const": "reviewed" },
+        "audience": { "$ref": "#/$defs/audience" },
+        "exposure": { "$ref": "#/$defs/exposure" },
+        "assumptions": { "$ref": "#/$defs/assumptions" },
+        "actions": { "$ref": "#/$defs/actions" },
+        "authorship": {
+          "type": "string",
+          "enum": ["human", "model-drafted-human-reviewed"]
+        },
+        "reviewed_by": { "$ref": "defs.schema.json#/$defs/githubHandle" },
+        "reviewed_at": { "$ref": "defs.schema.json#/$defs/date" },
+        "body": {
+          "description": "The note text as Markdown.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/assumptionsRule" }]
+    }
+  }
+}

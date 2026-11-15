@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/image-config.schema.json",
+  "title": "ImageConfig",
+  "description": "The notifier image's config file (advisorydeck.yml), mounted read-only. Webhook URLs are secrets: the file names the environment variables that hold them and never contains them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "feed", "products", "channels"],
+  "properties": {
+    "version": { "const": 1 },
+    "feed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "description": "Base URL of the published feed, ending in /api/v1/.",
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://.+/api/v1/$"
+        },
+        "poll_interval": {
+          "description": "How often to check the manifest, for example 30m. Minimum 5m. Default 30m.",
+          "type": "string",
+          "pattern": "^[0-9]+(s|m|h)$"
+        }
+      }
+    },
+    "products": {
+      "description": "What you run. version is a branch (17) or an exact version (17.4). Each slug at most once.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "title": "WatchedProduct",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "version"],
+        "properties": {
+          "slug": { "$ref": "defs.schema.json#/$defs/slug" },
+          "version": { "$ref": "defs.schema.json#/$defs/version" }
+        }
+      }
+    },
+    "min_severity": {
+      "description": "Lowest severity to notify. Default high. Bypass rules (KEV, required curated action) ignore it.",
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "mode": {
+      "description": "instant: post each match when seen. digest: one daily message, bypass rules still post instantly. both: post each match and include it in the digest. Default digest.",
+      "type": "string",
+      "enum": ["instant", "digest", "both"]
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "time": {
+          "description": "Local time of the daily digest, HH:MM. Default 08:00.",
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "timezone": {
+          "description": "IANA time zone name. Default UTC.",
+          "type": "string",
+          "pattern": "^[A-Za-z_]+(/[A-Za-z0-9_+-]+)*$"
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "title": "Channel",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "url_env"],
+        "properties": {
+          "type": { "type": "string", "enum": ["discord", "slack", "webhook"] },
+          "url_env": {
+            "description": "Name of the environment variable that holds the webhook URL.",
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "name": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    },
+    "state_path": {
+      "description": "Where the image keeps what it already sent. Default /data/state.json.",
+      "type": "string",
+      "pattern": "^/"
+    }
+  }
+}

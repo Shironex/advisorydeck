@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/manifest.schema.json",
+  "title": "Manifest",
+  "description": "Published at api/v1/manifest.json. Small on purpose: a consumer fetches it with If-None-Match and downloads only the product files whose etag changed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generated_at", "products"],
+  "properties": {
+    "schema": { "const": "advisorydeck/v1/manifest" },
+    "generated_at": { "$ref": "defs.schema.json#/$defs/timestamp" },
+    "products": {
+      "description": "One entry per published product; the file is products/<slug>.json next to this manifest.",
+      "type": "object",
+      "propertyNames": { "$ref": "defs.schema.json#/$defs/slug" },
+      "additionalProperties": {
+        "title": "ManifestEntry",
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["updated_at", "etag", "advisories"],
+        "properties": {
+          "updated_at": { "$ref": "defs.schema.json#/$defs/timestamp" },
+          "etag": { "$ref": "defs.schema.json#/$defs/etag" },
+          "advisories": {
+            "description": "Number of advisories in the product file.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

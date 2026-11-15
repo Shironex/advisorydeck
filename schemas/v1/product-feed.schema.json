@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/product-feed.schema.json",
+  "title": "ProductFeed",
+  "description": "Published at api/v1/products/<slug>.json: everything a consumer needs to match one product locally.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "generated_at", "product", "advisories"],
+  "properties": {
+    "schema": { "const": "advisorydeck/v1/product-feed" },
+    "generated_at": { "$ref": "defs.schema.json#/$defs/timestamp" },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slug", "name", "category", "homepage", "version_scheme", "branches"],
+      "properties": {
+        "slug": { "$ref": "defs.schema.json#/$defs/slug" },
+        "name": { "type": "string", "minLength": 1 },
+        "category": { "$ref": "defs.schema.json#/$defs/category" },
+        "homepage": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+        "version_scheme": { "$ref": "defs.schema.json#/$defs/versionScheme" },
+        "branches": {
+          "description": "Release branches known for the product (from endoflife.date), newest first. Empty when the catalog has no branch source.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "eol", "eol_date", "latest"],
+            "properties": {
+              "name": { "$ref": "defs.schema.json#/$defs/version" },
+              "eol": { "type": "boolean" },
+              "eol_date": {
+                "oneOf": [{ "$ref": "defs.schema.json#/$defs/date" }, { "type": "null" }]
+              },
+              "latest": {
+                "oneOf": [{ "$ref": "defs.schema.json#/$defs/version" }, { "type": "null" }]
+              }
+            }
+          }
+        }
+      }
+    },
+    "advisories": {
+      "description": "Advisories that list this product in affected, newest published first.",
+      "type": "array",
+      "items": { "$ref": "advisory.schema.json" }
+    }
+  }
+}
