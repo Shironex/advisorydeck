@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/product.schema.json",
+  "title": "Product",
+  "description": "One catalog entry: catalog/<category>/<slug>.yml. Says what the product is, how its versions compare and where its advisories come from.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "slug",
+    "name",
+    "category",
+    "homepage",
+    "version_scheme",
+    "branches",
+    "images",
+    "sources",
+    "match",
+    "curated"
+  ],
+  "properties": {
+    "slug": {
+      "$ref": "defs.schema.json#/$defs/slug",
+      "description": "Must equal the file name without .yml."
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "category": {
+      "$ref": "defs.schema.json#/$defs/category",
+      "description": "Must equal the folder the file sits in."
+    },
+    "homepage": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+    "description": { "type": "string", "maxLength": 200 },
+    "version_scheme": { "$ref": "defs.schema.json#/$defs/versionScheme" },
+    "branches": { "$ref": "#/$defs/branches" },
+    "images": {
+      "description": "Official container images and the grammar of their tags, used by the generator and optional discovery. Empty when the product is not usually run from an image.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/image" }
+    },
+    "sources": {
+      "description": "Where advisories for this product are found, ordered by trust (first is most trusted).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "description": "vendor-ranges: per-branch affected and fixed versions from the vendor or its CNA. package-ranges: ranges of a language package (OSV, GHSA). distro-notice: match on the distro release, not a version. release-only: no usable advisory data, new releases only.",
+          "type": "string",
+          "enum": ["vendor-ranges", "package-ranges", "distro-notice", "release-only"]
+        }
+      }
+    },
+    "curated": {
+      "description": "True when reviewed self-hoster notes are written for this product.",
+      "type": "boolean"
+    },
+    "tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "defs.schema.json#/$defs/slug" }
+    },
+    "data_notes": {
+      "description": "Known quirks of this product's advisory data, for whoever maintains ingest.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "branches": {
+      "title": "Branches",
+      "description": "Where supported release branches and EOL dates come from.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string", "enum": ["endoflife", "none"] },
+        "endoflife_slug": {
+          "description": "Product id on endoflife.date.",
+          "$ref": "defs.schema.json#/$defs/slug"
+        }
+      },
+      "if": { "properties": { "source": { "const": "endoflife" } } },
+      "then": { "required": ["endoflife_slug"] },
+      "else": { "not": { "required": ["endoflife_slug"] } }
+    },
+    "image": {
+      "title": "Image",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "tag_pattern"],
+      "properties": {
+        "ref": {
+          "description": "Fully qualified repository, registry included, no tag.",
+          "type": "string",
+          "pattern": "^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._-]+(/[a-z0-9._-]+)*$"
+        },
+        "tag_pattern": {
+          "description": "Regular expression a version tag matches, with a named group version. Must work in both ECMAScript and Go RE2 (no lookarounds).",
+          "type": "string",
+          "format": "regex",
+          "pattern": "\\(\\?<version>"
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "source": {
+      "title": "Source",
+      "oneOf": [
+        { "$ref": "#/$defs/cveCnaSource" },
+        { "$ref": "#/$defs/ghsaRepoSource" },
+        { "$ref": "#/$defs/ghsaPackageSource" },
+        { "$ref": "#/$defs/osvSource" },
+        { "$ref": "#/$defs/vendorPageSource" },
+        { "$ref": "#/$defs/vendorFeedSource" }
+      ]
+    },
+    "cveCnaSource": {
+      "title": "CveCnaSource",
+      "description": "cvelistV5 records whose assigner and affected product match.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "assigner", "products"],
+      "properties": {
+        "type": { "const": "cve-cna" },
+        "assigner": {
+          "description": "cveMetadata.assignerShortName in the CVE record.",
+          "type": "string",
+          "minLength": 1
+        },
+        "products": {
+          "description": "containers.cna.affected[].product values that belong to this product.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "vendor": {
+          "description": "containers.cna.affected[].vendor, when the assigner publishes for several vendors.",
+          "type": "string"
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "ghsaRepoSource": {
+      "title": "GhsaRepoSource",
+      "description": "Security advisories published on a GitHub repository.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "repo"],
+      "properties": {
+        "type": { "const": "ghsa-repo" },
+        "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "note": { "type": "string" }
+      }
+    },
+    "ghsaPackageSource": {
+      "title": "GhsaPackageSource",
+      "description": "GitHub Advisory Database entries for one package, as GHSA names its ecosystem and package.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ecosystem", "package"],
+      "properties": {
+        "type": { "const": "ghsa-package" },
+        "ecosystem": { "type": "string", "pattern": "^[a-z]+$" },
+        "package": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "osvSource": {
+      "title": "OsvSource",
+      "description": "OSV records for one package in one OSV ecosystem.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ecosystem", "package"],
+      "properties": {
+        "type": { "const": "osv" },
+        "ecosystem": { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
+      }
+    },
+    "vendorPageSource": {
+      "title": "VendorPageSource",
+      "description": "A human-readable vendor page: cross-check and a trigger to write a note, never parsed as the primary record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "vendor-page" },
+        "url": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+        "note": { "type": "string" }
+      }
+    },
+    "vendorFeedSource": {
+      "title": "VendorFeedSource",
+      "description": "A vendor RSS or Atom feed of security announcements.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "format"],
+      "properties": {
+        "type": { "const": "vendor-feed" },
+        "url": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+        "format": { "type": "string", "enum": ["rss", "atom"] },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

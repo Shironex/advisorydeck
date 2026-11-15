@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/advisory.schema.json",
+  "title": "Advisory",
+  "description": "One normalized advisory (an alias cluster). Ingest writes it to data/advisories/<id>.json; the same object appears in every products/<slug>.json it affects.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "aliases",
+    "title",
+    "summary",
+    "published_at",
+    "modified_at",
+    "severity",
+    "kev",
+    "epss",
+    "affected",
+    "references",
+    "sources",
+    "revision",
+    "note"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "defs.schema.json#/$defs/advisoryId",
+      "description": "Cluster id: the CVE id when one exists, else the GHSA id, else the vendor id."
+    },
+    "aliases": {
+      "description": "Every other id in the cluster (GHSA, USN, DSA, vendor ids). Never contains id itself.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "defs.schema.json#/$defs/advisoryId" }
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "summary": {
+      "description": "Plain text from the source record. Consumers must escape it.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "published_at": { "$ref": "defs.schema.json#/$defs/timestamp" },
+    "modified_at": { "$ref": "defs.schema.json#/$defs/timestamp" },
+    "severity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "score", "vector", "source"],
+      "properties": {
+        "level": { "$ref": "defs.schema.json#/$defs/severityLevel" },
+        "score": {
+          "description": "CVSS base score, or null when there is none.",
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 10
+        },
+        "vector": { "type": ["string", "null"], "pattern": "^CVSS:[0-9.]+/" },
+        "source": {
+          "description": "Which record the score came from, in the fallback order cna, ghsa, nvd, vendor; none when level is unknown.",
+          "type": "string",
+          "enum": ["cna", "ghsa", "nvd", "vendor", "none"]
+        }
+      }
+    },
+    "kev": {
+      "description": "Listed in the CISA Known Exploited Vulnerabilities catalog.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listed", "added_at"],
+      "properties": {
+        "listed": { "type": "boolean" },
+        "added_at": {
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/date" }, { "type": "null" }]
+        }
+      }
+    },
+    "epss": {
+      "description": "FIRST EPSS exploit probability, or null when unknown.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "percentile", "date"],
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 1 },
+            "percentile": { "type": "number", "minimum": 0, "maximum": 1 },
+            "date": { "$ref": "defs.schema.json#/$defs/date" }
+          }
+        }
+      ]
+    },
+    "cwes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^CWE-[0-9]+$" }
+    },
+    "affected": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/affected" }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "type"],
+        "properties": {
+          "url": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+          "type": {
+            "type": "string",
+            "enum": ["advisory", "fix", "release-notes", "report", "article", "web"]
+          }
+        }
+      }
+    },
+    "sources": {
+      "description": "The records this advisory was built from, for attribution.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "url", "license"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["cve-cna", "ghsa", "osv", "nvd", "kev", "epss", "vendor-page", "vendor-feed"]
+          },
+          "id": { "type": "string", "minLength": 1 },
+          "url": { "$ref": "defs.schema.json#/$defs/httpsUrl" },
+          "license": {
+            "description": "License or terms the record is used under, for example CVE-TOU or CC-BY-4.0.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "revision": {
+      "description": "Opaque material revision. It changes only on a material change (severity level, ranges, KEV, EPSS threshold, reviewed note); consumers renotify when it changes.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "note": {
+      "description": "The reviewed curated note, or null. Drafts and disputed notes are never published here.",
+      "oneOf": [{ "type": "null" }, { "$ref": "curated-note.schema.json#/$defs/feedNote" }]
+    }
+  },
+  "$defs": {
+    "affected": {
+      "title": "AffectedProduct",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "ranges"],
+      "properties": {
+        "product": { "$ref": "defs.schema.json#/$defs/slug" },
+        "ranges": {
+          "description": "Affected version ranges in the product's version scheme. An empty list means the affected versions are unknown: consumers must say check manually, never not affected.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/range" }
+        }
+      }
+    },
+    "range": {
+      "title": "VersionRange",
+      "description": "introduced is inclusive (0 means from the first version); fixed is exclusive; last_affected is inclusive. At most one of fixed and last_affected; neither means no fix yet.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["introduced"],
+      "properties": {
+        "introduced": { "$ref": "defs.schema.json#/$defs/version" },
+        "fixed": { "$ref": "defs.schema.json#/$defs/version" },
+        "last_affected": { "$ref": "defs.schema.json#/$defs/version" }
+      },
+      "not": { "required": ["fixed", "last_affected"] }
+    }
+  }
+}
