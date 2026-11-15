@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: docker-engine
+name: Docker Engine
+category: containers
+homepage: https://docs.docker.com/engine/
+description: Container engine (dockerd), built from the Moby project. Docker Desktop is a separate product.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: docker-engine
+images:
+  - ref: docker.io/library/docker
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc\\.[0-9]+)?)(?:-[a-z].*)?$"
+    note: The Docker-in-Docker and CLI image. Most installs run Engine from distro or Docker packages on the host, so the version usually comes from docker version, not a tag.
+sources:
+  - type: ghsa-repo
+    repo: moby/moby
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/moby/moby/v2
+  - type: vendor-feed
+    url: https://docs.docker.com/security/security-announcements/index.xml
+    format: rss
+    note: Covers all Docker products; most items are Docker Desktop and must not be mapped to Engine.
+  - type: vendor-page
+    url: https://docs.docker.com/engine/release-notes/
+match:
+  strategy: vendor-ranges
+curated: true
+tags: [coolify-requirement]
+data_notes:
+  - moby/moby advisories list a docker ecosystem entry named Docker Engine with plain ranges (< 29.9.3), and sometimes a Go entry for github.com/moby/moby/v2 whose package name has a leading space.
+  - Versions before 23.0 were year.month (19.03.15); compare each component numerically.
+  - Older advisories (for example GHSA-v23v-6jw2-98fq) name the package docker-ce and give one comma-separated list of last affected versions per branch.
