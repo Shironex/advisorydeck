@@ -160,7 +160,7 @@ export interface CveCnaSource {
    */
   assigner: string;
   /**
-   * containers.cna.affected[].product values that belong to this product.
+   * containers.cna.affected[].product values that belong to this product. ["*"] takes every product of the vendor, for a CNA that names each package separately (Go: net/http, crypto/x509); it needs vendor.
    *
    * @minItems 1
    */
