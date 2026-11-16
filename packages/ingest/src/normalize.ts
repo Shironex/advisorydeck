@@ -10,11 +10,16 @@ import {
   dedupeRanges,
   isBounded,
   isRangeExpression,
+  nextLine,
   pairLowerBounds,
   parseRangeExpression,
   pep440Prereleases,
   perBranchUpperBounds,
   singlePatchedVersion,
+  spanOf,
+  spansOverlap,
+  subtractSpans,
+  type Span,
 } from './versions.ts';
 
 export type Severity = Advisory['severity'];
@@ -191,7 +196,7 @@ function pythonVersions(v: CveVersion): CveVersion {
  * Ranges of one CVE affected entry. Undefined when any affected version cannot be read: half a
  * range list would make a consumer say "not affected" for the part that was dropped.
  */
-export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
+export function cveRanges(affected: CveAffected, notes: string[] = []): VersionRange[] | undefined {
   const ranges: VersionRange[] = [];
   const upTo = everyLineUpTo(affected);
   for (const written of affected.versions ?? []) {
@@ -225,7 +230,90 @@ export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
       ranges.push({ introduced, last_affected: introduced });
     }
   }
-  return dedupeRanges(ranges);
+  return withoutUnaffected(affected, dedupeRanges(ranges), notes);
+}
+
+/**
+ * The unaffected entries of a CVE affected entry as spans. An exact version is that release and
+ * the later ones of its line (Mattermost lists 10.11.21 for "fixed in 10.11.21"), the highest exact
+ * version every later release too; `x.y.*` as an upper bound is the end of that line (Jenkins:
+ * 2.580.2 lessThan 2.580.*). `unreadable` says an entry could not be read or ordered (Mattermost
+ * lists desktop builds such as 6.2.3.0 next to server versions).
+ */
+function unaffectedSpans(affected: CveAffected): { spans: Span[]; unreadable: boolean } {
+  const entries = (affected.versions ?? []).filter((v) => v.status === 'unaffected');
+  const ordered = (v: string | undefined): v is string =>
+    v !== undefined && (v === '0' || compareSemverLike(v, v) !== undefined);
+  const exact = entries
+    .filter((v) => v.lessThan === undefined && v.lessThanOrEqual === undefined)
+    .map((v) => cleanVersion(v.version ?? ''))
+    .filter(ordered)
+    .sort((a, b) => compareSemverLike(a, b) ?? 0);
+  const highest = exact.at(-1);
+  const spans: Span[] = [];
+  let unreadable = false;
+  for (const v of entries) {
+    const lo = cleanVersion(v.version ?? '');
+    const bound = (v.lessThan ?? v.lessThanOrEqual)?.trim();
+    const line = bound === undefined ? undefined : /^v?(\d+\.\d+)\.\*$/.exec(bound)?.[1];
+    const hi =
+      bound === undefined
+        ? lo === highest || lo === undefined
+          ? undefined
+          : nextLine(lo)
+        : bound === '*'
+          ? undefined
+          : line === undefined
+            ? cleanVersion(bound)
+            : nextLine(`${line}.0`);
+    const open = (bound === undefined && lo === highest) || bound === '*';
+    if (!ordered(lo) || (!open && !ordered(hi))) {
+      unreadable = true;
+      continue;
+    }
+    spans.push(
+      open || hi === undefined
+        ? { lo, hiIncluded: false }
+        : { lo, hi, hiIncluded: line === undefined && v.lessThanOrEqual !== undefined },
+    );
+  }
+  return { spans, unreadable };
+}
+
+/**
+ * Takes the unaffected entries of a CVE affected entry into account where they matter: when the
+ * entry lists only unaffected versions under a default status of affected (Jenkins), or an
+ * unaffected version lies inside an affected range (Mattermost: `0 <= 10.20.11` with 10.11.21
+ * unaffected). Elsewhere unaffected entries name the releases after the ranges and change
+ * nothing. Undefined when they matter but cannot be subtracted safely: an unaffected entry that
+ * cannot be read or ordered, or a cut that no range can express.
+ */
+function withoutUnaffected(
+  affected: CveAffected,
+  ranges: VersionRange[],
+  notes: string[],
+): VersionRange[] | undefined {
+  if (!(affected.versions ?? []).some((v) => v.status === 'unaffected')) return ranges;
+  const { spans, unreadable } = unaffectedSpans(affected);
+  const onlyUnaffected =
+    ranges.length === 0 && affected.defaultStatus?.trim().toLowerCase() === 'affected';
+  const inside = spans.some((u) => ranges.some((r) => spansOverlap(spanOf(r), u) === true));
+  if (!onlyUnaffected && !inside) return ranges;
+  const result = unreadable
+    ? undefined
+    : subtractSpans(onlyUnaffected ? [{ introduced: '0' }] : ranges, spans);
+  if (result === undefined || result.length === 0) {
+    notes.push(
+      'unaffected versions inside the affected ranges cannot be subtracted: versions unknown',
+    );
+    return undefined;
+  }
+  notes.push(
+    onlyUnaffected
+      ? 'only unaffected versions are listed under a default status of affected: read as every other version'
+      : 'unaffected versions inside the affected ranges were subtracted, one range per branch',
+  );
+  return result;
 }
 
 function cveSeverity(record: CveRecord): Severity | undefined {
@@ -284,7 +372,9 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
         (r.vendor === undefined || same(r.vendor, affected.vendor)),
     );
     if (rule === undefined) continue;
-    const read = cveRanges(affected);
+    const notes: string[] = [];
+    const read = cveRanges(affected, notes);
+    for (const note of notes) warnings.push(`${cveId}: ${note} for ${rule.slug}`);
     const semver =
       catalogue.entries.find((e) => e.product.slug === rule.slug)?.product.version_scheme ===
       'semver';

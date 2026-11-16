@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { buildAdvisory, clusterRecords, pickRanges } from '../src/advisories.ts';
 import {
   cveFacts,
+  cveRanges,
   ghsaFacts,
   ghsaRanges,
   type Catalogue,
@@ -87,6 +88,8 @@ const extra: CatalogEntry[] = [
     { type: 'ghsa-repo', repo: 'valkey-io/valkey' },
     { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'valkey-io', products: ['valkey'] },
   ]),
+  product('mattermost', [{ type: 'cve-cna', assigner: 'Mattermost', products: ['Mattermost'] }]),
+  product('jenkins', [{ type: 'cve-cna', assigner: 'jenkins', products: ['Jenkins'] }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -468,5 +471,44 @@ describe('upper bounds of one expression in any order', () => {
         patched_versions: '9.1.0, 8.1.6',
       }).ranges,
     ).toEqual([{ introduced: '0', last_affected: '9.0.2' }]);
+  });
+});
+
+describe('unaffected versions inside the affected ranges', () => {
+  it('Mattermost: patched branches listed as unaffected are cut out of ranges from 0', () => {
+    const facts = cve('CVE-2026-16049');
+    expect(rangesOf(facts, 'mattermost')).toEqual(matcherRanges('mattermost', 'CVE-2026-16049'));
+    expect(facts.warnings.join('\n')).toContain('were subtracted');
+  });
+
+  it('Mattermost: an unaffected desktop or mobile build that cannot be ordered makes it unknown', () => {
+    const facts = cve('CVE-2026-22880');
+    expect(facts.claims).toEqual([expect.objectContaining({ slug: 'mattermost', ranges: [] })]);
+    expect(facts.warnings.join('\n')).toContain('cannot be subtracted');
+  });
+
+  it('Jenkins: only unaffected versions under a default status of affected', () => {
+    const facts = cve('CVE-2025-67638');
+    expect(rangesOf(facts, 'jenkins')).toEqual(matcherRanges('jenkins', 'CVE-2025-67638'));
+    expect(facts.warnings.join('\n')).toContain('read as every other version');
+  });
+
+  it('unaffected versions after the ranges change nothing', () => {
+    expect(
+      cveRanges({
+        product: 'Mattermost',
+        defaultStatus: 'unaffected',
+        versions: [
+          { version: '11.7.0', lessThanOrEqual: '11.7.6', status: 'affected' },
+          { version: '10.11.0', lessThanOrEqual: '10.11.21', status: 'affected' },
+          { version: '11.9.0', status: 'unaffected' },
+          { version: '11.7.7', status: 'unaffected' },
+          { version: '10.11.22', status: 'unaffected' },
+        ],
+      }),
+    ).toEqual([
+      { introduced: '11.7.0', last_affected: '11.7.6' },
+      { introduced: '10.11.0', last_affected: '10.11.21' },
+    ]);
   });
 });
