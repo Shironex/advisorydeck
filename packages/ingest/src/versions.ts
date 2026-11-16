@@ -88,6 +88,7 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
   if (ANY.has(trimmed.toLowerCase())) return undefined;
   const ranges: VersionRange[] = [];
   let open: VersionRange | undefined;
+  let bare = 0;
   // A space can also join a lower bound to its upper bound (">= 2.0.0 < 2.9.3", npm style).
   for (const token of trimmed.split(/\s*(?:,|\|\|)\s*|\s+(?=<)/)) {
     if (token === '') continue;
@@ -120,6 +121,7 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
     } else if (op === '<' || op === '<=') {
       // Several upper bounds in a row list one branch each (docker-ce: "<= v19.03.15, <= v20.10.27"):
       // every bound after the first starts at its own major.minor.
+      if (open === undefined) bare += 1;
       const branch = branchOf(version);
       const start =
         ranges.length > 0 && open === undefined && branch !== undefined
@@ -134,7 +136,30 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
     }
   }
   if (open !== undefined) ranges.push(open);
-  return ranges.length > 0 ? ranges : undefined;
+  if (ranges.length === 0) return undefined;
+  return bare >= 2 && bare === ranges.length ? sortedUpperBounds(ranges) : ranges;
+}
+
+/** The upper bound of a range: its fixed or last affected version. */
+function upperOf(range: VersionRange): string {
+  return range.fixed ?? range.last_affected ?? '';
+}
+
+/**
+ * An expression made only of upper bounds lists one branch each, in any order (Valkey writes
+ * `<= 9.1.1, <= 9.0.5, <= 8.1.9, <= 8.0.10`, newest first). Sorted, the lowest starts at 0 and
+ * every other one at its own major.minor, so the newest bound does not swallow the patched
+ * releases of the older branches. Left in the written order when two bounds cannot be ordered.
+ */
+function sortedUpperBounds(ranges: readonly VersionRange[]): VersionRange[] {
+  const bounds = ranges.map(upperOf);
+  if (bounds.some((b) => compareSemverLike(b, b) === undefined)) return [...ranges];
+  const sorted = [...ranges].sort((a, b) => compareSemverLike(upperOf(a), upperOf(b)) ?? 0);
+  return sorted.map((range, i) => {
+    const branch = branchOf(upperOf(range));
+    if (i === 0 || branch === undefined) return { ...range, introduced: '0' };
+    return { ...range, introduced: `${branch.major}.${branch.minor}.0` };
+  });
 }
 
 /** The one version a "patched versions" field names (`29.9.3`, `>= v4.0.0-beta.469`), else undefined. */
@@ -217,7 +242,6 @@ export function perBranchUpperBounds(ranges: readonly VersionRange[]): VersionRa
   if (ranges.length < 2 || !ranges.every((r) => r.introduced === '0' && isBounded(r))) {
     return undefined;
   }
-  const upperOf = (r: VersionRange) => r.fixed ?? r.last_affected ?? '';
   const branches = new Set<string>();
   for (const range of ranges) {
     const branch = branchOf(upperOf(range));
