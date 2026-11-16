@@ -23,6 +23,7 @@ export function loadCatalog(root = repoRoot()): Catalog {
   const entries: CatalogEntry[] = [];
   const issues: Issue[] = [];
   const seen = new Map<string, string>();
+  const today = new Date().toISOString().slice(0, 10);
 
   for (const path of listFiles(dir, ['.yml', '.yaml'])) {
     const file = relativePath(root, path);
@@ -63,6 +64,10 @@ export function loadCatalog(root = repoRoot()): Catalog {
       } catch (error) {
         issues.push({ file, message: `tag_pattern of ${image.ref}: ${String(error)}` });
       }
+    }
+    const since = product.upstream?.since;
+    if (since !== undefined && since > today) {
+      issues.push({ file, message: `upstream.since ${since} is in the future` });
     }
     if (issues.length === before) {
       entries.push({ file, product });
