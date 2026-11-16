@@ -1,6 +1,6 @@
 # Ingest
 
-`packages/ingest` turns upstream advisory data into the files in `data/`. It runs by hand for now (`pnpm ingest`); a scheduled workflow comes with the site deploy.
+`packages/ingest` turns upstream advisory data into the files in `data/`. It runs every hour in the Site workflow, which then deploys the site and the feed ([deploy.md](deploy.md)), and by hand with `pnpm ingest`.
 
 ## Running it
 
