@@ -1,6 +1,6 @@
 // Package match decides whether an installed version of a product is hit by an advisory.
 //
-// It knows the version schemes of schemas/v1 (semver, pg, calver, dpkg, kernel, opaque),
+// It knows the version schemes of schemas/v1 (semver, semver4, pg, calver, dpkg, kernel, opaque),
 // evaluates an advisory's per-branch ranges against a branch or an exact version, and
 // resolves image tags to versions with the catalog's tag patterns. Every answer is one of
 // three outcomes: affected, not affected, or unknown with a reason. The zero Result is
@@ -28,6 +28,11 @@ const (
 	// prerelease written straight after the version (3.14.0rc1 reads as 3.14.0-rc1) are
 	// accepted. One or two components without a prerelease name a branch (3.2, 8).
 	SchemeSemver Scheme = "semver"
+	// SchemeSemver4 is SchemeSemver with an optional fourth numeric component, for vendors
+	// that number backports below a release (Nextcloud Enterprise 31.0.14.7). A missing
+	// fourth component is 0, so 31.0.14 sorts before 31.0.14.7 and 31.0.14.7 before 31.0.15.
+	// Branches are written as in semver (31, 31.0).
+	SchemeSemver4 Scheme = "semver4"
 	// SchemePG is PostgreSQL's scheme: major.minor since 10 (17 is a branch, 17.4 a release),
 	// major.minor.patch before (9.6 is a branch, 9.6.24 a release), with prereleases written
 	// straight after the version (18beta1, 9.6rc1).
@@ -81,7 +86,9 @@ func Parse(scheme Scheme, s string) (Version, error) {
 	)
 	switch scheme {
 	case SchemeSemver:
-		v, err = parseSemver(s)
+		v, err = parseSemver(s, 3)
+	case SchemeSemver4:
+		v, err = parseSemver(s, 4)
 	case SchemePG:
 		v, err = parsePG(s)
 	case SchemeCalver:
@@ -133,7 +140,7 @@ func Compare(a, b Version) int {
 // Known reports whether the scheme is one of the schemes of schemas/v1.
 func (s Scheme) Known() bool {
 	switch s {
-	case SchemeSemver, SchemePG, SchemeCalver, SchemeDpkg, SchemeKernel, SchemeOpaque:
+	case SchemeSemver, SchemeSemver4, SchemePG, SchemeCalver, SchemeDpkg, SchemeKernel, SchemeOpaque:
 		return true
 	}
 	return false
@@ -378,7 +385,9 @@ func parsePre(s string) ([]string, error) {
 
 func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
 
-func parseSemver(s string) (Version, error) {
+// parseSemver reads a semver version with up to width numeric components; one or two
+// components without a prerelease name a branch.
+func parseSemver(s string, width int) (Version, error) {
 	raw := s
 	if s[0] == 'v' || s[0] == 'V' {
 		s = s[1:]
@@ -394,7 +403,7 @@ func parseSemver(s string) (Version, error) {
 	if !hasPre {
 		core, preText, hasPre = cutPEP440(core)
 	}
-	nums, err := parseNums(core, 1, 3)
+	nums, err := parseNums(core, 1, width)
 	if err != nil {
 		return Version{}, err
 	}
@@ -406,7 +415,7 @@ func parseSemver(s string) (Version, error) {
 	} else if len(nums) < 3 {
 		v.depth = len(nums)
 	}
-	v.nums = pad(nums, 3)
+	v.nums = pad(nums, width)
 	return v, nil
 }
 

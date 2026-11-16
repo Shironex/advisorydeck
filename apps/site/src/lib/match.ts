@@ -8,7 +8,7 @@
  * default.
  */
 
-export type Scheme = 'semver' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
+export type Scheme = 'semver' | 'semver4' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
 export type Outcome = 'affected' | 'not-affected' | 'unknown';
 export type Reason =
   | 'in-range'
@@ -125,7 +125,12 @@ function base(scheme: Scheme, raw: string): Version {
   return { scheme, raw, nums: [], pre: null, depth: 0, floor: false, deb: NO_DEB };
 }
 
-function parseSemver(input: string): Version {
+/**
+ * Reads a semver version with up to width numeric components (3, or 4 for semver4: Nextcloud
+ * Enterprise 31.0.14.7, a missing fourth component being 0); one or two components without a
+ * prerelease name a branch.
+ */
+function parseSemver(input: string, scheme: 'semver' | 'semver4', width: number): Version {
   let s = input;
   if (s.startsWith('v') || s.startsWith('V')) {
     s = s.slice(1);
@@ -142,14 +147,14 @@ function parseSemver(input: string): Version {
   if (preText === null) {
     [core, preText] = cutPEP440(core);
   }
-  const nums = parseNums(core, 1, 3);
-  const v = base('semver', raw);
+  const nums = parseNums(core, 1, width);
+  const v = base(scheme, raw);
   if (preText !== null) {
     v.pre = parsePre(preText);
   } else if (nums.length < 3) {
     v.depth = nums.length;
   }
-  v.nums = pad(nums, 3);
+  v.nums = pad(nums, width);
   return v;
 }
 
@@ -278,7 +283,8 @@ function parseOpaque(s: string): Version {
 }
 
 const PARSERS: Record<Scheme, (s: string) => Version> = {
-  semver: parseSemver,
+  semver: (s) => parseSemver(s, 'semver', 3),
+  semver4: (s) => parseSemver(s, 'semver4', 4),
   pg: parsePG,
   calver: parseCalver,
   dpkg: parseDpkg,
