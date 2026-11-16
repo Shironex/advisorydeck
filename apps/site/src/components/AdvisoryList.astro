@@ -1,0 +1,164 @@
+---
+import { fixesOf, type AdvisoryView } from '../lib/feed.ts';
+import { isoDay } from '../lib/format.ts';
+import { advisoryPath, href, productPath } from '../lib/site.ts';
+import KevTag from './KevTag.astro';
+import SeverityBadge from './SeverityBadge.astro';
+
+interface Props {
+  advisories: readonly AdvisoryView[];
+  /** Limit the fix summary to one product (on its product page). */
+  product?: string;
+  /** Accessible name of the list. */
+  label: string;
+  /** Heading level of each advisory title (3 by default; 4 inside a grouped list). */
+  level?: 3 | 4;
+  /** Hide the per-row date when the list sits under a date heading. */
+  showDate?: boolean;
+}
+
+const { advisories, product, label, level = 3, showDate = true } = Astro.props;
+const Title = level === 4 ? 'h4' : 'h3';
+
+function fixSummary(advisory: AdvisoryView): string {
+  const affected = advisory.affected.filter((a) => product === undefined || a.slug === product);
+  if (affected.every((a) => a.ranges.length === 0)) {
+    return 'Affected versions unknown: check manually';
+  }
+  const fixes = affected.flatMap(fixesOf);
+  if (fixes.length === 0) {
+    return 'No fix listed';
+  }
+  const shown = fixes.slice(0, 4).join(', ');
+  return `Fixed in ${shown}${fixes.length > 4 ? ` and ${fixes.length - 4} more` : ''}`;
+}
+---
+
+<ol class="adv-list" aria-label={label}>
+  {advisories.map((advisory) => (
+    <li class="adv" data-level={advisory.severity.level}>
+      <div class="adv-meta">
+        <SeverityBadge severity={advisory.severity} />
+        {showDate && (
+          <time class="adv-date" datetime={advisory.publishedAt}>
+            {isoDay(advisory.publishedAt)}
+          </time>
+        )}
+      </div>
+      <div class="adv-main">
+        <Title class="adv-title">
+          <a href={href(advisoryPath(advisory.id))}>
+            <span class="adv-id">{advisory.id}</span>
+            <span class="adv-text">{advisory.title}</span>
+          </a>
+        </Title>
+        <p class="adv-detail">
+          {product === undefined &&
+            advisory.affected.map((a) => (
+              <a class="tag adv-product" href={href(productPath(a.slug))}>
+                {a.name}
+              </a>
+            ))}
+          <span class="adv-fix">{fixSummary(advisory)}</span>
+          <KevTag kev={advisory.kev} compact />
+          {advisory.note?.state === 'reviewed' && (
+            <span class="tag" data-tone="ok">
+              Reviewed note
+            </span>
+          )}
+          {advisory.note?.state === 'draft' && <span class="tag">Draft note</span>}
+          {advisory.note?.state === 'disputed' && (
+            <span class="tag" data-tone="warn">
+              Note disputed
+            </span>
+          )}
+        </p>
+      </div>
+    </li>
+  ))}
+</ol>
+
+<style>
+  .adv-list {
+    list-style: none;
+    margin: 0 0 var(--space-5);
+    padding: 0;
+    border-top: var(--border-width) solid var(--color-border);
+  }
+  .adv {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-1) var(--space-4);
+    padding: var(--space-3) var(--space-2) var(--space-3) var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border);
+    border-left: 3px solid var(--sev-unknown-bar);
+  }
+  .adv[data-level='critical'] {
+    border-left-color: var(--sev-critical-bar);
+  }
+  .adv[data-level='high'] {
+    border-left-color: var(--sev-high-bar);
+  }
+  .adv[data-level='medium'] {
+    border-left-color: var(--sev-medium-bar);
+  }
+  .adv[data-level='low'] {
+    border-left-color: var(--sev-low-bar);
+  }
+  .adv-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .adv-date {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .adv-main {
+    min-width: 0;
+  }
+  .adv-title {
+    font-size: var(--text-base);
+    font-weight: var(--weight-medium);
+    margin: 0 0 var(--space-1);
+  }
+  .adv-title a {
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  .adv-title a:hover .adv-text {
+    text-decoration: underline;
+  }
+  .adv-id {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-link);
+    margin-right: var(--space-2);
+    white-space: nowrap;
+  }
+  .adv-detail {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .adv-product {
+    text-decoration: none;
+  }
+  .adv-product:hover {
+    color: var(--color-text);
+  }
+  @media (min-width: 48rem) {
+    .adv {
+      grid-template-columns: 9.5rem 1fr;
+    }
+    .adv-meta {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--space-1);
+    }
+  }
+</style>

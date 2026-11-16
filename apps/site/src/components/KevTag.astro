@@ -1,0 +1,27 @@
+---
+import type { KevState } from '../lib/feed.ts';
+
+interface Props {
+  kev: KevState;
+  /** Compact: render nothing unless listed (lists); full: always say the state (advisory page). */
+  compact?: boolean;
+}
+
+const { kev, compact = false } = Astro.props;
+---
+
+{kev.state === 'listed' ? (
+  <span
+    class="tag"
+    data-tone="danger"
+    title="Listed in the CISA Known Exploited Vulnerabilities catalog"
+  >
+    KEV: exploited
+  </span>
+) : compact ? null : kev.state === 'not-listed' ? (
+  <span class="tag">Not in KEV</span>
+) : (
+  <span class="tag" title="This advisory has not been checked against the CISA KEV catalog yet">
+    KEV not checked
+  </span>
+)}

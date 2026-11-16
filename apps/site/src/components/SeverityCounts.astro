@@ -1,0 +1,80 @@
+---
+import { countBySeverity, SEVERITY_ORDER, type AdvisoryView } from '../lib/feed.ts';
+
+interface Props {
+  advisories: readonly AdvisoryView[];
+  caption: string;
+}
+
+const { advisories, caption } = Astro.props;
+const counts = countBySeverity(advisories);
+const LABELS = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  unknown: 'Unknown',
+};
+---
+
+<figure class="counts">
+  <ul>
+    {SEVERITY_ORDER.map((level) => (
+      <li data-level={level}>
+        <span class="count">{counts[level]}</span>
+        <span class="label">{LABELS[level]}</span>
+      </li>
+    ))}
+  </ul>
+  <figcaption>
+    {caption}: {advisories.length} in total.
+  </figcaption>
+</figure>
+
+<style>
+  .counts {
+    margin: 0;
+  }
+  ul {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+    gap: var(--space-2);
+    list-style: none;
+    margin: 0 0 var(--space-2);
+    padding: 0;
+  }
+  li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+    border-top: 3px solid var(--sev-unknown-bar);
+    border-radius: var(--radius-md);
+  }
+  li[data-level='critical'] {
+    border-top-color: var(--sev-critical-bar);
+  }
+  li[data-level='high'] {
+    border-top-color: var(--sev-high-bar);
+  }
+  li[data-level='medium'] {
+    border-top-color: var(--sev-medium-bar);
+  }
+  li[data-level='low'] {
+    border-top-color: var(--sev-low-bar);
+  }
+  .count {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+  }
+  .label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  figcaption {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+</style>

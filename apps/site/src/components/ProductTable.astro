@@ -1,0 +1,86 @@
+---
+import { advisoriesOf, countBySeverity, loadSiteData, type ProductView } from '../lib/feed.ts';
+import { href, productPath } from '../lib/site.ts';
+
+interface Props {
+  products: readonly ProductView[];
+  caption: string;
+}
+
+const { products, caption } = Astro.props;
+const data = loadSiteData();
+const rows = products.map((product) => {
+  const advisories = advisoriesOf(data, product.advisoryIds);
+  const counts = countBySeverity(advisories);
+  const supported = product.branches.filter((b) => !b.eol).map((b) => b.name);
+  return { product, total: advisories.length, counts, supported };
+});
+---
+
+<div class="table-scroll">
+  <table class="products">
+    <caption class="visually-hidden">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Product</th>
+        <th scope="col">Advisories</th>
+        <th scope="col">
+          <span class="sev-head" data-level="critical">
+            Critical
+          </span>
+        </th>
+        <th scope="col">
+          <span class="sev-head" data-level="high">
+            High
+          </span>
+        </th>
+        <th scope="col">Supported branches</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map(({ product, total, counts, supported }) => (
+        <tr>
+          <th scope="row">
+            <a href={href(productPath(product.slug))}>{product.name}</a>
+            {product.description && <span class="desc muted small">{product.description}</span>}
+          </th>
+          <td>{total}</td>
+          <td>{counts.critical === 0 ? <span class="muted">0</span> : counts.critical}</td>
+          <td>{counts.high === 0 ? <span class="muted">0</span> : counts.high}</td>
+          <td class="mono small">
+            {supported.length > 0 ? (
+              supported.join(', ')
+            ) : (
+              <span class="muted">no branch data</span>
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .products {
+    min-width: 32rem;
+    margin-bottom: var(--space-5);
+  }
+  .products th[scope='row'] {
+    font-weight: var(--weight-medium);
+    color: var(--color-text);
+    font-size: var(--text-base);
+  }
+  .desc {
+    display: block;
+    font-weight: var(--weight-normal);
+  }
+  .sev-head {
+    border-bottom: 3px solid var(--sev-unknown-bar);
+  }
+  .sev-head[data-level='critical'] {
+    border-bottom-color: var(--sev-critical-bar);
+  }
+  .sev-head[data-level='high'] {
+    border-bottom-color: var(--sev-high-bar);
+  }
+</style>
