@@ -8,7 +8,7 @@ import {
   type VersionRange,
 } from '@advisorydeck/contract';
 import { describe, expect, it } from 'vitest';
-import { pickRanges } from '../src/advisories.ts';
+import { buildAdvisory, clusterRecords, pickRanges } from '../src/advisories.ts';
 import {
   cveFacts,
   ghsaFacts,
@@ -47,7 +47,11 @@ function product(
 }
 
 const extra: CatalogEntry[] = [
-  product('n8n', [{ type: 'ghsa-repo', repo: 'n8n-io/n8n' }]),
+  product('n8n', [
+    { type: 'ghsa-repo', repo: 'n8n-io/n8n' },
+    // VulnCheck writes the vendor both as n8n and as n8n-io.
+    { type: 'cve-cna', assigner: 'VulnCheck', products: ['n8n'] },
+  ]),
   product('authentik', [
     { type: 'ghsa-repo', repo: 'goauthentik/authentik' },
     { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'goauthentik', products: ['authentik'] },
@@ -263,5 +267,83 @@ describe('a ghsa-repo source that names its packages (G3)', () => {
 
   it('an advisory naming none of the packages is not about the product', () => {
     expect(advisory('GHSA-22w9-gpgv-pcgc', ['Richdocuments']).claims).toEqual([]);
+  });
+});
+
+describe('a CVE record linked to the GHSA it references (G4)', () => {
+  function cluster(records: RecordFacts[]) {
+    const clusters = clusterRecords(records);
+    const facts = new Map(records.map((r) => [r.id, r]));
+    return { clusters, advisories: clusters.map((ids) => buildAdvisory(ids, facts, new Map())) };
+  }
+
+  it('n8n: a VulnCheck CVE and the repository advisory without a CVE id are one advisory', () => {
+    const vulncheck = cve('CVE-2026-126384');
+    expect(vulncheck.links).toEqual(['GHSA-f2cw-9483-7vcp']);
+    const ghsa = repoGhsa('repo-n8n.json', 'GHSA-f2cw-9483-7vcp', 'n8n-io/n8n');
+    expect(ghsa.links).toEqual([]);
+    const { clusters, advisories } = cluster([vulncheck, ghsa]);
+    expect(clusters).toEqual([['CVE-2026-126384', 'GHSA-f2cw-9483-7vcp']]);
+    expect(advisories).toHaveLength(1);
+    expect(advisories[0]?.id).toBe('CVE-2026-126384');
+    expect(advisories[0]?.aliases).toEqual(['GHSA-f2cw-9483-7vcp']);
+    // The repository advisory is the more trusted source in this catalogue, read per branch.
+    expect(advisories[0]?.affected).toEqual([
+      {
+        product: 'n8n',
+        ranges: [
+          { introduced: '0', fixed: '1.123.89' },
+          { introduced: '2.0.0', fixed: '2.45.5' },
+          { introduced: '2.46.0', fixed: '2.46.1' },
+          { introduced: '3.0.0', fixed: '3.0.1' },
+        ],
+      },
+    ]);
+  });
+
+  it('n8n: the second VulnCheck shape (one affected entry, vendor n8n) links the same way', () => {
+    const vulncheck = cve('CVE-2026-56353');
+    expect(vulncheck.links).toEqual(['GHSA-jh8h-6c9q-7gmw']);
+    expect(rangesOf(vulncheck, 'n8n')).toEqual([
+      { introduced: '0', fixed: '1.123.22' },
+      { introduced: '2.0.0', fixed: '2.9.3' },
+      { introduced: '2.10.0', fixed: '2.10.1' },
+    ]);
+    const { clusters } = cluster([
+      vulncheck,
+      repoGhsa('repo-n8n.json', 'GHSA-jh8h-6c9q-7gmw', 'n8n-io/n8n'),
+    ]);
+    expect(clusters).toEqual([['CVE-2026-56353', 'GHSA-jh8h-6c9q-7gmw']]);
+  });
+
+  it('a second CVE filed for a GHSA that already names one joins the same advisory', () => {
+    // The GHSA as it reads once GitHub assigns its own CVE id (constructed from the real record).
+    const raw = json<Record<string, unknown>[]>(join(here, 'ghsa/repo-n8n.json')).find(
+      (a) => a['ghsa_id'] === 'GHSA-f2cw-9483-7vcp',
+    );
+    const named = trimGhsa({ ...raw, cve_id: 'CVE-2026-999001' });
+    const ghsa = ghsaFacts(
+      { id: named.ghsa_id, repository: 'n8n-io/n8n', repo: named, global: null },
+      catalogue,
+    );
+    const { clusters, advisories } = cluster([cve('CVE-2026-126384'), ghsa]);
+    expect(clusters).toEqual([['CVE-2026-126384', 'CVE-2026-999001', 'GHSA-f2cw-9483-7vcp']]);
+    expect(advisories[0]?.aliases).toEqual(['CVE-2026-999001', 'GHSA-f2cw-9483-7vcp']);
+  });
+
+  it('a CVE record citing several GHSAs links none of them', () => {
+    const record = trimCve(json(join(here, 'cve/CVE-2026-126384.json')));
+    if (record === undefined) throw new Error('CVE-2026-126384');
+    record.containers.cna.references = [
+      ...(record.containers.cna.references ?? []),
+      { url: 'https://github.com/advisories/GHSA-2x68-96jw-5x8c' },
+    ];
+    const facts = cveFacts(record, catalogue);
+    expect(facts.links).toEqual([]);
+    expect(facts.warnings.join('\n')).toContain('several GitHub advisories');
+  });
+
+  it('records without a GHSA reference keep no link', () => {
+    expect(cve('CVE-2026-101801').links).toEqual([]);
   });
 });

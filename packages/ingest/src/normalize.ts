@@ -196,6 +196,30 @@ function cveSeverity(record: CveRecord): Severity | undefined {
   return undefined;
 }
 
+/** A GitHub advisory page: a repository advisory or the global database entry. */
+const GHSA_PAGE =
+  /^https:\/\/github\.com\/(?:[^/]+\/[^/]+\/security\/advisories|advisories)\/GHSA-([0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})(?:[/?#]|$)/i;
+
+/**
+ * The GHSA a CVE record was filed for, from its references (VulnCheck and GitHub link the
+ * advisory page). Only a record that points at exactly one GHSA is linked: a record citing
+ * several could join advisories that are not the same.
+ */
+function ghsaLinks(cveId: string, references: readonly Reference[], warnings: string[]): string[] {
+  const ids = new Set<string>();
+  for (const { url } of references) {
+    const match = GHSA_PAGE.exec(url);
+    if (match?.[1] !== undefined) ids.add(`GHSA-${match[1].toLowerCase()}`);
+  }
+  if (ids.size > 1) {
+    warnings.push(
+      `${cveId}: references several GitHub advisories (${[...ids].sort().join(', ')}), linked to none of them`,
+    );
+    return [];
+  }
+  return [...ids];
+}
+
 export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
   const { cveId, assignerShortName } = record.cveMetadata;
   const cna = record.containers.cna;
@@ -233,7 +257,7 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
   return {
     kind: 'cve',
     id: cveId,
-    links: [],
+    links: ghsaLinks(cveId, references, warnings),
     title: cna.title?.trim() || undefined,
     description: cna.descriptions?.[0]?.value.trim() || undefined,
     published: isoTime(record.cveMetadata.datePublished),
