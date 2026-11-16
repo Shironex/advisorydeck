@@ -132,7 +132,7 @@
           "minLength": 1
         },
         "products": {
-          "description": "containers.cna.affected[].product values that belong to this product.",
+          "description": "containers.cna.affected[].product values that belong to this product. [\"*\"] takes every product of the vendor, for a CNA that names each package separately (Go: net/http, crypto/x509); it needs vendor.",
           "type": "array",
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 }
@@ -142,7 +142,9 @@
           "type": "string"
         },
         "note": { "type": "string" }
-      }
+      },
+      "if": { "properties": { "products": { "contains": { "const": "*" } } } },
+      "then": { "required": ["vendor"] }
     },
     "ghsaRepoSource": {
       "title": "GhsaRepoSource",
