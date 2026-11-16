@@ -534,3 +534,15 @@ describe('a prerelease upper bound of a branch', () => {
     expect(rangesOf(facts, 'runc')).toEqual(matcherRanges('runc', 'CVE-2026-41579'));
   });
 });
+
+describe('operators written after the version or joined by &&', () => {
+  it('Ghost: v3.23.0>= is a lower bound', () => {
+    const facts = repoGhsa('repo-ghost.json', 'GHSA-q98w-jm4q-wch7', 'TryGhost/Ghost');
+    expect(rangesOf(facts, 'ghost')).toEqual(matcherRanges('ghost', 'GHSA-q98w-jm4q-wch7'));
+  });
+
+  it('Ghost: >= 6.19.4 && < 6.21.1 is one range', () => {
+    const facts = repoGhsa('repo-ghost.json', 'GHSA-g366-23fw-ggp6', 'TryGhost/Ghost');
+    expect(rangesOf(facts, 'ghost')).toEqual([{ introduced: '6.19.4', fixed: '6.21.1' }]);
+  });
+});

@@ -79,7 +79,8 @@ function upper(range: VersionRange, op: string, version: string): VersionRange {
 /**
  * Parses a range expression as GHSA and some CVE records write it: `>= 3.0.0, < 3.3.6`,
  * `< 29.9.3`, `<= 25.0.18, 26.0.0 - 29.8.1`, `10.6.1-10.6.27`, `= 1.2.3`, `All`. A comma joins a lower bound to the
- * upper bound that follows it and otherwise separates ranges; a space before `<` joins them too. `> X` is read as `>= X` (one version
+ * upper bound that follows it and otherwise separates ranges; a space before `<` or `&&` joins them too, and an
+ * operator written after its version (`v3.23.0>=`) or swapped (`=>`) is read as if written first. `> X` is read as `>= X` (one version
  * too many rather than one too few). Returns undefined when any part cannot be read, so a caller
  * never publishes half a range.
  */
@@ -90,8 +91,9 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
   let open: VersionRange | undefined;
   let bare = 0;
   // A space can also join a lower bound to its upper bound (">= 2.0.0 < 2.9.3", npm style).
-  for (const token of trimmed.split(/\s*(?:,|\|\|)\s*|\s+(?=<)/)) {
-    if (token === '') continue;
+  for (const written of trimmed.split(/\s*(?:,|\|\||&&)\s*|\s+(?=<)/)) {
+    if (written === '') continue;
+    const token = operatorFirst(written);
     const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(token);
     if (hyphen !== null) {
       const from = cleanVersion(hyphen[1] ?? '');
@@ -134,6 +136,16 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
   if (open !== undefined) ranges.push(open);
   if (ranges.length === 0) return undefined;
   return bare >= 2 && bare === ranges.length ? sortedUpperBounds(ranges) : ranges;
+}
+
+/**
+ * Puts an operator written after its version, or with its two characters swapped, in front
+ * (Ghost: `v3.23.0>=` is `>= v3.23.0`; Valkey: `=>9.0.0` is `>= 9.0.0`).
+ */
+function operatorFirst(token: string): string {
+  const swapped = token.replace(/^=>/, '>=').replace(/^=</, '<=');
+  const after = /^(v?[0-9][^\s<>=]*)\s*(>=|<=|>|<)$/.exec(swapped);
+  return after === null ? swapped : `${after[2] ?? ''} ${after[1] ?? ''}`;
 }
 
 /** The upper bound of a range: its fixed or last affected version. */

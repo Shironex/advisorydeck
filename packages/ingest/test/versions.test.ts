@@ -84,6 +84,18 @@ describe('parseRangeExpression (real upstream strings)', () => {
     ]);
   });
 
+  it('reads an operator written after its version, swapped, or a && join', () => {
+    expect(parseRangeExpression('v3.23.0>=, <v6.23.0')).toEqual([
+      { introduced: '3.23.0', fixed: '6.23.0' },
+    ]);
+    expect(parseRangeExpression('=>9.0.0, <= 9.0.2')).toEqual([
+      { introduced: '9.0.0', last_affected: '9.0.2' },
+    ]);
+    expect(parseRangeExpression('>= 5.18.0 && < 6.21.1')).toEqual([
+      { introduced: '5.18.0', fixed: '6.21.1' },
+    ]);
+  });
+
   it('reads a lower bound alone as no fix yet, and an exact version', () => {
     expect(parseRangeExpression('>= 7.0.0')).toEqual([{ introduced: '7.0.0' }]);
     expect(parseRangeExpression('= 1.2.3')).toEqual([
