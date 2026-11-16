@@ -29,9 +29,11 @@ Examples: [fixtures/api/v1/](../fixtures/api/v1/).
   - One range per branch is normal (PostgreSQL: `17` to `17.12`, `16` to `16.16`, ...).
   - **An empty list means the affected versions are unknown.** Say "check manually"; never "not affected".
 - **`severity.level`** is `unknown`, `low`, `medium`, `high` or `critical`. `unknown` is published, never dropped. `score` and `vector` are null when there is no CVSS data; `source` says which record the score came from (`cna`, `ghsa`, `nvd`, `vendor`, or `none`).
-- **`kev.listed`** and **`epss`** are exploitation signals; `epss` is null when unknown.
+- **`kev`** is the CISA KEV status. `checked` says whether the catalog was read for this advisory: `listed: false` with `checked: false` (or no `checked`, as in feeds from before enrichment) means **not checked**, never "not in KEV". `listed: true` always has `checked: true`. Show three states: in KEV, not in KEV, not checked.
+- **`epss`** is the FIRST EPSS score (probability of exploitation in the next 30 days), its percentile and the score date; null when EPSS has not scored the CVE. It is refreshed only on a meaningful move, so the date can be older than a day. The image treats a percentile of 0.95 or above as a signal.
+- **`sources[].type`** can be `kev`, `epss` or `nvd` besides the advisory sources; their licenses are `CC0-1.0`, `FIRST-EPSS` and `NVD-TOU`.
 - **`note`** is null unless a reviewed note exists. Drafts, disputed and superseded notes are never in the feed. The exposure label must be shown together with its assumptions.
-- **`revision`** is opaque. It changes only on a material change (severity level, ranges, KEV, an EPSS threshold, the reviewed note), not on description edits.
+- **`revision`** is opaque. It changes only on a material change (severity level, ranges, a KEV listing, EPSS crossing the 0.95 percentile, the reviewed note), not on description edits.
 - **Text fields** (`title`, `summary`, note `body`) come from third parties or contributors. Escape them, truncate them for the target channel, and never let them trigger mentions.
 
 ## Versioning rules
