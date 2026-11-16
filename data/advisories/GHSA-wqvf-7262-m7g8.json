@@ -1,0 +1,70 @@
+{
+  "id": "GHSA-wqvf-7262-m7g8",
+  "aliases": [],
+  "title": "OAuth self-signup role escalation via mass assignment",
+  "summary": "## Summary\r\n\r\n| Field           | Value                                                                                                                               |\r\n| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |\r\n| **Advisory ID** | GHSA-wqvf-7262-m7g8                                                                                                                 |\r\n| **Package**     | `beszel` (Hub, GitHub: `github.com/henrygd/beszel`)                                                                                 |\r\n| **Ecosystem**   | Go / PocketBase web application (Docker)                                                                                            |\r\n| **Severity**    | **Medium**                                                                                                                          |\r\n| **CVSS v3.1**   | `5.4` (AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N)                                                                                         |\r\n| **CWE**         | CWE-915 (Improperly Controlled Modification of Dynamically-Determined Object Attributes)<br>CWE-269 (Improper Privilege Management) |\r\n| **CVE**         | To be assigned (if maintainers disclose)                                                                                            |\r\n| **Affected**    | Hub builds where `USER_CREATION=true` and an OAuth2/OIDC provider is enabled                                                        |\r\n| **Patched**     | [f7fd3ef](https://github.com/henrygd/beszel/commit/f7fd3ef403085b64dc8a21a02011105b2251333a)                                        |\r\n\r\n## 1. Background\r\n\r\nBeszel Hub uses PocketBase as its data layer. When self-service OAuth/OIDC sign-up is enabled (`USER_CREATION=true`), a new OAuth user is supposed to get the regular `user` role. The sign-up path instead accepts attacker-controlled extra fields, and `users.role` is writable during OAuth record creation - so an attacker can self-assign `admin`.\r\n\r\n**Threat model.** The attacker must possess a genuine account at the configured OAuth/OIDC provider (this is **not** an authentication bypass). The impact is privilege escalation from `user` (self-service OAuth sign-up) to `admin`.\r\n\r\n## 2. Description\r\n\r\nWhen `USER_CREATION=true`, Beszel allows OAuth2-based creation of `users` records using the rule:\r\n\r\n```go\r\ncr := \"@request.context = 'oauth2'\"\r\nusersCollection.CreateRule = &cr\r\n```\r\n\r\nThe OAuth2 `createData` payload can include writable user fields, including `role`. Since the `role` field accepts `admin`, an attacker registering a new OAuth2 account can supply `role: \"admin\"`.\r\nThe default-role hook only assigns `user` when the role is empty:\r\n\r\n```go\r\nif e.Record.GetString(\"role\") == \"\" {\r\n    e.Record.Set(\"role\", \"user\")\r\n}\r\n```\r\n\r\nTherefore, an attacker-supplied `admin` value remains unchanged and is persisted to the new account.\r\nBeszel authorization subsequently trusts this stored value directly:\r\n\r\n```go\r\ne.Auth.GetString(\"role\") == \"admin\"\r\n```\r\n\r\nAs a result, an unauthenticated attacker able to register through OAuth2 can create an administrative account and access admin-only functionality, including sensitive endpoints such as `/api/beszel/config-yaml`.\r\n\r\n## 3. Reproduction\r\n\r\n### 3.1 Prerequisites\r\n\r\n- Docker with Compose (v5.5+).\r\n- A checkout of the affected revision (verified: `6a7b2772`).\r\n- A local OIDC provider **or** any real OAuth2/OIDC provider.\r\n- This PoC uses the ready-made container `ghcr.io/navikt/mock-oauth2-server` so the stand runs fully offline (no external accounts).\r\n- Two OIDC identities: `control` (negative control) and `verify` (main check).\r\n\r\n### 3.2 Expected result\r\n\r\n| Test                | `createData`          | Expected recorded `role` |\r\n| ------------------- | --------------------- | ------------------------ |\r\n| Negative control    | `{}`  (no role)       | `user`...",
+  "published_at": "2026-09-28T14:02:40.000Z",
+  "modified_at": "2026-10-26T15:11:32.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-269",
+    "CWE-915"
+  ],
+  "affected": [
+    {
+      "product": "beszel",
+      "ranges": [
+        {
+          "introduced": "0.9.0",
+          "fixed": "0.20.0"
+        }
+      ]
+    }
+  ],
+  "corrections": [
+    {
+      "product": "beszel",
+      "advisory": "GHSA-wqvf-7262-m7g8",
+      "reason": "The repository advisory writes the affected range as >= 0.9.0, <= 1.19.0 next to the patched version 0.20.0, a typo for 0.19.x: Beszel has never released a 1.x version. The fix commit f7fd3ef first shipped in 0.20.0, so 0.20.0 and later are not affected.",
+      "evidence": [
+        "https://github.com/henrygd/beszel/commit/f7fd3ef403085b64dc8a21a02011105b2251333a",
+        "https://github.com/henrygd/beszel/compare/v0.19.0...v0.20.0",
+        "https://github.com/henrygd/beszel/releases/tag/v0.20.0"
+      ],
+      "corrected_at": "2026-11-16",
+      "upstream_ranges": [
+        {
+          "introduced": "0.9.0",
+          "last_affected": "1.19.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-wqvf-7262-m7g8",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wqvf-7262-m7g8",
+      "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-wqvf-7262-m7g8",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5f2e9254f546023ac54cf5a95247b1f915aa902b168535e7d2bea7d68081fb5a",
+  "note": null
+}
