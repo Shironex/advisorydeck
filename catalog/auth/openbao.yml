@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: openbao
+name: OpenBao
+category: auth
+homepage: https://openbao.org
+description: Secrets management, an open source fork of HashiCorp Vault.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: openbao
+images:
+  - ref: ghcr.io/openbao/openbao
+    tag_pattern: "^v?(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-beta[0-9]+)?)(?:-(?:amd64|arm64|arm|ppc64le|riscv64|s390x))?$"
+    note: The same images are on Docker Hub as docker.io/openbao/openbao.
+  - ref: docker.io/openbao/openbao
+    tag_pattern: "^v?(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-beta[0-9]+)?)(?:-(?:amd64|arm64|arm|ppc64le|riscv64|s390x))?$"
+sources:
+  - type: ghsa-repo
+    repo: openbao/openbao
+    packages:
+      - github.com/openbao/openbao/v2
+      - github.com/openbao/openbao
+      - openbao
+    note: Entries for the plugins (openbao-plugins) and the SDK module have their own versions and are not read.
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/openbao/openbao/v2
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: openbao
+    products: [openbao]
+  - type: cve-cna
+    assigner: VulnCheck
+    vendor: openbao
+    products: [openbao]
+    note: VulnCheck files CVEs for repository advisories that have none; their references link the GHSA, so they join it as one advisory.
+match:
+  strategy: package-ranges
+curated: false
+data_notes:
+  - Advisories name the Go module github.com/openbao/openbao/v2 (some the path without /v2) with release versions, and list one upper bound per supported line in one range (< 2.6.5, < 2.7.2).

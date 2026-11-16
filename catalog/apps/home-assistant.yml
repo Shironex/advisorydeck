@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: home-assistant
+name: Home Assistant
+category: apps
+homepage: https://www.home-assistant.io
+description: Home automation platform (Home Assistant Core, the container install).
+version_scheme: semver
+branches:
+  source: none
+images:
+  - ref: ghcr.io/home-assistant/home-assistant
+    tag_pattern: "^(?<version>[0-9]{4}\\.[0-9]+(?:\\.[0-9]+)?)$"
+    note: stable, beta, rc and dev tags carry no release version; beta (2026.11.0b6) and dev builds are not read.
+  - ref: docker.io/homeassistant/home-assistant
+    tag_pattern: "^(?<version>[0-9]{4}\\.[0-9]+(?:\\.[0-9]+)?)$"
+sources:
+  - type: ghsa-repo
+    repo: home-assistant/core
+    packages: [Home Assistant Core, Home Assistant, homeassistant, core, '']
+    note: The repository also files the Companion apps, Supervisor and Operating System, which have their own versions; they are not read.
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: home-assistant
+    products: [core, Home Assistant Core]
+  - type: cve-cna
+    assigner: VulnCheck
+    vendor: home-assistant
+    products: [Home Assistant Core]
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Versions are year.month.patch (2026.11.1); the branch is year.month. Some records write the month with a leading zero (2026.01).
+  - Home Assistant OS and Supervisor installs report the Core version on the About page.
+  - Not listed on endoflife.date.

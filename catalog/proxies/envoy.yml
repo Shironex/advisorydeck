@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: envoy
+name: Envoy
+category: proxies
+homepage: https://www.envoyproxy.io
+description: Cloud-native edge and service proxy.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: envoy
+images:
+  - ref: docker.io/envoyproxy/envoy
+    tag_pattern: "^(?:(?:contrib-|tools-)?(?:distroless-|debug-)?)v(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-latest)?$"
+    note: v1.39-latest follows the newest 1.39 release; dev tags carry no version.
+sources:
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: envoyproxy
+    products: [envoy]
+    note: Listed first because the CVE records give one bounded range per supported line, while many repository advisories give one range across all lines with the per-line fixes in a separate list.
+  - type: ghsa-repo
+    repo: envoyproxy/envoy
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/envoyproxy/envoy
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories name the product Envoy under ecosystems such as "envoy proxy", "envoy" or none, and often write one range across all supported lines (< 1.40.0) with the per-line fixes as a list (1.39.1, 1.38.4, 1.37.6, 1.36.10), sometimes separated by spaces only.
+  - The envoyproxy/gateway project (Envoy Gateway) is filed under its own product name and is not this product.

@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: zabbix
+name: Zabbix
+category: monitoring
+homepage: https://www.zabbix.com
+description: Monitoring server, proxy, agents and web frontend.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: zabbix
+images:
+  - ref: docker.io/zabbix/zabbix-server-pgsql
+    tag_pattern: "^(?:(?:alpine|ubuntu|centos|ol)-)?(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-(?:alpine|ubuntu|centos|ol))?(?:-latest)?$"
+    note: Tags put the base OS before or after the version (ubuntu-7.4.16, 7.4.16-ubuntu); 7.4-ubuntu-latest follows the newest 7.4 release. trunk tags carry no version.
+  - ref: docker.io/zabbix/zabbix-server-mysql
+    tag_pattern: "^(?:(?:alpine|ubuntu|centos|ol)-)?(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-(?:alpine|ubuntu|centos|ol))?(?:-latest)?$"
+  - ref: docker.io/zabbix/zabbix-web-nginx-pgsql
+    tag_pattern: "^(?:(?:alpine|ubuntu|centos|ol)-)?(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-(?:alpine|ubuntu|centos|ol))?(?:-latest)?$"
+  - ref: docker.io/zabbix/zabbix-proxy-sqlite3
+    tag_pattern: "^(?:(?:alpine|ubuntu|centos|ol)-)?(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-(?:alpine|ubuntu|centos|ol))?(?:-latest)?$"
+  - ref: docker.io/zabbix/zabbix-agent2
+    tag_pattern: "^(?:(?:alpine|ubuntu|centos|ol)-)?(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)?)(?:-(?:alpine|ubuntu|centos|ol))?(?:-latest)?$"
+sources:
+  - type: cve-cna
+    assigner: Zabbix
+    products: [Zabbix]
+    note: Zabbix is its own CNA.
+  - type: vendor-page
+    url: https://www.zabbix.com/security_advisories
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one entry per supported line with lessThanOrEqual as the last affected release (7.0.0 lessThanOrEqual 7.0.28); versionType is git but the versions are plain numbers.
+  - Server, proxy, agents and frontend share one version.

@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: tomcat
+name: Apache Tomcat
+category: proxies
+homepage: https://tomcat.apache.org
+description: Java servlet container and web server.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: tomcat
+images:
+  - ref: docker.io/library/tomcat
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:jdk|jre)[0-9]+(?:-(?:temurin|corretto|openjdk))?(?:-(?:resolute|noble|jammy|focal|al2|al2023|trixie|bookworm))?)?$"
+    note: Tags name the Java runtime after the version (11.0.29-jre21-temurin-noble); runtime-only tags (jre21) carry no Tomcat version.
+sources:
+  - type: cve-cna
+    assigner: apache
+    products: [Apache Tomcat]
+    note: The Apache CNA files every ASF project; Tomcat Native and the Tomcat connectors use other product names.
+  - type: vendor-page
+    url: https://tomcat.apache.org/security.html
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one entry per supported line with lessThanOrEqual as the last affected release, starting at the first milestone (11.0.0-M1, 9.0.0.M1); ingest reads the dotted milestone 9.0.0.M1 as the prerelease 9.0.0-M1.

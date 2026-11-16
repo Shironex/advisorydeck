@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: mariadb
+name: MariaDB
+category: databases
+homepage: https://mariadb.org
+description: Relational database, a community fork of MySQL (MariaDB Server).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: mariadb
+images:
+  - ref: docker.io/library/mariadb
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:noble|jammy|focal|resolute|ubi[0-9]*))?$"
+    note: lts, latest and codename tags carry no version; -rc tags are release candidates and are not read.
+sources:
+  - type: ghsa-repo
+    repo: MariaDB/server
+    packages: ['', MariaDB, server, MariaDB Server]
+    note: Entries for libmariadb (Connector/C, versions 3.x) are another product and are not read.
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: MariaDB
+    products: [server]
+  - type: cve-cna
+    assigner: mitre
+    vendor: MariaDB
+    products: [MariaDB]
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories leave the package name empty and write one hyphen range per supported line with no spaces (10.6.1-10.6.27, 10.11.1-10.11.18), plus a bare version for a line with one affected release (13.0.1), next to a patched list; ingest reads each as a range per line.
+  - The connectors (mariadb-connector-j, mariadb-connector-nodejs) are filed by GitHub under the vendor mariadb-corporation and are not this product.

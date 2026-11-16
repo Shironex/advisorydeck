@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: nextcloud
+name: Nextcloud
+category: storage
+homepage: https://nextcloud.com
+description: File sync and share with calendar, contacts and office apps (Nextcloud Server).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: nextcloud
+images:
+  - ref: docker.io/library/nextcloud
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:apache|fpm|fpm-alpine))?$"
+    note: stable, production and latest tags carry no version.
+sources:
+  - type: ghsa-repo
+    repo: nextcloud/security-advisories
+    packages: [Server, Nextcloud Server]
+    note: The repository lists Server next to apps (Deck, Talk, Tables, files_lock) and the desktop and mobile clients; only the Server entries version this product.
+  - type: vendor-page
+    url: https://nextcloud.com/security/advisories/
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Ranges list lower bounds per supported line next to a patched list of the same length (>= 32.0.0, >= 33.0.0, >= 34.0.0 patched 32.0.12, 33.0.6, 34.0.1); ingest pairs them per line.
+  - Many advisories add a Nextcloud Enterprise entry that also names Server, with open lower bounds and four-part backport releases (31.0.14.7); those cannot be paired, so such advisories are published with unknown versions.
+  - The GitHub CVE records for this repository name the product security-advisories for apps and Server alike, so they are not a source; the hackerone records name Server with one range across all lines.
+  - Apps installed from the app store are not covered.

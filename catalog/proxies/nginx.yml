@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: nginx
+name: NGINX
+category: proxies
+homepage: https://nginx.org
+description: Web server and reverse proxy (NGINX Open Source).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: nginx
+images:
+  - ref: docker.io/library/nginx
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:alpine[0-9.]*|trixie|bookworm|bullseye|perl|otel|slim))*$"
+    note: stable, mainline and variant tags without a number carry no version.
+sources:
+  - type: cve-cna
+    assigner: f5
+    products: [NGINX Open Source]
+    note: F5 files every NGINX product; NGINX Plus, NGINX Ingress Controller, NGINX Gateway Fabric and njs use other product names.
+  - type: vendor-page
+    url: https://nginx.org/en/security_advisories.html
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records list the supported lines with a fix (1.31.0 lessThan 1.31.7, 1.30.0 lessThan 1.30.6) and an open range for older releases (1.25.0 lessThan *). Ingest ends the open range on the line before the next listed one (last_affected 1.29), so the patched stable and mainline releases are not reported affected.
+  - Odd minor versions are mainline, even ones stable.
