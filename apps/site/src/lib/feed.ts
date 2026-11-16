@@ -163,6 +163,19 @@ export function fixesOf(affected: AffectedView): string[] {
   return affected.ranges.flatMap((range) => (range.fixed === null ? [] : [range.fixed]));
 }
 
+/** A hand correction: Advisorydeck replaced the upstream ranges of one product because they are wrong. */
+export interface CorrectionView {
+  slug: string;
+  name: string;
+  /** The id the correction file is filed under: corrections/<slug>/<advisory>.yml. */
+  advisory: string;
+  reason: string;
+  evidence: string[];
+  correctedAt: string;
+  /** What the upstream record said, as ingest read it; empty when it gave no readable range. */
+  upstreamRanges: RangeView[];
+}
+
 export type NoteState = 'none' | 'draft' | 'reviewed' | 'disputed' | 'superseded';
 
 export interface NoteView {
@@ -198,6 +211,8 @@ export interface AdvisoryView {
   epss: EpssView | null;
   cwes: string[];
   affected: AffectedView[];
+  /** Products whose ranges were corrected by hand; their ranges in affected are the corrected ones. */
+  corrections: CorrectionView[];
   references: { url: string; type: string }[];
   sources: SourceRecordView[];
   note: NoteView | null;
@@ -320,6 +335,15 @@ export function loadSiteData(root = dataRoot()): SiteData {
         slug: a.product,
         name: names.get(a.product) ?? a.product,
         ranges: a.ranges.map(rangeView),
+      })),
+      corrections: (advisory.corrections ?? []).map((c) => ({
+        slug: c.product,
+        name: names.get(c.product) ?? c.product,
+        advisory: c.advisory,
+        reason: c.reason,
+        evidence: c.evidence,
+        correctedAt: c.corrected_at,
+        upstreamRanges: c.upstream_ranges.map(rangeView),
       })),
       references: advisory.references,
       sources: advisory.sources,

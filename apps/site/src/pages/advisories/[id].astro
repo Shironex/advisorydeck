@@ -7,9 +7,14 @@ import Sev from '../../components/Sev.astro';
 import Base from '../../layouts/Base.astro';
 import { answers } from '../../lib/answer.ts';
 import { LICENSE_NAMES, SOURCE_TYPE_NAMES } from '../../lib/attribution.ts';
-import { CATEGORY_LABELS, loadSiteData, type AdvisoryView } from '../../lib/feed.ts';
+import {
+  CATEGORY_LABELS,
+  loadSiteData,
+  type AdvisoryView,
+  type RangeView,
+} from '../../lib/feed.ts';
 import { dateTimeUtc, percent, shortDate } from '../../lib/format.ts';
-import { categoryPath, generatorPath, href, productPath } from '../../lib/site.ts';
+import { categoryPath, generatorPath, href, productPath, REPO_URL } from '../../lib/site.ts';
 
 export const getStaticPaths = (() =>
   [...loadSiteData().advisories.values()].map((advisory) => ({
@@ -32,11 +37,14 @@ const cnaRecord = advisory.sources.find((s) => s.type === 'cve-cna') ?? advisory
 const recordLink = cnaRecord
   ? { url: cnaRecord.url, host: new URL(cnaRecord.url).hostname.replace(/^www\./, '') }
   : null;
-const ranged = advisory.sources.find((s) => s.type === 'cve-cna')
-  ? `Ranges from the ${first?.name ?? ''} CNA record`
-  : advisory.sources.find((s) => s.type === 'ghsa')
-    ? 'Ranges from the GitHub advisory'
-    : 'Ranges from the source record';
+const ranged =
+  advisory.corrections.length > 0
+    ? 'Ranges corrected by advisorydeck'
+    : advisory.sources.find((s) => s.type === 'cve-cna')
+      ? `Ranges from the ${first?.name ?? ''} CNA record`
+      : advisory.sources.find((s) => s.type === 'ghsa')
+        ? 'Ranges from the GitHub advisory'
+        : 'Ranges from the source record';
 const sections = [
   { id: 'ans-title', label: 'Affected versions' },
   { id: 'sum-title', label: 'Summary' },
@@ -54,6 +62,13 @@ const REF_TYPES: Record<string, string> = {
 };
 const cvss = advisory.severity.vector?.match(/^CVSS:(\d\.\d)/)?.[1];
 const host = (url: string): string => new URL(url).hostname.replace(/^www\./, '');
+const correctionOf = (slug: string) => advisory.corrections.find((c) => c.slug === slug);
+const rangeText = (r: RangeView): string =>
+  r.fixed !== null
+    ? `${r.introduced === '0' ? 'every version' : `from ${r.introduced}`} before ${r.fixed}`
+    : r.lastAffected !== null
+      ? `${r.introduced === '0' ? 'every version' : `from ${r.introduced}`} up to ${r.lastAffected}`
+      : `${r.introduced === '0' ? 'every version' : `from ${r.introduced}`}, no fix`;
 ---
 
 <Base
@@ -105,6 +120,54 @@ const host = (url: string): string => new URL(url).hostname.replace(/^www\./, ''
                 <a href={href(productPath(block.slug))}>{block.name}</a>
               </h3>
             )}
+            {(() => {
+              const correction = correctionOf(block.slug);
+              return (
+                correction && (
+                  <div class="notice notice--warn correction" role="note" data-correction>
+                    <Icon name="check" />
+                    <div>
+                      <p class="notice-title">
+                        Corrected by advisorydeck on{' '}
+                        <time datetime={correction.correctedAt}>
+                          {shortDate(correction.correctedAt)}
+                        </time>
+                      </p>
+                      <p>{correction.reason}</p>
+                      <p>
+                        The upstream record says{' '}
+                        {correction.upstreamRanges.length === 0
+                          ? 'nothing readable'
+                          : correction.upstreamRanges.map((r, i) => (
+                              <>
+                                {i > 0 && '; '}
+                                <span class="mono">{rangeText(r)}</span>
+                              </>
+                            ))}
+                        . The table below shows the corrected ranges.
+                      </p>
+                      <p>Evidence:</p>
+                      <ul class="correction-evidence">
+                        {correction.evidence.map((url) => (
+                          <li>
+                            <a href={url} rel="noopener noreferrer">
+                              {url.replace(/^https:\/\/(www\.)?/, '')}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                      <p>
+                        <a
+                          href={`${REPO_URL}/blob/main/corrections/${correction.slug}/${correction.advisory}.yml`}
+                        >
+                          Read the correction file
+                        </a>
+                      </p>
+                    </div>
+                  </div>
+                )
+              );
+            })()}
             {block.unknown ? (
               <p class="answer-fix">
                 Affected versions unknown: the sources do not say which versions of {block.name} are
