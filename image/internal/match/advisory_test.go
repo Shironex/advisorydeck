@@ -40,6 +40,8 @@ import (
 //     prerelease 9.0.0-M1.
 //   - python.json, django.json: PEP 440 prereleases (CVE-2026-12345 3.15.0a1 to 3.15.0rc3,
 //     GHSA-q238-5cxm-5c9h >= 6.0a1), written by ingest as 3.15.0-a1 and read in both spellings.
+//   - nodejs.json: every line starts at its own last affected release (CVE-2026-106072,
+//     22.23.3 lessThanOrEqual 22.23.3), read as upper bounds per branch.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`
