@@ -39,6 +39,12 @@ describe('checkInstalled against the committed PostgreSQL feed', () => {
   });
 });
 
+describe('checkInstalled for a floating tag deeper than its branch', () => {
+  it('Node.js: the 22.23 tag belongs to the endoflife.date branch 22', () => {
+    expect(checkInstalled(feed('nodejs'), '22.23')).toMatchObject({ branch: { name: '22' } });
+  });
+});
+
 describe('checkInstalled for a product without branch data', () => {
   it('Coolify: an old beta is affected and gets the highest listed fix', () => {
     const verdict = checkInstalled(feed('coolify'), '4.0.0-beta.300');
