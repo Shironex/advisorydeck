@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-gh7q-w9wj-5fww",
+  "aliases": [],
+  "title": "Cross-environment Kubernetes access via missing shell authorization and leftover service accounts",
+  "summary": "## Summary\n\nPortainer manages access to Kubernetes environments through per-environment authorization checks on its API and WebSocket endpoints, backed by per-user and per-team Kubernetes service accounts whose role bindings mirror each user's granted access. Two related weaknesses in this model let a user obtain or retain interactive `kubectl` access to an environment they were not entitled to. Exploitation requires an authenticated Portainer account - a standard, non-administrator account is sufficient - that holds, or previously held, access to the target environment.\n\nFirst, the `/websocket/kubernetes-shell` endpoint, which opens an in-cluster `kubectl` console, did not perform the environment-authorization check that its sibling WebSocket endpoints enforce. It accepted an environment identifier from the caller and created a privileged Kubernetes client for that environment without verifying the caller's access. The request then resolved the caller's own Kubernetes service account on the target cluster, so a caller with no service account there was rejected incidentally, with a server error rather than an authorization failure; a caller whose service account was present on the cluster obtained a shell.\n\nSecond, the per-user and per-team Kubernetes service accounts that back this access were not reliably removed when a user's access to an environment was withdrawn. These leftover service accounts retained their role bindings on the cluster, leaving usable credentials in place after access was revoked - and, because the shell endpoint's only effective gate was the presence of such a service account, supplying exactly the condition the first weakness needed.\n\nTogether the two weaknesses break Portainer's Kubernetes environment-isolation model, and the more serious consequence is persistence: a user whose access was withdrawn could continue to reach the affected cluster interactively. Both editions are affected, and remediation was delivered in two stages.\n\n## Severity\n\n**Medium**\n\nExploitation is over the network with low attack complexity and no user interaction, by an attacker holding - or formerly holding - a Portainer account, so privileges required are low rather than none. It is not universally available: the target cluster must carry a Kubernetes service account for the attacker's user or team, which in practice means current or former access to that environment, so the attack carries a genuine precondition. Portainer's own data and availability are not affected - the vulnerable system is the control plane, but the shell lands in the managed cluster rather than in Portainer's own store. The load-bearing impact falls on that subsequent system, where an interactive privileged `kubectl` session confers broad read access to workloads, configuration and secrets, the ability to create and modify workloads, and the ability to disrupt or delete them; the reach is bounded by the rights of the service account backing the session, which for a formerly privileged user or team is correspondingly broad, and for an administrator account is the cluster-admin service account. Because Portainer is a control plane for the clusters it manages, the practical effect is an environment-isolation bypass that can outlive the revocation meant to contain it.\n\n## Affected Versions\n\nBoth weaknesses are long-standing properties of Portainer's Kubernetes access model rather than regressions introduced by a specific release.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\n**Recommended action:** upgrade to Portainer **2.45.2 (LTS)**, released 2026-10-08 and the latest supported release. It contains both stages of the fix. 2.44.0 also contains the fix, but 2.44.x is a short-term-support (STS) release that is now out of support and will receive no further updates.\n\nRemediation was delivered in two stages. The environment-authorization check on the shell endpoint s...",
+  "published_at": "2026-10-08T03:38:22.000Z",
+  "modified_at": "2026-10-08T03:38:22.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.8,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-459",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "fixed": "2.39.6"
+        },
+        {
+          "introduced": "2.40.0",
+          "fixed": "2.44.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-gh7q-w9wj-5fww",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-gh7q-w9wj-5fww",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-gh7q-w9wj-5fww",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c5673368df2402d261ab67d8d6d8a1d3ed6e3dac854465f012f79036f52e5d58",
+  "note": null
+}

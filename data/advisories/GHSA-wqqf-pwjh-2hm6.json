@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wqqf-pwjh-2hm6",
+  "aliases": [],
+  "title": "Server-Side Request Forgery across multiple outbound-request features",
+  "summary": "## Summary\n\nPortainer makes outbound network requests on a user's behalf in several features: cloning Git repositories for stacks, custom templates, edge stacks and file previews; fetching Helm repository indexes and charts; pinging container registries; retrieving application templates and Kubernetes manifests from a URL; proxying GitLab API calls; and contacting an OAuth provider. In each of these the destination was taken from user- or admin-supplied input and used to open a server-side connection while validating only the URL's syntax, not the address it resolved to. An authenticated user who can reach one of these features - several are available to the lowest-privilege standard role - could cause the Portainer server to connect to hosts the user could not reach directly, including internal services and cloud instance-metadata endpoints.\n\nPortainer is a self-hosted management plane, and the reach of these requests is bounded by where the operator deploys it and how the surrounding network is segmented. Under Portainer's [shared-responsibility model](https://docs.portainer.io/advanced/security), the operator owns network exposure, egress control and segmentation of the server; Portainer owns the controls that decide who may reach a feature.\n\nPortainer has introduced a centralized destination allow-list covering these outbound paths, together with an SSRF mode offering `Audit` and `Enforce` that deployers may choose to use. It is opt-in and ships disabled, because Portainer deployments routinely make legitimate outbound requests to internal Git servers, registries and Helm repositories that an unconditional private-range block would break - the destination policy is one only the operator can author. The mode is a Business Edition control; Community Edition ships the same code but has no way to enable it, so on Community Edition the server's outbound reach is governed by the operator's network posture (see Affected Versions).\n\nThis is a single class of issue - Server-Side Request Forgery (CWE-918) - reported independently against many endpoints by a number of researchers over several months. This advisory consolidates those reports and describes the centralized control that addresses them.\n\n## Severity\n\n**Medium**\n\nExploitation needs no user interaction and little sophistication, but it does require an authenticated account: the Git file-preview, Git-backed stack and template creation, registry ping and Helm repository endpoints are reachable by any authenticated user, while the application-template URL and the OAuth resource URI are admin-configured. The direct impact on Portainer itself is limited - these vectors do not compromise Portainer's own integrity or availability, and the confidentiality loss on Portainer's own data is marginal. The meaningful impact falls on *subsequent* systems the server can reach, and how far that reaches is governed by posture the operator owns: network exposure, segmentation and egress filtering, together with whether the SSRF mode has been audited and enforced. Worst-case outcomes - reading a cloud instance-metadata credential, and the full-read and OAuth-token-forwarding sub-vectors - depend on the server having unrestricted reach to those endpoints, and a deployment following the hardening guidance constrains them. Because the impact that remains is bounded by deployer-owned configuration rather than by the failure of a Portainer control that was in force, the class is rated Medium rather than High.\n\n## Affected Versions\n\nThese vectors have been present across most of the product's history. The issue is not tied to a single recently-introduced feature.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\nThe centralized outbound-destination protections cover every path named in this advisory from the following release:\n\n| Branch                | First vulnerable | Fixed in   |\n|-----------------------|--...",
+  "published_at": "2026-10-08T02:39:14.000Z",
+  "modified_at": "2026-10-08T02:39:14.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:L/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "fixed": "2.45.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wqqf-pwjh-2hm6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wqqf-pwjh-2hm6",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wqqf-pwjh-2hm6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:95470b149596a8edae843d4a77f2ab010c29a22483ab8c940c24270cd907b8d8",
+  "note": null
+}

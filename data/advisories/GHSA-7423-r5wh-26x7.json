@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-7423-r5wh-26x7",
+  "aliases": [],
+  "title": "Kubernetes shell query parameter confusion allows command execution in any Pod on Agent-managed environments",
+  "summary": "## Summary\r\n\r\nPortainer provides a browser-based `kubectl` shell for Kubernetes environments. When a user opens one, the server creates a short-lived shell Pod for that user, then rewrites the incoming WebSocket request so it targets that Pod and forwards it to the Portainer Agent for execution.\r\n\r\nThe rewrite appended the server-chosen `namespace`, `podName`, `containerName` and `command` values to the caller's own query string instead of replacing them. Because the Agent resolves each of these parameters by taking the *first* occurrence, a caller who supplied their own copies of those parameters won the collision, and the exec was directed at a Pod and command of their choosing rather than at their own shell Pod.\r\n\r\nOn Agent-managed and Edge-Agent-managed Kubernetes environments the exec is carried out by the Portainer Agent using its own in-cluster service account, which Portainer's published Agent manifest binds to the `cluster-admin` role. Redirecting the exec therefore ran the attacker's command under that identity rather than under the user's own Kubernetes credentials, so the cluster's native RBAC never constrained it.\r\n\r\nThe minimum actor is an authenticated Portainer user holding the standard role with ordinary access to a single Agent-managed Kubernetes environment. No Portainer administrator role, no Kubernetes credential of any kind, no access to the target namespace, no non-default setting and no victim interaction are required. Environments managed through Portainer's local Kubernetes connection are not affected by this path, because it passes the Pod coordinates as explicit arguments rather than through the query string.\r\n\r\n## Severity\r\n\r\n**Medium**\r\n\r\nExploitation is a single authenticated request with no user interaction, no elevated Portainer role and no unusual configuration - the attacker only needs the standard role on one affected environment, and supplies duplicate query parameters. Portainer's own security properties are not directly affected: the attacker gains no Portainer administrator rights, reads nothing from Portainer's own database, and does not degrade the service. The impact falls on the subsequent system - the managed Kubernetes cluster - and there it is total. Because the redirected exec executes under the Agent's `cluster-admin`-bound service account, the attacker obtains arbitrary command execution in any Pod in any namespace, which includes reading every Secret in the cluster, altering or destroying any workload, taking control of the Portainer Agent Pod itself, and pivoting to whatever those credentials in turn unlock. Native Kubernetes RBAC offers no mitigation here, precisely because the request never carries the user's identity.\r\n\r\n## Affected Versions\r\n\r\nThe two constructs behind this issue - appending rather than replacing the forwarded Pod coordinates, and performing the exec under the Agent's own service account - were both introduced with the `kubectl` shell feature in 2.9.0 and were unchanged until this fix. This is not a regression.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The affected code is materially identical in each, and the fix is the same in both.\r\n\r\nFixes are included in the following releases:\r\n\r\n| Branch       | First vulnerable | Fixed in   |\r\n|--------------|------------------|------------|\r\n| 2.39.x (LTS) | 2.39.0           | **2.39.6** |\r\n| 2.45.x (LTS) | all prior        | **2.45.0** |\r\n\r\nPortainer releases prior to 2.39.0 are end-of-life and will not receive a fix. Users on end-of-life versions should upgrade to a supported LTS branch.\r\n\r\nThe 2.40.x - 2.44.x short-term-support lines are affected and do not receive a dedicated patch release; those lines reach end of life on the release of 2.45.0, and users on them should upgrade to 2.45.0. In particular, 2.44.0 predates this fix and does **not** contain it.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediatel...",
+  "published_at": "2026-10-22T05:02:59.000Z",
+  "modified_at": "2026-10-22T05:02:59.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-235",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "fixed": "2.39.6"
+        },
+        {
+          "introduced": "2.40.0",
+          "fixed": "2.45.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7423-r5wh-26x7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7423-r5wh-26x7",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7423-r5wh-26x7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c114f30538c7d36e34b95148fb322500eef7f24a5588f47beaa6d6f3b6675a03",
+  "note": null
+}

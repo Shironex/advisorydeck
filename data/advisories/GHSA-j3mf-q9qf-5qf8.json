@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-j3mf-q9qf-5qf8",
+  "aliases": [],
+  "title": "Non-administrator inherits host bind mounts via Compose volumes_from in stack deployment",
+  "summary": "## Summary\n\nPortainer lets non-administrator users deploy Docker Compose stacks to an environment, and when the per-environment setting `Hide bind mounts for non-administrators` is enabled, the stack validator `IsValidStackFile` rejects bind mounts declared in top-level `volumes` and each service's `volumes`. It never inspected a service's `volumes_from` field, which tells the Compose engine to attach every mount of an existing container - including that container's host bind mounts - to the new service. Any authenticated user with the Standard user role and stack-management access to a Docker standalone environment can exploit this.\n\nPortainer operates a [shared-responsibility security model](https://docs.portainer.io/advanced/security): administrators decide how permissive each environment's security settings are, and Portainer is responsible for enforcing those settings as configured. Although the setting is labelled Hide, enabling `Hide bind mounts for non-administrators` also makes Portainer reject bind mounts from non-administrators on the server, and Portainer's Docker API proxy already refuses a non-empty `VolumesFrom` on container creation from those users. This issue is on Portainer's side of that line: the Compose stack validator, the only check on the stack deployment path, did not apply the same rule. Environments where an administrator has disabled the setting already permit non-administrators to use bind mounts and gain no additional exposure from this issue.\n\nThe attack needs a container on the same environment that already carries a host bind mount. In practice one is always present: the documented way to run the Portainer Server and the Portainer Agent mounts the Docker socket into their own containers, and administrators routinely run containers that mount configuration directories, log paths, or the socket. A service that inherits the Docker socket has full control of the host Docker daemon; a service that inherits the Portainer Server's data directory can read Portainer's database.\n\nSwarm stacks are not affected: the Swarm deployment path converts the Compose file to a Swarm service specification, which has no equivalent of `volumes_from`. The fix nonetheless rejects the field for both stack types.\n\n## Severity\n\n**Critical**\n\nThe vulnerability is reachable over the network through Portainer's stack API with low attack complexity. It requires only the privileges of a Standard user who has been granted access to a Docker environment - the lowest role that can deploy a stack, and the role the `Hide bind mounts for non-administrators` setting applies to - with no user interaction. It depends on a container with a host bind mount existing on the environment, which the documented Server and Agent deployments provide by default, so no special attack requirements are scored. Confidentiality, integrity and availability impact on the vulnerable system are high: the attacker reaches the Portainer data directory and the Docker socket. The impact propagates to subsequent systems: with the Docker socket the attacker controls the Docker host and every container, image and volume on it, and any credentials recovered from the host reach the systems they authenticate to.\n\n## Affected Versions\n\nThe gap has existed since the stack bind-mount restriction was introduced; the validator inspects top-level and per-service `volumes` but never inspected `volumes_from`.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The shared validator is invoked by both editions' deployment paths.\n\nFixes are included in the following releases:\n\n| Branch       | First vulnerable | Fixed in                                |\n|--------------|------------------|-----------------------------------------|\n| 2.39.x (LTS) | 2.39.0           | **No patch release; upgrade to 2.45.3** |\n| 2.45.x (LTS) | 2.45.0           | **2.45.3**                              |\n\nPortain...",
+  "published_at": "2026-10-22T17:38:08.000Z",
+  "modified_at": "2026-10-22T17:38:08.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.4,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-284",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "last_affected": "2.39.8"
+        },
+        {
+          "introduced": "2.40.0",
+          "fixed": "2.45.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-j3mf-q9qf-5qf8",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-j3mf-q9qf-5qf8",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-j3mf-q9qf-5qf8",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c19aea2792195ec7079a3bf21fa2734a65811600b5847f5494d01a57863f33c7",
+  "note": null
+}
