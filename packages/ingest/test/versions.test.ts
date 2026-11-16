@@ -344,5 +344,11 @@ describe('exceptPatchedLines', () => {
       { introduced: '1.35.0', fixed: '1.35.8' },
     ];
     expect(exceptPatchedLines(sameLine)).toEqual(sameLine);
+    // Portainer: the 2.39 line is fixed only by the first release of 2.40.
+    const nextLineFix = [
+      { introduced: '2.39.0', fixed: '2.40.0' },
+      { introduced: '2.40.0', fixed: '2.45.2' },
+    ];
+    expect(exceptPatchedLines(nextLineFix)).toEqual(nextLineFix);
   });
 });
