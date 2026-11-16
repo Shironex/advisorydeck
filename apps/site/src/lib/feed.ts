@@ -57,6 +57,10 @@ export const CATEGORY_LABELS: Record<Category, { name: string; blurb: string }> 
     name: 'Apps',
     blurb: 'Applications deployed from templates: CMS, chat, automation and AI front ends.',
   },
+  frameworks: {
+    name: 'Frameworks',
+    blurb: 'Web frameworks your own apps are built with; the version is the one in your lockfile.',
+  },
 };
 
 export const CATEGORY_ORDER: readonly Category[] = [
@@ -69,6 +73,7 @@ export const CATEGORY_ORDER: readonly Category[] = [
   'devtools',
   'storage',
   'apps',
+  'frameworks',
   'os',
   'runtimes',
 ];
