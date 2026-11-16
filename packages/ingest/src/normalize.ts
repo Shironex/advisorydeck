@@ -4,6 +4,7 @@ import type { CveAffected, CveRecord, CveVersion, GhsaAdvisory, GhsaRecord } fro
 import {
   branchOf,
   cleanVersion,
+  clipOpenRanges,
   compareSemverLike,
   compactHyphenRange,
   dedupeRanges,
@@ -283,7 +284,16 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
         (r.vendor === undefined || same(r.vendor, affected.vendor)),
     );
     if (rule === undefined) continue;
-    const ranges = cveRanges(affected);
+    const read = cveRanges(affected);
+    const semver =
+      catalogue.entries.find((e) => e.product.slug === rule.slug)?.product.version_scheme ===
+      'semver';
+    const ranges = read !== undefined && semver ? clipOpenRanges(read) : read;
+    if (ranges !== undefined && read !== undefined && ranges.some((r, i) => r !== read[i])) {
+      warnings.push(
+        `${cveId}: an open range of ${rule.slug} ends before the next listed line starts`,
+      );
+    }
     if (ranges === undefined) {
       warnings.push(`${cveId}: unreadable versions for ${rule.slug}, published as unknown`);
     } else if (everyLineUpTo(affected)) {

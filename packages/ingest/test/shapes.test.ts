@@ -78,6 +78,7 @@ const extra: CatalogEntry[] = [
   product('nodejs', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'nodejs', products: ['node'] },
   ]),
+  product('nginx', [{ type: 'cve-cna', assigner: 'f5', products: ['NGINX Open Source'] }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -398,6 +399,12 @@ describe('smaller normalisations', () => {
     expect(rangesOf(cveFacts(record, catalogue), 'nodejs')).toEqual([
       { introduced: '22.23.3', last_affected: '22.23.3' },
     ]);
+  });
+
+  it('nginx: an open range ends where the next listed line starts', () => {
+    const facts = cve('CVE-2026-95101');
+    expect(rangesOf(facts, 'nginx')).toEqual(matcherRanges('nginx', 'CVE-2026-95101'));
+    expect(facts.warnings.join('\n')).toContain('ends before the next listed line starts');
   });
 
   it('Spring: .RELEASE is the release itself', () => {
