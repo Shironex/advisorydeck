@@ -474,7 +474,9 @@ export function ghsaRanges(vulnerability: GhsaAdvisory['vulnerabilities'][number
   const patchedRaw = written(
     vulnerability.first_patched_version ?? vulnerability.patched_versions ?? '',
   );
-  const reading = readGhsaRange(expression, patchedRaw);
+  const reading = PLACEHOLDER_MAJOR.test(`${expression} ${patchedRaw}`)
+    ? placeholderReading(expression, patchedRaw)
+    : readGhsaRange(expression, patchedRaw);
   const major = goModuleMajor(vulnerability.package?.name);
   if (reading.ranges === undefined || major === undefined) return reading;
   return {
@@ -482,6 +484,38 @@ export function ghsaRanges(vulnerability: GhsaAdvisory['vulnerabilities'][number
     ranges: reading.ranges.map((r) =>
       r.introduced === '0' ? { ...r, introduced: `${major}.0.0` } : r,
     ),
+  };
+}
+
+/** An `x.` placeholder major (Metabase: `x.58.0` for 0.58.0 open source and 1.58.0 Enterprise). */
+const PLACEHOLDER_MAJOR = /(?:^|[^0-9A-Za-z.])x\.(?=\d)/;
+
+function withMajor(text: string, major: string): string {
+  return text.replace(/(^|[^0-9A-Za-z.])x\.(?=\d)/g, `$1${major}.`);
+}
+
+/**
+ * Metabase writes one range for both editions with an `x.` placeholder major: `>= x.58.0, <
+ * x.58.28` means 0.58.0 to 0.58.28 (open source) and 1.58.0 to 1.58.28 (Enterprise). The entry
+ * is read once per major and the ranges are joined; in the Enterprise reading a range from the
+ * first version starts at 1.0.0, so it does not cover the open source line.
+ */
+function placeholderReading(expression: string, patchedRaw: string): RangeReading {
+  const oss = readGhsaRange(withMajor(expression, '0'), withMajor(patchedRaw, '0'));
+  const enterprise = readGhsaRange(withMajor(expression, '1'), withMajor(patchedRaw, '1'));
+  const notes = [oss.note, enterprise.note].filter((n): n is string => n !== undefined);
+  if (oss.ranges === undefined || enterprise.ranges === undefined) {
+    return { ranges: undefined, ...(notes.length > 0 ? { note: notes.join('; ') } : {}) };
+  }
+  return {
+    ranges: [
+      ...oss.ranges,
+      ...enterprise.ranges.map((r) => (r.introduced === '0' ? { ...r, introduced: '1.0.0' } : r)),
+    ],
+    note: [
+      `placeholder major in "${expression}" read as 0. (open source) and 1. (Enterprise)`,
+      ...notes,
+    ].join('; '),
   };
 }
 
@@ -662,7 +696,8 @@ function claimsFrom(
       );
     }
     const { ranges, note } = ghsaRanges(vulnerability);
-    if (note !== undefined) warnings.push(`${advisory.ghsa_id}: ${note}`);
+    const noted = `${advisory.ghsa_id}: ${note ?? ''}`;
+    if (note !== undefined && !warnings.includes(noted)) warnings.push(noted);
     if (ranges === undefined) {
       warnings.push(
         `${advisory.ghsa_id}: unreadable or contradictory range "${vulnerability.vulnerable_version_range ?? ''}" (patched "${vulnerability.first_patched_version ?? vulnerability.patched_versions ?? ''}") for ${slug}, published as unknown`,
