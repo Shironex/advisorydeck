@@ -30,8 +30,8 @@ import (
 var version = "dev"
 
 const usage = `Usage:
-  advisorydeck run [-config path]                       poll and notify until stopped
-  advisorydeck once [-config path] [-dry-run] [-digest-now]
+  advisorydeck run [-config path] [-replay-backlog]      poll and notify until stopped
+  advisorydeck once [-config path] [-dry-run] [-digest-now] [-replay-backlog]
                                                         poll and notify once, then exit
   advisorydeck healthcheck [-config path]               exit 0 when the last poll is recent
   advisorydeck check-config [-config path]              validate a config file
@@ -39,6 +39,10 @@ const usage = `Usage:
 
 The config file defaults to %s. Webhook URLs come from the environment
 variables the config names (url_env), never from the file.
+
+On a channel's first start the image posts one summary of what is already open
+instead of the backlog; -replay-backlog also posts the backlog, one message per
+release.
 `
 
 // env holds what the commands take from the process, so tests can replace it.
@@ -93,6 +97,7 @@ func run(args []string, e env) int {
 	case "run", "once":
 		dry := flags.Bool("dry-run", false, "print what would be sent; send nothing, write nothing (once only)")
 		digestNow := flags.Bool("digest-now", false, "send the digest now instead of at its time (once only)")
+		replay := flags.Bool("replay-backlog", false, "on a channel's first start, post the open advisories after the summary")
 		if flags.Parse(args[1:]) != nil {
 			return 2
 		}
@@ -100,7 +105,7 @@ func run(args []string, e env) int {
 			fmt.Fprintln(e.stderr, "-dry-run and -digest-now only work with once")
 			return 2
 		}
-		return daemon(args[0] == "once", *path, *dry, *digestNow, e)
+		return daemon(args[0] == "once", *path, daemonFlags{dry: *dry, digestNow: *digestNow, replay: *replay}, e)
 	default:
 		fmt.Fprintf(e.stderr, "unknown command %q\n", args[0])
 		fmt.Fprintf(e.stderr, usage, config.DefaultPath)
@@ -135,7 +140,12 @@ func targets(cfg *config.Config, getenv func(string) string, dry bool) ([]notify
 	return out, errors.Join(errs...)
 }
 
-func daemon(once bool, path string, dry, digestNow bool, e env) int {
+type daemonFlags struct {
+	dry, digestNow, replay bool
+}
+
+func daemon(once bool, path string, fl daemonFlags, e env) int {
+	dry := fl.dry
 	log := newLogger(e.stderr, e.getenv)
 	cfg, err := config.Load(path)
 	if err != nil {
@@ -149,17 +159,24 @@ func daemon(once bool, path string, dry, digestNow bool, e env) int {
 	}
 	ua := "advisorydeck/" + version
 	eng := &engine.Engine{
-		Cfg:     cfg,
-		Poll:    &poll.Client{HTTP: e.httpClient, Base: cfg.Feed.URL, UserAgent: ua, Log: log},
-		Matcher: matching.Library{},
-		Sender:  &notify.Sender{HTTP: e.httpClient, Log: log, UserAgent: ua},
-		Targets: ts,
-		Log:     log,
-		DryRun:  dry,
-		Out:     e.stdout,
-		Now:     e.now,
+		Cfg:           cfg,
+		Poll:          &poll.Client{HTTP: e.httpClient, Base: cfg.Feed.URL, UserAgent: ua, Log: log},
+		Matcher:       matching.Library{},
+		Sender:        &notify.Sender{HTTP: e.httpClient, Log: log, UserAgent: ua},
+		Targets:       ts,
+		Log:           log,
+		DryRun:        dry,
+		ReplayBacklog: fl.replay,
+		Out:           e.stdout,
+		Now:           e.now,
 	}
-	if !dry {
+	if dry {
+		// Read what was sent, so the dry run shows what this install would send next. The
+		// store is never saved in a dry run.
+		if st, err := state.Open(cfg.StatePath); err == nil {
+			eng.Store = st
+		}
+	} else {
 		st, err := state.Open(cfg.StatePath)
 		if err != nil {
 			log.Error("cannot read state", "path", cfg.StatePath, "err", err)
@@ -180,7 +197,7 @@ func daemon(once bool, path string, dry, digestNow bool, e env) int {
 		}
 		return 0
 	}
-	if err := eng.Cycle(e.ctx, digestNow); err != nil {
+	if err := eng.Cycle(e.ctx, fl.digestNow); err != nil {
 		return 1
 	}
 	return 0

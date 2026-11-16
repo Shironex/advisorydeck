@@ -3,6 +3,7 @@ package notify
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -156,14 +157,115 @@ func sourceNames(it Item) string {
 	return strings.Join(out, ", ")
 }
 
-// Render implements Renderer. Every message stays within 10 embeds and 6000 characters.
-func (Discord) Render(items []Item, kind Kind, _ time.Time) ([]Message, error) {
-	var out []Message
-	content := ""
-	if kind == Digest {
-		content = truncate(fmt.Sprintf("Advisorydeck daily digest: %d advisories for what you run", len(items)), discordContentMax)
+func newDiscordMessage(content string) discordMessage {
+	return discordMessage{Content: truncate(defuse(content), discordContentMax), Username: "Advisorydeck", AllowedMentions: allowedMentions{Parse: []string{}}}
+}
+
+func discordColor(level string) int {
+	if c, ok := discordColors[level]; ok {
+		return c
 	}
-	cur := discordMessage{Content: content, Username: "Advisorydeck", AllowedMentions: allowedMentions{Parse: []string{}}}
+	return 0x828282
+}
+
+func (e *discordEmbed) addField(name, value string, inline bool) {
+	if len(e.Fields) >= discordFieldsMax || strings.TrimSpace(value) == "" {
+		return
+	}
+	e.Fields = append(e.Fields, discordField{
+		Name:   truncate(defuse(name), discordFieldNameMax),
+		Value:  truncate(defuse(value), discordFieldValueMax),
+		Inline: inline,
+	})
+}
+
+// discordBundleEmbed renders a bundle: a single advisory in full, several as a collapsed list.
+func discordBundleEmbed(b Bundle) discordEmbed {
+	if len(b.Items) == 1 {
+		e := discordEmbedFor(b.Items[0], Instant)
+		if b.Latest != "" && b.Latest != b.Items[0].FixedIn {
+			e.addField("Newest release you need", actionText(b.Declared, b.Branch, b.Latest), false)
+		}
+		return fitEmbed(e, discordTotalMax)
+	}
+	first := b.Items[0].Advisory
+	lead := bundleLead(b)
+	e := discordEmbed{
+		Title:     truncate(defuse(bundleTitle(b)), discordTitleMax),
+		URL:       link(first),
+		Color:     discordColor(b.Highest().Level),
+		Timestamp: first.PublishedAt.UTC().Format(time.RFC3339),
+	}
+	list := collapsedList(b.Items, discordDescriptionMax-runeLen(lead)-200, itemLine)
+	e.Description = truncate(defuse(lead+"\n\n"+list), discordDescriptionMax)
+	e.addField("Exploitation", exploitSummary(b.Items), false)
+	for i, it := range notedItems(b.Items) {
+		if i == 3 {
+			break
+		}
+		e.addField("Exposure, "+it.Advisory.ID, exposureText(it.Advisory.Note), false)
+	}
+	e.Footer = &discordFooter{Text: truncate(defuse("Advisorydeck, data: "+bundleSources(b.Items)), discordFooterMax)}
+	return fitEmbed(e, discordTotalMax)
+}
+
+func discordDigestEmbed(d ProductDigest, budget int) discordEmbed {
+	items := d.Items()
+	head := actionText(d.Declared, d.Branch, d.Latest)
+	lines := make([]string, 0, len(d.Bundles))
+	for _, b := range d.Bundles {
+		lines = append(lines, digestLine(b))
+	}
+	limit := min(discordDescriptionMax, budget-300)
+	list := collapsedLines(lines, limit-runeLen(head)-2)
+	e := discordEmbed{
+		Title:       truncate(defuse(fmt.Sprintf("[%s] %s: %s", levelLabel(highestOf(items).Level), productTitle(d.Product, d.Declared, d.Branch), plural(len(items), "advisory", "advisories"))), discordTitleMax),
+		Description: truncate(defuse(head+"\n\n"+list), discordDescriptionMax),
+		Color:       discordColor(highestOf(items).Level),
+	}
+	e.Footer = &discordFooter{Text: truncate(defuse("Advisorydeck, data: "+bundleSources(items)), discordFooterMax)}
+	return fitEmbed(e, budget)
+}
+
+func discordSummaryEmbed(p ProductSummary, floor string, budget int) discordEmbed {
+	e := discordEmbed{
+		Title:       truncate(defuse(productTitle(p.Product, p.Declared, p.Branch)), discordTitleMax),
+		Description: truncate(defuse(summaryText(p, floor)), discordDescriptionMax),
+		Color:       discordColor(highestOf(p.Items).Level),
+	}
+	if len(p.Items) == 0 {
+		e.Color = 0x2E7D32
+	}
+	return fitEmbed(e, budget)
+}
+
+// Bundle implements Renderer: one message with one embed.
+func (Discord) Bundle(b Bundle, _ time.Time) ([]Message, error) {
+	m := newDiscordMessage("")
+	m.Embeds = []discordEmbed{discordBundleEmbed(b)}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return []Message{{Payload: raw, Items: b.Items}}, nil
+}
+
+// Group implements Renderer: one message with the product's embed.
+func (Discord) Group(d ProductDigest, _ time.Time) ([]Message, error) {
+	m := newDiscordMessage(groupIntro(d))
+	m.Embeds = []discordEmbed{discordDigestEmbed(d, discordTotalMax)}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return []Message{{Payload: raw, Items: d.Items()}}, nil
+}
+
+// Digest implements Renderer: one embed per product, split over messages so each stays
+// within 10 embeds and 6000 characters.
+func (Discord) Digest(ds []ProductDigest, _ time.Time) ([]Message, error) {
+	var out []Message
+	cur := newDiscordMessage(digestIntro(ds))
 	var curItems []Item
 	total := 0
 	flush := func() error {
@@ -175,23 +277,66 @@ func (Discord) Render(items []Item, kind Kind, _ time.Time) ([]Message, error) {
 			return err
 		}
 		out = append(out, Message{Payload: raw, Items: curItems})
-		cur = discordMessage{Username: "Advisorydeck", AllowedMentions: allowedMentions{Parse: []string{}}}
-		curItems, total = nil, 0
+		cur, curItems, total = newDiscordMessage(""), nil, 0
 		return nil
 	}
-	for _, it := range items {
-		e := discordEmbedFor(it, kind)
+	for _, d := range ds {
+		e := discordDigestEmbed(d, discordTotalMax)
 		if len(cur.Embeds) == discordEmbedsMax || total+e.size() > discordTotalMax {
 			if err := flush(); err != nil {
 				return nil, err
 			}
 		}
 		cur.Embeds = append(cur.Embeds, e)
-		curItems = append(curItems, it)
+		curItems = append(curItems, d.Items()...)
 		total += e.size()
 	}
 	if err := flush(); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// Summary implements Renderer: always one message. Products with open advisories get an
+// embed each (most severe first); past nine, the rest share one embed of one-line entries.
+func (Discord) Summary(s Summary, _ time.Time) ([]Message, error) {
+	m := newDiscordMessage(summaryIntro(s))
+	products := append([]ProductSummary(nil), s.Products...)
+	sort.SliceStable(products, func(i, j int) bool {
+		return SeverityRank(highestOf(products[i].Items).Level) > SeverityRank(highestOf(products[j].Items).Level) ||
+			(SeverityRank(highestOf(products[i].Items).Level) == SeverityRank(highestOf(products[j].Items).Level) && len(products[i].Items) > len(products[j].Items))
+	})
+	full, rest := products, []ProductSummary(nil)
+	if len(products) > discordEmbedsMax {
+		full, rest = products[:discordEmbedsMax-1], products[discordEmbedsMax-1:]
+	}
+	n := len(full)
+	if len(rest) > 0 {
+		n++
+	}
+	budget := (discordTotalMax - 100) / n
+	for _, p := range full {
+		m.Embeds = append(m.Embeds, discordSummaryEmbed(p, s.MinSeverity, budget))
+	}
+	if len(rest) > 0 {
+		var b strings.Builder
+		for _, p := range rest {
+			line := productTitle(p.Product, p.Declared, p.Branch) + ": "
+			if p.Latest != "" {
+				line += fmt.Sprintf("%s open, run %s or later", plural(len(p.Items), "advisory", "advisories"), p.Latest)
+			} else if len(p.Items) > 0 {
+				line += plural(len(p.Items), "advisory", "advisories") + " open, check manually"
+			} else {
+				line += "nothing open"
+			}
+			b.WriteString(line + "\n")
+		}
+		e := discordEmbed{Title: fmt.Sprintf("%d more products", len(rest)), Description: truncate(defuse(b.String()), discordDescriptionMax), Color: 0x828282}
+		m.Embeds = append(m.Embeds, fitEmbed(e, budget))
+	}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return []Message{{Payload: raw, Items: s.Items()}}, nil
 }

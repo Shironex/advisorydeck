@@ -32,6 +32,7 @@ const (
 // Urgent reasons: the bypass rules that post instantly whatever the severity floor.
 const (
 	UrgentKEV            = "kev"
+	UrgentEPSS           = "epss"
 	UrgentActionRequired = "action-required"
 )
 
@@ -46,7 +47,12 @@ type Item struct {
 	// FixedIn is the release that fixes the declared version (for a branch, the highest
 	// fix inside it: the one to pull), empty when unknown or unfixed.
 	FixedIn string
-	Urgent  string // "", UrgentKEV or UrgentActionRequired
+	// Branch is true when Declared is a branch (a floating tag).
+	Branch bool
+	Urgent string // "", UrgentKEV, UrgentEPSS or UrgentActionRequired
+	// Change is "", ChangeNew or ChangeRevised: how the item differs from what the channel
+	// received before. Set per channel, only inside bundles that mix old and new.
+	Change string
 }
 
 // Key builds the dedupe key of an advisory for a product.
@@ -58,10 +64,16 @@ type Message struct {
 	Items   []Item
 }
 
-// Renderer turns items into payloads for one channel type. Instant renders one item per
-// call; Digest may split many items over several messages to respect the target's limits.
+// Renderer turns bundles, digests and summaries into payloads for one channel type, always
+// within the target's limits. A bundle and a summary are one message each; a long digest is
+// split over several. A group is one message.
 type Renderer interface {
-	Render(items []Item, kind Kind, now time.Time) ([]Message, error)
+	Bundle(b Bundle, now time.Time) ([]Message, error)
+	// Group is one instant message for several bundles of one product that are due at the
+	// same time (a vendor publishing a batch fixed in different releases).
+	Group(d ProductDigest, now time.Time) ([]Message, error)
+	Digest(products []ProductDigest, now time.Time) ([]Message, error)
+	Summary(s Summary, now time.Time) ([]Message, error)
 }
 
 // RendererFor returns the renderer of a channel type.
@@ -195,10 +207,14 @@ func severityText(s feed.Severity) string {
 
 func exploitText(a feed.Advisory) string {
 	parts := []string{}
-	if a.KEV.Listed {
+	switch a.KEV.State() {
+	case feed.KEVListed:
 		parts = append(parts, "in CISA KEV (exploited in the wild)")
-	} else {
+	case feed.KEVNotListed:
 		parts = append(parts, "not in CISA KEV")
+	default:
+		// Never "not in KEV": the catalog was not read for this advisory.
+		parts = append(parts, "CISA KEV not checked")
 	}
 	if a.EPSS != nil {
 		parts = append(parts, fmt.Sprintf("EPSS %.1f%% (percentile %.0f)", a.EPSS.Score*100, a.EPSS.Percentile*100))

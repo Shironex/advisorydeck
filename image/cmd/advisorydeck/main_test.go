@@ -92,7 +92,7 @@ func TestRun(t *testing.T) {
 func TestOnceDryRun(t *testing.T) {
 	h := newHarness(t)
 	h.envs = map[string]string{} // a dry run needs no webhook URLs
-	code, stdout, stderr := h.run(context.Background(), "once", "-dry-run", "-config", h.config)
+	code, stdout, stderr := h.run(context.Background(), "once", "-dry-run", "-replay-backlog", "-config", h.config)
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}

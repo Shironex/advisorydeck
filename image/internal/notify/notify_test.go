@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,108 +48,258 @@ func hostile(t *testing.T, i int) Item {
 	return it
 }
 
-func TestDiscordLimits(t *testing.T) {
+// hostileBundle is a release bundle of n hostile items for one product.
+func hostileBundle(t *testing.T, n int, product string) Bundle {
 	var items []Item
-	for i := 0; i < 23; i++ {
-		items = append(items, hostile(t, i))
+	for i := 0; i < n; i++ {
+		it := hostile(t, i)
+		it.Advisory.ID = fmt.Sprintf("CVE-2026-%d", 100000+i)
+		it.Key = Key(it.Advisory.ID, product)
+		it.Product.Slug = product
+		it.Product.Name = "@everyone " + strings.Repeat("N", 300)
+		items = append(items, it)
 	}
-	for _, kind := range []Kind{Instant, Digest} {
-		in := items
-		if kind == Instant {
-			in = items[:1]
+	info := feed.ProductInfo{Slug: product, Name: "@everyone " + strings.Repeat("N", 300)}
+	return Bundle{Key: BundleKey(product, "17.12", ""), Product: info, Declared: "17", Branch: true, Fix: "17.12", Latest: "17.13", Items: items}
+}
+
+// checkDiscord decodes a Discord payload and fails on any limit it breaks.
+func checkDiscord(t *testing.T, m Message) discordMessage {
+	t.Helper()
+	var dm discordMessage
+	if err := json.Unmarshal(m.Payload, &dm); err != nil {
+		t.Fatal(err)
+	}
+	if dm.AllowedMentions.Parse == nil || len(dm.AllowedMentions.Parse) != 0 || !strings.Contains(string(m.Payload), `"allowed_mentions":{"parse":[]}`) {
+		t.Fatalf("allowed_mentions missing: %.200s", m.Payload)
+	}
+	if len(dm.Embeds) == 0 || len(dm.Embeds) > discordEmbedsMax {
+		t.Fatalf("%d embeds", len(dm.Embeds))
+	}
+	if utf8.RuneCountInString(dm.Content) > discordContentMax {
+		t.Fatal("content too long")
+	}
+	total := 0
+	for _, e := range dm.Embeds {
+		total += e.size()
+		if utf8.RuneCountInString(e.Title) > discordTitleMax || utf8.RuneCountInString(e.Description) > discordDescriptionMax || len(e.Fields) > discordFieldsMax {
+			t.Fatalf("embed over limits: title %d desc %d fields %d", utf8.RuneCountInString(e.Title), utf8.RuneCountInString(e.Description), len(e.Fields))
 		}
-		msgs, err := Discord{}.Render(in, kind, time.Now())
-		if err != nil {
-			t.Fatal(err)
+		for _, f := range e.Fields {
+			if utf8.RuneCountInString(f.Name) > discordFieldNameMax || utf8.RuneCountInString(f.Value) > discordFieldValueMax {
+				t.Fatalf("field %q over limits", f.Name)
+			}
+		}
+		if e.Footer != nil && utf8.RuneCountInString(e.Footer.Text) > discordFooterMax {
+			t.Fatal("footer too long")
+		}
+		if strings.Contains(e.Title, "@everyone") || strings.Contains(e.Description, "@here") || strings.Contains(e.Description, "@everyone") {
+			t.Fatal("mention not defused")
+		}
+	}
+	if total > discordTotalMax {
+		t.Fatalf("message has %d characters", total)
+	}
+	return dm
+}
+
+// checkSlack decodes a Slack payload and fails on any limit it breaks.
+func checkSlack(t *testing.T, m Message) slackMessage {
+	t.Helper()
+	var sm slackMessage
+	if err := json.Unmarshal(m.Payload, &sm); err != nil {
+		t.Fatal(err)
+	}
+	if len(sm.Blocks) == 0 || len(sm.Blocks) > slackBlocksMax || sm.Text == "" || utf8.RuneCountInString(sm.Text) > slackTextMax {
+		t.Fatalf("%d blocks, text %d", len(sm.Blocks), utf8.RuneCountInString(sm.Text))
+	}
+	for _, b := range sm.Blocks {
+		if b.Text != nil && utf8.RuneCountInString(b.Text.Text) > slackSectionMax {
+			t.Fatal("section too long")
+		}
+		for _, el := range b.Elements {
+			if utf8.RuneCountInString(el.Text) > slackContextMax {
+				t.Fatal("context too long")
+			}
+		}
+	}
+	if strings.Contains(string(m.Payload), "<!channel>") || strings.Contains(string(m.Payload), "@everyone") {
+		t.Fatal("slack mention not defused")
+	}
+	return sm
+}
+
+func TestBundleLimits(t *testing.T) {
+	for _, n := range []int{1, 2, 96} {
+		b := hostileBundle(t, n, "postgresql")
+		msgs, err := Discord{}.Bundle(b, time.Now())
+		if err != nil || len(msgs) != 1 || len(msgs[0].Items) != n {
+			t.Fatalf("discord: %d messages, err %v", len(msgs), err)
+		}
+		if dm := checkDiscord(t, msgs[0]); len(dm.Embeds) != 1 {
+			t.Fatalf("bundle of %d: %d embeds, want 1", n, len(dm.Embeds))
+		}
+		msgs, err = Slack{}.Bundle(b, time.Now())
+		if err != nil || len(msgs) != 1 || len(msgs[0].Items) != n {
+			t.Fatalf("slack: %d messages, err %v", len(msgs), err)
+		}
+		checkSlack(t, msgs[0])
+	}
+}
+
+func TestDigestLimits(t *testing.T) {
+	var ds []ProductDigest
+	total := 0
+	for p := 0; p < 23; p++ {
+		slug := fmt.Sprintf("product-%d", p)
+		d := ProductDigest{Product: feed.ProductInfo{Slug: slug, Name: "@here " + strings.Repeat("P", 200)}, Declared: "17", Branch: true, Latest: "17.13"}
+		for k := 0; k < 4; k++ {
+			b := hostileBundle(t, 1+k*10, slug)
+			b.Fix = fmt.Sprintf("17.%d", 10+k)
+			d.Bundles = append(d.Bundles, b)
+			total += len(b.Items)
+		}
+		ds = append(ds, d)
+	}
+	for name, r := range map[string]Renderer{"discord": Discord{}, "slack": Slack{}} {
+		msgs, err := r.Digest(ds, time.Now())
+		if err != nil || len(msgs) < 2 {
+			t.Fatalf("%s: %d messages, err %v", name, len(msgs), err)
 		}
 		count := 0
 		for _, m := range msgs {
-			var dm discordMessage
-			if err := json.Unmarshal(m.Payload, &dm); err != nil {
-				t.Fatal(err)
-			}
-			if dm.AllowedMentions.Parse == nil || len(dm.AllowedMentions.Parse) != 0 || !strings.Contains(string(m.Payload), `"allowed_mentions":{"parse":[]}`) {
-				t.Fatalf("allowed_mentions missing: %s", m.Payload[:200])
-			}
-			if len(dm.Embeds) == 0 || len(dm.Embeds) > discordEmbedsMax || len(dm.Embeds) != len(m.Items) {
-				t.Fatalf("%d embeds for %d items", len(dm.Embeds), len(m.Items))
-			}
-			if utf8.RuneCountInString(dm.Content) > discordContentMax {
-				t.Fatal("content too long")
-			}
-			total := 0
-			for _, e := range dm.Embeds {
-				total += e.size()
-				if utf8.RuneCountInString(e.Title) > discordTitleMax || utf8.RuneCountInString(e.Description) > discordDescriptionMax || len(e.Fields) > discordFieldsMax {
-					t.Fatalf("embed over limits: title %d desc %d fields %d", utf8.RuneCountInString(e.Title), utf8.RuneCountInString(e.Description), len(e.Fields))
-				}
-				for _, f := range e.Fields {
-					if utf8.RuneCountInString(f.Name) > discordFieldNameMax || utf8.RuneCountInString(f.Value) > discordFieldValueMax {
-						t.Fatalf("field %q over limits", f.Name)
-					}
-				}
-				if strings.Contains(e.Title, "@everyone") || strings.Contains(e.Description, "@here") {
-					t.Fatal("mention not defused")
-				}
-			}
-			if total > discordTotalMax {
-				t.Fatalf("message has %d characters", total)
+			if name == "discord" {
+				checkDiscord(t, m)
+			} else {
+				checkSlack(t, m)
 			}
 			count += len(m.Items)
 		}
-		if count != len(in) {
-			t.Fatalf("%s: %d items rendered, want %d", kind, count, len(in))
+		if count != total {
+			t.Fatalf("%s: %d items carried, want %d", name, count, total)
 		}
 	}
 }
 
+func TestSummaryLimits(t *testing.T) {
+	var s Summary
+	s.MinSeverity, s.Mode = "high", "digest"
+	for p := 0; p < 60; p++ {
+		b := hostileBundle(t, p%7, fmt.Sprintf("product-%d", p))
+		s.Products = append(s.Products, ProductSummary{Product: feed.ProductInfo{Slug: b.Key, Name: "@everyone " + strings.Repeat("Q", 300)}, Declared: "17", Branch: p%2 == 0, Advisories: 90, Items: b.Items, Latest: "17.12", LatestDate: time.Now(), Releases: p % 5})
+	}
+	for _, n := range []int{1, 9, 10, 11, 60} {
+		sub := s
+		sub.Products = s.Products[:n]
+		msgs, err := Discord{}.Summary(sub, time.Now())
+		if err != nil || len(msgs) != 1 || len(msgs[0].Items) != len(sub.Items()) {
+			t.Fatalf("discord summary of %d products: %d messages, err %v", n, len(msgs), err)
+		}
+		checkDiscord(t, msgs[0])
+		msgs, err = Slack{}.Summary(sub, time.Now())
+		if err != nil || len(msgs) != 1 {
+			t.Fatalf("slack summary of %d products: %d messages, err %v", n, len(msgs), err)
+		}
+		checkSlack(t, msgs[0])
+	}
+}
+
 func TestDiscordContent(t *testing.T) {
-	msgs, err := Discord{}.Render([]Item{fixtureItem(t)}, Instant, time.Now())
+	it := fixtureItem(t)
+	b := Bundle{Key: BundleKey("postgresql", "17.12", ""), Product: it.Product, Declared: "17", Branch: true, Fix: "17.12", Latest: "17.12", Items: []Item{it}}
+	msgs, err := Discord{}.Bundle(b, time.Now())
 	if err != nil || len(msgs) != 1 {
 		t.Fatal(msgs, err)
 	}
 	s := string(msgs[0].Payload)
-	for _, want := range []string{"[MEDIUM] PostgreSQL 17", "17.12 for your version (all fixes: 18.7, 17.12", "Not exposed on a default setup, assuming:", "docker compose pull", "reviewed by example-reviewer", "https://www.postgresql.org/support/security/CVE-2026-120154/"} {
+	for _, want := range []string{"[MEDIUM] PostgreSQL 17", "17.12 for your version (all fixes: 18.7, 17.12", "Not exposed on a default setup, assuming:", "docker compose pull", "reviewed by example-reviewer", "https://www.postgresql.org/support/security/CVE-2026-120154/", "not in CISA KEV", "EPSS 0.3%"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("payload lacks %q", want)
 		}
 	}
 }
 
-func TestSlackLimitsAndEscaping(t *testing.T) {
-	var items []Item
-	for i := 0; i < 40; i++ {
-		items = append(items, hostile(t, i))
-	}
-	items[0].Advisory.Title = "a <b> & c"
-	msgs, err := Slack{}.Render(items, Digest, time.Now())
+func TestBundleContent(t *testing.T) {
+	it := fixtureItem(t)
+	second := it
+	second.Advisory.ID, second.Key = "CVE-2026-120153", Key("CVE-2026-120153", "postgresql")
+	second.Advisory.Severity.Level = "high"
+	second.Change = ChangeNew
+	b := Bundle{Key: BundleKey("postgresql", "17.12", ""), Product: it.Product, Declared: "17", Branch: true, Fix: "17.12", Latest: "17.13", Items: []Item{second, it}}
+	msgs, err := Discord{}.Bundle(b, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) < 3 {
-		t.Fatalf("%d messages for 40 items", len(msgs))
+	s := string(msgs[0].Payload)
+	for _, want := range []string{"[HIGH] PostgreSQL 17.12 fixes 2 advisories for 17", "17.13 is the newest release you need", "Make sure you run 17.13 or later", "floating 17 tag", "1 high, 1 medium", "CVE-2026-120153 HIGH 4.3 (new)", "Exposure, CVE-2026-120154", "none in CISA KEV"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("bundle lacks %q:\n%s", want, s)
+		}
 	}
-	for i, m := range msgs {
-		var sm slackMessage
-		if err := json.Unmarshal(m.Payload, &sm); err != nil {
+	msgs, err = Slack{}.Bundle(b, time.Now())
+	if err != nil || !strings.Contains(string(msgs[0].Payload), "PostgreSQL 17.12 fixes 2 advisories") {
+		t.Fatalf("slack bundle: %v %s", err, msgs[0].Payload)
+	}
+}
+
+func TestKEVNotCheckedIsNeverNotListed(t *testing.T) {
+	it := fixtureItem(t)
+	it.Advisory.KEV = feed.KEV{} // a feed from before enrichment
+	b := Bundle{Key: "k", Product: it.Product, Declared: "17", Fix: "17.12", Latest: "17.12", Items: []Item{it}}
+	for name, r := range map[string]Renderer{"discord": Discord{}, "slack": Slack{}, "webhook": Webhook{}} {
+		msgs, err := r.Bundle(b, time.Now())
+		if err != nil {
 			t.Fatal(err)
 		}
-		if len(sm.Blocks) > slackBlocksMax || sm.Text == "" {
-			t.Fatalf("message %d: %d blocks", i, len(sm.Blocks))
+		s := string(msgs[0].Payload)
+		if strings.Contains(s, "not in CISA KEV") || strings.Contains(s, "none in CISA KEV") {
+			t.Errorf("%s says not in KEV for an unchecked advisory: %s", name, s)
 		}
-		for _, b := range sm.Blocks {
-			if b.Text != nil && utf8.RuneCountInString(b.Text.Text) > slackSectionMax {
-				t.Fatal("section too long")
-			}
+		if name != "webhook" && !strings.Contains(s, "CISA KEV not checked") {
+			t.Errorf("%s does not say KEV was not checked", name)
 		}
-		if strings.Contains(string(m.Payload), "<!channel>") {
-			t.Fatal("slack mention not defused")
+		if name == "webhook" && !strings.Contains(s, `"kev_state":"not-checked"`) {
+			t.Errorf("webhook lacks kev_state not-checked: %s", s)
 		}
 	}
-	var first slackMessage
-	_ = json.Unmarshal(msgs[0].Payload, &first)
-	if !strings.Contains(first.Blocks[0].Text.Text, `a &lt;b&gt; &amp; c`) {
-		t.Fatal("not escaped")
+	two := b
+	two.Items = []Item{it, it}
+	msgs, _ := Discord{}.Bundle(two, time.Now())
+	if s := string(msgs[0].Payload); strings.Contains(s, "none in CISA KEV") || !strings.Contains(s, "CISA KEV not checked") {
+		t.Errorf("bundle KEV text wrong: %s", s)
+	}
+}
+
+func TestSummaryContent(t *testing.T) {
+	it := fixtureItem(t)
+	open := it
+	open.Advisory.ID, open.FixedIn, open.Urgent = "GHSA-aaaa-bbbb-cccc", "", UrgentKEV
+	s := Summary{MinSeverity: "high", Mode: "digest", Products: []ProductSummary{
+		{Product: it.Product, Declared: "17", Branch: true, Advisories: 96, Items: []Item{open, it}, Latest: "17.12", LatestDate: time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), Releases: 1},
+		{Product: feed.ProductInfo{Slug: "traefik", Name: "Traefik"}, Declared: "3.7.19", Advisories: 70},
+		{Product: feed.ProductInfo{Slug: "nope", Name: "nope"}, Declared: "1", Missing: true},
+	}}
+	msgs, err := Discord{}.Summary(s, time.Now())
+	if err != nil || len(msgs) != 1 || len(msgs[0].Items) != 2 {
+		t.Fatal(msgs, err)
+	}
+	p := string(msgs[0].Payload)
+	for _, want := range []string{"now watching 3 products", "summarized here instead of posted one by one", "PostgreSQL 17 (branch)", "Branch 17 has 2 open advisories at high or above, fixed across 1 release", "Make sure you run 17.12 or later", "last pulled before 2026-11-12", "GHSA-aaaa-bbbb-cccc (in CISA KEV)", "check manually: GHSA-aaaa-bbbb-cccc", "Nothing open at high or above among the 70 advisories", "no file for nope"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("summary lacks %q:\n%s", want, p)
+		}
+	}
+	wm, err := Webhook{}.Summary(s, time.Date(2026, 11, 16, 8, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(wm[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	sum := payload["summary"].(map[string]any)
+	if payload["kind"] != "summary" || len(sum["products"].([]any)) != 3 || len(payload["items"].([]any)) != 2 {
+		t.Fatalf("webhook summary = %v", payload)
 	}
 }
 
@@ -156,7 +307,8 @@ func TestWebhookPayload(t *testing.T) {
 	now := time.Date(2026, 11, 16, 8, 0, 0, 0, time.UTC)
 	it := fixtureItem(t)
 	it.Urgent = UrgentKEV
-	msgs, err := Webhook{}.Render([]Item{it, it}, Digest, now)
+	b := Bundle{Key: BundleKey("postgresql", "17.12", ""), Product: it.Product, Declared: "17", Branch: true, Fix: "17.12", Latest: "17.12", Items: []Item{it, it}}
+	msgs, err := Webhook{}.Digest([]ProductDigest{{Product: it.Product, Declared: "17", Branch: true, Latest: "17.12", Bundles: []Bundle{b}}}, now)
 	if err != nil || len(msgs) != 1 {
 		t.Fatal(msgs, err)
 	}
@@ -169,13 +321,22 @@ func TestWebhookPayload(t *testing.T) {
 	if p["schema"] != WebhookSchema || p["kind"] != "digest" || p["sent_at"] != "2026-11-16T08:00:00Z" || len(items) != 2 {
 		t.Fatalf("payload = %v", p)
 	}
-	for _, key := range []string{"advisory_id", "aliases", "title", "summary", "url", "product", "product_name", "declared_version", "verdict", "reason", "urgent", "severity", "kev", "epss", "fixed_in", "fix", "published_at", "revision", "note"} {
+	for _, key := range []string{"advisory_id", "aliases", "title", "summary", "url", "product", "product_name", "declared_version", "verdict", "reason", "urgent", "severity", "kev", "kev_state", "epss", "fixed_in", "fix", "published_at", "revision", "note"} {
 		if _, ok := first[key]; !ok {
 			t.Errorf("item lacks %q", key)
 		}
 	}
 	if first["verdict"] != "affected" || first["urgent"] != "kev" {
 		t.Errorf("item = %v", first)
+	}
+	bundles := p["bundles"].([]any)
+	wb := bundles[0].(map[string]any)
+	if len(bundles) != 1 || wb["fix"] != "17.12" || wb["urgent"] != "kev" || !strings.Contains(wb["action"].(string), "17.12 or later") {
+		t.Errorf("bundles = %v", bundles)
+	}
+	inst, err := Webhook{}.Bundle(b, now)
+	if err != nil || !strings.Contains(string(inst[0].Payload), `"bundle":{"key":"postgresql|fix:17.12"`) {
+		t.Fatalf("instant payload: %v %s", err, inst[0].Payload)
 	}
 }
 

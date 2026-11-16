@@ -26,3 +26,28 @@ func verdictOf(o match.Outcome) Verdict {
 		return Unknown
 	}
 }
+
+// CompareVersions orders two versions of one product's scheme: negative when a is before b,
+// zero when equal, positive when after. A version the scheme cannot read sorts before every
+// readable one, and two unreadable ones compare as text, so the order is always stable.
+func CompareVersions(scheme, a, b string) int {
+	va, errA := match.Parse(match.Scheme(scheme), a)
+	vb, errB := match.Parse(match.Scheme(scheme), b)
+	switch {
+	case errA == nil && errB == nil:
+		if c := match.Compare(va, vb); c != 0 {
+			return c
+		}
+	case errA == nil:
+		return 1
+	case errB == nil:
+		return -1
+	}
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
+}
