@@ -9,7 +9,7 @@ The catalog is small on purpose. A product belongs here when self-hosters common
 ## Steps
 
 1. **Pick the slug and category.** The slug is lowercase with hyphens and equals the file name. The category is one of `databases`, `proxies`, `os`, `paas`, `containers`, `runtimes`, `auth`, `monitoring`, `storage`, `devtools`, `apps` and equals the folder (the schema description in [defs.schema.json](../schemas/v1/defs.schema.json) says what goes where).
-2. **Version scheme.** `semver` for most products (prereleases such as `4.0.0-beta.474` compare correctly), `pg` for PostgreSQL-style major.minor, `dpkg` and `kernel` for distro packages, `calver` for dotted dates, `opaque` when only equality makes sense.
+2. **Version scheme.** `semver` for most products (prereleases such as `4.0.0-beta.474` compare correctly), `semver4` when the vendor numbers backports with a fourth part (Nextcloud Enterprise `31.0.14.7`), `pg` for PostgreSQL-style major.minor, `dpkg` and `kernel` for distro packages, `calver` for dotted dates, `opaque` when only equality makes sense.
 3. **Branches.** If the product is on [endoflife.date](https://endoflife.date), set `source: endoflife` and its `endoflife_slug` (check `https://endoflife.date/api/v1/products/<slug>`). Otherwise `source: none`.
 4. **Images.** List the official images with a fully qualified `ref` (`docker.io/library/postgres`, `ghcr.io/owner/name`) and a `tag_pattern` with a named group `version`. Patterns must work in JavaScript and in Go, so no lookarounds. Add a test row for real tags in `packages/contract/test/catalog.test.ts`.
 5. **Sources, most trusted first.** Verify each one against the real data:

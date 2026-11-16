@@ -39,7 +39,7 @@ Advisorydeck is a static pipeline. There is no server and no database: scheduled
 
 ## Where version matching lives
 
-Comparing "I run 17.4" against "fixed in 17.12" happens in the image, in Go, because the image is the consumer that knows the user's versions. The matcher lives in `image/internal/match`: it parses every `version_scheme` (`semver`, `pg`, `calver`, `dpkg`, `kernel`, `opaque`), evaluates an advisory's per-branch ranges and resolves image tags with the catalog's `tag_pattern`. It is a pure library with no I/O.
+Comparing "I run 17.4" against "fixed in 17.12" happens in the image, in Go, because the image is the consumer that knows the user's versions. The matcher lives in `image/internal/match`: it parses every `version_scheme` (`semver`, `semver4`, `pg`, `calver`, `dpkg`, `kernel`, `opaque`), evaluates an advisory's per-branch ranges and resolves image tags with the catalog's `tag_pattern`. It is a pure library with no I/O.
 
 Every answer is one of three outcomes, each with a reason code:
 
