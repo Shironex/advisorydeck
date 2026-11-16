@@ -51,6 +51,29 @@ describe('repository data', () => {
     expect(messages.some((message) => message.startsWith('slug redis is already used'))).toBe(true);
   });
 
+  it('checks the ingest output in data/ with the same rules', () => {
+    const copy = copyRepo();
+    cpSync(join(copy, 'fixtures/data/advisories'), join(copy, 'data/advisories'), {
+      recursive: true,
+    });
+    cpSync(join(copy, 'fixtures/api/v1'), join(copy, 'data/api/v1'), { recursive: true });
+    cpSync(join(copy, 'fixtures/notes'), join(copy, 'notes'), { recursive: true });
+    const clean = checkRepository(copy);
+    expect(clean.issues).toEqual([]);
+    expect(clean.counts.published).toBe(4);
+
+    const path = join(copy, 'data/api/v1/products/postgresql.json');
+    writeFileSync(path, readFileSync(path, 'utf8').replace('"18.7"', '"18.8"'));
+    const issues = checkRepository(copy).issues;
+    expect(
+      issues.some(
+        (issue) =>
+          issue.file === 'data/api/v1/products/postgresql.json' &&
+          issue.message.startsWith('etag in manifest.json does not match'),
+      ),
+    ).toBe(true);
+  });
+
   it('notices a feed note that drifted from its note file', () => {
     const copy = copyRepo();
     const path = join(copy, 'fixtures/notes/CVE-2026-120154.md');
