@@ -73,6 +73,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
     join(fixtures, 'notes'),
     slugs,
     issues,
+    false,
   );
 
   // Ingest output: data/advisories and data/api/v1 obey the same rules, with notes from notes/.
@@ -84,6 +85,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
         join(root, repoLayout.notesDir),
         slugs,
         issues,
+        true,
       )
     : 0;
 
@@ -101,8 +103,9 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
 /**
  * Checks one published tree (fixtures/ or data/): the advisory files and the v1 feed. Advisories
  * must name catalog products and carry the reviewed note; the manifest must list every product
- * file with its exact etag and count; product files must hold the same advisories. Returns the
- * number of files read.
+ * file with its exact etag and count; product files must hold the same advisories. With
+ * requireKevCheck (the ingest output), every advisory must have been looked up in CISA KEV, so a
+ * published listed: false always means "checked, not listed". Returns the number of files read.
  */
 function checkPublished(
   root: string,
@@ -110,6 +113,7 @@ function checkPublished(
   notesDir: string,
   slugs: ReadonlySet<string>,
   issues: Issue[],
+  requireKevCheck: boolean,
 ): number {
   let fixtureCount = 0;
   const load = (path: string, schema: DocumentSchema): unknown => {
@@ -133,6 +137,12 @@ function checkPublished(
     const file = relativePath(root, path);
     if (advisory.id !== basename(path, '.json')) {
       issues.push({ file, message: `id ${advisory.id} must equal the file name` });
+    }
+    if (requireKevCheck && advisory.kev.checked !== true) {
+      issues.push({
+        file,
+        message: 'kev.checked must be true: the KEV catalog was not read for it',
+      });
     }
     for (const { product } of advisory.affected) {
       if (!slugs.has(product)) {
