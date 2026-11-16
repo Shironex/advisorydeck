@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-vxw5-9pjh-rq53",
+  "aliases": [],
+  "title": "Shared View Row Filter Bypass via Attachment Download",
+  "summary": "### Summary\n\nThe public attachment-download route of a shared view resolved the target record by primary key through a read that did not apply the view's row filter, so an anonymous link holder could obtain a working download link for a file attached to a record the filter excludes.\n\n### Details\n\nThe shared-view password check in `public-datas.service.ts` was present and correct, but the record lookup performed after it went through the read-by-primary-key path in `BaseModelSqlv2.ts`, which applied only the key, row-level security and the soft-delete flag, never the view's root filter list applied by the listing path. `attachments.service.ts` then required the caller's supplied path to match a value actually stored on that record - so it was not an arbitrary-path oracle - and signed a time-limited download URL for it. Under `NC_SECURE_ATTACHMENTS=true`, where no raw path-based download route exists and previously issued signed links expire, this route was an anonymous means of minting a fresh working link to an excluded record's file. The nested-link listing endpoints, which gate on the same read, were affected by the same gap.\n\n### Impact\n\nNo authentication is required; the share link, and the view password where one is configured, are sufficient. The relation vector needed only an enumerable record id and the id of a link column shown in the view, and returned that excluded record's linked-record data. The attachment vector additionally required the file's exact stored path, and under secure attachment storage yielded a downloadable copy of a file belonging to a record the view's filter was configured to hide.\n\n### Credit\n\nThis issue was reported by [@komyunghan](https://github.com/komyunghan).",
+  "published_at": "2026-11-02T08:47:09.000Z",
+  "modified_at": "2026-11-02T08:47:09.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-vxw5-9pjh-rq53",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vxw5-9pjh-rq53",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-vxw5-9pjh-rq53",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:af0317099ec98c3e33b2233709b40592ce584a90541fa3c2186caffd51b5b1ca",
+  "note": null
+}

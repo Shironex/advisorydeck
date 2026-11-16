@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-fjm8-2g3v-ffjw",
+  "aliases": [],
+  "title": "SSRF Guard Bypass via IPv6 Transition Addresses in Remote Storage Endpoint Validation",
+  "summary": "# SSRF Guard Bypass via IPv6 Transition Addresses in Remote Storage Endpoint Validation\n\n## Summary\n\nThe `checkBlockedIP` function in both the Go volume server (`weed/server/volume_grpc_remote.go`) and the Rust volume server (`seaweed-volume/src/remote_storage/endpoint_guard.rs`) validates caller-supplied S3 remote storage endpoint URLs against internal IP ranges. The guard checks loopback, private (RFC 1918), link-local, CGNAT, and cloud metadata addresses, but does not extract or re-validate the embedded IPv4 destination from IPv6 transition addresses (NAT64 `64:ff9b::/96`, 6to4 `2002::/16`, Teredo `2001:0000::/32`, IPv4-compatible `::/96`). A caller who can configure or trigger remote storage operations can bypass the SSRF guard using a transition-encoded internal destination.\n\n## Affected Component\n\n- **Go volume server:** [`weed/server/volume_grpc_remote.go`](https://github.com/seaweedfs/seaweedfs/blob/master/weed/server/volume_grpc_remote.go) -- `checkBlockedIP` function\n- **Rust volume server:** [`seaweed-volume/src/remote_storage/endpoint_guard.rs`](https://github.com/seaweedfs/seaweedfs/blob/master/seaweed-volume/src/remote_storage/endpoint_guard.rs) -- `check_blocked_ip` function\n- **Attack surface:** `FetchAndWriteNeedle` gRPC endpoint, validated by `validateRemoteEndpoint` (Go) / `validate_remote_endpoint` (Rust)\n- **Guard also used by:** `guardedDialer` (Go) -- the DNS-rebinding dial-time re-validation uses the same incomplete `checkBlockedIP`\n- **Version:** HEAD (both Go and Rust)\n\n## Root Cause (CWE-918)\n\n### Go (`weed/server/volume_grpc_remote.go`):\n\n```go\nfunc checkBlockedIP(endpoint string, ip net.IP) error {\n    // ...\n    switch {\n    case ip.IsLoopback():\n        // blocked\n    case ip.IsUnspecified():\n        // blocked\n    case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast():\n        // blocked\n    case ip.IsInterfaceLocalMulticast():\n        // blocked\n    case ip.IsPrivate():\n        // blocked\n    case cgnatNet.Contains(ip):\n        // blocked\n    }\n    return nil  // <-- NAT64/6to4/Teredo addresses fall through here\n}\n```\n\n### Rust (`seaweed-volume/src/remote_storage/endpoint_guard.rs`):\n\n```rust\npub fn check_blocked_ip(endpoint: &str, ip: IpAddr) -> Result<(), String> {\n    let ip = match ip {\n        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {\n            Some(v4) => IpAddr::V4(v4),    // only handles ::ffff: mapped\n            None => IpAddr::V6(v6),\n        },\n        other => other,\n    };\n    // checks: IMDS, loopback, unspecified, link-local, private, CGNAT\n    // NAT64/6to4/Teredo pass through unchecked\n    Ok(())\n}\n```\n\nBoth implementations handle `::ffff:`-mapped IPv4 (Go via `To4()` normalization, Rust via `to_ipv4_mapped()`), but neither extracts the embedded IPv4 from:\n\n| Transition form | RFC | Embedding | Example (127.0.0.1) |\n|---|---|---|---|\n| NAT64 `64:ff9b::/96` | RFC 6052 | low 32 bits | `64:ff9b::7f00:1` |\n| 6to4 `2002::/16` | RFC 3056 | bits 16-47 | `2002:7f00:0001::` |\n| Teredo `2001:0000::/32` | RFC 4380 | low 32 bits XOR 0xFFFFFFFF | `2001:0000:4136:e378:8000:63bf:80ff:fffe` |\n| IPv4-compatible `::/96` | RFC 4291 | low 32 bits | `::7f00:1` |\n\n## Exploitation\n\nAn attacker who can issue `FetchAndWriteNeedle` gRPC calls to a volume server (or influence the remote storage endpoint URL through the filer API) supplies a transition-encoded internal destination:\n\n```\nS3Endpoint = \"http://[64:ff9b::a9fe:a9fe]/\"\n```\n\n1. `validateRemoteEndpoint` parses the URL and extracts host `64:ff9b::a9fe:a9fe`.\n2. `checkBlockedIP` checks the IPv6 address: not loopback, not private, not link-local, not CGNAT -- all checks pass.\n3. The volume server dials the NAT64 address `64:ff9b::a9fe:a9fe`.\n4. On a network with NAT64 infrastructure, this routes to `169.254.169.254` (cloud metadata).\n5. The `guardedDialer` re-validates at dial time using the same `checkBlockedIP` -- still passes.\n\n6to4 variant (no NAT64 infrastructure needed on networks with a 6to4 relay):\n```\nS3Endpoint = \"http://[2002:a...",
+  "published_at": "2026-09-18T19:59:17.000Z",
+  "modified_at": "2026-09-18T19:59:17.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.24",
+          "last_affected": "4.41"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-fjm8-2g3v-ffjw",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fjm8-2g3v-ffjw",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-fjm8-2g3v-ffjw",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:75c8c03e9c9ef9ce9cc6d7f4845f1e5f3703813798dd62183e819159bb9e53e6",
+  "note": null
+}

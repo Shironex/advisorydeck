@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6mwx-4547-5vc9",
+  "repo": {
+    "cve_id": "CVE-2026-55770",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-90"
+    ],
+    "description": "## 1. Description\r\n\r\n### Component\r\n\r\n`sdk/helper/ldaputil/client.go` - the shared LDAP utility library used by both the LDAP authentication backend and OpenLDAP secrets engine to construct LDAP search filters and bind DNs.\r\n\r\n### Root Cause\r\n\r\nThe LDAP utility contains a **function selection error** that causes incorrect escaping of user-controlled input in LDAP filter construction. Two lines construct the `bindDN` using `EscapeLDAPValue()`:\r\n\r\n```go\r\n// Line 191 - UPN Domain path\r\nbindDN = fmt.Sprintf(\"%s@%s\", EscapeLDAPValue(username), cfg.UPNDomain)\r\n\r\n// Line 193 - User DN path\r\nbindDN = fmt.Sprintf(\"%s=%s,%s\", cfg.UserAttr, EscapeLDAPValue(username), cfg.UserDN)\r\n```\r\n\r\nThe problem: `EscapeLDAPValue()` implements **RFC 4514** escaping, which is designed for Distinguished Name (DN) components. It only escapes characters meaningful in DNs: `+`, `,`, `;`, `\"`, `\\`, `<`, `>`, and leading/trailing spaces.\r\n\r\nLDAP **search filters** (RFC 4515) have a different set of special characters: `*`, `(`, `)`, `\\`, and NUL (`\\x00`). None of these are escaped by `EscapeLDAPValue()`. The correct function is `ldap.EscapeFilter()` from the `github.com/go-ldap/ldap/v3` package.\r\n\r\nThe irony: the same file uses `ldap.EscapeFilter()` correctly at lines 225-226 in `RenderUserSearchFilter()` for the `UserFilter` template path, but the `GetUserDN()` function at lines 191-193 uses the wrong escape function.\r\n\r\n### Exploitation Mechanics\r\n\r\n```\r\nUsername: alice)(objectClass=*\r\n↓ EscapeLDAPValue (no-op - no DN special chars)\r\nalice)(objectClass=*\r\n↓ fmt.Sprintf(\"(&(objectClass=user)(sAMAccountName=%s))\", escapedUsername)\r\n(&(objectClass=user)(sAMAccountName=alice)(objectClass=*))\r\n                              ^^ injection point\r\n```\r\n\r\nThe filter `(&(objectClass=user)(sAMAccountName=alice)(objectClass=*))` is logically equivalent to:\r\n- `sAMAccountName=alice` AND `objectClass=user` AND `objectClass=*`\r\n\r\nSince all entries match `objectClass=*`, the filter matches **any user entry** where `sAMAccountName` is `alice`, effectively ignoring the `objectClass=user` constraint. By crafting more sophisticated injections (e.g., `alice)(|(sAMAccountName=admin`), the attacker can match arbitrary different user entries.\r\n\r\n### Preconditions\r\n\r\n- LDAP authentication backend must be configured\r\n- Directory must be Active Directory (UPNDomain path) or use UserDN/UserAttr binding\r\n- Attacker controls the `username` field at login time\r\n\r\n## 2. Proof of Concept\r\n\r\n```bash\r\n# Login with LDAP injection payload as username\r\ncurl -k -X POST \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\r\n    \"username\": \"alice)(sAMAccountName=*\",\r\n    \"password\": \"anything\"\r\n  }' \\\r\n  https://localhost:8200/v1/auth/ldap/login/admin\r\n\r\n# LDAP filter constructed:\r\n# (&(objectClass=user)(sAMAccountName=alice)(sAMAccountName=*))\r\n#                   injection ──────────^\r\n# The filter matches the first user with objectClass=user\r\n# If the LDAP server returns admin's entry first, the token\r\n# is bound to the admin entity, inheriting all admin policies\r\n```\r\n\r\nThe LDAP search returns whichever entry the server ranks highest among results. In Active Directory with default sorting, this is often the oldest or alphabetically first user - potentially an administrative account.\r\n\r\n## 3. Impact\r\n\r\n| Impact | Detail |\r\n|--------|--------|\r\n| **Confidentiality** | Token bound to a different LDAP user (e.g., admin) grants access to all secrets and policies belonging to that entity |\r\n| **Integrity** | Ability to modify secrets, write policies, or configure backends as the impersonated user |\r\n| **Availability** | Low direct impact, but administrative access enables disabling or misconfiguring the entire OpenBao instance |\r\n\r\n**Likelihood: HIGH** - the escape function mismatch is a well-documented antipattern in OWASP LDAP Injection guidance. The attack is trivially exploitable with no special tooling beyond `curl`.\r\n\r\n### Why This Is High Severity\r\n\r\nThe LDAP auth backend is frequently used as a **primary authentication method** for enterprise OpenBao deployments. A successful LDAP injection against this backend can bypass the entire authentication chain, granting administrative access to the secrets store without needing to compromise an actual admin account.\r\n\r\n## 4. Remediation\r\n\r\n### Primary Fix: Use ldap.EscapeFilter\r\n\r\nReplace `EscapeLDAPValue` with `ldap.EscapeFilter` in both filter construction paths:\r\n\r\n```go\r\nimport \"github.com/go-ldap/ldap/v3\"\r\n\r\n// Line 191 - UPN Domain path\r\nbindDN = fmt.Sprintf(\"%s@%s\", ldap.EscapeFilter(username), cfg.UPNDomain)\r\n\r\n// Line 193 - User DN path\r\nbindDN = fmt.Sprintf(\"%s=%s,%s\", cfg.UserAttr, ldap.EscapeFilter(username), cfg.UserDN)\r\n```\r\n\r\n`EscapeLDAPValue` is still the correct choice for actual DN construction (where values are used as RDN components rather than filter values), but any value interpolated into an LDAP filter string must use `ldap.EscapeFilter`.\r\n\r\n### Audit: All Call Sites\r\n\r\nReview all usages of `EscapeLDAPValue` across the codebase to ensure none are used in filter context:\r\n\r\n```bash\r\ngrep -rn \"EscapeLDAPValue\" /root/cve-audit/openbao/\r\n```\r\n\r\n### Defense-in-Depth\r\n\r\n- Apply the principle of least privilege to LDAP service accounts used by OpenBao\r\n- Use `UserFilter` with explicit attribute constraints to limit the search scope\r\n",
+    "ghsa_id": "GHSA-6mwx-4547-5vc9",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-6mwx-4547-5vc9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6mwx-4547-5vc9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55770"
+      }
+    ],
+    "published_at": "2026-06-19T11:28:09Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "LDAPi ldaputil (wrong escape func)",
+    "updated_at": "2026-06-19T11:28:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/openbao/openbao"
+        },
+        "patched_versions": "2.5.5",
+        "vulnerable_version_range": "<=2.5.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

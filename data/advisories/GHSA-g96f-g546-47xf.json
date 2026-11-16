@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-g96f-g546-47xf",
+  "aliases": [],
+  "title": "S3 gateway gRPC port exposes the IAM and lifecycle admin services without authentication when no filer signing key is configured, allowing anyone with network access to add an admin identity",
+  "summary": "### Summary\r\n`weed server -s3` (and `weed s3`) opens a gRPC port at `10000 + s3.port` - `19000` for the default S3 port `9000`. That port serves two administrative services, `messaging_pb.SeaweedS3IamCache` (`PutIdentity`, `PutPolicy`, `RemoveIdentity`, `PutGroup`, `RemoveGroup`, `DeletePolicy`, `GetPolicy`, `ListPolicies`) and `s3_lifecycle_pb.SeaweedS3LifecycleInternal` (`LifecycleDelete`), plus gRPC reflection.\r\n\r\nEvery method calls `checkAdminAuth`, but that function is a **no-op when no filer signing key is configured**, which is the default. With no key, any host that can reach port 19000 can call `PutIdentity` anonymously to insert an identity with `Admin` actions and credentials of its choice, then use those credentials on the normal S3 port to read and write **every bucket** - including private buckets that are not readable anonymously. `RemoveIdentity` can also delete the application's own identity (denial of service), and `LifecycleDelete` can delete objects.\r\n\r\nThe S3 gateway's gRPC port binds to the same address as the S3 API (`-s3.ip.bind`, default `0.0.0.0`) and, unlike the Iceberg and Lance gateways, it has no option to disable it. An operator who exposes only the authenticated S3 port to other workloads still exposes this unauthenticated admin port to them.\r\n\r\n\r\n### Details\r\n\r\nAt tag 4.47 (commit `c507336`):\r\n\r\n- `weed/command/s3.go:345-346` sets the gRPC port to `10000 + *s3opt.port` when unset, and `:348-350` binds it to `0.0.0.0` by default.\r\n- `weed/s3api/s3api_server_grpc.go:24-50`, `checkAdminAuth`, returns `nil` (allow) whenever the filer signing key is empty:\r\n\r\n```go\r\nfunc (s3a *S3ApiServer) checkAdminAuth(ctx context.Context) error {\r\n\tif s3a.filerGuard == nil {\r\n\t\treturn nil\r\n\t}\r\n\tsigningKey := s3a.filerGuard.SigningKey()\r\n\tif len(signingKey) == 0 {\r\n\t\treturn nil   // <-- no key configured: every gRPC admin call is accepted\r\n\t}\r\n\t// ... Bearer-token verification, only reached when a key is set\r\n}\r\n```\r\n\r\n- Every IAM method (`PutIdentity` at `:51`, `PutPolicy`, `RemoveIdentity`, …) and `LifecycleDelete` (`weed/s3api/s3api_internal_lifecycle.go:23`) starts with `if err := s3a.checkAdminAuth(ctx); err != nil { return nil, err }`, so all of them are unauthenticated in the default configuration.\r\n\r\nThe signing key comes from `jwt.filer_signing.key` in `security.toml` (or the `WEED_JWT_FILER_SIGNING_KEY` environment variable). A stock deployment ships neither, so the no-op branch is the norm, not an edge case. The doc comment on `checkAdminAuth` describes the empty-key no-op as intentional (\"matching the rest of SeaweedFS's gRPC surface\"), but the other gRPC surfaces it refers to (master, volume, filer) are expected to sit on a trusted network, whereas the S3 gateway is routinely placed next to untrusted workloads precisely because its S3 port is authenticated. The identity store being writable without authentication defeats that boundary.\r\n\r\nNote this is distinct from GHSA-5fx4 (filer IAM gRPC), fixed in 4.46: that advisory's fix gates the calls behind the signing key, but a deployment without a key - the default - remains open, and the S3 gateway's own copy of the cache (`SeaweedS3IamCache`) is reachable on 19000 the same way.\r\n\r\n### Suggested fix\r\n\r\n- Require authentication on these admin gRPC services independently of the filer signing key (for example, refuse the call when no key is configured rather than allowing it), or\r\n- provide an option to disable the S3 gRPC port, and/or bind it to `127.0.0.1` separately from the S3 API bind address, so operators can keep the identity store off the data-plane network.\r\n\r\nDocumenting that `WEED_JWT_FILER_SIGNING_KEY` must be set whenever the S3 gRPC port is reachable would help, but a safe default is preferable.\r\n\r\n\r\n### PoC\r\nDeployment: stock `chrislusf/seaweedfs:4.47` image (index digest `sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882`), `weed server -s3` with one admin identity (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`) and *...",
+  "published_at": "2026-11-09T19:53:19.000Z",
+  "modified_at": "2026-11-09T19:53:19.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.47"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-g96f-g546-47xf",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-g96f-g546-47xf",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-g96f-g546-47xf",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b7dc35491d6422fe91c336d090838c97473f8319129e51b5891318b45ccfa03e",
+  "note": null
+}

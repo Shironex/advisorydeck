@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-2xx9-r3gm-mw87",
+  "aliases": [],
+  "title": "Server-Side JavaScript Execution via Webhook Template Injection",
+  "summary": "### Summary\n\nWebhook URL, header and body templates are rendered with a Handlebars helper pack whose path-resolving helpers walk attacker-supplied property paths outside the template engine's guard. The engine's string-only block on prototype access was bypassed by supplying the path as an array, letting a template reach the JavaScript function constructor and run server-side code.\n\n### Details\n\n`webhookHelpers.ts` compiles webhook templates with Handlebars and registers the bundled helper pack. A guard added for an earlier report rejected a prototype path such as a `constructor` chain only when the path argument was a string. Several helpers resolve their path argument with a property-walk that also accepts an array and joins it with dots, so a path supplied as an array of segments passed the string-only check and resolved to the native function constructor; other helpers in the pack then invoked the value the template had built, compiling and running attacker-supplied code in the server process. Templates are rendered before the outbound request-filtering layer, so both saved webhooks and the hook-test route reached the sink. The guard now normalizes every path argument to the segments the resolver would see, regardless of type, and refuses any helper argument or result that is or contains a function.\n\n### Impact\n\nAn attacker needs an account with the Creator role on a base, since creating, updating and testing a webhook are restricted to that role and above. Through a crafted template the attacker could execute JavaScript in the NocoDB server process, and through it operating-system commands with the server's privileges. Short of code execution, the same primitive could read process-internal values into an outbound request sent to a destination the attacker controls.\n\n### Credit\n\nThis issue was reported by [@seslo82](https://github.com/seslo82). It was independently reported by [@anzal1](https://github.com/anzal1) and [@thakrarsagar](https://github.com/thakrarsagar).",
+  "published_at": "2026-11-02T08:47:49.000Z",
+  "modified_at": "2026-11-02T08:47:49.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-94",
+    "CWE-1336"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2xx9-r3gm-mw87",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2xx9-r3gm-mw87",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2xx9-r3gm-mw87",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7638d96a9e423cafe4b4963b10eb8df67335acc76bdfa5cff48e036eb6ac6348",
+  "note": null
+}

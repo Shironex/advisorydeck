@@ -1,0 +1,59 @@
+{
+  "global": null,
+  "id": "GHSA-rv9x-92g6-9cpf",
+  "repo": {
+    "cve_id": "CVE-2026-61574",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nThe Remote Access Control (RAC) endpoint list returned every configured endpoint to any authenticated user, regardless of which applications they were allowed to access, and the response included connection settings that can hold stored credentials. Separately, a user who could launch one RAC application could open a connection to an endpoint belonging to a different application they were never granted.\r\n\r\n### Patches\r\n\r\nauthentik 2026.5.5 and 2026.2.6 fix this issue.\r\n\r\n### Impact\r\n\r\n**Affected: deployments using the enterprise Remote Access Control provider. Endpoint enumeration affects every such deployment; credential exposure affects any deployment that stores connection credentials for its endpoints. Deployments that do not use Remote Access Control are not affected.**\r\n\r\nThe endpoint listing did not apply the access controls that govern the endpoints themselves, and the connection flow did not confirm that the endpoint being opened belonged to the application it was launched through.\r\n\r\nAny authenticated user could read every endpoint together with its host and any credentials stored on it, and could reach endpoints outside the applications granted to them.\r\n\r\nThis exposes the stored credentials for managed RDP, SSH, and VNC targets and grants interactive access to systems the user was never authorized to reach.\r\n\r\n### Workarounds\r\n\r\nNone. We recommend not relying on Remote Access Control endpoint access rules until you upgrade, and rotating any connection credentials stored for RAC endpoints once you have.\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io)\r\n",
+    "ghsa_id": "GHSA-rv9x-92g6-9cpf",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-rv9x-92g6-9cpf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rv9x-92g6-9cpf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-61574"
+      }
+    ],
+    "published_at": "2026-07-15T13:55:24Z",
+    "references": [],
+    "severity": "high",
+    "summary": "RAC endpoints and their stored credentials are exposed to any authenticated user, and connections can cross application boundaries",
+    "updated_at": "2026-07-16T10:02:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.5.5",
+        "vulnerable_version_range": "<= 2026.5.4"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.6",
+        "vulnerable_version_range": "<= 2026.2.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

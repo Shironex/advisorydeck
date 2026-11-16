@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-cf8x-9m69-3gg3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nA remote, unauthenticated peer can exhaust memory or stall a Bun process that uses HTTP/3. A small request can decode to a very large set of headers, and Bun 1.4.3 and earlier do not limit the decoded size.\n\nThis is the \"Header Accordions\" QPACK amplification attack that FoxIO published on October 20, 2026. The write-up lists Bun as affected.\n\nBun 1.4.4 fixes the bug.\n\n### Details\n\nQPACK is the header compression of HTTP/3. A peer can add one large entry to the dynamic table and then refer to that entry many times, with one byte for each reference. Each reference decodes to a full copy of the entry.\n\n`Bun.serve` advertised a limit of 16 KB for a set of request headers, but it did not enforce the limit. It checked only the size of each single header. It also did not limit the number of fields.\n\nAffected:\n\n- `Bun.serve` with `http3: true`. HTTP/3 is off by default.\n- The HTTP/3 client of `fetch`. `fetch` uses HTTP/3 only when you ask for it, with `fetch(url, { protocol: \"http3\" })` or the `--experimental-http3-fetch` flag. A malicious server can attack the client in the same way.\n\nHTTP/1.1 and HTTP/2 are not affected by this bug.\n\nExecutables built with `bun build --compile` embed the Bun runtime. An executable built with an affected version stays affected until it is rebuilt.\n\n### Impact\n\nDenial of service. No credentials are necessary. In our tests on Bun 1.4.3:\n\n- About 6 MB of traffic made a server with a 2 GB memory limit run out of memory and get killed.\n- One request of about 20 KB stalled the server for more than a minute, and other requests were not answered during that time.\n- A request of about 530 KB kept the server at 100% CPU, and it answered no other requests.\n\nA handler does not need to read the headers. The work happens before Bun calls the handler.\n\n### Patches\n\nUpgrade to Bun 1.4.4, and rebuild any `bun build --compile` executables with it.\n\nBun 1.4.4 enforces a limit on the decoded size of a set of headers, counted as in RFC 9114 section 4.2.2, and limits the number of fields (#46392).\n\nThis changes behavior for large headers over HTTP/3:\n\n- A `Bun.serve` request over the limit (16 KB by default, set with `--max-http-header-size`) gets a `431` response.\n- A much larger request closes the connection.\n- `fetch` over HTTP/3 rejects a response with more than 256 KB of headers.\n\n### Workarounds\n\nDo not enable `http3` on a server that untrusted clients can reach, and do not use the HTTP/3 client of `fetch` with untrusted servers. HTTP/1.1 and HTTP/2 are not affected.\n\n### References\n\n- https://foxio.io/blog/header-accordions-qpack-amplification-attacks-against-http-3-servers\n- https://github.com/oven-sh/bun/issues/46475\n- https://github.com/oven-sh/bun/pull/46392\n\n",
+    "ghsa_id": "GHSA-cf8x-9m69-3gg3",
+    "html_url": "https://github.com/oven-sh/bun/security/advisories/GHSA-cf8x-9m69-3gg3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cf8x-9m69-3gg3"
+      }
+    ],
+    "published_at": "2026-10-24T00:13:31Z",
+    "references": [],
+    "severity": "high",
+    "summary": "HTTP/3 QPACK amplification allows remote memory exhaustion and CPU stall",
+    "updated_at": "2026-10-24T00:13:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "bun"
+        },
+        "patched_versions": "1.4.4",
+        "vulnerable_version_range": ">= 1.3.14, < 1.4.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "oven-sh/bun"
+}

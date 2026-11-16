@@ -1,0 +1,59 @@
+{
+  "id": "GHSA-ch8v-r6jh-4vvr",
+  "aliases": [],
+  "title": "ext/filter: encode 0xFF in FILTER_SANITIZE_ENCODED",
+  "summary": "### Summary\n\n`php_filter_encode_url()` builds a 256-entry lookup table that decides which bytes `FILTER_SANITIZE_ENCODED` percent-encodes, but initialises only the first 255 entries. Entry 255 is read uninitialised, so whether the byte `0xFF` is encoded or passed through depends on whatever happened to be on the stack.\n\n### Details\n\nThe table is filled with `memset(tmp, 1, sizeof(tmp) - 1)`, which leaves `tmp[255]` untouched:\n\nhttps://github.com/php/php-src/blob/php-8.5.9/ext/filter/sanitizing_filters.c#L73\n\nThe filter then consults `tmp[*s]` for every input byte, so for `0xFF` the decision comes from uninitialised stack memory. Every other byte is handled deterministically.\n\nThe fix changes the `memset()` length to `sizeof(tmp)` so the whole table is initialised.\n\n### PoC\n\n```php\n<?php\n$out = filter_var(\"\\xff\\xfeabc\", FILTER_SANITIZE_ENCODED);\necho \"in : \", bin2hex(\"\\xff\\xfeabc\"), \"\\n\";\necho \"out: \", bin2hex($out), \"\\n\";\n```\n\n```\nin : fffe616263\nout: ff254645616263\n```\n\n`0xFE` is percent-encoded as `%FE` while `0xFF` is passed through raw, showing that `tmp[255]` was read uninitialised.\n\n### Impact\n\nThe impact is low. There is no crash and no memory corruption; the only effect is that the `0xFF` byte is sanitised inconsistently, depending on uninitialised stack contents. A downstream consumer that relies on `FILTER_SANITIZE_ENCODED` producing fully percent-encoded output could in principle be affected as part of a longer chain, but the filter provides no such guarantee on its own.\n\nThis issue was fixed publicly in 8.4.25 and 8.5.10 before it was recognised as security relevant, and is backported here to the branches that receive security fixes only.",
+  "published_at": "2026-09-24T10:07:15.000Z",
+  "modified_at": "2026-09-24T10:07:15.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "php",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "8.2.34"
+        },
+        {
+          "introduced": "8.3.0",
+          "fixed": "8.3.35"
+        },
+        {
+          "introduced": "8.4.0",
+          "fixed": "8.4.25"
+        },
+        {
+          "introduced": "8.5.0",
+          "fixed": "8.5.10"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/php/php-src/security/advisories/GHSA-ch8v-r6jh-4vvr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-ch8v-r6jh-4vvr",
+      "url": "https://github.com/php/php-src/security/advisories/GHSA-ch8v-r6jh-4vvr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2555948e65ae5d5c85f49662a7b712a6d2626f99673ac021d72a666927db8185",
+  "note": null
+}

@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-pmgx-g74v-v37g",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nDragonfly validated hash and sorted set listpacks deeply only on the `RESTORE` command path.\r\nRDB file loads and replication full syncs used the same deserializer with shallow validation,\r\nso a malformed listpack that `RESTORE` rejects was accepted silently on those paths. The first\r\npairwise read of the resulting key (`HGETALL`, `ZRANK`) then dereferenced a missing value and\r\ncrashed the process. With a shaped entry length the same walk could instead read past the\r\nallocation and return adjacent heap memory to the client.\r\n\r\n## Details\r\n\r\nThe `deep_integrity` flag was set at exactly one call site in the tree:\r\n\r\n```\r\nsrc/server/generic_family.cc:225   config.deep_integrity = true;   // RESTORE\r\nsrc/server/rdb_load.h:191          bool deep_integrity = false;    // default\r\n```\r\n\r\nEvery other consumer of the same deserializer kept the default:\r\n\r\n```\r\nsrc/server/replica.cc:504          RdbLoader loader(NULL, &load_context);        // PSYNC full sync\r\nsrc/server/replica.cc:1232         rdb_loader_ = make_unique<RdbLoader>(...);    // Dragonfly sync\r\nsrc/server/server_family.cc        RdbLoader loader{&service_, load_context};    // RDB file load\r\n```\r\n\r\nIn `HSetFamily::LoadListpackBlob` the guard added for the `RESTORE` fixes was gated on that flag:\r\n\r\n```c\r\nif (deep && lpLength((uint8_t*)blob.data()) % 2 != 0) {\r\n    LOG(ERROR) << \"Hash listpack has an odd number of entries.\";\r\n    return LoadBlobResult::kCorrupted;\r\n}\r\n```\r\n\r\nWith `deep = 0`, `lpValidateIntegrity` checks only the listpack header, that `total_bytes`\r\nmatches the buffer size and that the final byte is the `LP_EOF` terminator. Individual entries\r\nare never walked, so both an odd entry count and a forged per entry length were accepted.\r\n\r\nThe bounds check that would otherwise catch the walk does not exist in a release build.\r\n`lpAssertValidEntry` in `src/redis/listpack.c` is a plain C `assert`, so under `-DNDEBUG` the\r\nentire `lpValidateNext` call is compiled out:\r\n\r\n```c\r\nstatic inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {\r\n    assert(lpValidateNext(lp, &p, lpbytes));\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nTwo outcomes, both from the same unvalidated walk.\r\n\r\n**Denial of service.** An odd entry or count mismatched listpack loads cleanly and reports\r\nsuccess. The next pairwise read crashes the process with SIGSEGV, losing all in memory data:\r\n\r\n```\r\n*** SIGSEGV received at time=1789508473 on cpu 9 ***\r\nPC: @  0xb23c38  lpGet\r\n    @  0x90aa80  dfly::detail::ListpackWrap::GetView()\r\n    @  0x90aacc  dfly::detail::ListpackWrap::Iterator::Read()\r\n    @  0x90ab08  dfly::detail::ListpackWrap::Iterator::operator++()\r\n    @  0x4de218  dfly::(anonymous namespace)::HGetGeneric()::{lambda()#1}::operator()()\r\n```\r\n\r\n**Information disclosure.** A hash listpack whose declared size exceeds\r\n`max_listpack_map_bytes` is converted through `HSetFamily::ConvertToStrMap`, which copies each\r\nvalue into a `StringMap` that the client can read back. Forging one entry's 32 bit string\r\nlength makes that copy read past the end of the allocation, and the bytes are committed to the\r\nlive hash and returned by a plain `HGETALL`. Measured over 30 single attempt runs delivered by\r\nreplication full sync, at the stock default `listpack_max_bytes` of 1024 and with no other\r\nconfiguration changes, 19 runs returned attacker never supplied heap contents without crashing.\r\nRecovered bytes included live heap pointers.\r\n\r\nNeither path requires authentication. Dragonfly runs without authentication by default.\r\n\r\n## Proof of concept\r\n\r\n45 byte RDB image, loaded from disk:\r\n\r\n```\r\n00000000  52 45 44 49 53 30 30 31 31 fe 00 10 03 70 77 6e  |REDIS0011....pwn|\r\n00000010  13 13 00 00 00 03 00 82 66 31 03 82 76 31 03 82  |........f1..v1..|\r\n00000020  66 32 03 ff ff 00 00 00 00 00 00 00 00           |f2...........|\r\n```\r\n\r\n```\r\ndocker run --rm --ulimit memlock=-1 -p 6399:6379 -v /tmp/dfpoc:/data \\\r\n  docker.dragonflydb.io/dragonflydb/dragonfly:latest \\\r\n  --dir /data --dbfilename crash.rdb --nodf_snapshot_format\r\n\r\nredis-cli -p 6399 HGETALL pwn\r\n```\r\n\r\n```\r\nTYPE pwn      -> hash      # accepted at load, \"Load finished, num keys read: 1\"\r\nHLEN pwn      -> 1         # 3 listpack entries, halved\r\nHGETALL pwn   -> connection closed\r\ncontainer exit 139\r\n```\r\n\r\nThe listpack blob is the payload from Dragonfly's own `RestoreRejectsOddHashListpack`\r\nregression test in `src/server/generic_family_test.cc`, minus the 10 byte `DUMP`/`RESTORE`\r\nfooter that an RDB stream does not carry.\r\n\r\nThe same payload delivered over a replication full sync from a host acting as master reproduces\r\nthe identical crash on the replica, since `replica.cc:504` builds the loader the same way.\r\n\r\n## Affected versions\r\n\r\nAll releases up to and including v2.0.0. Please confirm the lower bound against your own\r\nrelease history.\r\n\r\n## Patches\r\n\r\nFixed by commit `47768113` (PR #8328), merged 2026-09-17. `HSetFamily::LoadListpackBlob` and\r\n`ZSetFamily::LoadListpackBlob` now validate deeply on every load path rather than only under\r\n`deep_integrity`, which also makes `lpLength` exact so the odd count check is safe and the\r\n`0xffff` unknown count sentinel is handled correctly.\r\n\r\nAt the time of writing the fix is on `main` and has not yet shipped in a release, so v2.0.0\r\nremains affected.\r\n\r\n## Workarounds\r\n\r\nNo configuration option disables the affected code path. Until a patched release is available:\r\n\r\n- Do not start Dragonfly against an RDB file from an untrusted source, and restrict write\r\n  access to the snapshot directory to the account Dragonfly runs as.\r\n- Do not point an instance at a replication master you do not control. Protect replication\r\n  links so they cannot be intercepted or redirected.\r\n- Require authentication so an unauthenticated client cannot issue `REPLICAOF`.\r\n\r\n## Severity\r\n\r\nSuggested vector for the replication delivered case:\r\n\r\n`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:H` (9.1, Critical)\r\n\r\nIf you consider the need to occupy or intercept the master position a genuine complexity\r\nbarrier, the same vector with `AC:H` gives 7.4, High. Both readings are defensible and the\r\nchoice is yours. The RDB file variant is a separate, local vector.\r\n\r\n## Credit\r\n\r\nFound by Project Apex. Reviewed by Will at zauth.",
+    "ghsa_id": "GHSA-pmgx-g74v-v37g",
+    "html_url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-pmgx-g74v-v37g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pmgx-g74v-v37g"
+      }
+    ],
+    "published_at": "2026-09-23T10:32:38Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Malformed hash/zset listpack in an RDB image crashes the server and can leak heap memory",
+    "updated_at": "2026-09-23T10:32:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=2.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dragonflydb/dragonfly"
+}

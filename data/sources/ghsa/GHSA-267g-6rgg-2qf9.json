@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-267g-6rgg-2qf9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe public shared-view relation endpoints confirmed that the parent record named in the URL existed in the table, but not that it survived the view's row filters, so an anonymous caller could read relation data hanging off records the shared view was configured to hide.\n\n### Details\n\nThe relation handlers in `public-datas.service.ts` resolved the parent record with a plain primary-key read in `BaseModelSqlv2.ts`. That read applied the model's primary-key lookup and the usual soft-delete handling, but not the view's root filter list, unlike the list and count paths on the same share, which do apply it. The has-many, many-to-many, link, and one-many routes registered in `public-datas.controller.ts` all reached that same check, so any record id in the underlying table could be supplied as the parent of a relation read regardless of whether the view's filters excluded it. The retry path used for formula columns carried the same weakness, so it could not fail closed either.\n\n### Impact\n\nAn attacker holding only the public share link could substitute the id of a filtered-out record - trivially guessable, since record ids default to an auto-incrementing integer - and retrieve the child records linked to it, defeating the row filters that define what a shared view is allowed to publish. No authentication is required.\n\n### Credit\n\nThis issue was reported by [@XlabAITeam](https://github.com/XlabAITeam), [@keenanwgn](https://github.com/keenanwgn), [@liangjs](https://github.com/liangjs) and [@A7um](https://github.com/A7um).\n",
+    "ghsa_id": "GHSA-267g-6rgg-2qf9",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-267g-6rgg-2qf9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-267g-6rgg-2qf9"
+      }
+    ],
+    "published_at": "2026-11-02T08:46:51Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Row Filter Bypass via Shared View Relation Endpoints",
+    "updated_at": "2026-11-02T08:46:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

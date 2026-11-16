@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-f78f-ghjf-hrx2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-303"
+    ],
+    "description": "## Summary\n\nLogto skips the mandatory second factor for a sign-in whenever the interaction holds a verified\n**enterprise SSO** or **sign-in passkey** verification record, without checking that the record is\nthe one the interaction identified its account with. The same unchecked condition also exempts the\ninteraction from the mandatory MFA **enrollment** requirement.\n\nAn attacker who holds a first factor for the target account - a leaked or phished password, for\nexample - and who can place one verified enterprise SSO or sign-in passkey record in the same\ninteraction therefore completes the sign-in without the account holder's second factor, and a\nsession is issued for the target account.\n\n## Details\n\nAll references are in `packages/core/src/routes/experience/`.\n\nThe tenant MFA policy is applied at two points in `classes/experience-interaction.ts`, and both\ntested only whether such a record was present:\n\n- `isMfaGateFulfilled()`, consulted by `guardMfaVerificationStatus()`, which decides whether a\n  second factor has to be verified. It returned before the interaction's account was resolved at\n  all.\n- the `assertMfaFulfilled()` condition in `submit()`, which decides whether an account under a\n  mandatory policy has to enroll a factor before a session is issued.\n\nBoth read `hasVerifiedSsoIdentity` and `hasVerifiedSignInPasskey`, each of which was\n`Boolean(record?.isVerified)` over the interaction's verification records, with no reference to the\naccount being signed in. The social identity record carried the same presence-only reading, where\nthe mandatory profile requirement reads it.\n\n`EnterpriseSsoVerification.isVerified`\n(`classes/verifications/enterprise-sso-verification.ts`) is `Boolean(enterpriseSsoUserInfo &&\nissuer)`. That class carries no user at all, so such a record counts as verified on the strength of\nthe assertion alone - whoever it belongs to, and whether or not it resolves to any Logto account.\nA `SignInPasskey` record does name the credential's owner, but the policy never compared it.\n\nThe verification records are retained across a change of interaction event, by design: a\nregistration that follows a failed sign-in creates the account from the record the sign-in already\nverified. A first-factor record is never re-bound afterwards. Presence was therefore not a safe\nproxy for the account under any ordering, and a record left behind by an earlier identification in\nthe same interaction could reach the policy as well.\n\nFor contrast, the second-factor records already carried this rule:\n`MfaValidator.getVerifiedMfaVerificationRecords` requires an affirmative owner, and the WebAuthn\nMFA route asserts `identifiedUserId === webAuthnVerification.userId`. Enterprise SSO and sign-in\npasskey are first-factor records and reach neither.\n\nReproduced at runtime against the experience API, as integration tests in Logto's own harness: an\naccount under a mandatory TOTP policy is challenged for its second factor on a password sign-in,\nand is not challenged when such a record is present.\n\n## Impact\n\nAn account protected by a mandatory MFA policy can be signed into with only a first factor for it\n- the exact compromise MFA is deployed to survive. Any tenant that enforces MFA and has enterprise\nSSO or passkey sign-in enabled is affected.\n\nThe preconditions are lower than the code might suggest. Besides a first factor for the target\naccount, the attacker needs one of:\n\n- **Enterprise SSO** - a valid assertion from a provider the tenant has configured. It does not\n  have to resolve to a Logto account, because such a record is verified without resolving to a\n  user.\n- **Sign-in passkey** - a passkey they control, registered on an account in the same tenant.\n\nApplies to the `/api/experience/*` interaction API. The deprecated `/api/interaction/*` surface is\nnot affected.\n\n## Patches\n\nFixed in 1.46.0.\n\nA verified enterprise SSO or sign-in passkey record now counts for the MFA policy only when it is\nthe record this interaction established its account with: the record that identified an account\nthat already existed, or the record the account was created from. A sign-in passkey record must\nadditionally name that account. Both policy points read the same rule, so a record established for\none account can no longer stand in for another account's second factor, under any ordering, and a\nrecord left behind by an earlier identification no longer counts.\n\nThe same rule was applied to the social identity record that the mandatory profile requirement\nreads, so a verified social record that identified nobody no longer waives another account's\nrequired profile fields.\n\nEnterprise SSO just-in-time provisioning is unchanged: the record an account is created from\ncarries its proof before the profile requirement is evaluated. Enterprise SSO sign-in, passkey\nsign-in and step-up are likewise unchanged.\n\nVerified against the patched release by the integration tests that reproduced the report: under a\nmandatory TOTP policy, a password sign-in is answered with `403\nsession.mfa.require_mfa_verification` when the enterprise SSO record identified nobody, when it\noutlived a change of interaction event, and when the identification with it was refused; and with\n`422 user.missing_mfa` where the account has no factor enrolled.\n\n## Credits\n\nReported by @bayramshirinov, including the follow-up report of the additional route described\nabove.\n",
+    "ghsa_id": "GHSA-f78f-ghjf-hrx2",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-f78f-ghjf-hrx2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f78f-ghjf-hrx2"
+      }
+    ],
+    "published_at": "2026-11-09T07:01:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "MFA bypass: a verified enterprise-SSO or sign-in-passkey verification record not bound to the identified user skips the mandatory second factor",
+    "updated_at": "2026-11-09T07:01:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": "<= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

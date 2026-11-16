@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-rqch-9jrh-cr8w",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Supabase node inserted the tableId parameter into the request path without validation, and the parameter accepts expressions, so it could be bound to untrusted input. A traversal sequence reached Supabase's Auth and Storage APIs carrying the administrative serviceRole key, which bypasses Row Level Security; a query separator let injected text widen column projections and row filters, including on update and delete. All five row operations are affected.\n\nOnly workflows that bind tableId to untrusted input are exploitable.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.80, 2.39.6, and 2.40.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Audit all workflows using the Supabase node and ensure the table name parameter is not bound to an expression referencing external or untrusted input.\n- Disable the Supabase node by adding `n8n-nodes-base.supabase` to the `NODES_EXCLUDE` environment variable if it is not required.\n- Rotate the Supabase `serviceRole` key for any instance where a vulnerable workflow configuration may have been exposed.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-rqch-9jrh-cr8w",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-rqch-9jrh-cr8w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rqch-9jrh-cr8w"
+      }
+    ],
+    "published_at": "2026-09-16T08:23:40Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Path Traversal and Query Injection via the Supabase Node Table Name",
+    "updated_at": "2026-09-16T08:23:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.80",
+        "vulnerable_version_range": "< 1.123.80"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.40.1",
+        "vulnerable_version_range": "< 2.40.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.39.6",
+        "vulnerable_version_range": "< 2.39.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

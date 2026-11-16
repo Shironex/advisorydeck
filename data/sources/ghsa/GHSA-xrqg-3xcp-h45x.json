@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-xrqg-3xcp-h45x",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Supabase node's \"Filters (String)\" mode inserted its field into the query sent to the database with no escaping, and the field accepts expressions. Where a workflow builds it from untrusted input, whoever controls that input could widen the filter beyond the intended row: reading every row in the table, updating them all, or deleting them all. Confirmed for read and for delete, where a single request emptied the table.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.80, 2.39.6, and 2.40.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Audit all workflows using the Supabase node's `Filters (String)` mode and identify any where the filter value is built from an expression referencing external or untrusted data.\n- Replace `Filters (String)` with the `Build Manually` filter mode, which uses parameterized filter construction and is not affected by this issue.\n- Restrict access to any workflow triggers (e.g. webhooks) that feed untrusted data into a Supabase `Filters (String)` field.\n- Restrict n8n instance access to fully trusted users only.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-xrqg-3xcp-h45x",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-xrqg-3xcp-h45x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xrqg-3xcp-h45x"
+      }
+    ],
+    "published_at": "2026-09-16T08:23:16Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Supabase Node Filters (String) Mode Allows PostgREST Filter Injection",
+    "updated_at": "2026-09-16T08:23:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.80",
+        "vulnerable_version_range": "< 1.123.80"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.40.1",
+        "vulnerable_version_range": "< 2.40.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.39.6",
+        "vulnerable_version_range": "< 2.39.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-h3mp-7wcg-p6vj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\n\nSurrealDB's JWKS preflight and redirect policy use `Url::port()`. That method returns `None` when an HTTP or HTTPS URL uses its implicit default port. The checked `NetTarget` therefore loses the effective port, and a rule such as `deny-net 127.0.0.1:80` or `deny-net internal.example:443` does not match. A database Owner can make SurrealDB send a JWKS GET to the explicitly denied service.\n\nThe issue is present in v3.2.0 and current main. It is a JWKS-path sibling of the earlier port-specific redirect policy issue, and remains after the v3.2.0 JWKS DNS and redirect hardening.\n\n## Impact\n\nA database Owner can configure a JWT or record access method with a JWKS URL targeting an implicitly addressed default port that the process operator explicitly denied. SurrealDB sends a server-side GET across that network policy boundary. The response remains blind and is parsed only as JWKS, but the primitive permits denied internal host/service reachability, timing or JWKS-parse-success inference, and interaction with internal GET endpoints on port 80 or 443.\n\n## Reproduction\n\nA focused test binds a valid JWKS canary to loopback port 80, constructs a datastore with all network targets allowed except `127.0.0.1:80`, and calls the real JWKS `config()` path with `http://127.0.0.1/jwks.json`. It runs in a Linux user/network namespace so the test process can bind port 80 without host privileges.\n\n```bash\nunshare -Urn sh -c 'ip link set lo up; cargo test -p surrealdb-core --lib --features jwks iam::jwks::tests::test_deny_specific_implicit_default_port_e2e_canary -- --nocapture'\n```\n\nThe unmodified v3.2.0 behavior produces:\n\n```text\ndeny-net=127.0.0.1:80 implicit_url result_ok=true canary_hit=true\nBUG: denied loopback:80 JWKS endpoint was fetched\n```\n\nA positive control with `deny-net 127.0.0.1:8080` and an explicit `:8080` URL is rejected because the non-default port remains present.\n\n## Root cause\n\n`check_capabilities_url()` in `surrealdb/core/src/iam/jwks.rs` builds `host[:port]` with `url_parsed.port()`. The redirect policy repeats the same operation with `attempt.url().port()`. For default ports these return `None`, so capability matching receives only the host. `NetTarget::Host(host, Some(port))` deny rules require a target carrying the same port and therefore do not match.\n\nThe shared DNS resolver cannot restore the decision because reqwest gives it only a DNS name, then it checks host-only and IP-only targets. The general protected HTTP client already avoids this issue by using `url.port_or_known_default()`.\n\n## Remediation\n\nUse `port_or_known_default()` in both the initial JWKS URL check and the JWKS redirect policy. Add direct and redirect regression tests for implicit HTTP port 80 and HTTPS port 443 under matching port-specific deny rules. The two-line change made the same end-to-end canary produce `result_ok=false canary_hit=false`.",
+    "ghsa_id": "GHSA-h3mp-7wcg-p6vj",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-h3mp-7wcg-p6vj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h3mp-7wcg-p6vj"
+      }
+    ],
+    "published_at": "2026-10-19T08:51:43Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "JWKS fetch bypasses port-specific deny-net rules on implicit default ports",
+    "updated_at": "2026-10-19T08:51:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.1.0, < 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,78 @@
+{
+  "global": null,
+  "id": "GHSA-w8hw-w9fx-j79w",
+  "repo": {
+    "cve_id": "CVE-2026-109618",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-1325",
+      "CWE-1419",
+      "CWE-416",
+      "CWE-755",
+      "CWE-824"
+    ],
+    "description": "## Summary\r\n\r\nPHP uses `longjmp()` for out-of-memory (OOM) errors to exit the current context and abort handling of the request. In some contexts, request memory is temporarily reachable before it is fully initialized. If any allocation fails at that point, PHP does not properly account for the early exit and leaves the request memory in an invalid state. The failed allocation does not need to be related to the invalid memory. The request shutdown procedure may then read or branch on it. Multiple OOM strategies can consistently trigger this condition and lead to remote code execution (RCE).\r\n\r\n## Vulnerability\r\n\r\n### OOM strategies\r\n\r\nSeveral multipart parsing problems can let a request reach OOM while remaining within its apparent PHP limits:\r\n\r\n- A multipart request without a usable declared content length may pass the initial `post_max_size` check and continue supplying decoded body data.\r\n- A multipart part can contain an unrestricted number of headers. Representing these headers inside PHP can use substantially more memory than their wire representation, allowing a request within `post_max_size` to exhaust the normal `memory_limit`.\r\n- Empty file controls do not count towards `max_file_uploads` but still create the normal file metadata arrays. Nested field names multiply the generated array work.\r\n\r\nOOM can also be reached in application-specific ways when attacker-controlled input causes a sufficiently large allocation or repeated memory use.\r\n\r\n### Susceptibility\r\n\r\nApache mod_php unconditionally invokes the request shutdown procedure, even when request startup has failed. During request startup, automatic body parsing can exhaust the configured memory limit and exit the request in a context where state is temporarily invalid. Shutdown then processes this invalid state. This happens entirely before any application-specific code begins execution.\r\n\r\nFPM exits the child when request startup fails. This prevents consumption of the invalid state and removes the child from the pool. After normal startup, OOM may still be reached in a context failing to account for an early exit, with the invalid state being processed during request shutdown. Source analysis therefore supports FPM as susceptible, though no complete FPM exploit has been demonstrated for this SAPI.\r\n\r\nSource analysis indicates that FrankenPHP, analogous to Apache mod_php, calls the request shutdown procedure unconditionally, making it likely susceptible to application-independent attacks. LSAPI models FPM, with application-specific exploits being likely but unvalidated.\r\n\r\n## Mitigation\r\n\r\nThe patch removes `longjmp()` for OOM, avoiding an early exit out of contexts that do not properly account for it. It is replaced with a delayed, graceful soft OOM triggered at the next VM safe point, and an immediate hard OOM using `_exit()` if memory consumption reaches a second, higher threshold. The shutdown procedure will no longer see invalid state, and PHP's normal ability to limit memory consumption is retained.\r\n\r\n> [!WARNING]\r\n> Updating to a PHP release containing the patch to this vulnerability is the _only_ complete mitigation.\r\n\r\nFor installations that cannot update, setting and enforcing `memory_limit=-1` administratively is the primary configuration mitigation. It removes the predictable per-request limit that enables the confirmed exploit with a controllable OOM. This is not a complete mitigation. If `mmap()` or another underlying allocation fails, PHP can still use `longjmp()` while incomplete request memory is reachable. Restart every PHP worker and confirm that no pool, directory or application setting restores a finite PHP memory limit.\r\n\r\nKeep `post_max_size` conservative and independently enforce the decoded request size at the frontend. Reduce `max_input_nesting_level`, and bound the number of input variables, multipart parts, headers within each part and uploads. These controls reduce hard OOM and denial of service risk even after applying the patch, but do not replace updating. If the application does not use multipart form data, block such requests at the frontend before they reach PHP.\r\n\r\nA container or cgroup memory limit (`memory.max`) may provide an alternative to PHP's own `memory_limit` with some limitations. It is not guaranteed to prevent allocation failure and is not a complete mitigation. For example, killing a container or cgroup can also kill the master and every worker, unless each worker has its own group. Killing one FPM child fails only its current requests and FPM's master replaces it quickly. Do _not_ use `RLIMIT_AS` or `RLIMIT_DATA`, as these will cause `mmap()` to fail once the memory limit is reached, triggering the vulnerable `longjmp()` path.\r\n\r\n**Important**: Make sure to also follow the remediation advice from the related report.\r\nhttps://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp\r\n\r\n## Impact and reliability\r\n\r\nThe confirmed impact is unauthenticated remote code execution as the web worker account. Complete remote code execution was validated over HTTP against mod_php with default PHP input and memory limits and normal prefork configurations with multiple workers. Additional workers and unrelated traffic can increase the required number of attempts but do not remove the condition. Exploit portability and reliability depend on the PHP build, extensions, frontend behavior and allocator layout.\r\n",
+    "ghsa_id": "GHSA-w8hw-w9fx-j79w",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w8hw-w9fx-j79w"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109618"
+      }
+    ],
+    "published_at": "2026-10-21T13:34:25Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "RCE via OOM corruption",
+    "updated_at": "2026-11-03T22:10:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.2.35",
+        "vulnerable_version_range": "< 8.2.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.3.36",
+        "vulnerable_version_range": "< 8.3.36"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.4.27",
+        "vulnerable_version_range": "< 8.4.27"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.5.12",
+        "vulnerable_version_range": "< 8.5.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

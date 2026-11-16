@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-47379",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-203"
+    ],
+    "description": "### Summary\nThe shared-view password check fell back to strict-equality (`===`) comparison for\nlegacy plaintext passwords, leaking the password's length and per-character prefix\nthrough response timing.\n\n### Details\nThe bcrypt branch (hashes starting with `$2a$`/`$2b$`) was unaffected. The legacy\nfallback in `View.ts` now uses `crypto.timingSafeEqual` and a same-length dummy\ncompare on the length-mismatch path, so total comparison time is approximately\nlength-independent. The EE dashboard model's `verifyPassword` is patched the same way.\n\n### Impact\nA network-positioned attacker could mount a timing oracle against shared views whose\npasswords predated the bcrypt migration. Exploitation requires the ability to time\nshared-view authentication responses but no prior authentication.\n\n### Credit\nThis issue was reported by [@Proscan-one](https://github.com/Proscan-one).",
+    "ghsa_id": "GHSA-qhxg-623c-cfjm",
+    "html_url": "https://github.com/advisories/GHSA-qhxg-623c-cfjm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qhxg-623c-cfjm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47379"
+      }
+    ],
+    "published_at": "2026-06-05T16:03:33Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-qhxg-623c-cfjm",
+      "https://github.com/nocodb/nocodb/releases/tag/2026.05.1",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-47379",
+      "https://github.com/advisories/GHSA-qhxg-623c-cfjm"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Plaintext Password Comparison in Shared Views",
+    "updated_at": "2026-07-20T21:17:41Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2026.05.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-qhxg-623c-cfjm",
+  "repo": {
+    "cve_id": "CVE-2026-47379",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\nThe shared-view password check fell back to strict-equality (`===`) comparison for\nlegacy plaintext passwords, leaking the password's length and per-character prefix\nthrough response timing.\n\n### Details\nThe bcrypt branch (hashes starting with `$2a$`/`$2b$`) was unaffected. The legacy\nfallback in `View.ts` now uses `crypto.timingSafeEqual` and a same-length dummy\ncompare on the length-mismatch path, so total comparison time is approximately\nlength-independent. The EE dashboard model's `verifyPassword` is patched the same way.\n\n### Impact\nA network-positioned attacker could mount a timing oracle against shared views whose\npasswords predated the bcrypt migration. Exploitation requires the ability to time\nshared-view authentication responses but no prior authentication.\n\n### Credit\nThis issue was reported by [@Proscan-one](https://github.com/Proscan-one).\n",
+    "ghsa_id": "GHSA-qhxg-623c-cfjm",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-qhxg-623c-cfjm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qhxg-623c-cfjm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47379"
+      }
+    ],
+    "published_at": "2026-06-04T09:46:27Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Plaintext Password Comparison in Shared Views",
+    "updated_at": "2026-06-04T09:46:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

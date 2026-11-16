@@ -1,0 +1,89 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "A field can be hidden from a user with a field-level SELECT permission (`DEFINE FIELD code ON secret PERMISSIONS FOR select WHERE owner = $auth.id`). When that field is indexed, a record user who cannot read it could still recover the relative ordering of its values across every record by issuing `ORDER BY <field>`: the field came back `null` as intended, but the rows were returned in the hidden values' true sorted order.\n\nTo satisfy the sort, the planner selects the field's index and walks it in value order; the field-level permission is applied later, when the row is projected, so the value is nulled but the row order already encodes it. The guard that withholds restricted fields from the `WHERE` path was never applied to `ORDER BY`.\n\n## Impact\n\nWhat an attacker **can** do:\n\n- As a record (scope) user with table SELECT, learn the relative ordering of a field hidden by a field-level SELECT permission, across other users' records, by ordering on it when an index covers the field - the value returns `null`, but the rows come back in the hidden values' order.\n- With rows they control in the same table, use that ordering to narrow the hidden values toward exact ones.\n\nWhat it **can't** do:\n\n- Read the field value directly - only its relative ordering leaks; the projected value is correctly redacted.\n- Cross table, record, or namespace/database boundaries - the table's SELECT permission and any row-level `WHERE` are still enforced, so only records the caller may already read are ordered.\n- Leak anything when the restricted field is not indexed, affect root or record-owner sessions, or modify data (confidentiality only).\n\n## Patches\n\nThe query planner now applies the field-permission guard to the `ORDER BY` clause as well as the `WHERE` clause. When an ordered field is hidden from the caller by a field-level SELECT permission, the index sort pushdown is withheld and the rows are sorted after redaction instead, so the row order no longer reflects the hidden values. The dynamic-scan fallback is closed the same way, and a regression test was added.\n\nThe fix is included in SurrealDB 3.1.5.\n\n## Workarounds\n\nUsers unable to upgrade are advised to consider the following:\n\n- Force the legacy executor with `SURREAL_PLANNER_STRATEGY=compute-only`; the sort then runs after redaction, so no ordering leaks.\n- Do not place an index on a field whose values are hidden by a field-level SELECT permission - without the index the leak does not occur.\n- Do not rely on field-level SELECT permissions to hide values on indexed fields from record users; restrict at the table level instead.\n- Use namespace / database isolation as the primary trust boundary where feasible.\n\n## References\n\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [SurrealQL Documentation - DEFINE INDEX](https://surrealdb.com/docs/surrealql/statements/define/indexes)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- Related advisory (same class, indexed COUNT variant): [GHSA-c8jx-96c9-8xrp](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-c8jx-96c9-8xrp)\n- `fix(planner): prevent ORDER BY value-ordering oracle on restricted SELECT fields`\n- `fix(planner): close ORDER BY value-ordering oracle on the DynamicScan fallback`\n\n## Acknowledgements\n\nThanks to George Chen ([@geo-chen](https://github.com/geo-chen)) for finding and reporting this issue.",
+    "ghsa_id": "GHSA-h4h3-3rfj-x6fq",
+    "html_url": "https://github.com/advisories/GHSA-h4h3-3rfj-x6fq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h4h3-3rfj-x6fq"
+      }
+    ],
+    "published_at": "2026-06-19T22:10:50Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-h4h3-3rfj-x6fq",
+      "https://github.com/advisories/GHSA-h4h3-3rfj-x6fq"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Indexed ORDER BY leaks the value ordering of a SELECT-restricted field",
+    "updated_at": "2026-06-19T22:10:53Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.5",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": ">= 3.0.0, < 3.1.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-h4h3-3rfj-x6fq",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "A field can be hidden from a user with a field-level SELECT permission (`DEFINE FIELD code ON secret PERMISSIONS FOR select WHERE owner = $auth.id`). When that field is indexed, a record user who cannot read it could still recover the relative ordering of its values across every record by issuing `ORDER BY <field>`: the field came back `null` as intended, but the rows were returned in the hidden values' true sorted order.\r\n\r\nTo satisfy the sort, the planner selects the field's index and walks it in value order; the field-level permission is applied later, when the row is projected, so the value is nulled but the row order already encodes it. The guard that withholds restricted fields from the `WHERE` path was never applied to `ORDER BY`.\r\n\r\n## Impact\r\n\r\nWhat an attacker **can** do:\r\n\r\n- As a record (scope) user with table SELECT, learn the relative ordering of a field hidden by a field-level SELECT permission, across other users' records, by ordering on it when an index covers the field - the value returns `null`, but the rows come back in the hidden values' order.\r\n- With rows they control in the same table, use that ordering to narrow the hidden values toward exact ones.\r\n\r\nWhat it **can't** do:\r\n\r\n- Read the field value directly - only its relative ordering leaks; the projected value is correctly redacted.\r\n- Cross table, record, or namespace/database boundaries - the table's SELECT permission and any row-level `WHERE` are still enforced, so only records the caller may already read are ordered.\r\n- Leak anything when the restricted field is not indexed, affect root or record-owner sessions, or modify data (confidentiality only).\r\n\r\n## Patches\r\n\r\nThe query planner now applies the field-permission guard to the `ORDER BY` clause as well as the `WHERE` clause. When an ordered field is hidden from the caller by a field-level SELECT permission, the index sort pushdown is withheld and the rows are sorted after redaction instead, so the row order no longer reflects the hidden values. The dynamic-scan fallback is closed the same way, and a regression test was added.\r\n\r\nThe fix is included in SurrealDB 3.1.5.\r\n\r\n## Workarounds\r\n\r\nUsers unable to upgrade are advised to consider the following:\r\n\r\n- Force the legacy executor with `SURREAL_PLANNER_STRATEGY=compute-only`; the sort then runs after redaction, so no ordering leaks.\r\n- Do not place an index on a field whose values are hidden by a field-level SELECT permission - without the index the leak does not occur.\r\n- Do not rely on field-level SELECT permissions to hide values on indexed fields from record users; restrict at the table level instead.\r\n- Use namespace / database isolation as the primary trust boundary where feasible.\r\n\r\n## References\r\n\r\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\r\n- [SurrealQL Documentation - DEFINE INDEX](https://surrealdb.com/docs/surrealql/statements/define/indexes)\r\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- Related advisory (same class, indexed COUNT variant): [GHSA-c8jx-96c9-8xrp](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-c8jx-96c9-8xrp)\r\n- `fix(planner): prevent ORDER BY value-ordering oracle on restricted SELECT fields`\r\n- `fix(planner): close ORDER BY value-ordering oracle on the DynamicScan fallback`\r\n\r\n## Acknowledgements\r\n\r\nThanks to George Chen ([@geo-chen](https://github.com/geo-chen)) for finding and reporting this issue.\r\n",
+    "ghsa_id": "GHSA-h4h3-3rfj-x6fq",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-h4h3-3rfj-x6fq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h4h3-3rfj-x6fq"
+      }
+    ],
+    "published_at": "2026-06-19T17:30:35Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Indexed ORDER BY leaks the value ordering of a SELECT-restricted field",
+    "updated_at": "2026-06-19T17:30:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.5",
+        "vulnerable_version_range": ">= 3.0.0, < 3.1.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

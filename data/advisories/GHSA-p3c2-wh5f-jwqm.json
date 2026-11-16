@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-p3c2-wh5f-jwqm",
+  "aliases": [],
+  "title": "GraphQL WebSocket upgrade omits frame and message size limits enabling memory amplification",
+  "summary": "## Summary\n\nThe SurrealDB server's GraphQL WebSocket endpoint at `GET /graphql` upgrades incoming connections without applying any of the operator-configurable frame, message, or buffer size limits (`SURREAL_WEBSOCKET_MAX_MESSAGE_SIZE`, `SURREAL_WEBSOCKET_READ_BUFFER_SIZE`, `SURREAL_WEBSOCKET_WRITE_BUFFER_SIZE`, `SURREAL_WEBSOCKET_MAX_WRITE_BUFFER_SIZE`) that are applied to the `/rpc` and `/sql` upgrade handlers. As a result the endpoint inherits the underlying tungstenite library's permissive defaults (16 MiB per frame, 64 MiB per message, unbounded write buffer) regardless of what the operator configured. For any deployment that has `DEFINE CONFIG GRAPHQL` set on at least one database, an unauthenticated network client that supplies the target namespace and database in request headers can hold up to 64 MiB of in-flight bytes per concurrent connection, exhausting server memory and degrading availability for every endpoint served by the same process.\n\n## Root Cause\n\nThe server exposes three WebSocket upgrade handlers under different HTTP routes. The handlers for `/rpc` and `/sql` explicitly propagate the shared `WEBSOCKET_*` capacity constants onto the axum `WebSocketUpgrade`, so the underlying tungstenite `WebSocketConfig` observes the operator's configured limits before any bytes are accepted from the socket. The GraphQL WebSocket handler does not perform any of those calls, so tungstenite falls back to its library defaults (max frame size 16 MiB, max message size 64 MiB, max write buffer `usize::MAX`) even when the operator has explicitly lowered `SURREAL_WEBSOCKET_MAX_MESSAGE_SIZE`. The security invariant that \"operator-configured per-connection frame and buffer limits apply to every WebSocket endpoint the server exposes\" is violated because the GraphQL upgrade builder never binds any of those constants.\n\nThe affected upgrade path is the `GET` handler registered in `server/src/ntw/graphql.rs`:\n\n```rust\n// server/src/ntw/graphql.rs:23-72 (relevant excerpt)\npub fn router() -> Router<Arc<RpcState>> {\n    Router::new().route(\"/graphql\", get(ws_handler).post_service(GraphQLService::new()))\n}\n\nasync fn ws_handler(\n    ws: WebSocketUpgrade,\n    ...\n) -> impl IntoResponse {\n    // ... capability + session checks ...\n    ws.protocols(ALL_WEBSOCKET_PROTOCOLS).on_upgrade(move |socket| async move {\n        serve_graphql_ws(socket, schema, protocol, data).await;\n    })\n}\n```\n\nFor contrast, the sibling handler at `server/src/ntw/sql.rs:105-115` binds all five limits before `on_upgrade`:\n\n```rust\nws\n    .max_frame_size(*WEBSOCKET_MAX_MESSAGE_SIZE)\n    .max_message_size(*WEBSOCKET_MAX_MESSAGE_SIZE)\n    .read_buffer_size(*WEBSOCKET_READ_BUFFER_SIZE)\n    .write_buffer_size(*WEBSOCKET_WRITE_BUFFER_SIZE)\n    .max_write_buffer_size(*WEBSOCKET_MAX_WRITE_BUFFER_SIZE)\n    .on_failed_upgrade(...)\n    .on_upgrade(move |socket| handle_socket(state, socket, sess))\n```\n\nThe equivalent binding block is present at `server/src/ntw/rpc.rs:110-122` and absent from `server/src/ntw/graphql.rs`. The `cnf::WEBSOCKET_*` constants (and any operator override sourced from `SURREAL_WEBSOCKET_MAX_MESSAGE_SIZE`) are never referenced from the GraphQL upgrade file.\n\n## Impact\n\nAny deployment that ships the default `graphql` feature and has configured at least one database with `DEFINE CONFIG GRAPHQL` is exposed. No credentials are required to reach the vulnerable upgrade: the server's auth middleware silently produces an anonymous session when neither `Authorization: Basic` nor `Authorization: Bearer` is presented, and the GraphQL schema generation path opens a raw read transaction without invoking `check_anon` or any related capability check. The attacker only needs the namespace and database names, which are typically application configuration rather than secrets.\n\nOnce upgraded, each connection can pin up to 64 MiB of in-flight bytes in the tungstenite per-message reassembly buffer, plus additional memory in the unbounded write buffer if the server produces respo...",
+  "published_at": "2026-11-03T15:51:06.000Z",
+  "modified_at": "2026-11-03T15:51:06.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-770"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-p3c2-wh5f-jwqm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-p3c2-wh5f-jwqm",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-p3c2-wh5f-jwqm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

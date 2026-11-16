@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-4r56-g65c-fm83",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:H/SA:L"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nn8n's credential check did not inspect the inline workflow JSON of every node type that executes an inline sub-workflow, so a reference to a credential the acting user does not hold was accepted and persisted, on both the workflow-update and workflow-creation paths. An editor on a shared workflow, or any user creating a workflow through the REST API, Public API, or MCP, could plant such a node; when the workflow was later executed under an identity that does hold the credential, the inline sub-workflow resolved the secret and could send it to an attacker-controlled endpoint. The credential was never shared with the attacker.\n\n## Patches\n\nThe issue has been fixed in n8n versions 2.35.4 and 2.36.2. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict workflow sharing to fully trusted users only, and avoid granting Editor access to untrusted users on shared workflows.\n- Restrict n8n instance access to fully trusted users only.\n- Audit shared workflows for unexpected Workflow Tool nodes with inline sub-workflows referencing credentials not owned by the editor, and rotate any credentials that may have been exposed.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-4r56-g65c-fm83",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-4r56-g65c-fm83",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4r56-g65c-fm83"
+      }
+    ],
+    "published_at": "2026-08-19T12:31:46Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Shared-Workflow Editor Can Exfiltrate Credentials via Workflow Tool Node Inline Sub-Workflow",
+    "updated_at": "2026-08-19T12:31:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.36.2",
+        "vulnerable_version_range": "< 2.36.2"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.35.4",
+        "vulnerable_version_range": "< 2.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

@@ -1,0 +1,87 @@
+{
+  "global": null,
+  "id": "GHSA-64xh-rgcx-gg65",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-770"
+    ],
+    "description": "### Summary\r\n\r\n`webpushSend` in `coderd/webpush/webpush.go` read the full HTTP response from a Web Push endpoint with `io.ReadAll` and no size limit. The outbound HTTP client also had no timeout. Because the push endpoint URL is supplied by the user when registering a subscription, any authenticated user could point it at a server they control that returns a response body that never ends, causing `coderd` to buffer data in memory until the process ran out of memory and was terminated.\r\n\r\n> **Note:** Web Push has been enabled by default since v2.33.0. On v2.21.0 through v2.32.x, only deployments that explicitly enabled the `web-push` experiment are affected; `--experiments='*'` does not enable it.\r\n\r\n### Details\r\n\r\n`POST /api/v2/users/{user}/webpush/subscription` is available to every authenticated user. The handler immediately sent a test notification to the supplied endpoint before storing the subscription. On recent versions the endpoint must be an absolute `https` URL resolving to a public address; these checks prevent SSRF, but do not limit what the remote server sends back.\r\n\r\nThe response from the endpoint was passed to `io.ReadAll`, so the size of the in-memory buffer was controlled entirely by the remote server. The push HTTP client set no `Timeout`, so nothing bounded how long the read could run.\r\n\r\nIf the endpoint answered the test notification normally, the subscription was stored and the same unbounded read ran on every later notification sent to that user, for example through `POST /api/v2/users/{user}/webpush/test`. That lets the attacker choose when to trigger the exhaustion.\r\n\r\n### Impact\r\n\r\nAny authenticated user, including a member with no additional roles, can crash `coderd` with a single request. While `coderd` is down, the API, dashboard, and workspace connections that go through it are unavailable to all users of the deployment. The attack needs no request volume, so rate limiting does not mitigate it, and it can be repeated after each restart and against each replica. Deployments with open signup are reachable by anyone who can create an account.\r\n\r\nConfidentiality and integrity are not impacted. The issue does not grant access to other users' data or workspaces.\r\n\r\n### Patches\r\n\r\n`coderd` now reads at most 64 KiB of a push service response, gives the push HTTP client a 30 second timeout, and caps response headers at 64 KiB. Push services reply with an empty body or a short error message, so normal delivery and stale-subscription clean-up are unchanged.\r\n\r\nThe fix was backported to the following release lines:\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.38 (Mainline) | [v2.38.4](https://github.com/coder/coder/releases/tag/v2.38.4) |\r\n| 2.37 (Stable) | [v2.37.8](https://github.com/coder/coder/releases/tag/v2.37.8) |\r\n| 2.36 (Security Support) | [v2.36.11](https://github.com/coder/coder/releases/tag/v2.36.11) |\r\n| 2.34 (ESR) | [v2.34.16](https://github.com/coder/coder/releases/tag/v2.34.16) |\r\n| 2.29 (ESR) | [v2.29.24](https://github.com/coder/coder/releases/tag/v2.29.24) |\r\n\r\nRelease lines 2.21 through 2.28, 2.30 through 2.33, and 2.35 are end-of-life and will not receive a patch. Users on these lines should upgrade to a patched release.\r\n\r\n### Workarounds\r\n\r\nOn v2.21.0 through v2.32.x, do not enable the `web-push` experiment. From v2.33.0, Web Push is always enabled and cannot be turned off, so upgrading is the only mitigation.\r\n\r\n### References\r\n\r\n- Fix: https://github.com/coder/coder/pull/31129\r\n\r\n### Credits\r\n\r\nWe'd like to thank Anthropic's Security Team (ANT-2026-24Z4555M) and Adam Korczynski of [Ada Logics](https://adalogics.com/) for validating and reporting this issue.",
+    "ghsa_id": "GHSA-64xh-rgcx-gg65",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-64xh-rgcx-gg65",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-64xh-rgcx-gg65"
+      }
+    ],
+    "published_at": "2026-10-29T12:03:14Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unbounded response read in Web Push delivery allows any authenticated user to exhaust `coderd` memory",
+    "updated_at": "2026-10-29T12:03:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.4",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.4"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.8",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.11",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.11"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.16",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.16"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.24",
+        "vulnerable_version_range": ">= 2.21.0, < 2.29.24"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

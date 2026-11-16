@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-v7vv-5wj2-gfcj",
+  "repo": {
+    "cve_id": "CVE-2026-54095",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "## Summary\r\n\r\nFile Browser does not invalidate already-issued JWT sessions when a user's password is reset. In a local lab, a user logged in and received a JWT. An administrator then changed that user's password. The old password no longer worked and the new password worked, proving that the password reset succeeded. However, the JWT issued before the password reset continued to authenticate successfully and could still access resources until natural token expiry.\r\n\r\nThis creates a session revocation gap: resetting a compromised user's password does not immediately evict an attacker who already obtained a valid JWT. This is related to a series of known issues with the current session handling: https://github.com/filebrowser/filebrowser/issues/5216.\r\n\r\n## Affected project\r\n\r\n- Project: File Browser\r\n- Repository: `https://github.com/filebrowser/filebrowser`\r\n- Tested commit: `ca0108f07097`\r\n- Tested version/tag: `v2.63.5-1-gca0108f0`\r\n- Tested build: binary built from the above checkout\r\n\r\n## Vulnerability type\r\n\r\n- CWE-613: Insufficient Session Expiration\r\n- CWE-287: Improper Authentication, session lifecycle variant\r\n- Impact: active session remains valid after password reset\r\n\r\n## Affected component\r\n\r\n- JWT authentication middleware\r\n- User password update flow\r\n- Files of interest:\r\n  - `http/auth.go`\r\n  - `users/storage.go`\r\n  - user update handler paths\r\n\r\n## Root cause\r\n\r\nFile Browser uses signed JWTs for authentication. Password changes update the stored user password, but existing JWTs are not rejected after the change. In the reviewed code path, user updates are tracked in memory and may result in a token-renewal hint, but the request is not reliably rejected. In the live test, the old token remained accepted after the password reset.\r\n\r\nA secure session lifecycle should ensure that security-sensitive account changes, such as password reset, invalidate previously issued sessions or compare token issue time against a persisted per-user `validAfter` timestamp.\r\n\r\n## Preconditions\r\n\r\nThe following preconditions were used in the lab:\r\n\r\n1. The attacker has obtained a valid JWT for a user account.\r\n2. An administrator resets or changes that user's password.\r\n3. The attacker reuses the previously issued JWT before its natural expiry.\r\n\r\nThe issue does not require admin privileges from the attacker after the token has been obtained.\r\n\r\n## Proof of concept\r\n\r\n### Lab setup summary\r\n\r\nA local authorized lab instance was created from the tested checkout.\r\n\r\n```text\r\nApp: http://127.0.0.1:8080\r\nNon-admin test user: emre\r\nAdmin user: admin\r\nProtected sanity path: /api/resources/public/\r\n```\r\n\r\n### Step 1: User logs in and receives an old JWT\r\n\r\n```http\r\nPOST /api/login\r\nContent-Type: application/json\r\n\r\n{\"username\":\"emre\",\"password\":\"<old password>\"}\r\n```\r\n\r\nThe response returned a valid JWT. This token is referred to as `OLD_TOKEN` below.\r\n\r\nA request using the old token succeeded before the password change:\r\n\r\n```http\r\nGET /api/resources/public/\r\nX-Auth: OLD_TOKEN\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nHTTP 200\r\n```\r\n\r\n### Step 2: Admin resets the user's password\r\n\r\nAn administrator changed the user's password through the user update API.\r\n\r\nObserved result:\r\n\r\n```text\r\nHTTP 200\r\n```\r\n\r\n### Step 3: Confirm password change actually took effect\r\n\r\nLogin with the old password:\r\n\r\n```http\r\nPOST /api/login\r\n\r\n{\"username\":\"emre\",\"password\":\"<old password>\"}\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nHTTP 403\r\n```\r\n\r\nLogin with the new password:\r\n\r\n```http\r\nPOST /api/login\r\n\r\n{\"username\":\"emre\",\"password\":\"<new password>\"}\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nHTTP 200\r\n```\r\n\r\nThis confirms that the password change succeeded.\r\n\r\n### Step 4: Replay the JWT issued before the password reset\r\n\r\nRequest using the old JWT after the password reset:\r\n\r\n```http\r\nGET /api/resources/public/\r\nX-Auth: OLD_TOKEN\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nHTTP 200\r\n```\r\n\r\nThe old JWT remained valid after the password reset.\r\n\r\n## Impact\r\n\r\nIf an attacker obtains a user's JWT, resetting the user's password does not immediately revoke the attacker's active session. The attacker can continue using the token until it expires naturally.\r\n\r\nPotential scenarios:\r\n\r\n- compromised credentials are rotated but the attacker remains logged in,\r\n- password reset during incident response fails to evict active sessions,\r\n- account takeover persistence for the JWT lifetime,\r\n- employee/offboarding or access-reduction workflows may not terminate active sessions as expected.\r\n\r\nThe impact is bounded by the configured JWT lifetime and by the user's current server-side permissions. However, for compromised-token response, password reset is expected to terminate active sessions.\r\n\r\n## Severity\r\n\r\nSuggested severity: Medium\r\n\r\nSuggested CVSS v3.1:\r\n\r\n```text\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N\r\n```\r\n\r\nAlternative, if scoring the attacker as already possessing only a session token and not a normal authenticated account, maintainers may choose a lower score. The operational security impact remains that password reset does not revoke active sessions.\r\n\r\nRationale:\r\n\r\n- Network exploitable by replaying an existing token.\r\n- Low attack complexity.\r\n- Requires possession of a valid token.\r\n- No user interaction required.\r\n- Confidentiality and integrity impact are limited to the permissions of the compromised account and token lifetime.\r\n\r\n## Recommended remediation\r\n\r\nRecommended fixes:\r\n\r\n1. Persist a per-user token epoch or `validAfter` timestamp in the database.\r\n2. Include an issued-at (`iat`) timestamp in JWTs and reject any token where `iat < user.validAfter`.\r\n3. Update `validAfter` on password reset, password change, account disablement, and other security-sensitive account changes.\r\n4. Ensure token invalidation survives server restarts.\r\n5. Consider an explicit session/token revocation mechanism for administrators.\r\n6. Add regression tests:\r\n\r\n```text\r\nlogin user -> get OLD_TOKEN\r\nadmin resets user password\r\nlogin old password -> 403\r\nlogin new password -> 200\r\nGET /api/resources/ with OLD_TOKEN -> should be 401/403\r\n```\r\n\r\n## Disclosure notes\r\n\r\nThis was verified only in an authorized local lab environment. No third-party systems were tested.\r\n",
+    "ghsa_id": "GHSA-v7vv-5wj2-gfcj",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-v7vv-5wj2-gfcj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v7vv-5wj2-gfcj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54095"
+      }
+    ],
+    "published_at": "2026-06-03T09:27:10Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Password reset does not invalidate existing JWT sessions",
+    "updated_at": "2026-06-11T21:46:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "2.x"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

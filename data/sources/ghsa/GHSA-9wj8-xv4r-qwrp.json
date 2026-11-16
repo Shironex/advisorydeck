@@ -1,0 +1,56 @@
+{
+  "global": null,
+  "id": "GHSA-9wj8-xv4r-qwrp",
+  "repo": {
+    "cve_id": "CVE-2026-40165",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nDue to how authentik used to extract the NameID value from a SAML assertion, it was possible for an attacker to trick authentik into only seeing a part of the NameID value, potentially allowing an attacker to get access to other accounts.\r\n\r\n### Patches\r\n\r\nauthentik 2025.12.5 and 2026.2.3 fix this issue, for other versions the workaround below can be used.\r\n\r\n### Impact\r\n\r\nThis issue can be exploited given an authentik instance with a SAML Source, where the attacker has an account on the SAML Source and the ability to modify their NameID value (commonly username or E-mail), and XML Signing is enabled. The attacker can modify the SAML assertion given to authentik by injecting a comment within the NameID value, which effectively truncates the NameID value to the snippet before the comment, and give the attack access to any user account.\r\n\r\n### Workarounds\r\n\r\nCreate a SAML Source property mapping with the following expression and add it to all SAML Sources:\r\n```python\r\nif name_id.text != \"\".join(name_id.itertext()):\r\n  raise ValueError(\"Mismatched NameID\")\r\nreturn {}\r\n```\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io).\r\n",
+    "ghsa_id": "GHSA-9wj8-xv4r-qwrp",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-9wj8-xv4r-qwrp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9wj8-xv4r-qwrp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-40165"
+      }
+    ],
+    "published_at": "2026-05-12T16:23:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SAML NameID XML Comment Injection Enables Authentication Bypass via Identifier Truncation",
+    "updated_at": "2026-05-12T16:23:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.3",
+        "vulnerable_version_range": "<= 2026.2.2"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.12.5",
+        "vulnerable_version_range": "<= 2025.12.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

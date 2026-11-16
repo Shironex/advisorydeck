@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3xj6-982x-2r3g",
+  "aliases": [],
+  "title": "One-time token can be verified twice concurrently due to missing status predicate in UPDATE query",
+  "summary": "## Summary\n\nLogto's one-time token verification contains a TOCTOU race condition. The `verifyOneTimeToken()` function reads a token's status as Active, validates it, then issues an UPDATE query that has no WHERE status = Active predicate. Under PostgreSQL Read Committed isolation, two concurrent transactions can both read Active, both pass validation, and both update the row to Consumed - each returning success to the caller.\n\n## Impact\n\nA one-time password-reset token or magic-link token that should be single-use can be consumed by two concurrent flows:\n- Password reset replay: An attacker with the token can race the verification to establish two independent password-reset sessions and call resetPassword() on each to set a password of their choice (account takeover).\n- Magic-link dual sign-in: Two tabs loading the same sign-in token URL can both complete sign-in, creating two authenticated sessions from one token.\n\n## Root Cause\n\npackages/core/src/queries/one-time-tokens.ts has an updateOneTimeTokenStatus function that issues:\n  UPDATE one_time_tokens SET status = Consumed WHERE token = $token RETURNING *\nThere is no AND status = Active predicate. Both concurrent writers succeed.\n\npackages/core/src/libraries/one-time-token.ts#verifyOneTimeToken() performs a read-then-write: checkOneTimeToken() reads and validates the token is Active, then updateOneTimeTokenStatus() updates to Consumed without checking current status.\n\nUnder PostgreSQL Read Committed:\n- T1 reads status=Active (passes check)\n- T2 reads status=Active (passes check, T1 has not committed yet)\n- T1 UPDATE to Consumed, commits\n- T2 UPDATE to Consumed (finds row by token, no status predicate - succeeds)\n\n## Affected Routes\n\n- Management API: POST /api/one-time-tokens/verify\n- Experience API: POST /experience/verification/one-time-token/verify\n- Forgot-password flow: identifyForgotPasswordWithOneTimeToken()\n\n## Proof\n\nPostgreSQL-backed concurrency test: 30/30 race iterations both transactions successfully verified the same Active token (100% reproduction).\n\n## Remediation\n\nAdd AND status = Active to the UPDATE WHERE clause:\n  UPDATE one_time_tokens SET status = Consumed WHERE token = $token AND status = Active RETURNING *\n\n## Credit\n\nAnonymous researcher",
+  "published_at": "2026-11-09T07:03:59.000Z",
+  "modified_at": "2026-11-09T07:03:59.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-362"
+  ],
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.46.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3xj6-982x-2r3g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3xj6-982x-2r3g",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3xj6-982x-2r3g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+  "note": null
+}

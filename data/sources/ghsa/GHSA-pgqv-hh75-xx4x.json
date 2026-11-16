@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-pgqv-hh75-xx4x",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287"
+    ],
+    "description": "### Summary\r\n\r\nPocket ID reconstructs WebAuthn ceremony state without restoring the persisted UserVerification policy. Because go-webauthn only enforces the authenticator user-verification (UV) flag when SessionData.UserVerification is set to VerificationRequired, the zero value silently skips the required verification check.\r\nA stolen or otherwise usable authenticator may therefore complete login, registration, or reauthentication without the PIN or biometric verification that Pocket ID configured as mandatory.\r\n\r\nThe issue was fixed in commit 0983e911693396d8c807331ed867be5369f501f2⁠.\r\n\r\n\r\n### Details\r\n\r\nWhen a WebAuthn ceremony begins, Pocket ID creates and persists ceremony state containing the required user-verification policy. When the session is later retrieved from the database, several code paths reconstruct a gowebauthn.SessionData value but omit UserVerification.\r\n\r\nThe first affected discoverable-login flow reconstructs the session as follows in backend/internal/webauthn/service.go:\r\n\r\nsession := gowebauthn.SessionData{\r\n    Challenge: storedSession.Challenge,\r\n    Expires:   storedSession.ExpiresAt.ToTime(),\r\n}\r\n\r\nThis reconstructed session is then passed to ValidateDiscoverableLogin. Without SessionData.UserVerification, the authenticator UV flag is not enforced, even though the required policy was established when the ceremony began.\r\n\r\nThe registration or attestation flow contains the same omission:\r\nsession := gowebauthn.SessionData{\r\n    Challenge:  storedSession.Challenge,\r\n    Expires:    storedSession.ExpiresAt.ToTime(),\r\n    CredParams: storedSession.CredentialParams,\r\n    UserID:     []byte(userID),\r\n}\r\n\r\nA third discoverable-login or reauthentication flow also reconstructs SessionData using only Challenge and Expires.\r\n\r\nThe original scan identified the three occurrences near lines 141, 248, and 450 of backend/internal/webauthn/service.go. Although reported as three findings, they are instances of the same underlying vulnerability: the required WebAuthn user-verification policy is dropped during SessionData reconstruction.\r\n\r\nRestoring UserVerification from storedSession preserves the policy through the ceremony-validation call and ensures that the user-verification enforcement branch in go-webauthn is taken.\r\n\r\nThe issue was fixed in commit 0983e911693396d8c807331ed867be5369f501f2⁠\r\n\r\n### Impact\r\n\r\nThis is an improper-authentication vulnerability classified as CWE-287 and OWASP A07:2021 - Identification and Authentication Failures.\r\nUsers and administrators relying on Pocket ID’s mandatory WebAuthn user verification are affected. In vulnerable flows, possession of an otherwise usable authenticator may be sufficient to complete authentication or registration without the required PIN or biometric verification.\r\nThis weakens the intended distinction between simple authenticator possession and verified user presence. It affects registration, discoverable login, and reauthentication code paths that reconstruct SessionData without restoring UserVerification.\r\n\r\nThe vulnerability was identified by Swifi AI Code Scanner (Source: https://swifi.ai).",
+    "ghsa_id": "GHSA-pgqv-hh75-xx4x",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-pgqv-hh75-xx4x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pgqv-hh75-xx4x"
+      }
+    ],
+    "published_at": "2026-07-29T23:03:26Z",
+    "references": [],
+    "severity": "low",
+    "summary": "WebAuthn user verification policy is not enforced during ceremony validation",
+    "updated_at": "2026-07-29T23:03:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id"
+        },
+        "patched_versions": "v2.12.0",
+        "vulnerable_version_range": "<= v2.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

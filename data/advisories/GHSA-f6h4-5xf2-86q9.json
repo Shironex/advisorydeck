@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-f6h4-5xf2-86q9",
+  "aliases": [],
+  "title": "table-level `PERMISSIONS FOR update` predicates referencing COMPUTED fields are evaluated before computed-field population, letting the predicate read `NONE` and always pass",
+  "summary": "> **affected**: SurrealDB `>= 3.2.0` (v2.x not assessed) - `UPDATE` (and the shared `check_update_permissions` / `recheck_update_permissions` gate)\r\n> **dynamically reproduced**: official release binary **v3.2.0** and `master` `9d9a5b069` (v3.3.0-nightly), in-memory engine; control group run alongside (see PoC)\r\n\r\n---\r\n\r\n_Source references (`file.rs:line`) are to commit `9d9a5b069` (v3.3.0-nightly)._\r\n\r\n### Summary\r\n\r\nA table-level `PERMISSIONS FOR update` predicate that references a `COMPUTED` field is evaluated **before** that field is populated on the document, so the predicate observes `NONE` for the computed field regardless of the value the field would actually compute to. Any predicate of the form `WHERE computed_field <comparison> <literal>` that is meant to **deny** the caller can silently evaluate to truthy against `NONE` and let the update through. **Reproduced end-to-end: a record user `alice` was able to `UPDATE` a row whose table permission `FOR update WHERE blocked != true` should reject her, because `blocked` is `COMPUTED TRUE` and was `NONE` at permission-check time - while the identical predicate on a plain stored field correctly rejects.**\r\n\r\n### Details\r\n\r\n`Document::update` (`surrealdb/core/src/doc/update.rs:9-52`) runs its security gate at the very top:\r\n\r\n```rust\r\n// SECURITY: evaluate the table-level update permission BEFORE any\r\n// user-supplied expression in the WHERE clause or data clause.\r\nself.check_update_permissions(stk, ctx, opt, &self.current).await?;\r\n```\r\n\r\nAt this point `self.current` is the document **as loaded from storage**; computed fields are only materialized later, in the output stage via `compute_fields` (`surrealdb/core/src/doc/compute.rs:56`). `check_update_permissions` (`surrealdb/core/src/doc/check.rs:389-401`) hands `self.current` to `process_permissions` (`check.rs:448-474`), which for `Permission::Specific(e)` computes the predicate against that `CursorDoc` with `Some(doc)` - so any computed field name inside `e` resolves via `Param::compute` / idiom lookup to `NONE` (the field is not in the doc yet).\r\n\r\nThe predicate `blocked != true` therefore sees `NONE != true` → `is_truthy()` → `Ok(())` → the update proceeds. The `recheck_update_permissions` call later (`update.rs:41`) is conditional on the permission being `Permission::Specific` (`check.rs:425-436`), but it too evaluates against `self.current` after `process_table_fields` - computed fields are populated on the *output/reduced* views, not guaranteed on the `self.current` view used for the permission re-check, so the gate is not closed there either.\r\n\r\nThe control group proves this is a timing bug, not a semantics decision: with `blocked` stored as a **plain field** (`CREATE person:1 SET blocked = true`), the same predicate `WHERE blocked != true` evaluates `true != true` → falsy → the update is **rejected**. Only the COMPUTED variant passes, and only because the predicate ran against an un-populated document.\r\n\r\n`check_update_permissions` / `process_permissions` are shared by `UPDATE` (and the `CREATE`/`DELETE`/`SELECT` gates via `check_create_permissions` / `check_delete_permissions` / `check_select_permissions`), so the same class of bug affects any permission predicate that reads a computed field.\r\n\r\n### PoC\r\n\r\nA self-contained, self-checking reproduction script is embedded below; it manages its own in-memory server, schema, record-access signup/signin, and asserts every step. Prereqs: a `surreal` binary built with `--features storage-mem,http`.\r\n\r\n**Scope note**: dynamically reproduced on the **official v3.2.0 release binary** (`surreal-v3.2.0.linux-amd64.tgz`, 4/4 checks pass) and on `master` at commit `9d9a5b069` (v3.3.0-nightly, 4/4 checks pass). Source comparison indicates the same timing (table permission check before computed-field population) exists in earlier v3.x/v2.x tags, but the **dynamically verified lower bound is `v3.2.0`**; earlier versions were not re-run. The script exercises both the COMPUTED (by...",
+  "published_at": "2026-11-03T15:58:31.000Z",
+  "modified_at": "2026-11-03T15:58:31.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "3.2.0",
+          "fixed": "3.3.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-f6h4-5xf2-86q9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f6h4-5xf2-86q9",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-f6h4-5xf2-86q9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:05a33e86331e9e33fecfec759fd452d28494c0e9029cf3c0995a445d54e067b8",
+  "note": null
+}

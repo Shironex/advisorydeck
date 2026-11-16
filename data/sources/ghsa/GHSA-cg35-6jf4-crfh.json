@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-cg35-6jf4-crfh",
+  "repo": {
+    "cve_id": "CVE-2026-104192",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "**Unauthenticated `RESTORE` double-free, chained and proven to remote code execution.**\r\n\r\n**Severity: Critical, CVSS v3.1 base 9.6** (`CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H`)\r\n\r\n## Summary\r\n\r\nDragonflyDB deserializes untrusted Redis serialization payloads passed to the `RESTORE` command. When the payload is a stream object (`RDB_TYPE_STREAM_LISTPACKS` family), the loader shares a single `streamNACK` (pending entry) structure between a consumer group's global pending entries list (PEL) and each consumer's local PEL, exactly as upstream Redis does. On one error path the loader frees that shared `streamNACK` while it is still owned by the group's global PEL, and the subsequent teardown of the partially built stream frees the very same block a second time. The result is a deterministic double-free of a 24-byte heap allocation.\r\n\r\nDragonfly ships with no password by default and `RESTORE` is reachable before authentication, so a remote client can corrupt the server's allocator with a single command. This is not a theoretical or crash only issue: the double-free is the first link of an exploitation chain that was carried through the corrupted allocator and proven end to end to unauthenticated remote code execution on the stock, unmodified container. A working exploit reproducibly runs attacker chosen commands as the server's service account and returns an interactive shell. This report documents the root-cause vulnerability and the crash evidence only; the remainder of the chain (the allocator technique, gadgets, and weaponized proof of concept) is intentionally withheld here. Given that the defect is unauthenticated, reachable by default, and proven exploitable to remote code execution, it should be treated as urgent and remediated immediately.\r\n\r\n\r\n## Root cause\r\n\r\nWhen loading a stream consumer group, the loader first builds the group global PEL, allocating one `streamNACK` per pending entry and inserting it into `cgroup->pel`. It then builds each consumer's local PEL by looking the shared NACK back up in the global PEL and inserting the same pointer into `consumer->pel`. If a consumer lists the same stream ID twice, the second insertion into the consumer PEL fails as a duplicate, and the handler frees the shared NACK before returning.\r\n\r\n```cpp\r\n// src/server/rdb_load.cc  (OpaqueObjLoader::CreateStream), commit d6b1744\r\n// (1) group global PEL: each NACK is allocated and becomes OWNED by cgroup->pel\r\nfor (const auto& pel : cg.pel_arr) {\r\n  streamNACK* nack = reinterpret_cast<streamNACK*>(zmalloc(sizeof(*nack)));\r\n  nack->delivery_time = pel.delivery_time;\r\n  nack->delivery_count = pel.delivery_count;\r\n  nack->consumer = nullptr;\r\n  if (!raxTryInsert(cgroup->pel, rawid, size, nack, NULL)) {\r\n    streamFreeNACK(nack);          // correct here: this nack was never inserted\r\n    ec_ = RdbError(errc::duplicate_key);\r\n    return;\r\n  }\r\n}\r\n// (2) consumer local PEL: fetch the SHARED nack (already owned by cgroup->pel)\r\nfor (const auto& rawid : cons.nack_arr) {\r\n  streamNACK* nack = nullptr;\r\n  raxFind(cgroup->pel, ptr, rawid.size(), (void**)&nack);   // nack in cgroup->pel\r\n  nack->consumer = consumer;\r\n  if (!raxTryInsert(consumer->pel, ptr, rawid.size(), nack, NULL)) {\r\n    LOG(ERROR) << \"Duplicated consumer PEL entry loading a stream consumer group\";\r\n    streamFreeNACK(nack);          // BUG (CWE-415): nack is still owned by cgroup->pel\r\n    ec_ = RdbError(errc::duplicate_key);\r\n    return;                        // stream teardown then frees cgroup->pel again\r\n  }\r\n}\r\n```\r\n\r\nTwo properties combine into the double-free:\r\n\r\n- **Ownership.** In step (2) the pointer returned by `raxFind(cgroup->pel, ...)` is the same object inserted into the group global PEL in step (1). It is owned by `cgroup->pel` and is not removed from it before being freed. Calling `streamFreeNACK(nack)` here leaves a dangling pointer inside `cgroup->pel`.\r\n- **Teardown.** The early `return` skips the success only `cleanup.Cancel()` at the end of the function, so the armed cleanup runs and destroys the partially built stream. Stream destruction walks `cgroup->pel` with `raxFreeWithCallback(...)` and frees every NACK it still references, including the one already freed in step (2). The same 24-byte block is freed twice.\r\n\r\n\r\n## Trigger condition\r\n\r\nA single `RESTORE` of a serialized stream that contains one consumer group whose global PEL owns a NACK for some stream ID R, and one consumer whose pending list references R twice. The second consumer PEL insertion collides and drives the vulnerable free. Reaching the code requires only a well formed stream header with this PEL or consumer PEL shape; the payload is otherwise minimal.\r\n\r\n\r\n## Impact\r\n\r\n`RESTORE` is available on the default data port and Dragonfly ships with authentication disabled by default, so any unauthenticated remote client can reach the defect over a single TCP connection. The malformed payload corrupts the allocator and crashes the server (SIGSEGV), a reliable denial of service on the default configuration. The corruption is also shapeable: an attacker can craft a payload that turns the double-free into **remote code execution**, and this was proven end to end on the stock, unmodified `ghcr.io/dragonflydb/dragonfly:v1.39.0` container, reproducibly running attacker chosen shell commands as the `dfly` service account (uid 999). Any instance reachable from an untrusted network should be treated as fully compromised rather than merely crashable.\r\n\r\n## Remediation\r\n\r\n- https://github.com/dragonflydb/dragonfly/pull/7929 ",
+    "ghsa_id": "GHSA-cg35-6jf4-crfh",
+    "html_url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cg35-6jf4-crfh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cg35-6jf4-crfh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-104192"
+      }
+    ],
+    "published_at": "2026-09-20T14:28:45Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "DragonflyDB stream RDB deserialization double-free (CWE-415)",
+    "updated_at": "2026-10-02T01:09:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 1.40"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dragonflydb/dragonfly"
+}

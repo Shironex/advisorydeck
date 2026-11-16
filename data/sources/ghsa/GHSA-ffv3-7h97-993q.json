@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-ffv3-7h97-993q",
+  "repo": {
+    "cve_id": "CVE-2026-72838",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nThe TUS resumable-upload endpoint (`PATCH /api/tus/...`) accepted request bodies without enforcing the size the client declared when the upload was created, allowing an authenticated user with normal file-upload permissions to consume arbitrary disk space. `tusPatchHandler` retrieved the declared upload length from the cache, but the value was only used to decide whether the upload was complete after writing. It did not prevent oversized request bodies from being written.\r\n\r\nReported against an unmodified FileBrowser v2.63.14 windows-amd64 release in an isolated local environment; the same upload logic was present through v2.63.18.\r\n\r\n## Details\r\n\r\nThe PATCH handler read the request body with `io.Copy` but did not verify that the number of bytes written was within `Upload-Length - Upload-Offset` (`http/tus_handlers.go`, `tusPatchHandler`):\r\n\r\n```go\r\ndefer r.Body.Close()\r\nbytesWritten, err := io.Copy(openFile, r.Body)\r\nif err != nil {\r\n\treturn http.StatusInternalServerError, fmt.Errorf(\"could not write to file: %w\", err)\r\n}\r\n```\r\n\r\nThe declared length was consulted only afterwards, to decide whether the upload had finished, so a single PATCH could stream arbitrary data to disk regardless of the length the client declared at creation time.\r\n\r\n## PoC\r\n\r\n1. Create a TUS upload with `Upload-Length: 1024`.\r\n2. Send a `PATCH` request with `Upload-Offset: 0`.\r\n3. Send a request body of 50 MB.\r\n\r\nThe server returned HTTP 204 and wrote the full 50 MB, despite the upload being declared as 1 KB.\r\n\r\nAll testing was performed only against a local isolated instance. No public or third-party deployment was tested.\r\n\r\n## Impact\r\n\r\nA low-privileged authenticated user with ordinary create/write permissions can write more data than the server accepted for a given upload, and repeat this to exhaust the disk used by FileBrowser. Once the filesystem is exhausted, FileBrowser and other services sharing the same storage may become unavailable or fail unpredictably.\r\n\r\n## Patches\r\n\r\nFixed in v2.63.19 by commit [`4daddec6`](https://github.com/filebrowser/filebrowser/commit/4daddec6f200b03a721197d8c0b4b652c994894e). Each PATCH write is now bounded to the bytes still expected (`Upload-Length - Upload-Offset`), a PATCH whose offset already exceeds the declared length is rejected with `400`, and a body exceeding the declared length is rolled back and rejected with `413`. The reporter re-tested v2.63.19 and confirmed the bypass is closed: the 50 MB PATCH against a 1 KB declared upload returns `413` and leaves a 0-byte file on disk.\r\n\r\n## Workarounds\r\n\r\nNone. Upgrade to v2.63.19.\r\n\r\n## Out of scope\r\n\r\nThe original report also covered the regular upload endpoint (`POST /api/resources/...`), where `writeFile` copies the request body with `io.Copy` and no size limit. That behaviour is not treated as a vulnerability and is not addressed by this advisory: File Browser has no maximum upload size and no storage quota, so no bound declared by the server is being bypassed - a user holding `Create`/`Modify` permission is authorized to write files of arbitrary size within their own scope. Deployments where that matters should bound it at the storage or proxy layer (filesystem quotas, a dedicated volume or container limit, or a reverse-proxy body limit). Per-user quotas remain an unimplemented feature request (#711, #2090, #2179, #2361).\r\n\r\n## References\r\n\r\n- Fix: https://github.com/filebrowser/filebrowser/commit/4daddec6f200b03a721197d8c0b4b652c994894e\r\n- Regression test: https://github.com/filebrowser/filebrowser/commit/4c3cb4bc\r\n",
+    "ghsa_id": "GHSA-ffv3-7h97-993q",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-ffv3-7h97-993q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ffv3-7h97-993q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72838"
+      }
+    ],
+    "published_at": "2026-07-26T05:56:23Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "TUS uploads ignore the declared Upload-Length, allowing disk exhaustion by authenticated users",
+    "updated_at": "2026-08-21T06:38:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.19",
+        "vulnerable_version_range": "<= 2.63.18"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

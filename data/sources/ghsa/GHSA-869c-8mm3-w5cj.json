@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-869c-8mm3-w5cj",
+  "repo": {
+    "cve_id": "CVE-2026-63187",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "### Summary\r\nAn OS command injection vulnerability exists in the `commitlint.yml` workflow. By crafting a malicious Pull Request title, an attacker can break out of a bash `echo` statement and execute arbitrary commands on the GitHub Actions runner. Because this workflow uses the `pull_request` trigger, the execution is safely confined to a sandboxed environment with a read-only token, but it still represents an unintended Arbitrary Code Execution (ACE) flaw.\r\n\r\n### Details\r\nIn the `Commitlint` workflow, the Pull Request title is directly interpolated into a bash script using the `${{ github.event.pull_request.title }}` context expression:\r\n\r\n```yaml\r\n      - name: Commitlint on PR title\r\n        run: echo '${{ github.event.pull_request.title }}' | npx commitlint\r\n```\r\n\r\nGitHub Actions evaluates and substitutes `${{ ... }}` expressions before the bash shell executes the command. If a PR title contains a single quote (`'`), it prematurely closes the bash string definition. An attacker can then append a semicolon (`;`) followed by arbitrary bash commands, which the runner will blindly execute. \r\n\r\n### PoC\r\n1. Fork the repository and open a new Pull Request (or edit the title of an existing one).\r\n2. Set the title of the Pull Request to the following exact payload:\r\n```text\r\ntest'; echo \"=== PWNED ===\"; echo \"Execution User: $(whoami)\"; echo '\r\n```\r\n3. The `Commitlint` workflow will trigger automatically.\r\n4. Go to the Actions tab and check the workflow execution logs under the **Commitlint on PR title** step. You will see the injected commands successfully executed before the pipeline fails or finishes:\r\n\r\n<img width=\"619\" height=\"95\" alt=\"スクリーンショット 2026-04-28 14 57 03\" src=\"https://github.com/user-attachments/assets/251b32bf-0a12-4666-a344-f4639b55a3ef\" />\r\n\r\n\r\n### Impact\r\n- **Vulnerability Type:** OS Command Injection / Arbitrary Code Execution (CWE-78).\r\n- **Impact Level:** Low/Medium. An external attacker can execute arbitrary code on the GitHub Actions runner. However, because the workflow is triggered via `pull_request` (and not `pull_request_target`), the runner operates in an isolated, sandboxed environment without access to repository secrets, and the default `GITHUB_TOKEN` is strictly read-only. Therefore, there is no direct risk of source code modification or secret exfiltration.\r\n- **Mitigation:** Never interpolate untrusted GitHub context variables directly into inline bash scripts. Instead, bind them safely via environment variables:\r\n\r\n```yaml\r\n      - name: Commitlint on PR title\r\n        env:\r\n          PR_TITLE: ${{ github.event.pull_request.title }}\r\n        run: echo \"$PR_TITLE\" | npx commitlint\r\n```\r\n",
+    "ghsa_id": "GHSA-869c-8mm3-w5cj",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-869c-8mm3-w5cj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-869c-8mm3-w5cj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63187"
+      }
+    ],
+    "published_at": "2026-08-14T02:48:43Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "OS command injection vulnerability exists in the Commitlint workflow",
+    "updated_at": "2026-08-14T02:48:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "actions",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "v1.41.0",
+        "vulnerable_version_range": ">=v1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

@@ -1,0 +1,68 @@
+{
+  "global": null,
+  "id": "GHSA-fx7j-6fh9-xwvm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "Passing an integer to `OpenSSL::PKey::RSA.new` generates a new RSA keypair of that bit length rather than parsing an existing key. Several endpoints fed the unvalidated `public_key` request param straight into this call, so an unauthenticated attacker could send a large integer (e.g. a multi-kilobit \"key\") and force the server to spend seconds generating a keypair per request, tying up Puma workers and degrading or denying service.\r\n\r\nThe most severe path was `ApplicationController#redirect_to_login_if_required`, which handled `user_api_public_key` on anonymous requests with no rate limiting. The user API key client creation endpoint and the device auth flow had the same pattern.\r\n\r\n### Workarounds\r\n\r\nNone. Sites can mitigate by rate-limiting unauthenticated requests at the proxy, but the vulnerable paths ran before rate limiting on the worst endpoint.\n\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-DJF9HY4Q.",
+    "ghsa_id": "GHSA-fx7j-6fh9-xwvm",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-fx7j-6fh9-xwvm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fx7j-6fh9-xwvm"
+      }
+    ],
+    "published_at": "2026-11-10T17:37:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated DoS: integer user API public key triggers RSA key generation",
+    "updated_at": "2026-11-10T17:37:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.11.0-latest.1",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": ">= 2026.10.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.9.2",
+        "vulnerable_version_range": ">= 2026.9.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.7.5",
+        "vulnerable_version_range": ">= 2026.7.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

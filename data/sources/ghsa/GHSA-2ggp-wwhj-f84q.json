@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-2ggp-wwhj-f84q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "### Summary\n\nThe format argument of the `DATETIME_FORMAT` formula function was written into a MySQL string literal without escaping backslashes. A user allowed to add or edit formula fields on a MySQL-backed base could end that literal early and have the rest of the argument compiled as SQL.\n\n### Details\n\nOn MySQL, the `DATETIME_FORMAT` mapping in `functionMappings/mysql.ts` passes the format to `datetime-format.mysql.handler.ts`, which translates it into a `DATE_FORMAT` pattern and places that pattern in the query as a quoted string inside raw SQL. `extractDatetimeFormat` in `commonFns.ts` only checks that the format is a constant string. The handler escaped `%` in literal text and doubled single quotes, but left backslashes as they were. Under MySQL's default `sql_mode` a backslash escapes the character that follows it, so a backslash placed before a quote cancelled the doubling and ended the string, and the rest of the format was compiled as part of the statement. That statement runs as the data source's database user whenever the field is evaluated, including on reads of its table. The PostgreSQL and SQLite handlers were not affected, nor were MySQL servers running with `NO_BACKSLASH_ESCAPES`. The MySQL handler now escapes backslashes in literal text before the pattern is quoted.\n\n### Impact\n\nAn attacker needs an account that can add or edit fields on a base whose data source is MySQL or MariaDB, which the Creator role allows. They could run SQL of their choosing within the queries NocoDB issues for that base, as the data source's database user, and read any data that user can reach, including tables outside the base. Expensive queries could also slow the database server for its other users. Bases on PostgreSQL or SQLite were not affected.\n\n### Credit\n\nThis issue was reported by [@scofaild23](https://github.com/scofaild23).\n",
+    "ghsa_id": "GHSA-2ggp-wwhj-f84q",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2ggp-wwhj-f84q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2ggp-wwhj-f84q"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:37Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SQL Injection via Formula Date Format Argument on MySQL",
+    "updated_at": "2026-11-02T08:47:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.0",
+        "vulnerable_version_range": ">= 2026.07.0, < 2026.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

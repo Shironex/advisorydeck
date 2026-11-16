@@ -1,0 +1,102 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41277",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\nA Mass Assignment vulnerability in the DocumentStore creation endpoint allows authenticated users to control the primary key (id) and internal state fields of DocumentStore entities.\n\nBecause the service uses repository.save() with a client-supplied primary key, the POST create endpoint behaves as an implicit UPSERT operation. This enables overwriting existing DocumentStore objects.\n\nIn multi-workspace or multi-tenant deployments, this can lead to cross-workspace object takeover and broken object-level authorization (IDOR), allowing an attacker to reassign or modify DocumentStore objects belonging to other workspaces.\n\n### Details\nThe DocumentStore entity defines a globally unique primary key:\n\n```typescript\n@PrimaryGeneratedColumn('uuid')\nid: string\n```\n\nThe create logic is implemented as:\n```typescript\nconst documentStore = repo.create(newDocumentStore)\nconst dbResponse = await repo.save(documentStore)\n```\n\nHere is no DTO allowlist or field filtering before persistence. The entire request body is mapped directly to the entity.\nTypeORM save() behavior:\n\n1. If the primary key (id) exists → UPDATE\n2. If not → INSERT\n\nBecause id is accepted from the client, the create endpoint effectively functions as an UPSERT endpoint.\n\nThis allows an authenticated user to submit:\n\n```json\n{\n  \"id\": \"<existing_store_id>\",\n  \"name\": \"modified\",\n  \"description\": \"modified\",\n  \"status\": \"SYNC\",\n  \"embeddingConfig\": \"...\",\n  \"vectorStoreConfig\": \"...\",\n  \"recordManagerConfig\": \"...\"\n}\n```\nIf a DocumentStore with the supplied id already exists, save() performs an UPDATE rather than creating a new record.\n\nImportantly:\n\nThe primary key is globally unique (uuid)\nIt is not composite with workspaceId\nThe create path does not enforce ownership validation before calling save()\nThis introduces a broken object-level authorization risk.\n\nIf an attacker can obtain or enumerate a valid DocumentStore UUID belonging to another workspace, they can:\nSubmit a POST create request with that UUID.\nTrigger an UPDATE on the existing record.\nPotentially overwrite fields including workspaceId, effectively reassigning the object to their own workspace.\n\nBecause the service layer does not verify that the existing record belongs to the caller’s workspace before updating, this may result in cross-workspace object takeover.\n\nAdditionally, several service functions retrieve DocumentStore entities by id without consistently scoping by workspaceId, increasing the risk of IDOR if controller-level protections are bypassed or misconfigured.\n\n### PoC\n\n1. Create a normal DocumentStore in Workspace A.\n2. Capture its id from the API response.\n3. From Workspace B (or another authenticated context), submit:\n\n```http\nPOST /api/v1/document-store\nContent-Type: application/json\n\n{\n  \"id\": \"<id_from_workspace_A>\",\n  \"name\": \"hijacked\",\n  \"description\": \"hijacked\"\n}\n```\n\nBecause the service uses repository.save() with a client-supplied primary key:\n\n- The existing record is updated.\n- The object may become reassigned depending on how workspaceId is handled at controller level.\n- If workspaceId is overwritten during the create flow, the store is effectively migrated to the attacker’s workspace.\n- This demonstrates object takeover via UPSERT semantics on a create endpoint.\n\n### Impact\nThis vulnerability enables:\n\n- Mass Assignment on server-managed fields\n- Overwrite of existing objects via implicit UPSERT behavior\n- Broken Object Level Authorization (BOLA)\n- Potential cross-workspace object takeover in multi-tenant deployments\n- In a SaaS or shared-workspace environment, an attacker who can obtain or guess a valid UUID may modify or reassign DocumentStore objects belonging to other tenants.\n\nBecause DocumentStore objects control embedding providers, vector store configuration, and record management logic, successful takeover can affect data indexing, retrieval, and AI workflow execution.\n\nThis represents a high-risk authorization flaw in multi-tenant environments.",
+    "ghsa_id": "GHSA-3prp-9gf7-4rxx",
+    "html_url": "https://github.com/advisories/GHSA-3prp-9gf7-4rxx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3prp-9gf7-4rxx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41277"
+      }
+    ],
+    "published_at": "2026-04-17T21:34:16Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-3prp-9gf7-4rxx",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41277",
+      "https://github.com/advisories/GHSA-3prp-9gf7-4rxx"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Mass Assignment in DocumentStore Create Endpoint Leads to Cross-Workspace Object Takeover (IDOR)",
+    "updated_at": "2026-04-24T21:01:05Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3prp-9gf7-4rxx",
+  "repo": {
+    "cve_id": "CVE-2026-41277",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\r\nA Mass Assignment vulnerability in the DocumentStore creation endpoint allows authenticated users to control the primary key (id) and internal state fields of DocumentStore entities.\r\n\r\nBecause the service uses repository.save() with a client-supplied primary key, the POST create endpoint behaves as an implicit UPSERT operation. This enables overwriting existing DocumentStore objects.\r\n\r\nIn multi-workspace or multi-tenant deployments, this can lead to cross-workspace object takeover and broken object-level authorization (IDOR), allowing an attacker to reassign or modify DocumentStore objects belonging to other workspaces.\r\n\r\n### Details\r\nThe DocumentStore entity defines a globally unique primary key:\r\n\r\n```typescript\r\n@PrimaryGeneratedColumn('uuid')\r\nid: string\r\n```\r\n\r\nThe create logic is implemented as:\r\n```typescript\r\nconst documentStore = repo.create(newDocumentStore)\r\nconst dbResponse = await repo.save(documentStore)\r\n```\r\n\r\nHere is no DTO allowlist or field filtering before persistence. The entire request body is mapped directly to the entity.\r\nTypeORM save() behavior:\r\n\r\n1. If the primary key (id) exists → UPDATE\r\n2. If not → INSERT\r\n\r\nBecause id is accepted from the client, the create endpoint effectively functions as an UPSERT endpoint.\r\n\r\nThis allows an authenticated user to submit:\r\n\r\n```json\r\n{\r\n  \"id\": \"<existing_store_id>\",\r\n  \"name\": \"modified\",\r\n  \"description\": \"modified\",\r\n  \"status\": \"SYNC\",\r\n  \"embeddingConfig\": \"...\",\r\n  \"vectorStoreConfig\": \"...\",\r\n  \"recordManagerConfig\": \"...\"\r\n}\r\n```\r\nIf a DocumentStore with the supplied id already exists, save() performs an UPDATE rather than creating a new record.\r\n\r\nImportantly:\r\n\r\nThe primary key is globally unique (uuid)\r\nIt is not composite with workspaceId\r\nThe create path does not enforce ownership validation before calling save()\r\nThis introduces a broken object-level authorization risk.\r\n\r\nIf an attacker can obtain or enumerate a valid DocumentStore UUID belonging to another workspace, they can:\r\nSubmit a POST create request with that UUID.\r\nTrigger an UPDATE on the existing record.\r\nPotentially overwrite fields including workspaceId, effectively reassigning the object to their own workspace.\r\n\r\nBecause the service layer does not verify that the existing record belongs to the caller’s workspace before updating, this may result in cross-workspace object takeover.\r\n\r\nAdditionally, several service functions retrieve DocumentStore entities by id without consistently scoping by workspaceId, increasing the risk of IDOR if controller-level protections are bypassed or misconfigured.\r\n\r\n### PoC\r\n\r\n1. Create a normal DocumentStore in Workspace A.\r\n2. Capture its id from the API response.\r\n3. From Workspace B (or another authenticated context), submit:\r\n\r\n```http\r\nPOST /api/v1/document-store\r\nContent-Type: application/json\r\n\r\n{\r\n  \"id\": \"<id_from_workspace_A>\",\r\n  \"name\": \"hijacked\",\r\n  \"description\": \"hijacked\"\r\n}\r\n```\r\n\r\nBecause the service uses repository.save() with a client-supplied primary key:\r\n\r\n- The existing record is updated.\r\n- The object may become reassigned depending on how workspaceId is handled at controller level.\r\n- If workspaceId is overwritten during the create flow, the store is effectively migrated to the attacker’s workspace.\r\n- This demonstrates object takeover via UPSERT semantics on a create endpoint.\r\n\r\n### Impact\r\nThis vulnerability enables:\r\n\r\n- Mass Assignment on server-managed fields\r\n- Overwrite of existing objects via implicit UPSERT behavior\r\n- Broken Object Level Authorization (BOLA)\r\n- Potential cross-workspace object takeover in multi-tenant deployments\r\n- In a SaaS or shared-workspace environment, an attacker who can obtain or guess a valid UUID may modify or reassign DocumentStore objects belonging to other tenants.\r\n\r\nBecause DocumentStore objects control embedding providers, vector store configuration, and record management logic, successful takeover can affect data indexing, retrieval, and AI workflow execution.\r\n\r\nThis represents a high-risk authorization flaw in multi-tenant environments.\r\n",
+    "ghsa_id": "GHSA-3prp-9gf7-4rxx",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-3prp-9gf7-4rxx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3prp-9gf7-4rxx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41277"
+      }
+    ],
+    "published_at": "2026-04-15T21:44:26Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Mass Assignment in DocumentStore Create Endpoint Leads to Cross-Workspace Object Takeover (IDOR)",
+    "updated_at": "2026-04-20T15:32:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

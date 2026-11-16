@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-pvv9-h693-m8r4",
+  "aliases": [],
+  "title": "SurrealDB LIVE query notification expressions allow write side effects that bypass the write-blocking guard",
+  "summary": "## Summary\n\nSurrealDB's LIVE query notification pipeline evaluates subscriber-supplied WHERE clauses and field projections with write-blocking disabled, allowing embedded write subqueries (CREATE, UPDATE, DELETE, RELATE) to execute atomically within other users' triggering transactions. The `permission_predicate` guard introduced in GHSA-66r2-5gwj-gxm2 to block side effects in PERMISSIONS predicates was never extended to LIVE notification expression evaluation, violating a documented security invariant in SECURITY_GUIDE.md that requires these expressions to be side-effect free.\n\n## Root Cause\n\nThe write-blocking guard at `surrealdb/core/src/expr/expression.rs:432` rejects mutating statements only when `opt.permission_predicate` is `true`. In the LIVE notification pipeline, `Document::lq_compute` creates the evaluation options via `opt.new_with_perms(true)` (`surrealdb/core/src/doc/lives.rs:109`), which sets the `perms` field but leaves `permission_predicate` at its default `false` (`surrealdb/core/src/dbs/options.rs:66`). The PERMISSIONS predicate evaluation at `lq_allow` (`lives.rs:577`) correctly uses `opt.new_for_permission_predicate()` to enable the guard, but the WHERE clause evaluation (`lq_check` at `lives.rs:539`) and field projection evaluation (`Fields::compute` at `lives.rs:342`) both run with the unguarded options.\n\n```text\nAffected functions:\n- Document::lq_compute (surrealdb/core/src/doc/lives.rs): creates options with permission_predicate=false (line 109) and evaluates subscriber projections at line 342 without write-blocking\n- Document::lq_check (surrealdb/core/src/doc/lives.rs): evaluates subscriber WHERE clause at line 539 with permission_predicate=false; no guard against write subqueries\n```\n\n## Impact\n\nAn authenticated user with a database-level session, SELECT permission on the watched table (required for LIVE query registration since version 3.1.0), and write permission on a target table can register a LIVE query containing write subqueries in the projection or WHERE clause. When any other user subsequently writes to the watched table, the subscriber's write subqueries execute atomically within the triggering user's transaction.\n\nThe subscriber does not gain new write targets; standard table-level permissions (`perms: true`) still apply to the injected writes. The demonstrated capabilities that exceed normal access are:\n\n1. **Transaction injection:** The subscriber's writes execute atomically within another user's transaction, sharing commit and rollback semantics. This is not achievable through independent queries.\n2. **Write amplification:** N registered LIVE subscriptions with write expressions multiply write load by N for every triggering event. The triggering user has no visibility into or control over this amplification.\n3. **Post-revocation side effects:** Because the WHERE clause evaluates before the PERMISSIONS check (`lq_check` at line 253 runs before `lq_allow` at line 270), write side effects in the WHERE clause that reference document fields can exfiltrate data even after the subscriber's SELECT permission is revoked.\n\n## Proof of Concept\n\n```text\nDependencies: SurrealDB server with auth and realtime enabled (default configuration)\nSetup: Two authenticated sessions with database-level access\n```\n\n```surql\n-- Session A (subscriber): register LIVE query with write subquery in projection\nLIVE SELECT *, (CREATE audit CONTENT {source: name, ts: time::now()}) AS exfil FROM person\n```\n\n```surql\n-- Session B (any user): write to the watched table\nCREATE person:1 SET name = 'Alice'\n```\n\n```text\n-- Expected result on vulnerable version:\n-- The LIVE notification pipeline evaluates the projection at lives.rs:342\n-- with permission_predicate=false. The CREATE audit subquery passes through\n-- expression.rs:432 without hitting the guard, executes under the subscriber's\n-- permissions, and commits atomically with Session B's CREATE person:1.\n--\n-- SELECT * FROM audit returns:\n-- [{id: audit:..., source: '...",
+  "published_at": "2026-11-03T15:50:53.000Z",
+  "modified_at": "2026-11-03T15:50:53.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-267"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-pvv9-h693-m8r4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-pvv9-h693-m8r4",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-pvv9-h693-m8r4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

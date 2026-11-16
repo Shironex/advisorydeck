@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-gj67-56w2-rfr3",
+  "aliases": [],
+  "title": "SeaweedFS: Anonymous ListObjectsV2 bypasses an explicit bucket-policy s3:ListBucket Deny on ACL public-read buckets",
+  "summary": "## Summary\r\n\r\nSeaweedFS supports two access-control mechanisms on the S3 gateway: bucket ACLs (including the `AllUsers` READ grant that marks a bucket public-read) and bucket policies (IAM-style JSON documents with explicit Allow/Deny statements). AWS S3 semantics, which the project documents itself as following, require that an explicit Deny in a bucket policy overrides any ACL grant. SeaweedFS's own policy engine states the same invariant in code: explicit Deny trumps everything.\r\n\r\nThis precedence is not enforced for anonymous requests on public-read buckets. The `AuthWithPublicRead` middleware checks the bucket's cached ACL status first and, when the bucket is public-read, dispatches straight to the request handler without ever consulting the bucket policy engine. Object content is still protected because `GetObjectHandler` and `HeadObjectHandler` re-evaluate the bucket policy inside the handler after fetching the entry. `ListObjectsV2Handler` has no such re-evaluation, so an unauthenticated caller can enumerate the full object namespace (key names, sizes, ETags, owners, timestamps) of a public-read bucket whose listing the operator explicitly denied with a bucket policy statement.\r\n\r\nThe affected pattern is the AWS-recommended way to run a public bucket whose key namespace must stay private: a public-read ACL for content delivery plus an explicit `Deny` on `s3:ListBucket`. On SeaweedFS the Deny is enforced against every authenticated principal and silently ignored for anonymous callers.\r\n\r\n## Attacker position and trust boundary\r\n\r\n- Starting position: fully unauthenticated network client with TCP access to the S3 gateway port. No credentials, no identity, no bucket membership.\r\n- Deployment: S3 gateway with authentication enabled (static identities or the IAM integration; verified with static `s3.json` identities) and at least one bucket configured with a public-read ACL plus a bucket policy containing an explicit `Deny` on `s3:ListBucket` for principal `\"*\"`.\r\n- Trust boundary crossed: the explicit administrative Deny that the operator placed on the bucket. An anonymous principal reaches data (object metadata) that every credentialed principal, including the admin identity itself, is denied.\r\n\r\n## Source-level call chain\r\n\r\n1. Route registration wraps `ListObjectsV2Handler` in `AuthWithPublicRead`:\r\n\r\n`weed/s3api/s3api_server.go:1005-1008`\r\n\r\n```go\r\n   bucket.Methods(http.MethodGet).HandlerFunc(track(s3a.AuthWithPublicRead(func(w http.ResponseWriter, r *http.Request) {\r\n       limitedHandler, _ := s3a.cb.Limit(s3a.ListObjectsV2Handler, ACTION_LIST)\r\n       limitedHandler(w, r)\r\n   }, ACTION_LIST), \"LIST\")).Queries(\"list-type\", \"2\")\r\n```\r\n\r\n2. `AuthWithPublicRead` checks the cached public-read flag and short-circuits to the handler before any policy evaluation happens. The policy engine is only consulted when the ACL check did not already grant access:\r\n\r\n`weed/s3api/s3api_bucket_handlers.go:904-949`\r\n\r\n```go\r\n   func (s3a *S3ApiServer) AuthWithPublicRead(handler http.HandlerFunc, action Action) http.HandlerFunc {\r\n       return func(w http.ResponseWriter, r *http.Request) {\r\n           bucket, object := s3_constants.GetBucketAndObject(r)\r\n           authType := getRequestAuthType(r)\r\n           isAnonymous := authType == authTypeAnonymous\r\n           if isAnonymous {\r\n               // First check ACL-based public access\r\n               isPublic := s3a.isBucketPublicRead(bucket)\r\n               if isPublic {\r\n                   glog.V(3).Infof(\"AuthWithPublicRead: allowing anonymous access to public-read bucket %s (ACL)\", bucket)\r\n                   handler(w, r)\r\n                   return\r\n               }\r\n               // Check bucket policy for anonymous access using the policy engine\r\n               principal := \"*\" // Anonymous principal\r\n               allowed, evaluated, err := s3a.policyEngine.EvaluatePolicy(bucket, object, string(action), principal, r, nil, nil)\r\n               ...\r\n```\r\n\r\n`isBucketPublicR...",
+  "published_at": "2026-11-09T19:51:42.000Z",
+  "modified_at": "2026-11-09T19:51:42.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-gj67-56w2-rfr3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-gj67-56w2-rfr3",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-gj67-56w2-rfr3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:80b47fe7352e26752cae680f46762a817c061e80771ba1effc4b4c1345a60f07",
+  "note": null
+}

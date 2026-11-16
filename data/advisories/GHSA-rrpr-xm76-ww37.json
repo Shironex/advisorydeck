@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-rrpr-xm76-ww37",
+  "aliases": [],
+  "title": "S3 bucket-quota permission can authorize bucket-policy modification",
+  "summary": "### Summary\r\n\r\nA high-severity authorization-confusion vulnerability in SeaweedFS allows an S3 identity with only `s3:PutBucketQuota` permission to write an arbitrary bucket policy.\r\n\r\nBy combining the `policy` and `seaweedfs-quota` query subresources, authorization can be performed against `s3:PutBucketQuota` while the request is routed to `PutBucketPolicyHandler`. The validated exploit changed a private bucket's policy and exposed a private object to an unauthenticated user.\r\n\r\nThe issue was confirmed on SeaweedFS 4.47, commit `c5073360007d28385a33426a42ac3e4ec504c5a3`, and master commit `7643f4f5417680678de7529fd148f6099199db2c`.\r\n\r\nSuggested severity: High, CVSS 3.1 8.1 (`AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`).\r\n\r\n### Details\r\n\r\nSeaweedFS uses separate data structures for request validation, IAM action resolution, and HTTP routing.\r\n\r\nFirst, `operationSubresources` is intended to reject requests containing multiple operation-selecting query parameters. It contains `policy` but omits `seaweedfs-quota`:\r\n\r\nhttps://github.com/seaweedfs/seaweedfs/blob/7643f4f5417680678de7529fd148f6099199db2c/weed/s3api/s3api_path_validation.go#L42-L70\r\n\r\nConsequently, the following request is not rejected as ambiguous:\r\n\r\n```http\r\nPUT /bucket?policy=&seaweedfs-quota=\r\n```\r\n\r\nSecond, both query parameters appear in `bucketQueryActions`:\r\n\r\nhttps://github.com/seaweedfs/seaweedfs/blob/7643f4f5417680678de7529fd148f6099199db2c/weed/s3api/s3_action_resolver.go#L71-L124\r\n\r\nThe resolver iterates this Go map and returns the action associated with the first matching query parameter:\r\n\r\nhttps://github.com/seaweedfs/seaweedfs/blob/7643f4f5417680678de7529fd148f6099199db2c/weed/s3api/s3_action_resolver.go#L226-L235\r\n\r\nBecause Go map iteration order is unspecified, the combined request can be authorized as either `s3:PutBucketPolicy` or `s3:PutBucketQuota`.\r\n\r\nFinally, the bucket-policy route is registered before the bucket-quota route:\r\n\r\nhttps://github.com/seaweedfs/seaweedfs/blob/7643f4f5417680678de7529fd148f6099199db2c/weed/s3api/s3api_server.go#L928-L933\r\n\r\nhttps://github.com/seaweedfs/seaweedfs/blob/7643f4f5417680678de7529fd148f6099199db2c/weed/s3api/s3api_server.go#L1023-L1028\r\n\r\nBoth routes match the combined query, but Gorilla mux selects the earlier `policy` route. When IAM resolves the request as `s3:PutBucketQuota`, a quota-only identity passes authorization while `PutBucketPolicyHandler` executes.\r\n\r\nThis violates the security invariant that the operation authorized by IAM must be the same operation selected by the router.\r\n\r\n### PoC\r\n\r\n#### Requirements\r\n\r\n- SeaweedFS 4.47 or master commit `7643f4f5417680678de7529fd148f6099199db2c`\r\n- `curl` with `--aws-sigv4` support\r\n- `jq`\r\n- A fresh, local data directory\r\n\r\nThe complete asserted PoC is included in `poc/poc.sh`. It records response bodies and exits nonzero if a control or exploit assertion fails.\r\n\r\n#### Configuration\r\n\r\nSave the following as `iam-config.json`. The attacker has only quota get/set permission on the test bucket. Advanced IAM is configured with default deny.\r\n\r\n```json\r\n{\"identities\":[{\"name\":\"research-admin\",\"credentials\":[{\"accessKey\":\"SWFS001ADMINKEY\",\"secretKey\":\"SWFS001AdminSecretKeyLocalOnly\"}],\"actions\":[\"Admin\"]},{\"name\":\"quota-operator\",\"credentials\":[{\"accessKey\":\"SWFS001QUOTAKEY\",\"secretKey\":\"SWFS001QuotaSecretKeyLocalOnly\"}],\"policyNames\":[\"QuotaOnly\"]}],\"sts\":{\"issuer\":\"swfs001-local-research\",\"signingKey\":\"U1dGUzAwMUxPQ0FMU0lHTklOR0tFWVNVUEBMSUVET05MWQ==\",\"tokenDuration\":\"1h\",\"maxSessionLength\":\"12h\"},\"policy\":{\"defaultEffect\":\"Deny\",\"storeType\":\"memory\"},\"policies\":[{\"name\":\"QuotaOnly\",\"document\":{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"QuotaOnlyBoundary\",\"Effect\":\"Allow\",\"Action\":[\"s3:PutBucketQuota\",\"s3:GetBucketQuota\"],\"Resource\":[\"arn:aws:s3:::swfs001-private\"]}]}}],\"roles\":[],\"providers\":[]}\r\n```\r\n\r\nStart SeaweedFS in a researcher-controlled, loopback-only deployment:\r\n\r\n```bash\r\nmkdir -p /tmp/swfs001-data\r\n/path/to/weed server -dir=/tmp/swfs001-data -...",
+  "published_at": "2026-11-09T19:51:34.000Z",
+  "modified_at": "2026-11-09T19:51:34.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.47",
+          "last_affected": "4.47"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-rrpr-xm76-ww37",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rrpr-xm76-ww37",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-rrpr-xm76-ww37",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5d22af7156c77124edeee484a655a476d79d2cda3fb1facee1cd2db520ac90af",
+  "note": null
+}

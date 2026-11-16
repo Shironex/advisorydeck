@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-46444",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### FINDING 4: OpenAI Assistants Vector Store - No Auth on CRUD Operations\n**Severity**: HIGH (CVSS ~8.1)\n**Type**: CWE-306 (Missing Authentication for Critical Function)\n**File**: `packages/server/src/routes/openai-assistants-vector-store/index.ts`\n\n**Description**: ALL CRUD endpoints for OpenAI Assistants Vector Store have no authentication middleware AND the route path `/api/v1/openai-assistants-vector-store` is NOT in `WHITELIST_URLS`. However, it is also NOT protected by the main auth middleware when accessed via API key - the route requires API key auth (not whitelisted), but NO permission checks exist on any operation.\n\nThe real issue is that the routes have no `checkAnyPermission()` middleware, meaning any authenticated user regardless of role can:\n- Create vector stores\n- Upload files to vector stores\n- Delete vector stores and files\n- Modify any vector store\n\n**Evidence**:\n```typescript\n// No permission middleware on any route\nrouter.post('/', controller.createAssistantVectorStore)          // No permission check\nrouter.put(['/', '/:id'], controller.updateAssistantVectorStore) // No permission check\nrouter.delete(['/', '/:id'], controller.deleteAssistantVectorStore) // No permission check\nrouter.post('/:id', getMulterStorage().array('files'), controller.uploadFilesToAssistantVectorStore) // No permission check\n```\n\n**Impact**: Any authenticated user can manipulate OpenAI vector stores, upload malicious files, delete data, or exfiltrate stored documents regardless of their assigned permissions.",
+    "ghsa_id": "GHSA-hmg2-jjjx-jcp2",
+    "html_url": "https://github.com/advisories/GHSA-hmg2-jjjx-jcp2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmg2-jjjx-jcp2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46444"
+      }
+    ],
+    "published_at": "2026-05-14T16:19:23Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-hmg2-jjjx-jcp2",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-46444",
+      "https://github.com/advisories/GHSA-hmg2-jjjx-jcp2"
+    ],
+    "severity": "high",
+    "summary": "FlowiseAI: Vector Store No Permission Checks",
+    "updated_at": "2026-06-11T14:08:36Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hmg2-jjjx-jcp2",
+  "repo": {
+    "cve_id": "CVE-2026-46444",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### FINDING 4: OpenAI Assistants Vector Store - No Auth on CRUD Operations\r\n**Severity**: HIGH (CVSS ~8.1)\r\n**Type**: CWE-306 (Missing Authentication for Critical Function)\r\n**File**: `packages/server/src/routes/openai-assistants-vector-store/index.ts`\r\n\r\n**Description**: ALL CRUD endpoints for OpenAI Assistants Vector Store have no authentication middleware AND the route path `/api/v1/openai-assistants-vector-store` is NOT in `WHITELIST_URLS`. However, it is also NOT protected by the main auth middleware when accessed via API key - the route requires API key auth (not whitelisted), but NO permission checks exist on any operation.\r\n\r\nThe real issue is that the routes have no `checkAnyPermission()` middleware, meaning any authenticated user regardless of role can:\r\n- Create vector stores\r\n- Upload files to vector stores\r\n- Delete vector stores and files\r\n- Modify any vector store\r\n\r\n**Evidence**:\r\n```typescript\r\n// No permission middleware on any route\r\nrouter.post('/', controller.createAssistantVectorStore)          // No permission check\r\nrouter.put(['/', '/:id'], controller.updateAssistantVectorStore) // No permission check\r\nrouter.delete(['/', '/:id'], controller.deleteAssistantVectorStore) // No permission check\r\nrouter.post('/:id', getMulterStorage().array('files'), controller.uploadFilesToAssistantVectorStore) // No permission check\r\n```\r\n\r\n**Impact**: Any authenticated user can manipulate OpenAI vector stores, upload malicious files, delete data, or exfiltrate stored documents regardless of their assigned permissions.\r\n",
+    "ghsa_id": "GHSA-hmg2-jjjx-jcp2",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-hmg2-jjjx-jcp2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmg2-jjjx-jcp2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46444"
+      }
+    ],
+    "published_at": "2026-05-14T14:15:13Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Vector Store No Permission Checks",
+    "updated_at": "2026-05-14T19:12:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-q74w-hv5x-6hxf",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 2.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\r\n\r\nThe responses of following API paths are not properly audit logged under certain conditions:\r\n\r\n- `sys/generate-root/attempt`\r\n- `sys/generate-root/update`\r\n- `sys/rekey/init`\r\n- `sys/rekey/update`\r\n- `sys/rekey/verify`\r\n- `sys/rekey-recovery-key/init`\r\n- `sys/rekey-recovery-key/update`\r\n- `sys/rekey-recovery-key/verify`\r\n\r\nThere are some factors that limit the impact:\r\n\r\n- Since OpenBao 2.5.3, all affected paths are unavailable by default and only accessible if explicitly enabled via `disable_unauthed_rekey_endpoints = false` or `disable_unauthed_generate_root_endpoints = false` in the OpenBao config. \r\n\r\n- The requests audit log entry is still generated, just the response entry will me missing.\r\n\r\n- The audit log has to succeed for logging the request, but fail for the response. \r\n\r\n## Patch\r\n\r\nThis vulnerability is patched in OpenBao v2.7.1 and v2.6.4.\r\n\r\n### Workarounds\r\n\r\nIf you run OpenBao 2.5.3 or higher: Make sure `disable_unauthed_rekey_endpoints` and `disable_unauthed_generate_root_endpoints` are set to `true` (which is the default value). If you ever need them, you can temporarily change the config.\r\n\r\n## References\r\n\r\n- [`disable_unauthed_generate_root_endpoints`](https://openbao.org/docs/configuration/listener/tcp/#:~:text=disable%5Funauthed%5Fgenerate%5Froot%5Fendpoints)\r\n- [`disable_unauthed_rekey_endpoints`](https://openbao.org/docs/configuration/listener/tcp/#:~:text=disable%5Funauthed%5Frekey%5Fendpoints)",
+    "ghsa_id": "GHSA-q74w-hv5x-6hxf",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-q74w-hv5x-6hxf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q74w-hv5x-6hxf"
+      }
+    ],
+    "published_at": "2026-10-01T14:36:11Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Improper Audit Logging of OpenBao's Root Token Generation and Unauthenticated Rekey Operations",
+    "updated_at": "2026-10-01T14:36:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/openbao/openbao/v2"
+        },
+        "patched_versions": "2.7.1, 2.6.4",
+        "vulnerable_version_range": "<2.7.1, <2.6.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

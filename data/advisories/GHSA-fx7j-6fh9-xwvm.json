@@ -1,0 +1,71 @@
+{
+  "id": "GHSA-fx7j-6fh9-xwvm",
+  "aliases": [],
+  "title": "Unauthenticated DoS: integer user API public key triggers RSA key generation",
+  "summary": "Passing an integer to `OpenSSL::PKey::RSA.new` generates a new RSA keypair of that bit length rather than parsing an existing key. Several endpoints fed the unvalidated `public_key` request param straight into this call, so an unauthenticated attacker could send a large integer (e.g. a multi-kilobit \"key\") and force the server to spend seconds generating a keypair per request, tying up Puma workers and degrading or denying service.\r\n\r\nThe most severe path was `ApplicationController#redirect_to_login_if_required`, which handled `user_api_public_key` on anonymous requests with no rate limiting. The user API key client creation endpoint and the device auth flow had the same pattern.\r\n\r\n### Workarounds\r\n\r\nNone. Sites can mitigate by rate-limiting unauthenticated requests at the proxy, but the vulnerable paths ran before rate limiting on the worst endpoint.\n\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-DJF9HY4Q.",
+  "published_at": "2026-11-10T17:37:56.000Z",
+  "modified_at": "2026-11-10T17:37:56.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "discourse",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.7.5"
+        },
+        {
+          "introduced": "2026.8.0",
+          "fixed": "2026.9.2"
+        },
+        {
+          "introduced": "2026.10.0",
+          "fixed": "2026.10.1"
+        },
+        {
+          "introduced": "2026.11.0-0",
+          "fixed": "2026.11.0-latest.1"
+        },
+        {
+          "introduced": "2026.10.0-latest",
+          "fixed": "2026.10.1"
+        },
+        {
+          "introduced": "2026.9.0-latest",
+          "fixed": "2026.9.2"
+        },
+        {
+          "introduced": "2026.7.0-latest",
+          "fixed": "2026.7.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/discourse/discourse/security/advisories/GHSA-fx7j-6fh9-xwvm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fx7j-6fh9-xwvm",
+      "url": "https://github.com/discourse/discourse/security/advisories/GHSA-fx7j-6fh9-xwvm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:8eea603356c87082c3935c1b659b9e31372774698e7e461b0a97803d6c92bcb9",
+  "note": null
+}

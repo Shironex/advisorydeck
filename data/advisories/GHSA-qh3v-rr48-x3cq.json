@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-qh3v-rr48-x3cq",
+  "aliases": [],
+  "title": "Authenticated Export Permission Bypass",
+  "summary": "# Authenticated Export Permission Bypass\n\n## Summary\n\nAt revision `18971ffba781a796c0ad3897bb4b82432c241e4c`, an authenticated database-view caller can invoke `GET /export` and receive raw records without the table `SELECT` predicate or field-level `SELECT` projection enforced by the same caller's `/sql` session. A pinned runtime comparison with a database JWT carrying `AC=low` and `RL=[]` returned a non-empty export containing a non-owner row and a `SELECT NONE` field, while same-token SQL returned only the owner-visible row and an unrestricted control row. This demonstrates a confidentiality bypass at the exact tested revision; no broader release range is inferred.\n\n## Technical Details\n\nThe HTTP export handler in `surrealdb/server/src/ntw/export.rs` checks the route capability, requires a namespace and database, authorizes database `View`, and calls `db.export_with_config(&session, ...)`. `Datastore::export_with_config` creates a read-only transaction and dispatches to the export implementation in `surrealdb/core/src/kvs/export.rs`.\n\nThe export chain reaches `export_table_data` and `export_regular_data`. The latter scans raw key/value records, decodes each value, and emits an `INSERT` statement. That path does not evaluate the requesting session's table `SELECT` predicate or apply the field-level permission filter before serialization. The `/sql` path uses the same session, checks table visibility during record resolution, and filters fields before returning them. Consequently, the two supported read surfaces expose different data to the same authenticated principal.\n\n## PoV\n\nThe following fixture is executed by the PoC as the root database administrator after selecting namespace `lab` and database `db`:\n\n```surql\n-- Fixture for the authenticated database JWT /export versus /sql\n-- differential. Execute these statements as the root database administrator\n-- after selecting namespace lab and database db.\nDEFINE TABLE secrets SCHEMAFULL PERMISSIONS FOR SELECT WHERE owner_key = 'attacker';\nDEFINE FIELD owner_key ON secrets TYPE string;\nDEFINE FIELD secret ON secrets TYPE string PERMISSIONS FOR SELECT NONE;\nDEFINE TABLE public SCHEMAFULL PERMISSIONS FULL;\nDEFINE FIELD marker ON public TYPE string PERMISSIONS FULL;\n\nCREATE secrets:owned SET owner_key = 'attacker', secret = 'owned-secret';\nCREATE secrets:hidden SET owner_key = 'other-principal', secret = 'hidden-secret';\nCREATE public:control SET marker = 'export-control';\n\n-- The PoC signs an HS256 database access token with this key and sends\n-- RL:[] so the caller is database-scoped but has no built-in Viewer role.\nDEFINE ACCESS low ON DATABASE TYPE JWT ALGORITHM HS256 KEY 'runtime-low-key';\n```\n\nThe `secrets` table should expose only the `attacker` row, and the `secret` field should be hidden. `public:control` is an unrestricted control record. The caller token is a database JWT for `lab`/`db` with access `low` and an explicit empty role list (`RL=[]`).\n\n## PoC\n\nRun this from a temporary working directory with the tested executable available on `PATH` as `surreal`. The checks pin its version, SHA-256, source revision, and fixture contents. The block creates its own fixture, names the working directory explicitly, saves each HTTP body before printing it, and uses the same database JWT for `/export` and `/sql`:\n\n```sh\nset -eu\nSURREAL_BIN=$(command -v surreal)\ntest -x \"$SURREAL_BIN\"\ntested_revision=18971ffba781a796c0ad3897bb4b82432c241e4c\nexpected_binary_version='3.3.0-nightly for linux on x86_64'\nexpected_binary_sha256=b4170108564b55f4b37275e9b87cbc2b50e4dc9933c9f4bcbeb331b5b58a7dc4\ncommand -v sha256sum >/dev/null 2>&1\nbinary_sha256=$(sha256sum \"$SURREAL_BIN\" | awk '{print $1}')\nbinary_version=$(\"$SURREAL_BIN\" version 2>&1 | tail -n 1)\nprintf 'tested_revision=%s\\n' \"$tested_revision\"\nprintf 'binary_version=%s\\n' \"$binary_version\"\nprintf 'binary_sha256=%s\\n' \"$binary_sha256\"\ntest \"$tested_revision\" = '18971ffba781a796c0ad3897bb4b82432c241e4c'\ntest \"$binary_version\" = \"$expect...",
+  "published_at": "2026-11-03T15:51:04.000Z",
+  "modified_at": "2026-11-03T15:51:04.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-qh3v-rr48-x3cq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qh3v-rr48-x3cq",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-qh3v-rr48-x3cq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

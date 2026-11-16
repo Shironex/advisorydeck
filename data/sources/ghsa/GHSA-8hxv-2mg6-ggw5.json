@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-8hxv-2mg6-ggw5",
+  "repo": {
+    "cve_id": "CVE-2026-83598",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.8,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-427"
+    ],
+    "description": "### Summary\r\nA local privilege escalation vulnerability exists in **Netdata <= v2.5.3**, where the MSI repair process spawns a SYSTEM-level PowerShell instance without the `-NoProfile` flag. This causes PowerShell to load the initiating user’s profile script, allowing a low-privileged attacker to execute arbitrary code as SYSTEM by placing malicious commands in their PowerShell profile.\r\n\r\n### Details\r\nA local privilege escalation vulnerability exists in the repair functionality of the Netdata MSI installer (tested with version v2.5.3). When the repair operation is triggered, it spawns a `powershell.exe` process running as SYSTEM, but without the `-NoProfile` parameter.\r\n\r\nAs a result, PowerShell loads the profile script from the user initiating the repair - specifically:\r\n`%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1`\r\n\r\nThis allows a low-privileged user to execute arbitrary code with SYSTEM privileges by planting malicious commands in their profile script prior to triggering the repair.\r\n\r\n![netdata_process](https://github.com/user-attachments/assets/6c7a1797-6c25-4e95-9e6a-5a0ebe0f7354)\r\n\r\n### PoC\r\n1. Obtain the MSI\r\n    - Use an existing MSI from C:\\Windows\\Installer\\ or bring a fresh one that matches the installed version.\r\n\r\n2. Create a PowerShell Profile Script\r\n    - Create the following file if it doesn't exist:\r\n\r\n    `%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1`\r\n\r\n3. Add malicious code, e.g.:\r\n\r\n    - Start-Process `cmd.exe` -Wait\r\n\r\n4. Trigger the Repair\r\n    - Run the repair command as the low-privileged user:\r\n\r\n    ```msiexec.exe /fa \"C:\\Windows\\Installer\\<target>.msi\"```\r\n\r\n5. Observe SYSTEM Shell\r\n    - The repair process loads the user’s PowerShell profile script under SYSTEM context, resulting in a spawned SYSTEM-level `cmd.exe`.\r\n\r\n![netdata_powershell_profile](https://github.com/user-attachments/assets/3b6c3f92-f309-4a5e-8d04-a6aa476d499b)\r\n\r\n\r\n### Impact\r\nSuccessful exploitation allows a local attacker to escalate privileges to SYSTEM, potentially leading to full compromise of the affected system.\r\n",
+    "ghsa_id": "GHSA-8hxv-2mg6-ggw5",
+    "html_url": "https://github.com/netdata/netdata/security/advisories/GHSA-8hxv-2mg6-ggw5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8hxv-2mg6-ggw5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-83598"
+      }
+    ],
+    "published_at": "2026-09-02T12:36:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Local Privilege Escalation in Netdata Agent Windows installer via PowerShell Profile Hijack in MSI Repair ",
+    "updated_at": "2026-09-02T12:36:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "netdata-x64.msi"
+        },
+        "patched_versions": ">= v2.10.4, >= v2.10.0-782-nightly",
+        "vulnerable_version_range": ">= v2.0.0, >= v1.99.0-458-nightly, < v2.10.4, < v23.10.0-782-nightly"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "netdata/netdata"
+}

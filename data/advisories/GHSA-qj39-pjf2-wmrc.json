@@ -1,0 +1,58 @@
+{
+  "id": "GHSA-qj39-pjf2-wmrc",
+  "aliases": [],
+  "title": "Path traversal vulnerability in distribution endpoints",
+  "summary": "### Impact\n\nHarbor checked permissions on registry API requests (`/v2/`) against the raw request path, but served the request after `..` segments in the path were resolved. A crafted path could therefore pass the permission check for a repository the caller can access and then operate on a different repository.\n\n- **Anyone, without logging in**, can read image manifests from any project, including private ones, as long as the Harbor instance has at least one public project. Manifests contain image metadata and layer digests.\n- **Any user with push access to at least one project** can change and delete tags and manifests in any project.\n\nThe affected operations are `GET`, `HEAD`, `PUT` and `DELETE` on `/v2/<repository>/manifests/<reference>`.\n\n### Am I affected?\n\nYou are affected if you run Harbor before the fixed releases. Anonymous manifest reads require at least one public project. Changing or deleting content in other projects requires any account with push access to one project, which every user has under the default **Project Creation: Everyone** setting.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, `/v2/` requests whose path contains a `.` or `..` segment are rejected with HTTP 400. Docker, containerd, Podman and other OCI clients never send such paths, so normal use is not affected.\n\n**Until you can upgrade:**\n\n1. In the reverse proxy or ingress in front of Harbor, reject requests to `/v2/` whose path contains `/../` or `/./` segments, including percent-encoded forms (`%2e`, `%2E`).\n2. Set **Configuration > System Settings > Project Creation** to **Admin Only**, and review which users have push access.\n3. If you don't need public projects, make them private. This blocks the anonymous read path but not the write path.\n\n### Check for misuse\n\nSearch your reverse proxy, ingress or Harbor nginx access logs for `/v2/` requests containing `/../`, `/./` or `%2e`. Any such request is suspicious, because normal clients never send them.",
+  "published_at": "2026-10-06T13:42:41.000Z",
+  "modified_at": "2026-10-06T13:42:41.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-35"
+  ],
+  "affected": [
+    {
+      "product": "harbor",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.6"
+        },
+        {
+          "introduced": "2.14.0",
+          "fixed": "2.14.5"
+        },
+        {
+          "introduced": "2.15.0",
+          "fixed": "2.15.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-qj39-pjf2-wmrc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qj39-pjf2-wmrc",
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-qj39-pjf2-wmrc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:957da812603784e12553d8874dd29da2ab4cb940c2a0469e15b44ddb98e4d53d",
+  "note": null
+}

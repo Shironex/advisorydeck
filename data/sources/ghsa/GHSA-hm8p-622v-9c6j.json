@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-hm8p-622v-9c6j",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe workspace member list is available to workspace viewers and returns pending members' raw\ninvitation tokens alongside the role each invitation was issued for, allowing the lowest-privileged\nmember of a workspace to redeem a higher-privileged invitation.\n\n### Details\n\nThe ACL grants `workspaceUserList` to the viewer role, the list query in `WorkspaceUser.ts` selects\n`invite_token`, and the workspace-users service returns those rows without passing them through\n`sanitiseUserObj` - the shared sanitiser that already classifies `invite_token` as confidential\nalongside `password` and `salt`, so the project's own notion of a secret is bypassed rather than\nabsent. The invite path writes the same value to the workspace-user row and to `nc_users`, so the\ntoken exposed by the roster is exactly the one signup validates, and signup checks only token\nequality and expiry with no verification that the caller is the invited party. Unauthenticated\nrequests to the roster are correctly rejected. The community edition is affected; the enterprise\nedition selects the column but never persists a value there, so its rosters return null. The member list now leaves out invitation tokens in both editions.\n\n### Impact\n\nAn authenticated workspace viewer can read a pending invitation token from the member list and\nredeem it at signup, claiming the account and the role that invitation carried. Where an unexpired\nworkspace-owner invitation exists, this is privilege escalation from the lowest workspace role to\nthe highest, together with disclosure of a secret the codebase already treats as sensitive. The\nattacker must already be a member of the workspace, and an unexpired pending invitation for a higher\nrole must exist. The official Docker image was not affected.\n\n### Credit\n\nThis issue was reported by [@doanmanhducz](https://github.com/doanmanhducz).\n",
+    "ghsa_id": "GHSA-hm8p-622v-9c6j",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-hm8p-622v-9c6j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hm8p-622v-9c6j"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Invitation Token Disclosure in Workspace Member List",
+    "updated_at": "2026-11-02T08:48:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.0",
+        "vulnerable_version_range": ">= 0.301.4, < 2026.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

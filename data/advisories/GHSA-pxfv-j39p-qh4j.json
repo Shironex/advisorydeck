@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-pxfv-j39p-qh4j",
+  "aliases": [],
+  "title": "Stored Seaweed-X-Amz-Version-Id header enables cross-tenant filer path traversal in the S3 gateway",
+  "summary": "## Summary\nThe S3 gateway accepts a client-supplied `Seaweed-X-Amz-Version-Id` HTTP header, stores it **verbatim** into object metadata (no ingress stripping, no `..`/slash rejection), and later re-reads that stored value as a **filename component** on two code paths that - unlike the 8 sibling consumers of version-ids - skip the `isValidVersionID` / `IsValidPathSegment` validator. Because the stored value flows into filer paths that are collapsed by `filepath.Join`, an authenticated single-bucket tenant can traverse out of its own bucket. This is a stored-then-reread confused-deputy variant of the same class as CVE-2026-55874 / CVE-2026-54917, on a channel that neither of those fixes covers (the CVE-2026-55874 / CVE-2026-54917 guards validate mux URL vars and query params, never stored object metadata).\n\nTwo distinct sinks are reachable from the one poisoned header:\n\n- **Vector A - retention/legal-hold write (cross-tenant directory-entry creation).** `PutObjectRetention`/`PutObjectLegalHold` build `entryPath = object + \".versions/v_\" + poison` and write it. Parent directories are auto-created at the **collapsed** cross-bucket path, letting the attacker create directory entries in other tenants' bucket trees and outside `/buckets`, and promote a victim's existing object file into a directory.\n- **Vector B - remote-cache read (cross-bucket confidentiality breach).** On `GetObject` of a remote-only object, the poison flows to `doCacheRemoteObjectToLocalCluster`, whose `util.JoinPath` collapses `..` on BOTH the lookup and the cache write, returning a collapsed cross-bucket victim entry whose chunks are streamed back to the attacker. (Gated on remote storage tiering being configured - a non-default deployment feature.)\n\n## Root Cause\n`putToFiler` stores the client header without validation (`weed/s3api/s3api_object_handlers_put.go:792-793`). The `Seaweed-`-prefixed header is not stripped on ingress (only `X-SeaweedFS-Principal` / `-Session-Token` are `Header.Del`'d in `weed/s3api/auth_credentials.go:1672-1673`), and SigV4's unsigned-header coverage check only enforces the `x-amz-` prefix, so `seaweed-x-amz-version-id` is exempt (irrelevant here anyway since both paths are authenticated and the attacker can simply sign the header). The stored value is later read back into a path WITHOUT `isValidVersionID`, the one asymmetry that distinguishes these two sinks from the 8 that validate.\n\n## Impact\n- **Vector A:** cross-tenant / arbitrary-filer directory-entry creation (including inside victim bucket trees and outside `/buckets`), a WORM-metadata leaf at an attacker-chosen raw key, and file→directory promotion of a victim's existing object (integrity). No read primitive (the leaf lands at the raw, uncollapsed key in the attacker's own namespace, so it is NOT an arbitrary-content overwrite - this bounds the impact). CVSS `AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:L/A:L` = 6.4 MEDIUM.\n- **Vector B:** genuine cross-bucket object read streamed to the attacker (confidentiality). CVSS `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N` = 7.7 HIGH (conditional on remote-tiering configured).\n\nCombined advisory scored at the ceiling: **7.7 HIGH**.\n\n## Proof of Concept\n1. `PUT /mybkt/obj` (versioning OFF) with header `Seaweed-X-Amz-Version-Id: x/../../../../buckets/victim/pwn` + valid SigV4. → stored verbatim.\n2. `PUT /mybkt?versioning` `Status=Enabled` (own bucket) - makes Object Lock ops \"available\".\n3. **Vector A:** `PUT /mybkt/obj?retention` with a COMPLIANCE/GOVERNANCE body and NO `versionId` query → `setObjectRetention` reads the stored poison and writes with parent-dir collapse.\n   **Vector B:** with remote tiering configured and `obj` remote-only, `GET /mybkt/obj` (no `versionId`) → poisoned path collapses in `doCacheRemoteObjectToLocalCluster`, victim chunks streamed back.\n\n## Attack Chain\n1. **Entry** - `PUT /mybkt/obj` header `Seaweed-X-Amz-Version-Id: x/../../../../buckets/victim/pwn`.\n   - Guard: ingress header stripping; `..` rejection at store.\n   - Byp...",
+  "published_at": "2026-11-09T19:45:48.000Z",
+  "modified_at": "2026-11-09T19:45:48.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-706"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-pxfv-j39p-qh4j",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-pxfv-j39p-qh4j",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-pxfv-j39p-qh4j",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ab67aec02633e20d6c5f7ec41fcf16a2152c5677ae7cfb05163be77f4a3d4db1",
+  "note": null
+}

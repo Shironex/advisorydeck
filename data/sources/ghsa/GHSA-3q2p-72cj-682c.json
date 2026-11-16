@@ -1,0 +1,108 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54096",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.4,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-367",
+      "CWE-668",
+      "CWE-863"
+    ],
+    "description": "### Summary\nThis is similar vulnrability of **`CVE-2026-0035`**, which was fixed in Android `MediaProvider` with **high** severity. In the original Java issue, `MediaStore.createWriteRequest()` accepted attacker-controlled URIs and created a future grant even when the referenced media item did not exist yet. The Android fix added an existence check before creating the request.\n\n`filebrowser/filebrowser` has the analogous issue in Go. `POST /api/share/<path>` accepts an authenticated request for an arbitrary path and stores a public share record without checking whether the target file currently exists. Later, when a file is created at that same path, the previously created public share immediately becomes valid and exposes the new file through `GET /api/public/dl/<hash>`.\n\n### Details\nThe vulnerable create path is:\n\n- `http/share.go`\n- `sharePostHandler()`\n- route: `POST /api/share/<path>`\n\n`sharePostHandler()` only checks that the caller is authenticated and has share/download permissions. It then builds a `share.Link` directly from `r.URL.Path` and saves it:\n\n```go\ns = &share.Link{\n    Path:         r.URL.Path,\n    Hash:         str,\n    Expire:       expire,\n    UserID:       d.user.ID,\n    PasswordHash: string(hash),\n    Token:        token,\n}\n\nif err := d.store.Share.Save(s); err != nil {\n    return http.StatusInternalServerError, err\n}\n```\n\nThere is no `Stat`, `Exists`, or equivalent check before the public share record is committed.\n\nThe vulnerable consume path is:\n\n- `http/public.go`\n- `withHashFile()`\n- routes: `GET /api/public/share/<hash>`, `GET /api/public/dl/<hash>`\n\nEach public request loads the saved share by hash and then resolves `link.Path` against the owner's current filesystem state:\n\n```go\nfile, err := files.NewFileInfo(&files.FileOptions{\n    Fs:   d.user.Fs,\n    Path: link.Path,\n    ...\n})\n```\n\nThis means the share is not bound to an object that existed at creation time. It is bound only to a path string, so a share created for a nonexistent path becomes valid later as soon as that path is populated.\n\n\n### PoC\nThe PoC below starts from external HTTP input only.\n\n1. Authenticate to File Browser.\n2. Confirm `/future4.txt` does not exist.\n3. Create a public share for `/future4.txt` anyway.\n4. Confirm the public share returns `404`.\n5. Upload a file to `/future4.txt`.\n6. Reuse the same public share URL and read the file content.\n\nReproduction commands:\n\n```bash\nTOKEN=$(curl -s -X POST http://127.0.0.1:8091/api/login \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"username\":\"admin\",\"password\":\"Password123!\"}')\n\ncurl -i -X POST http://127.0.0.1:8091/api/share/future4.txt \\\n  -H \"X-Auth: $TOKEN\" \\\n  -H 'Content-Type: application/json' \\\n  -d '{}'\n\ncurl -i http://127.0.0.1:8091/api/public/dl/JVeEQlLO\n\ncurl -i -X POST http://127.0.0.1:8091/api/resources/future4.txt \\\n  -H \"X-Auth: $TOKEN\" \\\n  --data-binary 'fourth-secret'\n\ncurl -i http://127.0.0.1:8091/api/public/dl/JVeEQlLO\n```\n\n\n### Impact\nAn authenticated user can create a public share for a path before the file exists, and that same share later exposes whatever file is created at that path. This can unintentionally publish future sensitive files and bypass the expected invariant that a share grants access only to an existing object reviewed at creation time.\n\n### Reference\n\nOriginal CVE: https://nvd.nist.gov/vuln/detail/CVE-2026-0035",
+    "ghsa_id": "GHSA-3q2p-72cj-682c",
+    "html_url": "https://github.com/advisories/GHSA-3q2p-72cj-682c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3q2p-72cj-682c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54096"
+      }
+    ],
+    "published_at": "2026-06-12T21:07:55Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-3q2p-72cj-682c",
+      "https://github.com/filebrowser/filebrowser/commit/166583db632e088e9f0adce30aec43bb9d9019f4",
+      "https://github.com/filebrowser/filebrowser/releases/tag/v2.63.7",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54096",
+      "https://github.com/advisories/GHSA-3q2p-72cj-682c"
+    ],
+    "severity": "high",
+    "summary": "File Browser: Improper Access Control Occurs via Pre-Created Public Share for a Non-existent Path",
+    "updated_at": "2026-07-21T14:45:01Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.63.7",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "<= 2.63.6"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser"
+        },
+        "vulnerable_version_range": "<= 1.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3q2p-72cj-682c",
+  "repo": {
+    "cve_id": "CVE-2026-54096",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nThis is similar vulnrability of **`CVE-2026-0035`**, which was fixed in Android `MediaProvider` with **high** severity. In the original Java issue, `MediaStore.createWriteRequest()` accepted attacker-controlled URIs and created a future grant even when the referenced media item did not exist yet. The Android fix added an existence check before creating the request.\r\n\r\n`filebrowser/filebrowser` has the analogous issue in Go. `POST /api/share/<path>` accepts an authenticated request for an arbitrary path and stores a public share record without checking whether the target file currently exists. Later, when a file is created at that same path, the previously created public share immediately becomes valid and exposes the new file through `GET /api/public/dl/<hash>`.\r\n\r\n### Details\r\nThe vulnerable create path is:\r\n\r\n- `http/share.go`\r\n- `sharePostHandler()`\r\n- route: `POST /api/share/<path>`\r\n\r\n`sharePostHandler()` only checks that the caller is authenticated and has share/download permissions. It then builds a `share.Link` directly from `r.URL.Path` and saves it:\r\n\r\n```go\r\ns = &share.Link{\r\n    Path:         r.URL.Path,\r\n    Hash:         str,\r\n    Expire:       expire,\r\n    UserID:       d.user.ID,\r\n    PasswordHash: string(hash),\r\n    Token:        token,\r\n}\r\n\r\nif err := d.store.Share.Save(s); err != nil {\r\n    return http.StatusInternalServerError, err\r\n}\r\n```\r\n\r\nThere is no `Stat`, `Exists`, or equivalent check before the public share record is committed.\r\n\r\nThe vulnerable consume path is:\r\n\r\n- `http/public.go`\r\n- `withHashFile()`\r\n- routes: `GET /api/public/share/<hash>`, `GET /api/public/dl/<hash>`\r\n\r\nEach public request loads the saved share by hash and then resolves `link.Path` against the owner's current filesystem state:\r\n\r\n```go\r\nfile, err := files.NewFileInfo(&files.FileOptions{\r\n    Fs:   d.user.Fs,\r\n    Path: link.Path,\r\n    ...\r\n})\r\n```\r\n\r\nThis means the share is not bound to an object that existed at creation time. It is bound only to a path string, so a share created for a nonexistent path becomes valid later as soon as that path is populated.\r\n\r\n\r\n### PoC\r\nThe PoC below starts from external HTTP input only.\r\n\r\n1. Authenticate to File Browser.\r\n2. Confirm `/future4.txt` does not exist.\r\n3. Create a public share for `/future4.txt` anyway.\r\n4. Confirm the public share returns `404`.\r\n5. Upload a file to `/future4.txt`.\r\n6. Reuse the same public share URL and read the file content.\r\n\r\nReproduction commands:\r\n\r\n```bash\r\nTOKEN=$(curl -s -X POST http://127.0.0.1:8091/api/login \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"admin\",\"password\":\"Password123!\"}')\r\n\r\ncurl -i -X POST http://127.0.0.1:8091/api/share/future4.txt \\\r\n  -H \"X-Auth: $TOKEN\" \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{}'\r\n\r\ncurl -i http://127.0.0.1:8091/api/public/dl/JVeEQlLO\r\n\r\ncurl -i -X POST http://127.0.0.1:8091/api/resources/future4.txt \\\r\n  -H \"X-Auth: $TOKEN\" \\\r\n  --data-binary 'fourth-secret'\r\n\r\ncurl -i http://127.0.0.1:8091/api/public/dl/JVeEQlLO\r\n```\r\n\r\n\r\n### Impact\r\nAn authenticated user can create a public share for a path before the file exists, and that same share later exposes whatever file is created at that path. This can unintentionally publish future sensitive files and bypass the expected invariant that a share grants access only to an existing object reviewed at creation time.\r\n\r\n### Reference\r\n\r\nOriginal CVE: https://nvd.nist.gov/vuln/detail/CVE-2026-0035",
+    "ghsa_id": "GHSA-3q2p-72cj-682c",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-3q2p-72cj-682c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3q2p-72cj-682c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54096"
+      }
+    ],
+    "published_at": "2026-06-04T05:54:39Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Improper Access Control Occurs via Pre-Created Public Share for a Non-existent Path",
+    "updated_at": "2026-06-11T21:46:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.7",
+        "vulnerable_version_range": " <= 2.63.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

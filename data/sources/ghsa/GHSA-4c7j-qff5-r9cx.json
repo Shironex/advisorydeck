@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-4c7j-qff5-r9cx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nA dynamic-path webhook URL contains a server-generated identifier that is the only unguessable part of it. Webhook resolution matched on the path alone and ran first, so a request omitting that identifier still resolved to the workflow and executed it. An unauthenticated caller can run a workflow in a project they have no relationship with, under that project's credentials. The same resolver serves the form and MCP routes. Node-level authentication still applies.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.83, 2.42.1 and 2.41.4. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Enable node-level webhook authentication (Basic, Header, or JWT) on all active Webhook nodes that use dynamic path templates.\n- Deactivate workflows using dynamic-path webhooks until the instance is patched.\n- Apply network-level controls to restrict access to the `/webhook/*`, `/form/*`, and `/mcp/*` routes to trusted sources only.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-4c7j-qff5-r9cx",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-4c7j-qff5-r9cx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4c7j-qff5-r9cx"
+      }
+    ],
+    "published_at": "2026-09-30T08:35:37Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Cross-Project Workflow Execution via Webhook Path-Only Resolution",
+    "updated_at": "2026-09-30T08:35:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.83",
+        "vulnerable_version_range": "< 1.123.83"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.42.1",
+        "vulnerable_version_range": "< 2.42.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.41.4",
+        "vulnerable_version_range": "< 2.41.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

@@ -1,0 +1,87 @@
+{
+  "global": null,
+  "id": "GHSA-w4m3-qhx8-c649",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-209",
+      "CWE-532"
+    ],
+    "description": "### Summary\r\n\r\nWhen a Coder deployment uses AWS IAM authentication for its PostgreSQL database and fails to open a new database connection, the resulting error can include the database connection URL. That URL contains a short-lived database password. Coder returned this error in API responses, including to unauthenticated requests.\r\n\r\n### Details\r\n\r\nWith `CODER_PG_AUTH=awsiamrds`, Coder generates an IAM authentication token for each new database connection and adds it to the connection URL as the password. If opening the connection failed, the error message included the full URL. This error was also written to the Coder server logs and CLI output on each connection retry, so the token was exposed to anyone with access to those logs.\r\n\r\nThe API key middleware returned database errors in the `detail` field of its response. A request with an API key that is correctly formatted but not valid causes a database lookup, so anyone who can reach the Coder API could get this error without logging in.\r\n\r\nThe error only appears while Coder is failing to open new connections to the database, for example during a database outage or failover. The generated password is valid for 15 minutes.\r\n\r\nThe fix removes the connection URL from the driver's error, and the API key middleware no longer includes internal error details in its response.\r\n\r\n### Impact\r\n\r\nDuring a database connection failure, an unauthenticated attacker who can reach the Coder API could get a temporary password for the Coder database, along with its host, port and username. The password is valid for 15 minutes.\r\n\r\nAn attacker who can also reach the database over the network could use it to read, change or delete Coder's data, including user accounts and roles. Changes made during that window persist, so an attacker could grant themselves access that outlasts the password.\r\n\r\nDeployments that don't use `CODER_PG_AUTH=awsiamrds` are not affected.\r\n\r\n\r\n### Patches\r\n\r\n| Release line | Fixed version |\r\n|---|---|\r\n| 2.39 (mainline) | v2.39.1 |\r\n| 2.38 (stable) | v2.38.7 |\r\n| 2.37 (security support) | v2.37.11 |\r\n| 2.34 (ESR) | v2.34.19 |\r\n| 2.29 (ESR) | v2.29.27 |\r\n\r\n### Workarounds\r\n\r\nRestrict network access to the database so only Coder can connect to it. Limit the database user's permissions to what Coder needs. These limit the impact but don't prevent the password from appearing in errors; upgrade to a fixed version.\r\n\r\n### References\r\n\r\n- https://github.com/coder/coder/pull/31850\r\n\r\n### Credits\r\n\r\nWe'd like to thank a customer security team, Jon David Black (@jondavid-black) and Thomas Kosiewski (@ThomasK33) from our internal development team for reporting this issue.\r\n",
+    "ghsa_id": "GHSA-w4m3-qhx8-c649",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-w4m3-qhx8-c649",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w4m3-qhx8-c649"
+      }
+    ],
+    "published_at": "2026-11-11T09:59:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "AWS IAM database authentication can expose a temporary database password in API errors",
+    "updated_at": "2026-11-11T09:59:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.39.1",
+        "vulnerable_version_range": ">= 2.39.0, < 2.39.1"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.7",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.7"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.11",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.11"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.19",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.19"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.27",
+        "vulnerable_version_range": "< 2.29.27"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.37.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-q742-6g25-cvm9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nWrite operations submitted through the internal batch endpoint were authorized against the source named on the outer envelope rather than the source actually targeted, letting a base Editor write to a source configured as data-read-only.\n\n### Details\n\n`internal.controller.ts` builds each batch sub-request with `Object.create(req)` and replaces only `query` and `body`, so authorization-relevant properties already resolved by the ID-extraction middleware - notably the source id derived from the envelope's table - were inherited by the sub-request. The dispatcher also accepted every registered operation except a nested batch, including the data-write operations, even though the SDK describes the batch set as read-only. A caller could therefore name a table from a writable source on the envelope and a table belonging to a data-read-only source inside a `dataUpdate`, `dataInsert` or `dataDelete` sub-operation: the read-only assertion in `extract-ids.middleware.ts` evaluated the writable decoy source and allowed the request, while `data-table.service.ts` resolved the inner table and performed the write without re-checking the restriction on the actual target source.\n\n### Impact\n\nRequires an authenticated base Editor role, or any other base role carrying data-write permission, plus knowledge of workspace, base and table identifiers that are ordinarily visible to a base member. Such a user could insert, update, move or delete records in a source the base owner had explicitly configured as data-read-only, corrupting or destroying data in an attached production database and defeating the source-level write boundary.\n\n### Credit\n\nThis issue was reported by [@l0h1nth](https://github.com/l0h1nth).\n",
+    "ghsa_id": "GHSA-q742-6g25-cvm9",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-q742-6g25-cvm9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q742-6g25-cvm9"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:11Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Read-Only Source Restriction Bypass via Internal Batch API",
+    "updated_at": "2026-11-02T08:47:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": ">= 2026.06.2, < 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

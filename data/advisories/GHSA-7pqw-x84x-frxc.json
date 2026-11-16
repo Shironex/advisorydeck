@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-7pqw-x84x-frxc",
+  "aliases": [],
+  "title": "Filesystem Bucket Containment Fails to Resolve Descendant Symlinks",
+  "summary": "### Summary\nA symbolic link traversal vulnerability exists in SurrealDB's filesystem storage bucket (`surrealdb/surrealdb`). In `surrealdb/core/src/buc/store/file.rs`, containment assertions only canonicalize the bucket root rather than resolving descendant symlinks.\n\n### Vulnerability Details\n- Affected File: `surrealdb/core/src/buc/store/file.rs` (`to_os_path`, `get`, `put`, `copy`, `rename`, `list`)\n- Mechanism: The security assertion checks `path.starts_with(&self.root)` using lexical comparison. If the storage directory contains a pre-existing symbolic link pointing outside the bucket root (e.g. `<root>/link -> /etc`), requests referencing `/link/secret` satisfy the prefix check and allow arbitrary file reads and writes across the host filesystem.\n- Impact: Host filesystem disclosure and modification via symlink navigation.\n\n### Recommended Remediation\nFully canonicalize the final target path using `std::fs::canonicalize()` and verify that the canonical path resides within the canonical bucket root.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that canonicalizes the deepest existing ancestor of a filesystem bucket key and re-checks it against the canonical root, so an in-bucket symlink can no longer redirect an operation outside the bucket root.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(buc): filesystem bucket path traversal via symlinks, Windows backslashes, and direct-bucket keys` (commit `5edf982bf0`)",
+  "published_at": "2026-11-03T15:51:10.000Z",
+  "modified_at": "2026-11-03T15:51:10.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-7pqw-x84x-frxc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7pqw-x84x-frxc",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-7pqw-x84x-frxc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

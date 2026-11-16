@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-378j-ccw4-4fwh",
+  "repo": {
+    "cve_id": "CVE-2026-32113",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:A/VC:N/VI:N/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "  ---\r\n  Impact\r\n\r\n  Vulnerability Type: Open Redirect\r\n\r\n  Description:\r\n  The enter action in StaticController reads the sso_destination_url cookie and redirects to it with allow_other_host:\r\n  true without validating the destination URL. While this cookie is normally set during legitimate DiscourseConnect\r\n  Provider flows with cryptographically validated SSO payloads, cookies are client-controlled and can be set by\r\n  attackers.\r\n\r\n  Attack Scenario:\r\n  An attacker who can set cookies in a victim's browser (via subdomain cookie injection, XSS on a related domain, or\r\n  other cookie-setting vulnerabilities) can set the sso_destination_url cookie to an arbitrary external URL (e.g.,\r\n  https://evil-phishing-site.com/login). When the victim authenticates via POST to /login, they are redirected to the\r\n  attacker-controlled URL, enabling phishing attacks.\r\n\r\n  Who is Impacted:\r\n  - Sites using DiscourseConnect Provider (enable_discourse_connect_provider = true)\r\n  - Users authenticating via the /login endpoint when an attacker can set cookies in their browser\r\n\r\n  Severity: High - Enables phishing attacks post-authentication\r\n\r\n  ---\r\n  Patches\r\n\r\n  The vulnerability has been patched by adding validation to ensure the sso_destination_url cookie value matches\r\n  configured SSO provider domains before allowing external redirects.\r\n\r\n  What Changed:\r\n  - The enter action now validates the cookie value against the discourse_connect_provider_secrets site setting\r\n  - Only URLs matching configured provider domains (including wildcard domains) are allowed for external redirects\r\n  - Invalid or unauthorized URLs fall back to safe internal redirects\r\n\r\n  Recommended Action:\r\n  Users should upgrade to the latest stable version that includes this security fix.\r\n\r\n  ---\r\n  Workarounds\r\n\r\n  If immediate upgrade is not possible, consider these temporary mitigations:\r\n\r\n  1. Disable DiscourseConnect Provider (if not actively used). `enable_discourse_connect_provider = false`. This prevents the vulnerable code path from being executed.\r\n\r\n  Note: These are temporary mitigations only. Upgrading is strongly recommended.\r\n  ---\r\n  References\r\n\r\n  - https://meta.discourse.org/t/using-discourse-as-a-sso-provider/32974",
+    "ghsa_id": "GHSA-378j-ccw4-4fwh",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-378j-ccw4-4fwh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-378j-ccw4-4fwh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32113"
+      }
+    ],
+    "published_at": "2026-03-31T14:29:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Open redirect via `sso_destination_url` cookie in `enter`",
+    "updated_at": "2026-03-31T14:29:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.3.0",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.2.2",
+        "vulnerable_version_range": ">= 2026.2.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.1.3",
+        "vulnerable_version_range": ">= 2026.1.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

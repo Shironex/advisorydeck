@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-663w-cv8g-jj2p",
+  "repo": {
+    "cve_id": "CVE-2026-111497",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-787"
+    ],
+    "description": "### Summary\n\nBun bundles Google's brotli library. CVE-2026-111497 is an out-of-bounds write in the brotli decoder. The brotli project states that it permits remote code execution. Bun 1.4.3 and earlier bundle an affected version of brotli, and they decode brotli data from untrusted sources.\n\nBun 1.4.4 updates brotli to 1.2.1, which contains the fix.\n\nThis is a bug in the brotli library, not in Bun's own code. Other projects that bundle brotli are affected in the same way. Node.js published fixes on October 21, 2026.\n\n### Details\n\nThe bug is in the brotli decoder. Affected versions of brotli are 1.0.3 to 1.2.0, except the fixed releases 1.0.10 and 1.1.1. Bun 1.4.3 bundles brotli 1.2.0.\n\nThese Bun APIs pass data to the decoder:\n\n- `fetch`. It sends `Accept-Encoding: gzip, deflate, br, zstd` by default and decodes a response with `Content-Encoding: br` automatically. A server that an application connects to can therefore send data to the decoder.\n- `node:zlib`, including `brotliDecompress`, `brotliDecompressSync` and `createBrotliDecompress`.\n- `DecompressionStream`, with the `brotli` format.\n\nExecutables built with `bun build --compile` embed the Bun runtime. An executable built with an affected version stays affected until it is rebuilt.\n\n### Impact\n\nAn attacker who can supply brotli data to an affected API can cause an out-of-bounds write in the Bun process. For `fetch`, this includes a malicious server, and an attacker in the network path of an unencrypted connection.\n\nThe brotli project states that the bug permits remote code execution. We have not tested an attack against Bun, so we do not know how the impact in Bun compares with the impact in other software. Treat this as a remote code execution risk.\n\n### Patches\n\nUpgrade to Bun 1.4.4, and rebuild any `bun build --compile` executables with it.\n\nBun 1.4.4 updates brotli from 1.2.0 to 1.2.1 (#46392). Invalid data now fails with the new decoder error `BROTLI_DECODER_ERROR_FORMAT_BLOCK_SWITCH`.\n\n### Workarounds\n\nThere is no process-wide workaround for affected versions.\n\n- Pass `decompress: false` to `fetch`. Bun then does not send `Accept-Encoding: br` and does not decode the response. This applies only to that request.\n- Do not pass untrusted data to the brotli APIs in `node:zlib` or to `DecompressionStream` with the `brotli` format.\n\n### References\n\n- https://github.com/oven-sh/bun/pull/46392\n- brotli 1.2.1: https://github.com/google/brotli/releases/tag/v1.2.1\n- Node.js October 2026 security releases: https://nodejs.org/en/blog/vulnerability/october-2026-security-releases\n",
+    "ghsa_id": "GHSA-663w-cv8g-jj2p",
+    "html_url": "https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-663w-cv8g-jj2p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-111497"
+      }
+    ],
+    "published_at": "2026-10-23T09:31:05Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Bundled brotli decoder has an out-of-bounds write (CVE-2026-111497)",
+    "updated_at": "2026-10-23T09:31:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "bun"
+        },
+        "patched_versions": "1.4.4",
+        "vulnerable_version_range": ">= 1.0.21, < 1.4.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "oven-sh/bun"
+}

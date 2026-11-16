@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-wjh3-m4pv-q6cp",
+  "aliases": [],
+  "title": "Cross-field array-index drift in wildcard field-permission filtering",
+  "summary": "# Cross-field array-index drift in wildcard field-permission filtering\n\n## Summary\n\nAt revision `18971ffba781a796c0ad3897bb4b82432c241e4c`, `filter_fields_by_permission` can disclose a child field that its `SELECT` permission denied when an earlier overlapping wildcard permission removes array elements. The function expands every permission path from one immutable pre-filter snapshot but applies each denial immediately to a mutable result. An authenticated low-privilege record user can therefore receive a denied value from a surviving element after an ancestor permission compacts the array and invalidates the concrete indices used by a later child permission.\n\n## Technical Details\n\nThe affected function is `surrealdb_core::exec::operators::scan::pipeline::filter_fields_by_permission` in `surrealdb/core/src/exec/operators/scan/pipeline.rs`, lines 942-990 at the tested revision. The shipped query path is `Datastore::execute` (`surrealdb/core/src/kvs/ds.rs`, lines 3437-3468), `process_plan_inner` (`ds.rs`, lines 3870-3918), `Executor::execute_plan` (`surrealdb/core/src/dbs/executor.rs`, lines 1688-1718), `filter_and_process_batch` (`pipeline.rs`, lines 390-450), and then `filter_fields_by_permission`. `filter_and_process_batch` invokes the affected function before evaluating the `WHERE` predicate when permission checking is enabled.\n\nThe implementation deliberately snapshots the row once so that predicates and wildcard expansion observe the original document, while denied paths are removed immediately from the mutable result:\n\n```rust\nlet mut snapshot: Option<Value> = None;\nfor (idiom, perm) in state.field_permissions.iter() {\n    // ...\n    PhysicalPermission::Conditional(_) => {\n        let original = snapshot.get_or_insert_with(|| value.clone());\n        for path in original.each(&idiom.0).into_iter().rev() {\n            let field_value = original.pick(&path.0);\n            let allowed =\n                check_permission_for_value(perm, original, Some(&field_value), ctx).await?;\n            if !allowed {\n                value.cut(&path.0);\n            }\n        }\n    }\n}\n```\n\nReverse iteration preserves indices while processing multiple removals for one wildcard field. It does not preserve element identity across different overlapping fields. If the ordered permission entries are `items[*]` followed by `items[*].secret`, the first entry can compact `value.items`, while the second entry still expands, picks, and authorizes paths against the original `snapshot.items`. The later concrete path is then cut from the already-compacted mutable array.\n\nThe decisive input contains four elements: `[{n:0,secret:\"s0\"},{n:1,secret:\"s1\"},{n:2,secret:\"s2\"},{n:3,secret:\"s3\"}]`. The parent permission retains only even `n`, producing mutable elements `n=0` and `n=2`. The child permission permits only the original value `s1`. When the child loop reaches original index 1, it sees allowed value `s1` and does not cut mutable index 1, but mutable index 1 is now the `n=2` element containing denied value `s2`. The result is `[(0, None), (2, Some(\"s2\"))]`; the required result is `[(0, None), (2, None)]`.\n\nThe violated invariant is: every denied concrete field value must be removed from a record-user `SELECT` result while preserving the identity of each array element across overlapping field permissions. This is unintended authorization behavior because the permission boundary promises to remove denied fields before returning the row, and the repository's regression coverage for issue #7356 explicitly requires array-element permissions to filter elements by identity.\n\nPreconditions are an authenticated record user, a readable row containing an array, two overlapping wildcard field permissions processed parent first and child second, and a parent predicate that removes enough elements to shift a survivor into an index whose original child value was allowed. No administrator capability, malformed input, race, or memory corruption is required.\n\n## PoV\n\nTh...",
+  "published_at": "2026-11-03T15:51:00.000Z",
+  "modified_at": "2026-11-03T15:51:00.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-wjh3-m4pv-q6cp",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wjh3-m4pv-q6cp",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-wjh3-m4pv-q6cp",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

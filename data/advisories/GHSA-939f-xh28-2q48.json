@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-939f-xh28-2q48",
+  "aliases": [],
+  "title": "Unauthenticated SSRF (IMDS-reachable) and local-file oracle in VolumeServer.FetchAndWriteNeedle - incomplete fix of CVE-2026-73080",
+  "summary": "## Summary\r\n\r\nThe fix for **CVE-2026-73080** (GHSA-87fv-vqqr-m4jr, \"Unauthenticated SSRF with response\r\nread-back via VolumeServer\") guards **one** attacker-controlled URL in\r\n`VolumeServer.FetchAndWriteNeedle` and leaves sibling inputs in the same handler\r\nunguarded. On the current release (**4.41**) and at `master`, an unauthenticated attacker\r\nwho can reach the volume server's gRPC port can still:\r\n\r\n1. perform **SSRF over plain HTTP to any host/port/path**, including `127.0.0.1` and\r\n   `169.254.169.254`, with attacker-controlled path, query, `Authorization` header and\r\n   request body - via `FetchAndWriteNeedleRequest.replicas[].url`;\r\n2. perform **SSRF over HTTPS** to an otherwise-blocked address via the `azure` backend\r\n   carve-out (`remote_conf.type=\"azure\"`, `azure_endpoint`);\r\n3. **probe arbitrary local files** for existence/readability via the `gcs` backend\r\n   (`gcs_google_application_credentials`).\r\n\r\nThe guard that was added does work - it rejects the patched leg in the same run - so this\r\nis specifically an incomplete fix, not a re-report of CVE-2026-73080.\r\n\r\nVerified end-to-end on the shipped image `chrislusf/seaweedfs:4.41` with a fully anonymous\r\ngRPC client (no credentials, no TLS, no metadata) and a working negative control.\r\n\r\n## Affected\r\n\r\n- SeaweedFS **4.41** (current latest) and `master` - `weed/server/volume_grpc_remote.go`.\r\n- Default configuration: stock `weed server`, no `security.toml`, no `-whiteList`. The\r\n  volume-server gRPC port (`10000 + volume port`, i.e. **18080** by default) must be\r\n  reachable by the attacker; on stock startup it binds the node's routable interface.\r\n- No credentials of any kind are required.\r\n\r\n## Root cause - one guarded leg, three unguarded ones\r\n\r\nThe patch validates the remote storage endpoint, and only when the backend is\r\nS3-compatible:\r\n\r\n```go\r\n// weed/server/volume_grpc_remote.go (~242-256)\r\nendpoint, isS3Compatible := \"\", false\r\nif remoteConf != nil {\r\n    endpoint, isS3Compatible = s3remote.S3CompatibleEndpoint(remoteConf)\r\n}\r\n// (gcs, azure, ...) authenticate against their own SDKs and don't accept\r\n// an attacker-controlled host.        <-- this assumption is wrong for azure\r\nif !vs.AllowUntrustedRemoteEndpoints && isS3Compatible {\r\n    if validateErr := validateRemoteEndpoint(ctx, endpoint); validateErr != nil {\r\n        return nil, fmt.Errorf(\"reject remote endpoint: %w\", validateErr)\r\n    }\r\n    client, getClientErr = s3remote.MakeWithHTTPClient(remoteConf, newGuardedHTTPClient(endpoint))\r\n```\r\n\r\nImmediately below, in the **same handler**, a second attacker-controlled URL is used with\r\nno validation at all:\r\n\r\n```go\r\n// weed/server/volume_grpc_remote.go (~312-338)\r\nif len(req.Replicas) > 0 {\r\n    fileId := needle.NewFileId(v.Id, req.NeedleId, req.Cookie)\r\n    for i, replica := range req.Replicas {\r\n        go func(idx int, targetVolumeServer string) {\r\n            uploadOption := &operation.UploadOption{\r\n                UploadUrl: fmt.Sprintf(\"http://%s/%s?type=replicate\", targetVolumeServer, fileId.String()),\r\n                ...\r\n                Jwt: security.EncodedJwt(req.Auth),   // attacker-controlled Authorization\r\n            }\r\n            uploader.UploadData(ctx, data, uploadOption)   // <-- fetch, no checkBlockedIP\r\n        }(i, replica.Url)                                  // <-- replica.Url unvalidated\r\n    }\r\n}\r\n```\r\n\r\n| # | Gap | Why the guard misses it |\r\n|---|---|---|\r\n| 1 | `replicas[].url` | never passed to `validateRemoteEndpoint`/`checkBlockedIP`; goes straight into `fmt.Sprintf(\"http://%s/...\")`. Attacker controls host, port, path and query (a trailing `?a=` swallows the appended `?type=replicate`), the `Authorization` header (`req.Auth`) and the POSTed bytes. |\r\n| 2 | `azure_endpoint` | the guard runs only `if isS3Compatible`; the code comment assumes non-S3 SDKs reject attacker hosts, but the Azure client honours `azure_endpoint` and dials it over HTTPS. |\r\n| 3 | `gcs_google_application_credentials` | a local **path**, read...",
+  "published_at": "2026-09-11T03:11:31.000Z",
+  "modified_at": "2026-09-11T03:11:31.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.2,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.41"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-939f-xh28-2q48",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-939f-xh28-2q48",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-939f-xh28-2q48",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:e19938675f0b1934f0a1ed772353833e57e2e8160335350882af62d89013ce4a",
+  "note": null
+}

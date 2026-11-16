@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-3556-624q-c5w3",
+  "repo": {
+    "cve_id": "CVE-2026-56739",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nLogto webhook delivery and custom OAuth2/OIDC connector configurations allow admin users to specify arbitrary URLs that the server fetches without any IP validation or SSRF protection.\r\n\r\n## Vulnerable Code\r\n\r\n### 1. Webhook Delivery\r\n\r\n**`packages/core/src/libraries/hook/utils.ts` line 39:**\r\n```typescript\r\nexport const sendWebhookRequest = async ({ hookConfig, payload, signingKey }) => {\r\n  const { url, headers, retries } = hookConfig;\r\n  return ky.post(url, {  // No IP validation\r\n    headers: { ... },\r\n    json: payload,\r\n    retry: { limit: retries ?? 3 },\r\n    timeout: 10_000,\r\n  });\r\n};\r\n```\r\n\r\n**Webhook URL schema** (`packages/schemas/src/foundations/jsonb-types/hooks.ts` line 100):\r\n```typescript\r\nexport const hookConfigGuard = z.object({\r\n  url: z.string(),  // No URL or IP validation\r\n  headers: z.record(z.string()).optional(),\r\n  retries: z.number().gte(0).lte(3).optional(),\r\n});\r\n```\r\n\r\n### 2. Custom OAuth2 Connector UserInfo Endpoint\r\n\r\n**`packages/connectors/connector-oauth2/src/index.ts` line 57:**\r\n```typescript\r\nconst httpResponse = await ky.get(config.userInfoEndpoint, {  // Admin-controlled URL\r\n  headers: {\r\n    authorization: `${token_type} ${access_token}`,  // Leaks auth token!\r\n  },\r\n  timeout: defaultTimeout,\r\n});\r\n```\r\n\r\nAdmin can set `userInfoEndpoint` to an internal URL. When users authenticate via this connector, the server fetches the internal URL AND sends the OAuth access token in the Authorization header.\r\n\r\n### 3. OIDC Connector JWKS URI\r\n\r\n**`packages/connectors/connector-oidc/src/index.ts` line 93:**\r\n```typescript\r\ncreateRemoteJWKSet(new URL(config.idTokenVerificationConfig.jwksUri))\r\n```\r\n\r\nAdmin-controlled `jwksUri` fetched without IP filtering.\r\n\r\n## Missing Protections\r\n\r\n- No `request-filtering-agent` or SSRF library\r\n- No private IP range filtering\r\n- No cloud metadata endpoint blocking\r\n- `ky` HTTP client used directly without custom agent\r\n\r\n## Attack Scenario\r\n\r\n1. Admin creates webhook with URL `http://169.254.169.254/latest/meta-data/iam/security-credentials/`\r\n2. Any user signs in, triggering PostSignIn webhook\r\n3. Server POSTs user event data to AWS metadata endpoint\r\n\r\nOr:\r\n1. Admin creates custom OAuth2 connector with `userInfoEndpoint: http://10.0.0.1:8080/admin`\r\n2. User authenticates via this connector\r\n3. Server sends GET request to internal service WITH the OAuth access token in Authorization header\r\n\r\n## Impact\r\n\r\n- **Cloud metadata theft** via webhook delivery\r\n- **Authorization token leakage** via custom connector userInfoEndpoint (sends Bearer token to attacker-controlled URL)\r\n- **Internal network access** via all three vectors\r\n- **Requires admin access** but connector/webhook management may be delegated",
+    "ghsa_id": "GHSA-3556-624q-c5w3",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-3556-624q-c5w3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3556-624q-c5w3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-56739"
+      }
+    ],
+    "published_at": "2026-09-01T08:02:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF via Webhooks and Custom OAuth2 Connector UserInfo Endpoint (CWE-918)",
+    "updated_at": "2026-09-01T08:02:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.43.0",
+        "vulnerable_version_range": "<= 1.42.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

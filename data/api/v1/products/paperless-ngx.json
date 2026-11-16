@@ -1,0 +1,705 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "paperless-ngx",
+    "name": "Paperless-ngx",
+    "category": "storage",
+    "homepage": "https://docs.paperless-ngx.com",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-c8f3-pqr2-rr24",
+      "aliases": [],
+      "title": "Cross-user information disclosure in AI classification workflows on ownerless documents",
+      "summary": "_Maintainers Note: Advisory has been edited for publishing_\r\n\r\nSummary\r\n\r\nPaperless-ngx AI classification workflows can access information outside the intended document permission scope when processing a document without an owner.\r\n\r\nUnder affected configurations, private document excerpts and metadata belonging to other users may be included in classification requests sent to the LLM provider. Private metadata may also be applied to the ownerless document.\r\n\r\nAffected configurations\r\n\r\nThe issue requires AI features to be enabled and an AI classification workflow to process an ownerless document.\r\n\r\nCause and impact\r\n\r\nThe classification path interprets an absent document owner as an unrestricted processing context. This can bypass permission restrictions when selecting related documents and metadata.\r\n\r\nPotential consequences include:\r\n\r\nDisclosure of private document titles and content excerpts to the configured AI provider.\r\n\r\nDisclosure or application of private tags, correspondents, document types, and storage paths to an ownerless document.\r\n\r\nActual exposure depends on workflow configuration, available related documents, and AI provider settings.",
+      "published_at": "2026-10-16T06:15:06.000Z",
+      "modified_at": "2026-10-16T06:15:06.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-c8f3-pqr2-rr24",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-c8f3-pqr2-rr24",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-c8f3-pqr2-rr24",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4cb86f5138397c4e21c3fb8d56f5ac34ac765f814059609756f55e8adf533c6e",
+      "note": null
+    },
+    {
+      "id": "GHSA-2jhj-xqrq-rmrq",
+      "aliases": [],
+      "title": "Path traversal in filename generation when `FILENAME_FORMAT_REMOVE_NONE` enabled",
+      "summary": "> Maintainer note: No AI-use disclosure accompanied this submission, though it appears AI-generated. Findings verified and fixed, by humans.\r\n\r\n## Summary\r\n\r\nThe fix for GHSA-28cf-xvcf-hw6m added two defenses: `_is_safe_relative_path()` inside\r\n`validate_filepath_template_and_render()`, and a `root` containment check in\r\n`validate_move()`. Both are bypassed on the document-creation path:\r\n\r\n1. **The validated string is edited after validation.** `format_filename()` calls the\r\n   validating renderer and then, when `FILENAME_FORMAT_REMOVE_NONE` is enabled, deletes the\r\n   literal substring `-none-` from the result. A template that renders `.-none-.` - which the\r\n   validator accepts, because `PurePath('.-none-.').parts` contains no `..` - becomes `..`.\r\n2. **The initial write is not root-checked.** `validate_move()` guards the *move* sites, but\r\n   the consumer's first write goes straight to `document.source_path`, which is\r\n   `(ORIGINALS_DIR / filename).resolve()` - and `.resolve()` collapses the `..` for it.\r\n\r\n## Affected version\r\n\r\n`v3.1.1` (git tag, commit `a4499dc`); the same code is present at `dev` HEAD.\r\n\r\n## Root cause\r\n\r\n`src/documents/file_handling.py:104-121`:\r\n\r\n```python\r\ndef format_filename(document: Document, template_str: str) -> str | None:\r\n    rendered_filename = validate_filepath_template_and_render(template_str, document)\r\n    if rendered_filename is None:\r\n        return None\r\n\r\n    # Apply this setting. ...\r\n    if settings.FILENAME_FORMAT_REMOVE_NONE:\r\n        rendered_filename = rendered_filename.replace(\"/-none-/\", \"/\")\r\n        rendered_filename = rendered_filename.replace(\" -none-\", \"\")\r\n        rendered_filename = rendered_filename.replace(\"-none-\", \"\")   # <-- \".-none-.\" becomes \"..\"\r\n        rendered_filename = rendered_filename.strip(os.sep)\r\n```\r\n\r\n`src/documents/templating/filepath.py:343-351`:\r\n\r\n```python\r\ndef _is_safe_relative_path(value: str) -> bool:\r\n    if value == \"\":\r\n        return True\r\n    path = PurePath(value)\r\n    if path.is_absolute() or path.drive:\r\n        return False\r\n    return \"..\" not in path.parts\r\n```\r\n\r\n`.-none-.` is a single, ordinary path component at validation time. The mutation happens\r\nafterwards.\r\n\r\n## Measured\r\n\r\nBoth blocks above are pure functions with no Django dependency; I ran them verbatim from the\r\nv3.1.1 tag:\r\n\r\n```\r\ncase                               validator   after FILENAME_FORMAT_REMOVE_NONE\r\nCONTROL plain traversal            reject      -- never reaches the mutation --\r\nCONTROL absolute                   reject      -- never reaches the mutation --\r\nEXPLOIT '-none-' sandwich          ACCEPT      '../../tmp/pwned'\r\nEXPLOIT deeper                     ACCEPT      '../../.././pwned'\r\nBENIGN  ordinary template          ACCEPT      'correspondent/2026/invoice'\r\n```\r\n\r\n(exploit inputs: `.-none-./.-none-./tmp/pwned` and `.-none-./.-none-./.-none-./.-none-/pwned`)\r\n\r\n## The sink asymmetry (code-verified at the same tag)\r\n\r\n```python\r\n# GUARDED - src/documents/signals/handlers.py:445-452\r\ndef validate_move(instance, old_path: Path, new_path: Path, root: Path) -> None:\r\n    if not new_path.is_relative_to(root):\r\n        raise CannotMoveFilesException(...)\r\n\r\n# UNGUARDED - src/documents/consumer.py, the initial write\r\ndocument.filename = generated_filename\r\ncreate_source_path_directory(document.source_path)\r\nself._write(..., document.source_path)          # no is_relative_to(root) check\r\n\r\n# src/documents/models.py:437-440\r\ndef source_path(self) -> Path:\r\n    fname = str(self.filename) ...\r\n    return (settings.ORIGINALS_DIR / Path(fname)).resolve()   # .resolve() collapses the '..'\r\n```\r\n\r\n## Preconditions\r\n\r\n* `PAPERLESS_FILENAME_FORMAT_REMOVE_NONE=true`. **Not the default** - the documentation says\r\n  *\"Defaults to `false`\"* - but it is a documented, first-class option (docs: \"Empty\r\n  placeholders\") that installs with sparse metadata commonly enable. Without it the\r\n  unconditional `replace(\"-none-\",\"none\")` on the following line cannot produce `..`...",
+      "published_at": "2026-09-01T15:29:27.000Z",
+      "modified_at": "2026-09-01T15:29:27.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.1.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-2jhj-xqrq-rmrq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-2jhj-xqrq-rmrq",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-2jhj-xqrq-rmrq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:37e7365471085c8a55f63328ef94c748c75eb3fb96071244eb5f028cbdeb498e",
+      "note": null
+    },
+    {
+      "id": "GHSA-8c6x-pfjq-9gr7",
+      "aliases": [],
+      "title": "Non-Superusers can delete Superusers",
+      "summary": "## Summary\r\n\r\n`UserViewSet` defines `create()` and `update()` with superuser-protection checks, but inherits `destroy()` from `DestroyModelMixin` with no override. The Django `User` model has no `owner` field, so `PaperlessObjectPermissions.has_object_permission()` returns `True`. A non-superuser with `delete_user` permission can delete superuser accounts.\r\n\r\n## Description\r\n\r\n`UserViewSet` (`src/paperless/views.py:143-192`) checks `request.user.is_superuser` before allowing `is_superuser=True` or `is_staff=True` in `create()` and `update()`. The `destroy()` method inherits from `DestroyModelMixin` with no such check. The `User` model lacks an `owner` field, so `PaperlessObjectPermissions.has_object_permission()` (`src/documents/permissions.py:44-51`) falls through to its \"no owner\" branch and returns `True` for all user objects.\r\n\r\n### Attack scenario and impact\r\n\r\n_Further details redacted to reduce exploitation._",
+      "published_at": "2026-04-27T03:11:39.000Z",
+      "modified_at": "2026-04-27T03:11:40.000Z",
+      "severity": {
+        "level": "low",
+        "score": 2.7,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-266"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.15"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-8c6x-pfjq-9gr7",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-8c6x-pfjq-9gr7",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-8c6x-pfjq-9gr7",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0dce14ef775577d2a01c576b5c2b67a2ab6a40fddd49eccb3399444c403f17b2",
+      "note": null
+    },
+    {
+      "id": "GHSA-96jx-fj7m-qh6x",
+      "aliases": [],
+      "title": "IDOR in GlobalSearchView - Mail Accounts and Mail Rules Bypass Object-Level Permissions",
+      "summary": "# IDOR in GlobalSearchView - Mail Accounts and Mail Rules Bypass Object-Level Permissions\r\n\r\n**Target:** Paperless-ngx v2.20.11\r\n**CWE:** CWE-863 (Incorrect Authorization)\r\n**CVSS 3.1:** 4.3 (Medium) - AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N\r\n**Auth Required:** Authenticated user with `paperless_mail.view_mailaccount` or `paperless_mail.view_mailrule` model permission\r\n**Validation: Lab verified**\r\n\r\n**Environment:** Paperless-ngx 2.20.11 (Docker `paperlessngx/paperless-ngx:2.20.11`, 2026-03-20), Python 3.12.12, Django 5.2.7, DRF 3.16.1\r\n\r\n---\r\n\r\n## Summary\r\n\r\nThe `GlobalSearchView` (`GET /api/search/`) queries `MailAccount` and `MailRule` objects using `Model.objects.filter()` without applying the `ObjectOwnedOrGrantedPermissionsFilter` or `get_objects_for_user_owner_aware()`. This allows any authenticated user with model-level `view_mailaccount`/`view_mailrule` permission to discover other users' mail account metadata and mail rule configurations through the global search.\r\n\r\n_Additional content redacted to reduce exploitation_\r\n\r\n## Impact\r\n\r\n- **Mail account metadata disclosure**: Other users' IMAP server addresses, email usernames, ports, and security configuration leaked through global search\r\n- **Mail rule configuration disclosure**: Other users' email filtering rules, folder structures, and processing configurations exposed\r\n- **Multi-user deployments**: In organizations using Paperless-ngx with multiple users, this allows any user with mail permissions to enumerate colleagues' email configurations\r\n- **Reconnaissance**: Leaked email addresses and IMAP servers can be used for targeted phishing or credential stuffing attacks",
+      "published_at": "2026-03-21T00:56:18.000Z",
+      "modified_at": "2026-03-21T02:23:56.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.12"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-96jx-fj7m-qh6x",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-96jx-fj7m-qh6x",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-96jx-fj7m-qh6x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4622381c6c3a90845b7e9f7f50405a5ba12a0009ccd033a71529db256fb383eb",
+      "note": null
+    },
+    {
+      "id": "GHSA-59xh-5vwx-4c4q",
+      "aliases": [],
+      "title": "Privilege Escalation to Superuser via Bypass in UserViewSet",
+      "summary": "### Summary\r\n\r\nA type coercion bypass in `UserViewSet.create()` allows any authenticated user with `auth.add_user` permission to create a superuser account.\r\n\r\n### Impact\r\n\r\nPrivilege escalation. Any user with delegated `auth.add_user` permission (commonly granted for user onboarding in multi-user deployments) can create a superuser account.\r\n\r\n(Additional content was redacted to reduce exploitation)",
+      "published_at": "2026-03-16T01:12:12.000Z",
+      "modified_at": "2026-03-16T01:12:12.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-697"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-59xh-5vwx-4c4q",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-59xh-5vwx-4c4q",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-59xh-5vwx-4c4q",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:8f5e16f4d0f09bc6db3b6756549d31e64be61e1ac97c46679716547456840863",
+      "note": null
+    },
+    {
+      "id": "GHSA-386h-chg4-cfw9",
+      "aliases": [],
+      "title": "Share link creation does not enforce document-level authorization",
+      "summary": "Note: This report was drafted with AI assistance and manually verified by me.\r\n\r\n---\r\n\r\n## Summary\r\nA Broken Object Level Authorization (BOLA) vulnerability exists in `paperless-ngx`. An authenticated user with the `add_sharelink` permission can generate a public share link for any document in the system, even those they do not have permission to view.\r\n\r\n## Impact\r\n* **Confidentiality Breach:** Sensitive documents can be exposed to the public internet without authorization.\r\n* **Data Exfiltration:** Low-privileged accounts can bypass internal permission structures to download files they are restricted from viewing.",
+      "published_at": "2026-02-28T10:18:17.000Z",
+      "modified_at": "2026-02-28T10:18:17.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-639",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.20.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-386h-chg4-cfw9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-386h-chg4-cfw9",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-386h-chg4-cfw9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:72766dd9090ca44a36970d5d28e17f7576e26ba8fb58e3802b333c6944f037a8",
+      "note": null
+    },
+    {
+      "id": "GHSA-7qqc-wrcw-2fj9",
+      "aliases": [],
+      "title": "Mail Account Authorisation Bypass Through User-Controlled Key",
+      "summary": "### Summary\r\nThe affected component is the mail account subsystem, specifically the `test` endpoint (`/api/mail_accounts/test/`) which allows users to verify IMAP connectivity for configured mail accounts.\r\n\r\n### Details\r\nThe `test` action in `src/paperless_mail/views.py` checks whether the submitted password consists entirely of asterisks, and if so, retrieves the stored password from the database using the caller-supplied `id` field. There is no verification that the requesting user owns - or has any permission over - the mail account corresponding to that `id`.\r\n\r\n### Impact\r\n- **Confidentiality** \r\n- **Integrity**",
+      "published_at": "2026-02-22T01:43:37.000Z",
+      "modified_at": "2026-03-03T08:01:17.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-7qqc-wrcw-2fj9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7qqc-wrcw-2fj9",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-7qqc-wrcw-2fj9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0d5a7a5827c276a6422e856cb13413339c4a1d69fde9032860231e0888bf4d06",
+      "note": null
+    },
+    {
+      "id": "GHSA-x395-6h48-wr8v",
+      "aliases": [],
+      "title": "IDOR + Insufficient Jinja2 Sandbox in /api/storage_paths/test/",
+      "summary": "## Summary\r\n\r\nThe `StoragePathViewSet.test()` endpoint at `POST /api/storage_paths/test/` has two compounding issues that allow any authenticated user (regardless of role or permissions) to read the content of other documents in the system, as well as extract user information.\r\n\r\n## Vulnerability Details\r\n\r\n### 1. Missing Object-Level Permission Check (IDOR)\r\n### 2. Insufficient Jinja2 Sandbox Allows Data Exfiltration",
+      "published_at": "2026-02-16T16:54:47.000Z",
+      "modified_at": "2026-02-22T22:07:42.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "2.13.0",
+              "fixed": "2.20.7"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-x395-6h48-wr8v",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-x395-6h48-wr8v",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-x395-6h48-wr8v",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d0071360bbed5bbbc703e63878cffdb113d6fa810bc44ee279d14ea934408103",
+      "note": null
+    },
+    {
+      "id": "GHSA-jqwv-hx7q-fxh3",
+      "aliases": [],
+      "title": "Read‑only users can create documents via post_document endpoint",
+      "summary": "### Summary\r\n\r\nAn authorization gap in the upload endpoint allows any authenticated user - even those without the `documents.add_document` permission - to upload and ingest documents. This enables \"read-only\" users to create documents and consume storage/processing resources - bypassing intended restrictions.\r\n\r\n  _Expected_\r\n  - The request (1) should return `403 Forbidden` and no task should be created for users lacking `documents.add_document`.",
+      "published_at": "2026-01-31T07:32:52.000Z",
+      "modified_at": "2026-01-31T07:32:52.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-862",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.6"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-jqwv-hx7q-fxh3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jqwv-hx7q-fxh3",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-jqwv-hx7q-fxh3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4403e0fe5e3fd2bba71fb0b9a55ff21b351447f8a97a21f0319f31bf1a60e317",
+      "note": null
+    },
+    {
+      "id": "GHSA-w47q-3m69-84v8",
+      "aliases": [],
+      "title": "Document editors can alter permissions via the documents update API",
+      "summary": "### Summary\r\n  A user who is granted `change_document` permission and `edit` permission in a document can change the document's `owner` field.\r\n\r\n### Details\r\n\r\nDocumentSerializer exposes a writable owner field. When a user has change_document on a shared document, DocumentViewSet permits the update and the serializer does not restrict ownership changes to owners/admins.",
+      "published_at": "2026-01-31T07:32:46.000Z",
+      "modified_at": "2026-02-06T03:47:14.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-269",
+        "CWE-862",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.6"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-w47q-3m69-84v8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-w47q-3m69-84v8",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-w47q-3m69-84v8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a24d1b10da3beae3f1df2f2dc3f8147253c2995d952efca36e87b3d896d02796",
+      "note": null
+    },
+    {
+      "id": "GHSA-28cf-xvcf-hw6m",
+      "aliases": [],
+      "title": "Arbitrary File Storage Outside Application Directories",
+      "summary": "A path traversal vulnerability exists in Paperless-ngx's Storage Path feature that allows authenticated users to write files to arbitrary locations on the filesystem, including system directories, Python source code directories, and temporary directories. \r\n\r\nRoot cause:\r\n1. The `clean_filepath()` function only strips leading/trailing separators\r\n2. It does NOT sanitize `..` directory traversal sequences\r\n3. The validation only checks if the template renders, not if the path is safe\r\n\r\nImpact:\r\n- **Arbitrary File Write**: Authenticated users can write files to ANY writable location on the filesystem\r\n- **Configuration Tampering**",
+      "published_at": "2026-01-13T19:30:01.000Z",
+      "modified_at": "2026-01-13T21:49:02.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-28cf-xvcf-hw6m",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-28cf-xvcf-hw6m",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-28cf-xvcf-hw6m",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:dcc09324c278d23d786b466fc964e4e35ebf6d4b24e7940299c4f62e46e7533f",
+      "note": null
+    },
+    {
+      "id": "GHSA-7cq3-mhxq-w946",
+      "aliases": [],
+      "title": "Stored XSS in metadata fields",
+      "summary": "### Summary\r\nStored XSS occurs in UI locations where untrusted strings (user input / DB-stored values) are passed through and rendered via [innerHTML].\r\n\r\n### Impact\r\nVulnerability Type\r\n- **Stored XSS**\r\n\r\nImpact / Threat Scenarios\r\n- If an attacker can store malicious HTML in tag/document metadata names (e.g., correspondent, document type, etc.), the script can execute for any user who views the affected UI (including administrators).",
+      "published_at": "2025-12-18T16:06:35.000Z",
+      "modified_at": "2025-12-18T16:06:35.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "1.7.0-rc1",
+              "fixed": "2.20.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-7cq3-mhxq-w946",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7cq3-mhxq-w946",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-7cq3-mhxq-w946",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7292ffc1c2704d2e01eb97c9bfd6ae0b0bf390b4ee6b91820d069b6543e3db5a",
+      "note": null
+    },
+    {
+      "id": "GHSA-24x5-wp64-9fcc",
+      "aliases": [],
+      "title": "ReDoS via matching pattern",
+      "summary": "### Summary\r\n\r\nA Regular Expression Denial of Service (ReDoS) vulnerability exists in document matching functionality. An authenticated user can create a Tag, Correspondent, DocumentType or WorkflowTrigger with a malicious regex pattern that causes exponential CPU consumption when processing documents, then leading to complete service unavailability including database locks and web UI failure.\r\n\r\n### Details\r\n\r\n`src/documents/matching.py` file allows user controlled regex patterns to be executed against potentially large document content without any timeout, complexity limits or pattern validation. The **matching_model.match** field is user controllable via API endpoints as above functions.\r\n\r\nA user with Tag/Correspondent edit permissions.\r\n\r\n\r\n### PoC\r\n\r\nAttacker authenticates as any user with permission to create / edit Tags or Correspondents.\r\nCreates a Tag with matching_algorithm=4 and evil regex pattern\r\nUploads documents containing content that triggers catastrophic backtracking.\r\nEach document causes a worker to consume %100 CPU for 15-20 minutes.\r\nMultiple documents exhaust all workers and causing queue blocking.\r\nDatabase locks due to concurrent worker access.\r\nWeb UI returns 500 errors - entire service becomes unavailable. (Tested on AWS EC2 + Docker)\r\n\r\nTime: 22:44:40 - Attack launched (20 documents).\r\nTime: 22:50:32 - Normal user uploads document.\r\nTime: 22:57:05 - Web UI returns 500 Error.\r\n\r\n### Impact\r\n\r\nComplete Service Denial",
+      "published_at": "2025-12-12T23:49:03.000Z",
+      "modified_at": "2025-12-12T23:49:03.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:N/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-1333"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.20.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-24x5-wp64-9fcc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-24x5-wp64-9fcc",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-24x5-wp64-9fcc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4212ffeaf0228bf95c3d396999c9baf7c9b9d75da56741cc8d5a5eb4deb9cb42",
+      "note": null
+    },
+    {
+      "id": "GHSA-6653-vcx4-69mc",
+      "aliases": [],
+      "title": "DNS Rebinding allows bypass of WEBHOOKS_ALLOW_INTERNAL_REQUESTS restriction",
+      "summary": "### Summary\r\n\r\nA webhook functionality contains a Time-of-Check Time-of-Use (TOCTOU) vulnerability that allows bypassing the **WEBHOOKS_ALLOW_INTERNAL_REQUESTS** security restriction through DNS rebinding attacks.\r\n\r\n### Details\r\n\r\nWhen WEBHOOKS_ALLOW_INTERNAL_REQUESTS is set to '**False**', the application validates webhook URLs by resolving the hostname to an IP address using **paperless_ngx_audit/src/documents/signals/handlers.py:689:0-694:19** and checking if it's a public IP with **paperless_ngx_audit/src/documents/signals/handlers.py:675:0-686:20**. However, httpx performs a separate DNS resolution when making the actual request, creating a race condition.\r\n\r\nAn attacker can exploit this by using a DNS rebinding domain that returns a public IP during validation but resolves to an internal IP during the actual HTTP request.\r\n\r\n### PoC\r\n\r\nAdministrator sets WEBHOOKS_ALLOW_INTERNAL_REQUESTS=False to block internal access.\r\nAttacker creates webhook with DNS rebinding URL (e.g. http://xxx.yyy.rbndr.us/).\r\nFirst DNS query returns 1.2.3.4 (public) -- validation passes.\r\nSecond DNS query returns 127.0.0.1 (internal) -- request goes to localhost.\r\n\r\n### Impact\r\n\r\nBypass of explicit security control.\r\nAccess to POST data sent via webhook.",
+      "published_at": "2025-12-12T23:49:01.000Z",
+      "modified_at": "2026-02-22T22:16:57.000Z",
+      "severity": {
+        "level": "low",
+        "score": 2.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-367"
+      ],
+      "affected": [
+        {
+          "product": "paperless-ngx",
+          "ranges": [
+            {
+              "introduced": "2.1.4.0",
+              "fixed": "2.20.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-6653-vcx4-69mc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-6653-vcx4-69mc",
+          "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-6653-vcx4-69mc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ebc6285dc9b3f2b83073e64e9c4ae48600938c30d3ad2c7750dc98987563745c",
+      "note": null
+    }
+  ]
+}

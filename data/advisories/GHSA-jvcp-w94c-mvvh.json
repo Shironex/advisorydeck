@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-jvcp-w94c-mvvh",
+  "aliases": [],
+  "title": "Session cookie exposed to services opened through the port proxy",
+  "summary": "### Summary\r\ncode-server's session cookie could be read by services opened through the built-in port proxy. The cookie was sent to the proxied service on WebSocket connections, and because it was not marked `HttpOnly`, scripts on proxied pages could read it. The cookie acts as a reusable credential, so anyone who obtains it can sign in to code-server as the user.\r\n\r\n### Details\r\ncode-server removes its session cookie from requests it forwards to proxied ports. This was only done for regular HTTP requests. WebSocket connections through `/proxy/<port>/`, `/absproxy/<port>/` and the proxy domain still sent the full `Cookie` header, including the session cookie, to the proxied service. Versions before `4.124.2` also sent the cookie on regular HTTP requests.\r\n\r\nSeparately, the session cookie was set without the `HttpOnly` attribute. Pages served through the path proxy share the code-server origin, so scripts on those pages could read the cookie with `document.cookie`.\r\n\r\n### Impact\r\nA malicious service listening on a port that the user opens through the proxy can capture the session cookie and replay it to get full access to code-server, including the terminal and file system, as the user running code-server. To exploit this, the attacker has to control a service reachable by the proxy, and a signed-in user has to open it.\r\n\r\n### Patches\r\nFixed in 4.145.0. The session cookie is now removed from proxied WebSocket connections and is set with `HttpOnly`. Upgrade to 4.145.0 or later.\r\n\r\n### Workarounds\r\nOnly open trusted services through the code-server proxy. After upgrading, change the code-server password if you previously opened untrusted services through the proxy, since this invalidates any session cookie that may have been captured.\r\n\r\n### References\r\n- https://github.com/coder/code-server/pull/8111\r\n- https://github.com/coder/code-server/pull/8110\r\n- https://github.com/coder/code-server/releases/tag/v4.145.0\r\n\r\n### Credits\r\nThanks to @j9tdsn8nmk-hash, @bl4cksku11 and @Iraianbu-tech for reporting this issue.",
+  "published_at": "2026-11-05T11:16:32.000Z",
+  "modified_at": "2026-11-05T11:16:32.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.4,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-522",
+    "CWE-1004"
+  ],
+  "affected": [
+    {
+      "product": "code-server",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.145.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coder/code-server/security/advisories/GHSA-jvcp-w94c-mvvh",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jvcp-w94c-mvvh",
+      "url": "https://github.com/coder/code-server/security/advisories/GHSA-jvcp-w94c-mvvh",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:308b59ad2b220dd41340868cb2e4676fa9faad220eabbde9a42c15a15d3e211c",
+  "note": null
+}

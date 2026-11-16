@@ -1,0 +1,56 @@
+{
+  "global": null,
+  "id": "GHSA-ch7q-53v8-73pc",
+  "repo": {
+    "cve_id": "CVE-2025-64708",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nIn previous authentik versions, invitations were considered valid regardless if they are expired or not, thus relying on background tasks to clean up expired ones. In a normal scenario this can take up to 5 minutes because the cleanup of expired objects is scheduled to run every 5 minutes. However, with a large amount of tasks in the backlog, this might take longer.\r\n\r\n### Patches\r\n\r\nauthentik 2025.8.5 and 2025.10.2 fix this issue; for other versions the workaround below can be used.\r\n\r\n### Workarounds\r\n\r\nYou can create a policy that explicitly checks whether the invitation is still valid, and then bind it to the invitation stage on your invitation flow, and deny access if the invitation is not valid.\r\n\r\n```python\r\nreturn not context['flow_plan'].context['invitation'].is_expired\r\n```\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io).\r\n",
+    "ghsa_id": "GHSA-ch7q-53v8-73pc",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-ch7q-53v8-73pc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ch7q-53v8-73pc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64708"
+      }
+    ],
+    "published_at": "2025-11-19T13:01:22Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Invitation expiry is delayed by at least 5 minutes",
+    "updated_at": "2025-11-19T13:01:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.10.2",
+        "vulnerable_version_range": "<= 2025.10.1"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.8.5",
+        "vulnerable_version_range": "<= 2025.8.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

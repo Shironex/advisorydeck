@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3gph-6c29-p29v",
+  "aliases": [],
+  "title": "Read-only API key and JWTs accepted on internal gRPC API when enforce_internal_auth is enabled",
+  "summary": "### Summary\r\n\r\nIn a distributed deployment, Qdrant peers communicate over an internal gRPC API (port 6335 by default). Since v1.18.0, `service.enforce_internal_auth` requires authentication on this port. When enabled, the internal API accepted the same credentials as the public API, including the read-only API key and JWTs. The internal services do not check per-request access, so a caller holding only a read-only credential could add a peer to the cluster and perform write operations such as creating payload indexes.\r\n\r\n### Impact\r\n\r\nWith `enforce_internal_auth: true`, a holder of the read-only API key or of any JWT, with network access to port 6335, could:\r\n\r\n- call `AddPeerToKnown` and add a peer of their choice to the cluster;\r\n- call internal write operations, for example `CreateFieldIndex`.\r\n\r\n### Patches\r\n\r\nFixed in v1.19.2. The internal gRPC API now accepts only `api_key` and `alt_api_key`. The read-only key and all JWTs, including those with manage access, are rejected with `Unauthenticated`.\r\n\r\n### Default configuration\r\n\r\nDeployments that do not enable `enforce_internal_auth` are not affected by this issue.\r\n\r\n### Qdrant Cloud\r\n\r\nManaged Cloud clusters run with a NetworkPolicy, enforced by Calico, that allows ingress on port 6335 only from pods of the same cluster. The gateways carrying customer traffic cannot reach port 6335. Managed Cloud is not materially affected.\r\n\r\nHybrid Cloud and Private Cloud: the Qdrant operator provisions the same NetworkPolicy. Enforcement depends on the CNI of the customer's Kubernetes cluster.\r\n\r\n### References\r\n\r\n- [Security documentation: Enforce Authentication on Internal Communication](https://qdrant.tech/documentation/security/#enforce-authentication-on-internal-communication)\r\n- qdrant/qdrant#10758",
+  "published_at": "2026-10-05T14:56:05.000Z",
+  "modified_at": "2026-10-05T14:56:05.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "qdrant",
+      "ranges": [
+        {
+          "introduced": "1.18.0",
+          "fixed": "1.19.2"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-3gph-6c29-p29v",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3gph-6c29-p29v",
+      "url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-3gph-6c29-p29v",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b78f71f52b089347ff9270da1df10e017169930a5c33cda53cde73e7c1a0d435",
+  "note": null
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-qgv3-m9j5-jph8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-116",
+      "CWE-451"
+    ],
+    "description": "### Summary\n\nUser mentions in rich text and comments were written into an HTML attribute without escaping single quotes, so a user could close the attribute early and add an inline style that drew over the NocoDB interface for anyone viewing the content.\n\n### Details\n\nThe read-only rich text renderer in `markdown.ts` turns the plain-text mention syntax into a `span` through the user-mention plugin (`tiptap-markdown/extensions/nodes/mention/user/index.ts`), which put a JSON string inside a single-quoted `data-id` attribute. JSON encoding does not escape single quotes, and for a mention whose id matches no member the email and name are taken from the stored text, so a quote in that text ended the attribute and the remainder was parsed as further attributes on the element. The output then passed through DOMPurify with its default policy, which removes event-handler attributes but keeps `style`. Because mention syntax contains no HTML tags, the server-side comment sanitizer left it unchanged, so the markup rendered from row and document comments, where mentions are enabled, as well as from rich text cells.\n\nThe mention JSON is now HTML-encoded inside a double-quoted attribute and the display name is encoded as well. Rich text and comments are also sanitized for display with a stricter profile that removes `style` attributes.\n\n### Impact\n\nAn attacker needs an account with the Commenter role on a base to post a comment, or the Editor role to write a rich text cell. The injected style could cover or rearrange the interface for every user who later viewed that comment or cell, blocking normal use of the view and misrepresenting what it showed. No script could run.\n\n### Credit\n\nThis issue was reported by [@manus-pi](https://github.com/manus-pi).\n",
+    "ghsa_id": "GHSA-qgv3-m9j5-jph8",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-qgv3-m9j5-jph8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qgv3-m9j5-jph8"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:45Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored CSS Injection via Unescaped Mention Attribute",
+    "updated_at": "2026-11-02T08:47:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

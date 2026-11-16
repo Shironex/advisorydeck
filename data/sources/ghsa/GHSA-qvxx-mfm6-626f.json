@@ -1,0 +1,66 @@
+{
+  "global": null,
+  "id": "GHSA-qvxx-mfm6-626f",
+  "repo": {
+    "cve_id": "CVE-2026-25227",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "### Summary\r\n\r\nWhen using delegated permissions, a User that has the permission **Can view * Property Mapping** or **Can view Expression Policy** is able to execute arbitrary code within the authentik server container through the `test` endpoint, which is intended to preview how a property mapping/policy works.\r\n\r\n### Patches\r\n\r\nauthentik 2025.8.6, 2025.10.4 and 2025.12.4 fix this issue; for other versions the workaround below can be used.\r\n\r\n### Impact\r\n\r\nUsers with the view permissions specified above are able to execute arbitrary code that has access to the entire authentik database as well as any environment variables, allowing the user to escalate their permissions and fully take over an instance.\r\n\r\n### Workarounds\r\n\r\nIf an upgrade is not possible, it is strongly recommended to un-assign the **Can view * Property Mapping** and **Can view Expression Policy** permissions from any user that should not have administrative privileges, and treat them equal to the edit equivalent permissions.\r\n\r\nIt is also possible to block requests to the test endpoint, which have the following URLs:\r\n\r\n(<uuid> is a placeholder for any UUID.)\r\n```\r\nPOST /api/v3/propertymappings/all/<uuid>/test/\r\nPOST /api/v3/policies/all/<uuid>/test/\r\n```\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io).",
+    "ghsa_id": "GHSA-qvxx-mfm6-626f",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-qvxx-mfm6-626f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qvxx-mfm6-626f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-25227"
+      }
+    ],
+    "published_at": "2026-02-12T14:00:26Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Policy/Property Mapping test endpoint",
+    "updated_at": "2026-02-12T14:00:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.8.6",
+        "vulnerable_version_range": ">= 2021.3.1, < 2025.8.6"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.10.4",
+        "vulnerable_version_range": ">= 2021.3.1, < 2025.10.4"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.12.4",
+        "vulnerable_version_range": ">= 2021.3.1, < 2025.12.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

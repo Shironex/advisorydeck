@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-3c3p-5959-3ghr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Slack Trigger webhook accepted a request whose signature could not be verified, because the signing secret is an optional credential field and the check returned success when it was absent. Such a request could name the file the node then downloaded, and the credential attached the workspace access token to that request whatever the destination. An unauthenticated caller who knows the webhook URL could have the token sent to a host of their choosing and read the response back.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.83, 2.41.4, and 2.42.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Set a Signature Secret on all Slack API credentials used with the Slack Trigger node so that the signature check does not fail open.\n- Disable the \"Download Files\" option on any active Slack Trigger nodes.\n- Restrict network-level access to the n8n webhook endpoint to Slack's published IP ranges only.\n- Enable SSRF protection by setting `N8N_SSRF_PROTECTION_ENABLED=true`.\n- Rotate any Slack OAuth tokens associated with Slack Trigger workflows that may have been exposed.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-3c3p-5959-3ghr",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-3c3p-5959-3ghr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3c3p-5959-3ghr"
+      }
+    ],
+    "published_at": "2026-10-14T09:43:23Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Slack Token Exfiltration and Full-Response SSRF via the Slack Trigger Webhook",
+    "updated_at": "2026-10-14T09:43:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.83",
+        "vulnerable_version_range": "< 1.123.83"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.42.1",
+        "vulnerable_version_range": "< 2.42.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.41.4",
+        "vulnerable_version_range": "< 2.41.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

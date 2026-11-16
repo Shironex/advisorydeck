@@ -1,0 +1,115 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-40933",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\nDue to unsafe serialization of stdio commands in the MCP adapter, an authenticated attacker can add an MCP stdio server with an arbitrary command, achieving command execution.\n\n### Details\nThe vulnerability lies in a bug in the input sanitization from the “Custom MCP” configuration in http://localhost:3000/canvas - where any user can add a new MCP, when doing so - adding a new MCP using stdio, the user can add any command, even though your code have input sanitization checks such as validateCommandInjection and validateArgsForLocalFileAccess, and a list of predefined specific safe commands - these commands, for example \"npx\" can be combined with code execution arguments (\"-c touch /tmp/pwn\") that enable direct code execution on the underlying OS.\n\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L223\n\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L177\n\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L269\n\n\n### PoC\nCreate a new Custom MCP and add an \"npx -c\" command.\n```\n{\n    \"command\": \"npx\",\n    \"args\": [\n        \"-c\",\n        \"touch /tmp/pwn\"\n    ]\n}\n```\n<img width=\"358\" height=\"628\" alt=\"Screenshot 2026-01-12 at 18 32 37\" src=\"https://github.com/user-attachments/assets/d95c1ae2-23a7-4afe-b586-722003baf50e\" />\n\n### Impact\nThis is an authenticated arbitrary command execution due to unsanitized input, even though the input is sanitized, more protections should be added in order to close ways for attackers to execute arbitrary commands.",
+    "ghsa_id": "GHSA-c9gw-hvqq-f33r",
+    "html_url": "https://github.com/advisories/GHSA-c9gw-hvqq-f33r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c9gw-hvqq-f33r"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-40933"
+      }
+    ],
+    "published_at": "2026-04-16T21:18:17Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-c9gw-hvqq-f33r",
+      "https://www.ox.security/blog/mcp-supply-chain-advisory-rce-vulnerabilities-across-the-ai-ecosystem",
+      "https://www.ox.security/blog/the-mother-of-all-ai-supply-chains-critical-systemic-vulnerability-at-the-core-of-the-mcp",
+      "https://github.com/advisories/GHSA-c9gw-hvqq-f33r"
+    ],
+    "severity": "critical",
+    "summary": "Flowise: Authenticated RCE Via MCP Adapters",
+    "updated_at": "2026-04-16T21:18:18Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-c9gw-hvqq-f33r",
+  "repo": {
+    "cve_id": "CVE-2026-40933",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nDue to unsafe serialization of stdio commands in the MCP adapter, an authenticated attacker can add an MCP stdio server with an arbitrary command, achieving command execution.\r\n\r\n### Details\r\nThe vulnerability lies in a bug in the input sanitization from the “Custom MCP” configuration in http://localhost:3000/canvas - where any user can add a new MCP, when doing so - adding a new MCP using stdio, the user can add any command, even though your code have input sanitization checks such as validateCommandInjection and validateArgsForLocalFileAccess, and a list of predefined specific safe commands - these commands, for example \"npx\" can be combined with code execution arguments (\"-c touch /tmp/pwn\") that enable direct code execution on the underlying OS.\r\n\r\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L223\r\n\r\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L177\r\n\r\nhttps://github.com/FlowiseAI/Flowise/blob/d848baeb6bd9737a1e7fc912349c45fbdcc7bb38/packages/components/nodes/tools/MCP/core.ts#L269\r\n\r\n\r\n### PoC\r\nCreate a new Custom MCP and add an \"npx -c\" command.\r\n```\r\n{\r\n    \"command\": \"npx\",\r\n    \"args\": [\r\n        \"-c\",\r\n        \"touch /tmp/pwn\"\r\n    ]\r\n}\r\n```\r\n<img width=\"358\" height=\"628\" alt=\"Screenshot 2026-01-12 at 18 32 37\" src=\"https://github.com/user-attachments/assets/d95c1ae2-23a7-4afe-b586-722003baf50e\" />\r\n\r\n### Impact\r\nThis is an authenticated arbitrary command execution due to unsanitized input, even though the input is sanitized, more protections should be added in order to close ways for attackers to execute arbitrary commands.\r\n\r\n### Reference\r\nhttps://www.ox.security/blog/the-mother-of-all-ai-supply-chains-critical-systemic-vulnerability-at-the-core-of-the-mcp/\r\nhttps://www.ox.security/blog/mcp-supply-chain-advisory-rce-vulnerabilities-across-the-ai-ecosystem/",
+    "ghsa_id": "GHSA-c9gw-hvqq-f33r",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-c9gw-hvqq-f33r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c9gw-hvqq-f33r"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-40933"
+      }
+    ],
+    "published_at": "2026-04-15T13:36:44Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated RCE Via MCP Adapters",
+    "updated_at": "2026-04-21T19:41:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

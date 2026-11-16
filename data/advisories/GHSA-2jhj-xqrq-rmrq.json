@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-2jhj-xqrq-rmrq",
+  "aliases": [],
+  "title": "Path traversal in filename generation when `FILENAME_FORMAT_REMOVE_NONE` enabled",
+  "summary": "> Maintainer note: No AI-use disclosure accompanied this submission, though it appears AI-generated. Findings verified and fixed, by humans.\r\n\r\n## Summary\r\n\r\nThe fix for GHSA-28cf-xvcf-hw6m added two defenses: `_is_safe_relative_path()` inside\r\n`validate_filepath_template_and_render()`, and a `root` containment check in\r\n`validate_move()`. Both are bypassed on the document-creation path:\r\n\r\n1. **The validated string is edited after validation.** `format_filename()` calls the\r\n   validating renderer and then, when `FILENAME_FORMAT_REMOVE_NONE` is enabled, deletes the\r\n   literal substring `-none-` from the result. A template that renders `.-none-.` - which the\r\n   validator accepts, because `PurePath('.-none-.').parts` contains no `..` - becomes `..`.\r\n2. **The initial write is not root-checked.** `validate_move()` guards the *move* sites, but\r\n   the consumer's first write goes straight to `document.source_path`, which is\r\n   `(ORIGINALS_DIR / filename).resolve()` - and `.resolve()` collapses the `..` for it.\r\n\r\n## Affected version\r\n\r\n`v3.1.1` (git tag, commit `a4499dc`); the same code is present at `dev` HEAD.\r\n\r\n## Root cause\r\n\r\n`src/documents/file_handling.py:104-121`:\r\n\r\n```python\r\ndef format_filename(document: Document, template_str: str) -> str | None:\r\n    rendered_filename = validate_filepath_template_and_render(template_str, document)\r\n    if rendered_filename is None:\r\n        return None\r\n\r\n    # Apply this setting. ...\r\n    if settings.FILENAME_FORMAT_REMOVE_NONE:\r\n        rendered_filename = rendered_filename.replace(\"/-none-/\", \"/\")\r\n        rendered_filename = rendered_filename.replace(\" -none-\", \"\")\r\n        rendered_filename = rendered_filename.replace(\"-none-\", \"\")   # <-- \".-none-.\" becomes \"..\"\r\n        rendered_filename = rendered_filename.strip(os.sep)\r\n```\r\n\r\n`src/documents/templating/filepath.py:343-351`:\r\n\r\n```python\r\ndef _is_safe_relative_path(value: str) -> bool:\r\n    if value == \"\":\r\n        return True\r\n    path = PurePath(value)\r\n    if path.is_absolute() or path.drive:\r\n        return False\r\n    return \"..\" not in path.parts\r\n```\r\n\r\n`.-none-.` is a single, ordinary path component at validation time. The mutation happens\r\nafterwards.\r\n\r\n## Measured\r\n\r\nBoth blocks above are pure functions with no Django dependency; I ran them verbatim from the\r\nv3.1.1 tag:\r\n\r\n```\r\ncase                               validator   after FILENAME_FORMAT_REMOVE_NONE\r\nCONTROL plain traversal            reject      -- never reaches the mutation --\r\nCONTROL absolute                   reject      -- never reaches the mutation --\r\nEXPLOIT '-none-' sandwich          ACCEPT      '../../tmp/pwned'\r\nEXPLOIT deeper                     ACCEPT      '../../.././pwned'\r\nBENIGN  ordinary template          ACCEPT      'correspondent/2026/invoice'\r\n```\r\n\r\n(exploit inputs: `.-none-./.-none-./tmp/pwned` and `.-none-./.-none-./.-none-./.-none-/pwned`)\r\n\r\n## The sink asymmetry (code-verified at the same tag)\r\n\r\n```python\r\n# GUARDED - src/documents/signals/handlers.py:445-452\r\ndef validate_move(instance, old_path: Path, new_path: Path, root: Path) -> None:\r\n    if not new_path.is_relative_to(root):\r\n        raise CannotMoveFilesException(...)\r\n\r\n# UNGUARDED - src/documents/consumer.py, the initial write\r\ndocument.filename = generated_filename\r\ncreate_source_path_directory(document.source_path)\r\nself._write(..., document.source_path)          # no is_relative_to(root) check\r\n\r\n# src/documents/models.py:437-440\r\ndef source_path(self) -> Path:\r\n    fname = str(self.filename) ...\r\n    return (settings.ORIGINALS_DIR / Path(fname)).resolve()   # .resolve() collapses the '..'\r\n```\r\n\r\n## Preconditions\r\n\r\n* `PAPERLESS_FILENAME_FORMAT_REMOVE_NONE=true`. **Not the default** - the documentation says\r\n  *\"Defaults to `false`\"* - but it is a documented, first-class option (docs: \"Empty\r\n  placeholders\") that installs with sparse metadata commonly enable. Without it the\r\n  unconditional `replace(\"-none-\",\"none\")` on the following line cannot produce `..`...",
+  "published_at": "2026-09-01T15:29:27.000Z",
+  "modified_at": "2026-09-01T15:29:27.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.1,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "paperless-ngx",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.1.2"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-2jhj-xqrq-rmrq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2jhj-xqrq-rmrq",
+      "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-2jhj-xqrq-rmrq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:37e7365471085c8a55f63328ef94c748c75eb3fb96071244eb5f028cbdeb498e",
+  "note": null
+}

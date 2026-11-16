@@ -1,0 +1,96 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-63740",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A `SELECT` permission defined on an array element (`DEFINE FIELD field.* … PERMISSIONS FOR select …`) is not enforced correctly for `RECORD` users. Instead of hiding the denied elements, the query leaks a subset of them: a deny-all returns the odd-indexed elements, and a per-element predicate keeps and drops the wrong ones.\n\nThe filter removed each denied element by index while walking the array forwards. Because removing an element shifts every later index down, each cut invalidated the indices still pending in the loop, leaving denied elements behind. Field-level permissions are enforced correctly; only the element (`field.*`) level is affected, and only for record users - root and record-owner sessions are not.\n\n## Impact\n\nWhat an attacker **can** do:\n\n- As a record (scope) user, read array elements that an element-level (`field.*`) SELECT permission should hide, on any table they can already SELECT.\n- Recover denied elements through both a deny-all and a `WHERE` predicate - the wrong elements are selected either way.\n\nWhat it **can't** do:\n\n- Bypass field-level SELECT permissions, which are evaluated correctly.\n- Affect root or record-owner sessions, or cross namespace/database isolation.\n- Modify data, escalate privileges, or affect availability (confidentiality only).\n\n## Patches\n\nThe three permission-filtering paths (`doc/reduce.rs`, `doc/output.rs`, `exec/operators/scan/pipeline.rs`) now remove denied elements in reverse index order, so removing one element no longer shifts the elements still to be checked. Regression tests reproducing the issue were added.\n\nThe fix is included in SurrealDB 3.1.4.\n\n## Workarounds\n\n- Do not rely on element-level (`field.*`) permissions to hide data from record users; use field-level permissions, which are enforced correctly.\n- Restrict record users from selecting tables whose schema uses element-level permissions.\n\n## Resources\n\n- [DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [USERS](https://surrealdb.com/docs/learn/security/authentication/authentication)\n- [DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- `fix(sec): stop array element-level SELECT permissions leaking elements` (commit `8f89b260b`)",
+    "ghsa_id": "GHSA-8rw6-p7m8-63jp",
+    "html_url": "https://github.com/advisories/GHSA-8rw6-p7m8-63jp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8rw6-p7m8-63jp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63740"
+      }
+    ],
+    "published_at": "2026-08-14T19:40:48Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-8rw6-p7m8-63jp",
+      "https://github.com/surrealdb/surrealdb/commit/8f89b260bb9692e5b0d58930793d482a8207eedc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-63740",
+      "https://www.vulncheck.com/advisories/surrealdb-before-array-element-permission-bypass",
+      "https://github.com/advisories/GHSA-8rw6-p7m8-63jp"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Array element-level (field.*) SELECT permissions leak denied elements to record users",
+    "updated_at": "2026-09-04T19:48:52Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.4",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-8rw6-p7m8-63jp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A `SELECT` permission defined on an array element (`DEFINE FIELD field.* … PERMISSIONS FOR select …`) is not enforced correctly for `RECORD` users. Instead of hiding the denied elements, the query leaks a subset of them: a deny-all returns the odd-indexed elements, and a per-element predicate keeps and drops the wrong ones.\r\n\r\nThe filter removed each denied element by index while walking the array forwards. Because removing an element shifts every later index down, each cut invalidated the indices still pending in the loop, leaving denied elements behind. Field-level permissions are enforced correctly; only the element (`field.*`) level is affected, and only for record users - root and record-owner sessions are not.\r\n\r\n## Impact\r\n\r\nWhat an attacker **can** do:\r\n\r\n- As a record (scope) user, read array elements that an element-level (`field.*`) SELECT permission should hide, on any table they can already SELECT.\r\n- Recover denied elements through both a deny-all and a `WHERE` predicate - the wrong elements are selected either way.\r\n\r\nWhat it **can't** do:\r\n\r\n- Bypass field-level SELECT permissions, which are evaluated correctly.\r\n- Affect root or record-owner sessions, or cross namespace/database isolation.\r\n- Modify data, escalate privileges, or affect availability (confidentiality only).\r\n\r\n## Patches\r\n\r\nThe three permission-filtering paths (`doc/reduce.rs`, `doc/output.rs`, `exec/operators/scan/pipeline.rs`) now remove denied elements in reverse index order, so removing one element no longer shifts the elements still to be checked. Regression tests reproducing the issue were added.\r\n\r\nThe fix is included in SurrealDB 3.1.4\r\n## Workarounds\r\n\r\n- Do not rely on element-level (`field.*`) permissions to hide data from record users; use field-level permissions, which are enforced correctly.\r\n- Restrict record users from selecting tables whose schema uses element-level permissions.\r\n\r\n## References\r\n\r\n- [DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\r\n- [USERS](https://surrealdb.com/docs/learn/security/authentication/authentication)\r\n- [DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- `fix(sec): stop array element-level SELECT permissions leaking elements` (commit `8f89b260b`)",
+    "ghsa_id": "GHSA-8rw6-p7m8-63jp",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-8rw6-p7m8-63jp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8rw6-p7m8-63jp"
+      }
+    ],
+    "published_at": "2026-06-10T17:43:36Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Array element-level (field.*) SELECT permissions leak denied elements to record users",
+    "updated_at": "2026-06-10T17:43:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

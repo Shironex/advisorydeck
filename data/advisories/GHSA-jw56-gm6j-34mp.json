@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-jw56-gm6j-34mp",
+  "aliases": [],
+  "title": "Standalone `weed iam` server grants any broad-policy S3 identity full IAM administration rights, allowing privilege escalation to admin",
+  "summary": "### Summary\r\n\r\nThe standalone `weed iam` server (deprecated but still shipped in v4.40) routes all IAM management actions through a single `POST /` endpoint. The authorization check always calls `VerifyActionPermission` with an empty bucket and object, which causes the policy evaluator to resolve the IAM management action to `s3:*` against the resource ARN `arn:aws:s3:::`. Any policy statement containing `Action: s3:*` and `Resource: *`, a routine grant for S3 data-plane access, matches both, so the check passes. An authenticated S3 identity with no IAM administration rights can create users, mint access keys for arbitrary accounts, and attach admin policies to itself.\r\n\r\n### Deployment and configuration\r\n\r\n- **Components running:** master, volume, filer, and the standalone `weed iam` server\r\n- **Attacker-reachable port:** the `weed iam` HTTP port (default 8111)\r\n- **Authentication:** IAM auth active; identities loaded from a `-config` file or the filer credential store. The attacker holds a valid access key for any identity that has one attached IAM policy with `Action: s3:*` and `Resource: *`.\r\n- **Attacker's starting position:** a valid S3 user with a standard broad data-access policy. Not unauthenticated, and not an admin.\r\n\r\n**Trust boundary crossed:** privilege escalation from a normal S3 user to administrative capability over the full IAM credential store.\r\n\r\n### Details\r\n\r\n**File:** `weed/iamapi/iamapi_server.go`\r\n**Line 130 (registerRouter)**\r\n\r\n```go\r\n// Single POST / route - no bucket or object path variable.\r\n// bucket=\"\" and object=\"\" flow into VerifyActionPermission for every request.\r\napiRouter.Methods(http.MethodPost).Path(\"/\").\r\n    HandlerFunc(iama.iam.Auth(iama.DoActions, ACTION_ADMIN))\r\n```\r\n\r\nThe `Auth` middleware resolves to `VerifyActionPermission(r, identity, ACTION_ADMIN, \"\", \"\")`. For identities with attached IAM policies, `VerifyActionPermission` routes to `evaluateIAMPolicies`.\r\n\r\n**File:** `weed/s3api/auth_credentials.go`\r\n**Lines 2368-2420 (evaluateIAMPolicies) - no empty-bucket guard**\r\n\r\n```go\r\nresource := buildResourceARN(bucket, resourceObject)\r\n// bucket=\"\" → buildResourceARN(\"\",\"\") → \"arn:aws:s3:::\"\r\n\r\ns3Action := ResolveS3Action(r, string(action), bucket, resourceObject)\r\n// bucket=\"\" → falls through to mapBaseActionToS3Format(\"Admin\") → \"s3:*\"\r\n\r\n// Policy {\"Action\":\"s3:*\",\"Resource\":\"*\"} matches both → explicitAllow = true\r\n```\r\n\r\n`buildResourceARN(\"\", \"\")` returns `\"arn:aws:s3:::\"`. `ResolveS3Action` with an empty bucket falls through to `mapBaseActionToS3Format(\"Admin\")`, which returns `\"s3:*\"`. The policy statement `{\"Effect\":\"Allow\",\"Action\":\"s3:*\",\"Resource\":\"*\"}`, the direct equivalent of AWS's `AmazonS3FullAccess` managed policy, matches both values. The function returns `true` and `VerifyActionPermission` returns `ErrNone`, authorizing the caller.\r\n\r\nThe sibling function `CanDo`, used for legacy-actions identities, applies an explicit empty-bucket guard at line 1800 that `evaluateIAMPolicies` does not:\r\n\r\n```go\r\nif bucket == \"\" {\r\n    return false   // CanDo rejects empty bucket; evaluateIAMPolicies does not\r\n}\r\n```\r\n\r\nThe current-default embedded IAM path (`weed s3 -iam=true`) is not affected. It passes a fixed pseudo-resource to `VerifyActionPermission`: `Action(\"iam:\"+action)` and `\"arn:aws:iam:::*\"`. The `\"iam:\"` prefix prevents any `s3:*` policy from matching the action string. The standalone `weed iam` server was not updated to use the same approach.\r\n\r\n### PoC\r\n\r\nReproduced against a binary built from commit `5269d93fa8d2245cb12d76bcfe1096a12f3178f5` (08/05/26).\r\n\r\nIdentity `victim2` holds only `PowerUserPolicy`: `{\"Effect\":\"Allow\",\"Action\":\"s3:*\",\"Resource\":\"*\"}`. It has no `Actions:[\"Admin\"]` field and no IAM-specific grant of any kind.\r\n\r\n**Attack: create a new IAM user**\r\n\r\n```bash\r\ncurl -s -X POST http://example:8111/ \\\r\n  -H \"Authorization: AWS4-HMAC-SHA256 Credential=victim2key/...\" \\\r\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n  --data \"Action=Crea...",
+  "published_at": "2026-09-02T16:12:15.000Z",
+  "modified_at": "2026-09-02T16:12:15.000Z",
+  "severity": {
+    "level": "critical",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.40"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jw56-gm6j-34mp",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jw56-gm6j-34mp",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jw56-gm6j-34mp",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:bed595705ef2249604c0c6a427f1e17666f0f22e363302e3ca824a32d4796b69",
+  "note": null
+}

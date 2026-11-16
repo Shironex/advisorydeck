@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-r9cj-7m9r-h6hq",
+  "aliases": [],
+  "title": "Container label-filter access-control bypass in POST /api/notifications/preview discloses inventory and real log content of out-of-scope containers to label-restricted users",
+  "summary": "## Summary\nDozzle supports per-user container label filters (users.yaml `filter:` under simple auth, or the `Remote-Filter` header under forward-proxy auth) to restrict which containers a user can see, as documented in the authentication guide (\"Filters are used to restrict the containers that a user can see\"). The notification-rule preview endpoint, `POST /api/notifications/preview`, ignores this filter. It enumerates and reads logs from every container on every host/agent regardless of the requesting user's scope, disclosing both container metadata and real log content to users who are explicitly restricted away from those containers.\n\n## Impact\nAn authenticated low-privilege user whose account is confined by a label filter (e.g. `label=env=dev`) can enumerate the full container inventory across all connected hosts and agents (names, images, labels, group, host) and read up to the last 2 hours of real log lines (up to 10 events per container), plus structured-log field names and total match counts, for containers outside their permitted scope. This breaks the multi-tenant isolation boundary the filter feature is documented to enforce. Logs frequently contain credentials, tokens, and PII, so the confidentiality impact is high. Integrity and availability are unaffected.\n\n## Root cause\nIn `internal/web/notifications.go`, `previewExpression` passes an empty `container.ContainerLabels{}` to the host service instead of the caller's resolved labels:\n- Line 572: `containers, _ := h.hostService.ListAllContainers(container.ContainerLabels{})`\n- Line 595: `containerService, err := h.hostService.FindContainer(c.Host, c.ID, container.ContainerLabels{})`\n\nIn `internal/container/container_store.go`, `ListContainers` (line 153) and `FindContainer` (line 191) only apply the label ACL when `labels.Exists()` is true; with an empty filter, `ListContainers` returns every container and `FindContainer` skips the access check entirely. Every other container-access handler resolves the user's scope via `h.resolveLabels(r)` (`internal/web/logs.go:61`); the preview handler is the sole site hardcoding an empty filter. The route (`internal/web/routes.go:209`) is inside the `RequireAuthentication` group but has no role gate, so any authenticated user reaches it. This is the same class of bug as CVE-2026-24740 (agent exec/attach) but at an independent, unfixed sink.\n\n## Reproduction\nPreconditions: `DOZZLE_AUTH_PROVIDER=simple` (or forward-proxy auth) with at least one label-restricted user. Example users.yaml grants `devuser` the filter `label=env=dev`. Containers exist: `dev-allowed` (env=dev) and `prod-secret` (env=prod). In the UI, devuser sees only env=dev containers.\n\n1. Authenticate as devuser and obtain the JWT (cookie `jwt` or `POST /api/token`).\n2. Enumerate all containers, bypassing the filter:\n   `curl -s http://dozzle:8080/api/notifications/preview -H \"Authorization: Bearer <devuser-JWT>\" -H 'Content-Type: application/json' --data '{\"containerExpression\":\"true\"}'`\n   The response `.matchedContainers` includes `prod-secret` (id, name, image, labels), outside devuser's scope.\n3. Exfiltrate real log content of out-of-scope containers:\n   `curl -s http://dozzle:8080/api/notifications/preview -H \"Authorization: Bearer <devuser-JWT>\" -H 'Content-Type: application/json' --data '{\"containerExpression\":\"name == \"prod-secret\"\",\"logExpression\":\"true\"}'`\n   The response `.matchedLogs[]` contains real prod-secret log lines, `.messageKeys` leaks structured-log field names, and `.totalLogs` leaks the match count.\n\n## Affected versions\nCurrent at time of report (HEAD c2d2623; present in latest release v10.7.4). Affects deployments that use per-user label filters (multi-tenant / restricted accounts) under simple or forward-proxy auth. Single-tenant installs where every user is effectively unrestricted are not impacted.\n\n## CVSS\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N = 6.5 (Medium).\n\n## Remediation\n\nResolve the requesting user's container scope before...",
+  "published_at": "2026-08-26T21:56:21.000Z",
+  "modified_at": "2026-08-26T21:56:21.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-285",
+    "CWE-639"
+  ],
+  "affected": [
+    {
+      "product": "dozzle",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "10.7.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-r9cj-7m9r-h6hq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-r9cj-7m9r-h6hq",
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-r9cj-7m9r-h6hq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6a95cd2b11538c12ad0a77b6e4a3cd3b3572bcaeac0f5866b22ae6e571119e89",
+  "note": null
+}

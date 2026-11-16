@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-995q-72cw-cfw3",
+  "repo": {
+    "cve_id": "CVE-2026-41569",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe WS-Federation provider validates the user-supplied `wreply` parameter using a raw string prefix check rather than proper URL parsing. An attacker who can craft a login link can supply a `wreply` value on a different origin that passes the check (e.g. `https://portal.example.com.evil.tld/`), causing the victim's browser to POST the signed WS-Federation login response to attacker-controlled infrastructure.\r\n\r\n### Patches\r\n\r\nauthentik 2025.12.5 and 2026.2.3 fix this issue.\r\n\r\n### Impact\r\n\r\nThe WS-Federation sign-in processor accepted any `wreply` whose string value started with the configured Reply URL, not correctly comparing the domain.\r\n\r\nOnce accepted, the attacker-controlled `wreply` is used as the autosubmit destination, and the victim's browser immediately POSTs the signed WS-Federation response (`wresult`) to that URL. The response is a valid signed authentication artifact; in many relying-party configurations it is replayable to the egitimate ACS endpoint, enabling victim impersonation in the target application.\r\n\r\nThe fix replaces the string prefix check with proper URL parsing, comparing scheme, host, and path independently:\r\n\r\nOnly WS-Federation providers (an enterprise feature) with a prefix-ambiguous Reply URL are affected. If the Reply URL is already path-specific (e.g. https://portal.example.com/wsfed/acs`), the host-extension bypass does not apply.\r\n\r\n### Workarounds\r\n\r\nConfigure the WS-Federation provider's Reply URL with a specific path (e.g. `https://portal.example.com/wsfed/acs`) rather than a bare hostname. This prevents the host-extension bypass without patching, though upgrading is strongly preferred.\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io)",
+    "ghsa_id": "GHSA-995q-72cw-cfw3",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-995q-72cw-cfw3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-995q-72cw-cfw3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41569"
+      }
+    ],
+    "published_at": "2026-05-12T16:24:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "WS-Federation wreply origin bypass can exfiltrate signed login responses to attacker-controlled endpoints",
+    "updated_at": "2026-05-13T11:21:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.3",
+        "vulnerable_version_range": "<= 2026.2.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

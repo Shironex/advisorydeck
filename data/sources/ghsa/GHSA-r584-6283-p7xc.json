@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-r584-6283-p7xc",
+  "repo": {
+    "cve_id": "CVE-2026-33044",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-80"
+    ],
+    "description": "### Summary\r\nAn authenticated party can add a malicious name to their device entity, allowing for Cross-Site Scripting attacks against anyone who can see a dashboard with a Map-card which includes that entity. It requires that the victim hovers over an information point (The lines or the dots representing that device's movement, as shown in the screenshot below, with the example showing a html-injection using `<s>` to strikethrough the text)\r\n<img width=\"348\" height=\"355\" alt=\"image\" src=\"https://github.com/user-attachments/assets/1af3ef33-3a72-4816-8ade-e6405aace176\" />\r\n\r\nThis allows an authenticated user to execute JavaScript in the context of any other users accessing a dashboard.\r\n\r\n### Details\r\n\r\nThe vulnerability exists in the map-card by adding a malicious entity and having the property `hours_to_show` set.\r\nSee example below, with the malicious entity being `Pixel 9 <s> Fold Robin {{7*7}}`:\r\nMap card with malicious device entity:\r\n<img width=\"338\" height=\"332\" alt=\"image\" src=\"https://github.com/user-attachments/assets/15229cc3-1b69-438c-9ee5-cbfa9483aec9\" />\r\n\r\nYAML-view of same card:\r\n<img width=\"338\" height=\"198\" alt=\"image\" src=\"https://github.com/user-attachments/assets/cd579266-75c3-4cdf-9d08-1544a6887feb\" />\r\n\r\n\r\nThis issue largely resembles the issue documented in: [CVE-2025-62172](https://github.com/home-assistant/core/security/advisories/GHSA-mq77-rv97-285m), but with an entity which can be displayed in a Map, instead of in an energy-dashboard.\r\n\r\n\r\n### PoC\r\n1. Register a new sensor (or device) or change the name of an existing one, which provides a location\r\n2. Change the name to something malicious, for example `test <img src=x onerror=alert(document.domain) />`\r\nFor a new entity, it should work when setting the name. For old entities, go here:\r\n<img width=\"1300\" height=\"411\" alt=\"image\" src=\"https://github.com/user-attachments/assets/d240549e-f26c-4617-89d7-5480451ae5a3\" />\r\n<img width=\"1383\" height=\"885\" alt=\"image\" src=\"https://github.com/user-attachments/assets/94db6186-ad54-476c-92a3-9f6870b0c862\" />\r\n<img width=\"387\" height=\"436\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f4c4b9f6-b1e7-4b50-9012-3be31c617be4\" />\r\n<br>\r\n<img width=\"392\" height=\"515\" alt=\"image\" src=\"https://github.com/user-attachments/assets/a0f24d2f-cc18-4ef7-9071-40376dbb38c1\" />\r\n\r\n3. Add the entity to a map card, which has the \"hours to show\"-attribute set, to display movement history\r\n<img width=\"296\" height=\"383\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b2db55b6-3d4b-4ab0-91fe-fc26813ad5ff\" />\r\n<img width=\"692\" height=\"410\" alt=\"image\" src=\"https://github.com/user-attachments/assets/aec15e07-12c0-4abf-ba73-979736131c7c\" />\r\n\r\n<img width=\"694\" height=\"302\" alt=\"image\" src=\"https://github.com/user-attachments/assets/e4bb7cac-fe85-41eb-963c-1743e78d937c\" />\r\n\r\n(The left arrow showing the custom setting, and the right arrow showing a data point which needs to be hovered)\r\n\r\n4. The payload executes when hovering a data-point (here shown with an \"alert(document.domain\"-payload)\r\n<img width=\"504\" height=\"118\" alt=\"image\" src=\"https://github.com/user-attachments/assets/9f24e1fe-949f-4fa5-9e4f-781828a1343b\" />\r\n\r\n### Impact\r\nThe impact of this vulnerability is that a user can target other users of the system and perform account takeover through client side exploitation of XSS.\r\n\r\nIn the context of this system, I believe the vulnerability to be less impactful than the CVSS metric describes, as it requires a specific setup (map-card with attribute `hours_to_show` set, as this brings up the trail). It is interesting to note that any user who sets this attribute, will be highly likely to trigger the vulnerability through normal use. It also has no potential for being imported through seemingly innocent integrations and can only be set explicitly by another invited user, a device name, a cloud service or through social engineering. Other devices which has the same sensor can trigger the same vulnerability, and I expect there to exists cloud-based devices that would enable a threat actor to deliver the payload remotely.\r\n\r\nSuggested CVSS score:\r\nCVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:A/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H/E:P\r\n\r\nSuggested criticality: **Medium**\r\n\r\nCredit: Robin Lunde - [https://robinlunde.com](https://robinlunde.com)",
+    "ghsa_id": "GHSA-r584-6283-p7xc",
+    "html_url": "https://github.com/home-assistant/core/security/advisories/GHSA-r584-6283-p7xc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r584-6283-p7xc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33044"
+      }
+    ],
+    "published_at": "2026-03-27T15:48:13Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored XSS in Map-card through malicious device name",
+    "updated_at": "2026-03-27T17:28:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "Home Assistant"
+        },
+        "patched_versions": "2026.01",
+        "vulnerable_version_range": "2020.02 to 2026.01"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "home-assistant/core"
+}

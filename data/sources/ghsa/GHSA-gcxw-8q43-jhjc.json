@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-gcxw-8q43-jhjc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-248"
+    ],
+    "description": "### Summary\n\nAn authenticated request with incomplete input could make a background metadata query fail outside the request's error handling, and the resulting unhandled promise rejection terminated the NocoDB server process.\n\n### Details\n\n`MetaService` in `meta.service.ts` logged the SQL of each metadata read through the async `logHelper`, which the read methods called without awaiting. When a request left a lookup condition `undefined`, compiling the query for the log line threw knex's undefined-binding error. The request itself failed with an HTTP 500, but the rejection from the detached logging call was never handled, and the process exited through `handleUncaughtErrors` in `processUtils.ts` or through Node's default handling of unhandled rejections. The fix catches errors raised while building the log line.\n\n### Impact\n\nAn authenticated user could stop the whole instance with a single request, and it stayed down until a supervisor or an operator restarted it. Anonymous requests could not trigger it.\n\n### Credit\n\nThis issue was reported by [@5255fgh](https://github.com/5255fgh) (白墨).\n",
+    "ghsa_id": "GHSA-gcxw-8q43-jhjc",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-gcxw-8q43-jhjc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gcxw-8q43-jhjc"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Denial of Service via Unhandled Metadata Query Error",
+    "updated_at": "2026-10-27T10:06:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.04.4",
+        "vulnerable_version_range": ">= 0.300.0, < 2026.04.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

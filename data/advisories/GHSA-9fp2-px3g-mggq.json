@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-9fp2-px3g-mggq",
+  "aliases": [],
+  "title": "Stored HTML Injection via Rich Text Cells",
+  "summary": "### Summary\n\nRich text cells were rendered through DOMPurify's default policy, which keeps forms, inputs, buttons, images and inline styles, so a user who could edit records could place a page-sized overlay with a working form, or a remote image, in front of other users viewing the cell.\n\n### Details\n\nThe read-only rich text renderer in `markdown.ts` parses cell values with markdown-it, raw HTML enabled, and sanitizes the result with DOMPurify's default policy; `TextArea.vue` renders it in the expanded record, gallery and kanban cards and shared views. Cell values are stored as written. The default policy removes scripts, event handlers and script URLs, but keeps `form`, `input`, `button` and `img` elements, `style` attributes, and `class` attributes that the application's own stylesheet can use to position an element. Stored markup could therefore draw an element over the whole interface, including a form that submits to an external address, and load images from a remote host whenever the cell was viewed. The server-side allow-list applied to comments is not applied to cell data.\n\nRich text is now sanitized for display with a dedicated profile: form controls other than read-only checkboxes, images, media, embeds, `style` elements and attributes, and popover attributes are removed, and only the classes and data attributes the renderer emits itself are kept.\n\n### Impact\n\nAn attacker needs an account that can edit records in a table with a rich text field, which the Editor role grants. Every user who later viewed the cell in an expanded record, a gallery or kanban card or a shared view was shown the attacker's markup inside NocoDB, where a spoofed sign-in form could collect a password the user typed into it, and a remote image disclosed the viewer's IP address to its host. No script could run.\n\n### Credit\n\nThis issue was reported by [@manus-pi](https://github.com/manus-pi).",
+  "published_at": "2026-11-02T08:47:43.000Z",
+  "modified_at": "2026-11-02T08:47:43.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-183",
+    "CWE-451"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-9fp2-px3g-mggq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9fp2-px3g-mggq",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-9fp2-px3g-mggq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0bd916850f33abbfaeacef411d77b94dd77b5c79a922fafa29011f9fb7536020",
+  "note": null
+}

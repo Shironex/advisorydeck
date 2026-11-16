@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-4w2w-wj9x-f4fv",
+  "aliases": [],
+  "title": "SQL Injection via Zero-Argument Functions in Column Defaults",
+  "summary": "### Summary\n\nThe column default value supplied when creating or altering a column was accepted as a raw SQL expression whenever it looked like a zero-argument function call, so any such database function could be planted in a column definition and executed by the data source.\n\n### Details\n\nThe default-value sanitiser in `KnexClient.ts` tested the submitted value against a pattern for a bare word followed by empty parentheses. A value matching that shape was emitted verbatim into the generated column definition by the PostgreSQL and MySQL data-definition emitters (`PgClient.ts`, `MysqlClient.ts`), while anything else was passed as a bound string literal. Because the check validated only the shape of the value and not the identity of the function, names such as `version()`, `current_user()`, `current_database()`, `inet_server_addr()`, `pg_postmaster_start_time()`, `txid_current()`, `pg_backend_pid()`, `pg_is_in_recovery()` and `connection_id()` reached the database unchanged. The function then ran on the database server every time a row was inserted without an explicit value for the column, and its result was stored in the row and readable through the ordinary data APIs.\n\n### Impact\n\nExecution of arbitrary zero-argument functions on the database behind the base, with the results returned to the attacker through normal record reads. This disclosed the database engine version, the current database and role names, internal server addresses, server start and configuration timestamps, backend process and transaction identifiers, and replica state - details that support further attacks on the data source. Exploitation requires an authenticated account with schema-edit permission on the base, that is the Creator or Owner base role; the Editor role and below cannot create or alter columns.\n\n### Credit\n\nThis issue was reported by [@TuanHung1149](https://github.com/TuanHung1149).",
+  "published_at": "2026-11-02T08:47:34.000Z",
+  "modified_at": "2026-11-02T08:47:34.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-89"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4w2w-wj9x-f4fv",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4w2w-wj9x-f4fv",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4w2w-wj9x-f4fv",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ec0d1d4081b2bc0e13ac286a23c51db5d61779a942cb9f2e6bc6732ca292239b",
+  "note": null
+}

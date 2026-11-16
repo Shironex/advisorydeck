@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-349h-hpcp-79p3",
+  "aliases": [],
+  "title": "Read-only Admin users can retrieve live S3 credentials",
+  "summary": "# Read-only Admin users can retrieve live S3 credentials\n\n## Summary\n\nSeaweedFS 4.45's Admin UI documents its read-only account as view-only and blocks its write requests, but the authenticated read routes return object-store users with plaintext access and secret keys. A read-only Admin user can retrieve another user's live S3 credential pair and use it directly against the S3 endpoint, converting view-only access into the victim identity's object-store authority.\n\n## Impact and affected scope\n\n- **Type:** Broken access control / exposure of credentials\n- **Affected component:** Admin UI user APIs and embedded S3 IAM integration\n- **Preconditions:** The attacker has a configured read-only Admin account; Admin UI and S3 are reachable as intended by the deployment\n- **Verified revision:** `79b87202136cebdaaa7db4d94eaa5915ad381276` on 2026-09-05\n- **Affected release range:** Exact tested release `= 4.45`; broader history is pending maintainer confirmation\n\nThe disclosed key inherits the selected S3 identity's permissions. The reproduction uses a victim identity with Admin S3 actions and proves object creation and retrieval; it does not claim access beyond that identity's configured scope.\n\n## Technical details\n\nThe Admin router makes both roles pass `RequireAuthAPI`, while only mutating routes use `RequireWriteAccess`. The read-only-accessible `GET /api/users/{username}` path calls `GetObjectStoreUserDetails`, which copies every live `SecretKey` into its JSON response. The viewer can then sign ordinary S3 requests as the victim.\n\nWe checked current repository advisories, issues, pull requests, release history, relevant files and public CVE/GHSA records on 2026-09-05. [GHSA-hgpf-8634-g44c](https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-hgpf-8634-g44c) concerns S3Tables account authorization rather than Admin read-only-role credential exposure. We did not find a materially equivalent public record; absence from a bounded public search is not proof of novelty.\n\nRelevant code:\n\n- `weed/admin/handlers/admin_handlers.go:79-190` - registers authenticated user-list and user-detail routes without the write-role middleware\n- `weed/admin/dash/middleware.go:83-110` - distinguishes authenticated access from write access\n- `weed/admin/handlers/user_handlers.go:51-145` - serializes live access and secret keys\n- `weed/admin/dash/admin_data.go:53-91` - defines credential-bearing response fields\n\n## Reproduction\n\nRun this only against an authorized disposable Docker environment. Create a directory containing the following files and run `chmod +x run.sh verify.sh && ./run.sh`. The script checks out the exact tested revision, starts loopback-only Admin and S3 services, verifies that the viewer's Admin write is denied, reads the victim credentials through the viewer route, and proves that the returned pair authorizes a signed S3 write and read.\n\n#### Dockerfile\n\n```dockerfile\nFROM chrislusf/seaweedfs:4.45@sha256:fc9f76fa993ad69966ffeb2f65d0318fcae39c6f8e20cf68ef7b3a5cb97769e5\n\nWORKDIR /app\n\nRUN apk add --no-cache bash ca-certificates curl\n\nCOPY verify.sh /app/verify.sh\nRUN chmod 0755 /app/verify.sh\n\nENTRYPOINT [\"/app/verify.sh\"]\n```\n\n#### verify.sh\n\n```sh\n#!/usr/bin/env bash\nset -euo pipefail\n\nTARGET_REPO=\"/target-repo\"\nWORK_DIR=\"$(mktemp -d /tmp/poc-readonly-admin-runtime.XXXXXX)\"\nWEED_BIN=\"/usr/bin/weed\"\nMINI_LOG=\"${WORK_DIR}/mini.log\"\nADMIN_URL=\"http://127.0.0.1:23646\"\nS3_URL=\"http://127.0.0.1:28333\"\nBUCKET=\"protected\"\nMINI_PID=\"\"\n\ncleanup() {\n  if [[ -n \"${MINI_PID}\" ]] && kill -0 \"${MINI_PID}\" 2>/dev/null; then\n    kill -INT \"${MINI_PID}\" 2>/dev/null || true\n    wait \"${MINI_PID}\" 2>/dev/null || true\n  fi\n  rm -rf -- \"${WORK_DIR}\"\n}\ntrap cleanup EXIT\n\nlogin() {\n  local username=\"$1\"\n  local password=\"$2\"\n  local cookie_jar=\"$3\"\n  local login_html=\"${cookie_jar}.html\"\n  curl -sS -c \"${cookie_jar}\" \"${ADMIN_URL}/login\" -o \"${login_html}\"\n  local csrf\n  csrf=$(sed -n 's/.*name=\"csrf_token\"[^>]*value=\"\\([^\"]*\\)\".*/\\1/p' \"${login...",
+  "published_at": "2026-11-09T19:48:05.000Z",
+  "modified_at": "2026-11-09T19:48:05.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.45",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-349h-hpcp-79p3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-349h-hpcp-79p3",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-349h-hpcp-79p3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:902be85099374e3ebe4c5143bb2af3209bd1ca7c35edf156763c0c2fa2bc9233",
+  "note": null
+}

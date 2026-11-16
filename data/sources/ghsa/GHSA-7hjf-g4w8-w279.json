@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7hjf-g4w8-w279",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-352"
+    ],
+    "description": "### Summary\n\n`GET /api/cloud/callback` exchanges a `?token=` query parameter for a dozzle Cloud API key and rewrites the instance-wide cloud-link configuration, and it performs this state change with no CSRF token and no `Origin`/`Sec-Fetch-Site` validation. dozzle's session cookie is `SameSite=Lax`, which browsers attach to cross-site top-level GET navigations, so one visit by any authenticated dozzle user holding the `cloud` role (the default for users.yml users) to an attacker-controlled page links the victim's dozzle instance to the attacker's cloud account. Because cloud-originated log and stats streaming runs with instance-wide container labels rather than the per-user label filters that every other dozzle surface enforces, the attacker's cloud account can then stream all container logs of the victim instance. We verified the full chain on dozzle v11.2.0 (21cc0d70, current release) with a mock cloud endpoint.\r\n\n\n### Details\n\nThe callback handler (`internal/web/cloud.go`, `cloudCallback` writing via `SetCloudConfig` at line 125, route registered in `internal/web/routes.go:402`) performs two state changes from a GET: it calls the configured cloud endpoint (`DOLIGENCE_URL`) to exchange the attacker-supplied token for an API key, and stores `{prefix, linked: true, streamLogs: true}` as the instance cloud configuration. Neither a CSRF token nor an `Origin`/`Sec-Fetch-Site` check gates the request. The advisory GHSA-p66q-2gfp-8v55 (fixed by commit 9c665d42, September 2026) added authentication to this route, so an unauthenticated caller now receives 401, but that is an incomplete fix for the force-link root cause in the authenticated threat model: the cross-site request from a logged-in user carries the session cookie and succeeds.\r\n\r\nThe consequence is not limited to a configuration flag. Cloud-originated assistant turns run as `cloud.APIKeyPrincipal(args.Filter)` (`internal/cloud/client.go:310`, principal constructed with the instance-wide filter at `internal/cli/agent_command.go:232`), and the cloud log streamer lists containers with those instance-global labels (`internal/cloud/log_streamer.go:93`, `ListAllContainers(ls.labels)`). The per-user label filter that dozzle enforces on the UI, streams, downloads, actions and MCP surfaces (the CVE-2026-62286 fix class) is not applied to cloud streaming. A force-linked instance therefore exposes all container logs and stats, and notification dispatch, to the attacker's cloud account.\r\n\r\nData flow: victim user with `cloud` role visits attacker page -> browser sends `GET https://victim.example/api/cloud/callback?token=<attacker-token>` with the SameSite=Lax session cookie -> dozzle exchanges the token at the attacker controlled cloud endpoint -> instance configuration becomes `{\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true}` -> cloud streaming and notifications flow to the attacker's account.\n\n### Proof of concept\n\nPrerequisites: a Linux host with docker, python3 and curl. The archive's deploy script creates an isolated test deployment on 127.0.0.1 (dozzle v11.2.0 with simple auth and two test users, a mock dozzle-cloud endpoint, two labeled test containers; docker resources prefixed `vrdoz`). Credentials are test-only.\r\n\r\nControl cases first (both gates hold in their intended scope):\r\n\r\n```bash\r\n$ POC_HOME=$HOME/dozzle-poc ./deployment/deploy.sh\r\nDEPLOY OK\r\ndozzle: http://127.0.0.1:18082 (vradmin/vradmin-pass-1, vrlimit/vrlimit-pass-1)\r\nmock cloud: http://127.0.0.1:18099 (DOLIGENCE_URL pointed here)\r\ncontainers: vrdoz-a (scope=limited), vrdoz-b (scope=admin)\r\n\r\n$ POC_HOME=$HOME/dozzle-poc ./poc/poc.sh\r\nunauthenticated callback -> HTTP 401 (want 401)\r\nrestricted-user callback -> HTTP 403 (want 403)\r\npre-state : {\"error\":\"no cloud configuration\"} (want {\"error\":\"no cloud configuration\"} / 404)\r\ndrive-by : HTTP/1.1 302 Found (want 302)\r\npost-state: {\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true} (want {\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true})\r\nCONFIRMED - instance force-linked by a single cookie-carried GET\r\n```\r\n\r\nThe 401 line shows the GHSA-p66q-2gfp-8v55 fix holding for unauthenticated callers and the 403 line shows the cloud-role gate working, so the boundaries that are enforced are visibly enforced. The `pre-state` line shows the instance unlinked. The drive-by line is a plain curl GET carrying only the session cookie, with no Origin, Referer, CSRF token or Sec-Fetch-Site header, which is exactly what a browser sends on a cross-site top-level navigation under SameSite=Lax. The `post-state` line shows the instance linked to the attacker key with log streaming enabled. The automated archive run reproduces exactly this trace.\n\n### Impact\n\nAn attacker with a dozzle cloud account can take over the cloud integration of any dozzle instance whose logged-in user holds the default `cloud` role with a single drive-by visit, redirecting the instance's container log and stats streaming and notification dispatch into the attacker's cloud account. This crosses the visitor/application boundary and defeats the per-user label authorization model for the most sensitive data dozzle holds (container logs). Integrity of the instance configuration is also demonstrated (the link state is attacker-set). Availability is not impacted.\r\n",
+    "ghsa_id": "GHSA-7hjf-g4w8-w279",
+    "html_url": "https://github.com/amir20/dozzle/security/advisories/GHSA-7hjf-g4w8-w279",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7hjf-g4w8-w279"
+      }
+    ],
+    "published_at": "2026-10-05T16:56:45Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-site request forgery on GET /api/cloud/callback force-links a dozzle instance to an attacker's cloud account",
+    "updated_at": "2026-10-05T16:56:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "dozzle"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v11.2.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "amir20/dozzle"
+}

@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-7r2m-g5wf-pj9j",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\nA credential leakage and Server-Side Request Forgery vulnerability exists in SurrealDB's remote HTTP client router (`surrealdb/surrealdb`). In `surrealdb/src/engine/remote/http/mod.rs`, model names are passed directly to `Url::join()` as URL references.\n\n### Vulnerability Details\n- Affected File: `surrealdb/src/engine/remote/http/mod.rs` (`router`, `Command::ExportMl`, `Command::ExportBytesMl`)\n- Mechanism: `Url::join` treats absolute URLs as target replacements rather than path segments. When exporting a model with a user-supplied name such as `https://attacker.com/ml`, `Url::join` resets the destination origin to the attacker's server. The HTTP client then issues the request to the attacker's server with the current session's authentication tokens and headers attached.\n- Impact: Credential disclosure of SurrealDB session tokens and authenticated destination SSRF.\n\n### Recommended Remediation\nURL-encode model names before appending them to the path, or use `url.path_segments_mut()` to ensure they are treated strictly as path segments.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that pins an ML export request to its intended host, so an authenticated request can no longer be redirected to another host.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- `fix(sdk): ML export URL lets an authenticated request be redirected to another host` (commit `a44fca7d74`)\n",
+    "ghsa_id": "GHSA-7r2m-g5wf-pj9j",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-7r2m-g5wf-pj9j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7r2m-g5wf-pj9j"
+      }
+    ],
+    "published_at": "2026-11-03T15:50:57Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Model Export Route joins Raw Name Permitting Authenticated Request Redirection",
+    "updated_at": "2026-11-03T15:50:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

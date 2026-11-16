@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-55w2-5j5j-6q97",
+  "repo": {
+    "cve_id": "CVE-2026-116681",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe row-scoped endpoints of a public shared view verified the target record with a primary-key read that ignored the view's row filter, while the view's own list and count endpoints enforced it. The mere existence of a primary key was enough to pass that check.\n\n### Details\n\nIn `BaseModelSqlv2.ts` the list and count paths applied the view's root filter list whenever a view was bound to the model, while the read-by-primary-key path applied only the key predicate, row-level security, and the soft-delete filter. The row-scoped public handlers in `public-datas.service.ts` - the linked-record listings behind the many-to-many, link-to-another-record, one-to-many and has-many routes, and the single-record read behind the attachment-download route - all used that read as their \"row is visible in the shared view\" gate, so key existence rather than membership of the filtered set decided access. The routes in `public-datas.controller.ts` are intentionally unauthenticated, which left the row filter as their only boundary.\n\nThis is distinct from the documented behaviour whereby columns hidden in a view remain queryable; what was bypassed here is the row filter that determines which records are shared at all.\n\n### Impact\n\nNo authentication is required beyond possession of the shared-view link and, where configured, its password. A recipient able to guess a filtered-out record's primary key - an auto-increment integer in the common case - could list that record's linked records and obtain signed download paths for its attachments, and the linked-record responses could additionally echo display fields of the excluded parent record.\n\n### Credit\n\nThis issue was reported by [@KasperBuilds](https://github.com/KasperBuilds).\n",
+    "ghsa_id": "GHSA-55w2-5j5j-6q97",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-55w2-5j5j-6q97",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-55w2-5j5j-6q97"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-116681"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:03Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Shared View Row Filter Bypass via Row-Scoped Public APIs",
+    "updated_at": "2026-11-02T08:47:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

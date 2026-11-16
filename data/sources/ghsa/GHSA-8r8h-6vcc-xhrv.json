@@ -1,0 +1,96 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-70471",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Finding - Unauthorized Workspace Variables disclosure via $vars injection (bypasses variables:view)\n\n  ### What’s wrong (code locations)\n\n  - Variables for the active workspace are fetched without checking “variables:view” at this call site: flowise-src/\n    packages/components/src/utils.ts:932\n  - Runtime variables are resolved from server environment variables: flowise-src/packages/components/src/utils.ts:976\n  - $vars is always injected into the code execution sandbox: flowise-src/packages/components/src/utils.ts:1782\n  - The official Variables API is permission-protected (contrast): flowise-src/packages/server/src/routes/variables/\n    index.ts:11\n\n  ### Why it is a privilege boundary bypass\n\n  A user/API key might be denied variables:view (and the /api/v1/variables route enforces it), but they can still:\n\n  - call /api/v1/node-custom-function (Finding 1)\n  - and have $vars pre-populated with all variables for the workspace, including runtime values from process.env\n\n  ### What data is exposed\n\n  Inside the custom JS context, $vars contains a flat map of:\n\n  - Variable.name -> Variable.value for static variables, and\n  - Variable.name -> process.env[Variable.name] for runtime variables (type === 'runtime')\n\n  This can expose secrets such as database passwords, JWT secrets, SMTP passwords, cloud keys, etc., depending on what\n  the workspace Variables are configured to map.\n\n  ### Recommended fix (minimum)\n\n  - Do not inject $vars unless the caller is authorized:\n      - enforce variables:view before injecting $vars, or\n      - inject only an explicit allowlist of variables needed for the function\n  - Consider disabling or heavily restricting type=runtime variables in self-hosted environments (or restrict which env\n    keys may be mapped).",
+    "ghsa_id": "GHSA-8r8h-6vcc-xhrv",
+    "html_url": "https://github.com/advisories/GHSA-8r8h-6vcc-xhrv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8r8h-6vcc-xhrv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-70471"
+      }
+    ],
+    "published_at": "2026-08-04T17:43:36Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-8r8h-6vcc-xhrv",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise@3.1.3",
+      "https://github.com/advisories/GHSA-8r8h-6vcc-xhrv"
+    ],
+    "severity": "high",
+    "summary": "Flowise: RBAC Bypass Leading to Unauthorized Workspace Variables Disclosure",
+    "updated_at": "2026-08-04T17:43:37Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-8r8h-6vcc-xhrv",
+  "repo": {
+    "cve_id": "CVE-2026-70471",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": " ## Finding - Unauthorized Workspace Variables disclosure via $vars injection (bypasses variables:view)\r\n\r\n  Severity: High (can be Critical if secrets are stored as Variables)\r\n  Class: Authorization bypass → sensitive data exposure\r\n  Likely CWE: CWE-200, CWE-862 / CWE-863\r\n\r\n  ### What’s wrong (code locations)\r\n\r\n  - Variables for the active workspace are fetched without checking “variables:view” at this call site: flowise-src/\r\n    packages/components/src/utils.ts:932\r\n  - Runtime variables are resolved from server environment variables: flowise-src/packages/components/src/utils.ts:976\r\n  - $vars is always injected into the code execution sandbox: flowise-src/packages/components/src/utils.ts:1782\r\n  - The official Variables API is permission-protected (contrast): flowise-src/packages/server/src/routes/variables/\r\n    index.ts:11\r\n\r\n  ### Why it is a privilege boundary bypass\r\n\r\n  A user/API key might be denied variables:view (and the /api/v1/variables route enforces it), but they can still:\r\n\r\n  - call /api/v1/node-custom-function (Finding 1)\r\n  - and have $vars pre-populated with all variables for the workspace, including runtime values from process.env\r\n\r\n  ### What data is exposed\r\n\r\n  Inside the custom JS context, $vars contains a flat map of:\r\n\r\n  - Variable.name -> Variable.value for static variables, and\r\n  - Variable.name -> process.env[Variable.name] for runtime variables (type === 'runtime')\r\n\r\n  This can expose secrets such as database passwords, JWT secrets, SMTP passwords, cloud keys, etc., depending on what\r\n  the workspace Variables are configured to map.\r\n\r\n  ### Recommended fix (minimum)\r\n\r\n  - Do not inject $vars unless the caller is authorized:\r\n      - enforce variables:view before injecting $vars, or\r\n      - inject only an explicit allowlist of variables needed for the function\r\n  - Consider disabling or heavily restricting type=runtime variables in self-hosted environments (or restrict which env\r\n    keys may be mapped).\r\n",
+    "ghsa_id": "GHSA-8r8h-6vcc-xhrv",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-8r8h-6vcc-xhrv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8r8h-6vcc-xhrv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-70471"
+      }
+    ],
+    "published_at": "2026-07-29T21:01:20Z",
+    "references": [],
+    "severity": "high",
+    "summary": "RBAC Bypass Leading to Unauthorized Workspace Variables Disclosure",
+    "updated_at": "2026-08-04T17:39:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

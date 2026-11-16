@@ -1,0 +1,104 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-49997",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285",
+      "CWE-863"
+    ],
+    "description": "In SurrealDB, records can be connected as a graph: a `RELATE` statement creates an edge record between two node records. If either endpoint node is deleted, SurrealDB automatically removes the edge row to keep the graph consistent.\n\nA user with permission to delete a node could also delete the edges connected to that node, even when the edge table's `PERMISSIONS FOR delete` clause should have stopped them.\n\nThe automatic edge removal (`Document::purge_edges`) ran with permissions disabled (`opt.clone().with_perms(false)`), so the edge table's `PERMISSIONS FOR delete` and `PERMISSIONS FOR select` clauses were never consulted. The removal step could also observe edge state that the edge's SELECT clause should have hidden.\n\n### Impact\n\nWhat an attacker **can** do:\n\n- Delete any edge connected to a node they can delete, regardless of the edge table's `PERMISSIONS FOR delete` clause.\n- Observe edge contents that `PERMISSIONS FOR select` should have hidden, as a side effect of the same edge-removal step.\n\nWhat it **can't** do:\n\n- Delete nodes on tables they do not hold `DELETE` on (the edge removal only runs from an authorised node delete).\n- Cross namespace or database isolation boundaries.\n- Escalate to root or operator-level privileges.\n\n### Patches\n\n`Document::purge_edges` now propagates the caller's permission context into the edge removal. Each connected edge `DELETE` is evaluated against the edge table's `PERMISSIONS FOR delete` clause, matching a direct `DELETE`.\n\nVersions 3.1.0 and later are not affected.\n\n### Workarounds\n\n- Restrict node `DELETE` permission to principals trusted to delete all connected edge records.\n- Use namespace or database isolation as the primary boundary where edge-level `PERMISSIONS` is load-bearing for multi-tenant separation.",
+    "ghsa_id": "GHSA-whwg-vh4f-pmmf",
+    "html_url": "https://github.com/advisories/GHSA-whwg-vh4f-pmmf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whwg-vh4f-pmmf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-49997"
+      }
+    ],
+    "published_at": "2026-07-01T20:23:49Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-whwg-vh4f-pmmf",
+      "https://github.com/surrealdb/surrealdb/pull/242",
+      "https://github.com/surrealdb/surrealdb/commit/a80d1784cf75358441978bbd77688855e95f4578",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-49997",
+      "https://github.com/surrealdb/surrealdb/commit/500f4060349580b9cbb9c07b8112a487551c4616",
+      "https://github.com/surrealdb/surrealdb/releases/tag/v3.1.0",
+      "https://github.com/advisories/GHSA-whwg-vh4f-pmmf"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Edge PERMISSIONS FOR delete bypassed when a connected node is deleted",
+    "updated_at": "2026-07-20T19:08:43Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-whwg-vh4f-pmmf",
+  "repo": {
+    "cve_id": "CVE-2026-49997",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285",
+      "CWE-863"
+    ],
+    "description": "In SurrealDB, records can be connected as a graph: a `RELATE` statement creates an edge record between two node records. If either endpoint node is deleted, SurrealDB automatically removes the edge row to keep the graph consistent.\r\n\r\nA user with permission to delete a node could also delete the edges connected to that node, even when the edge table's `PERMISSIONS FOR delete` clause should have stopped them.\r\n\r\nThe automatic edge removal (`Document::purge_edges`) ran with permissions disabled (`opt.clone().with_perms(false)`), so the edge table's `PERMISSIONS FOR delete` and `PERMISSIONS FOR select` clauses were never consulted. The removal step could also observe edge state that the edge's SELECT clause should have hidden.\r\n\r\n### Impact\r\n\r\nWhat an attacker **can** do:\r\n\r\n- Delete any edge connected to a node they can delete, regardless of the edge table's `PERMISSIONS FOR delete` clause.\r\n- Observe edge contents that `PERMISSIONS FOR select` should have hidden, as a side effect of the same edge-removal step.\r\n\r\nWhat it **can't** do:\r\n\r\n- Delete nodes on tables they do not hold `DELETE` on (the edge removal only runs from an authorised node delete).\r\n- Cross namespace or database isolation boundaries.\r\n- Escalate to root or operator-level privileges.\r\n\r\n### Patches\r\n\r\n`Document::purge_edges` now propagates the caller's permission context into the edge removal. Each connected edge `DELETE` is evaluated against the edge table's `PERMISSIONS FOR delete` clause, matching a direct `DELETE`.\r\n\r\nVersions 3.1.0 and later are not affected.\r\n\r\n### Workarounds\r\n\r\n- Restrict node `DELETE` permission to principals trusted to delete all connected edge records.\r\n- Use namespace or database isolation as the primary boundary where edge-level `PERMISSIONS` is load-bearing for multi-tenant separation.\r\n\r\n### References\r\n\r\n- [SurrealDB Documentation - Graph overview](https://surrealdb.com/docs/learn/data-models/graph/overview)\r\n- [SurrealDB Documentation - Record links vs graph relations](https://surrealdb.com/docs/learn/data-models/graph/record-links-vs-graph-relations)\r\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- [SurrealQL Documentation - RELATE statement](https://surrealdb.com/docs/surrealql/statements/relate)\r\n- `fix(graph): enforce edge SELECT/DELETE permissions during vertex delete cascade` (commit `a80d1784c`)\r\n",
+    "ghsa_id": "GHSA-whwg-vh4f-pmmf",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-whwg-vh4f-pmmf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whwg-vh4f-pmmf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-49997"
+      }
+    ],
+    "published_at": "2026-05-27T17:40:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Edge PERMISSIONS FOR delete bypassed when a connected node is deleted",
+    "updated_at": "2026-06-03T18:20:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

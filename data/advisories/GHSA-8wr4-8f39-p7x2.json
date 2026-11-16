@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-8wr4-8f39-p7x2",
+  "aliases": [],
+  "title": "Unauthenticated SSRF via non-s3 S3-compatible RemoteConf types bypasses the FetchAndWriteNeedle endpoint guard",
+  "summary": "## Summary\n`VolumeServer.FetchAndWriteNeedle` fetches a caller-supplied remote endpoint and writes the response body into a needle that can be read back - an SSRF-with-read-back primitive. CVE-2026-73080 / GHSA-87fv-vqqr-m4jr added SSRF endpoint validation (a deny-list plus a DNS-rebinding-safe pinned dialer), but wired it into a branch guarded on `remoteConf.Type == \"s3\"` only. SeaweedFS registers **nine** S3-SDK-backed remote-storage providers; the eight non-`s3` ones (`b2`, `storj`, `contabo`, `tencent`, `aliyun`, `wasabi`, `baidu`, `filebase`) fall through to the unguarded `else` branch and reach the identical S3 `GetObject` download sink with an attacker-supplied endpoint. The prior advisory's own text asserts that \"other backends authenticate against their own SDKs and don't accept an attacker-controlled host\" - that assertion is false for these eight S3-compatible providers, which is exactly the gap this report covers.\n\n## Root Cause\n`weed/server/volume_grpc_remote.go:234`:\n```go\nif !vs.AllowUntrustedRemoteEndpoints && remoteConf != nil && remoteConf.Type == \"s3\" {\n    // validateRemoteEndpoint + newGuardedHTTPClient (pinned dialer)\n    client, getClientErr = s3remote.MakeWithHTTPClient(remoteConf, newGuardedHTTPClient(remoteConf.S3Endpoint))\n} else {\n    client, getClientErr = remote_storage.GetRemoteStorage(remoteConf)   // NO deny-list, default SDK dialer\n}\n```\nThe eight sibling makers live in `weed/remote_storage/s3/` and each set the AWS SDK `Endpoint` verbatim from an attacker-controlled `RemoteConf.*Endpoint` field, e.g. `weed/remote_storage/s3/wasabi.go:34` `Endpoint: aws.String(conf.WasabiEndpoint)`. They all build the same `s3RemoteStorageClient` (`client.conn = s3.New(sess)`) and converge on the same sink as the guarded `s3` maker. `remoteConf := req.RemoteConf` (line 230) is read directly from the gRPC request, so the endpoint and type are request-time attacker-controlled.\n\n## Impact\nUnauthenticated (default deployment) SSRF with response read-back: an attacker coerces the volume server into fetching an arbitrary internal URL (cloud IMDS 169.254.169.254, loopback, RFC1918) and recovers the response body via the stored needle. On cloud deployments this discloses instance metadata and IAM credentials and reaches otherwise-unexposed internal services - the same impact as CVE-2026-73080, reached through a `Type` value the fix omitted.\n\n## Proof of Concept\nSingle unauthenticated gRPC `FetchAndWriteNeedle` call with an existing `VolumeId`, `RemoteConf{Type:\"wasabi\", WasabiAccessKey:\"AKIAxxxx\", WasabiSecretKey:\"x\", WasabiEndpoint:\"http://169.254.169.254\", Name:\"<unique>\"}`, `RemoteLocation{Bucket:\"latest\", Path:\"/meta-data/iam/security-credentials/<role>\"}`, and `Size` set to the expected response length; then read the needle back. No non-default config required. (Dummy static creds are supplied so SigV4 signing succeeds and the request is dispatched; IMDSv1 ignores the Authorization header.)\n\n## Attack Chain\n1. **Entry** - Unauthenticated gRPC caller invokes `VolumeServer.FetchAndWriteNeedle` (`volume_grpc_remote.go`) with a sibling-type `RemoteConf` and existing `VolumeId`.\n   - Guard: `checkGrpcAdminAuth` → peer-IP whitelist (`volume_grpc_admin.go:43`, `guard.go:132`).\n   - Bypass proof: default deployment has empty `guard.white_list` + empty signing key → `isWriteActive=false` → `IsWhiteListed` returns `true` for every peer (`guard.go:134`). Same default posture under which CVE-2026-73080 (GHSA-87fv-vqqr-m4jr) was accepted.\n2. **Volume precondition** - supply a valid existing `VolumeId`.\n   - Guard: `v == nil` check (line 225-228).\n   - Bypass proof: volume IDs are small sequential integers disclosed by ungated `VolumeStatus`/master `/vol/status`. Identical to the precondition of CVE-2026-73080.\n3. **Branch routing** - set `Type:\"wasabi\"` (or `b2`/`storj`/`contabo`/`tencent`/`aliyun`/`baidu`/`filebase`).\n   - Guard: `if !AllowUntrustedRemoteEndpoints && remoteConf != nil && remoteConf.Type == \"s3\"` (line 234...",
+  "published_at": "2026-11-09T19:46:58.000Z",
+  "modified_at": "2026-11-09T19:46:58.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.6,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.24",
+          "last_affected": "4.41"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-8wr4-8f39-p7x2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8wr4-8f39-p7x2",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-8wr4-8f39-p7x2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:75c8c03e9c9ef9ce9cc6d7f4845f1e5f3703813798dd62183e819159bb9e53e6",
+  "note": null
+}

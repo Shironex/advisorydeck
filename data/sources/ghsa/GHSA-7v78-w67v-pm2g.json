@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7v78-w67v-pm2g",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe RBAC policy engine in Coder does not verify organization membership when evaluating per-user ACL entries on organization-scoped resources. This allows a user who was explicitly granted access to an org-scoped resource (such as a template) via a user-level ACL entry to retain that access after being removed from the organization.\n\n### Affected Component\n\n`coderd/rbac/policy.rego` - the `acl_allow` rule for per-user ACL entries.\n\nThe group-level ACL rule correctly requires org membership before granting access, but the user-level ACL rule does not include this check. Additionally, the organization member deletion path does not remove stale user-ACL entries from org-scoped resources (templates, workspaces, etc.), so ACL grants persist after offboarding.\n\n### Impact\n\nA user who:\n1. Was explicitly granted per-user ACL access to an org-scoped resource (e.g., a template), and\n2. Was subsequently removed from the organization\n\ncan continue to access that resource via the API. The stale ACL entry is sufficient to authorize the request because the user-ACL evaluation path does not verify current organization membership.\n\nThis is a privilege-persistence issue affecting multi-organization deployments where user-level ACLs are used on org-scoped resources. It does not allow unauthenticated access or privilege escalation beyond previously granted permissions.\n\n### Prerequisites for Exploitation\n\n- The target user must have been explicitly granted a per-user ACL entry on an org-scoped resource by an administrator.\n- The user must have been removed from the organization without the ACL entry being manually revoked.\n- Multi-organization deployments are primarily affected.\n\n### Remediation\n\nEither:\n- Add an org-membership check to the user-level ACL rule in the RBAC policy (matching the existing group-level ACL rule), or\n- Scrub user-ACL entries from org-scoped resources when a member is removed from an organization, or\n- Both.\n\nAdministrators can mitigate this issue immediately by manually revoking user-level ACL entries on org-scoped resources before removing a user from an organization.\n\n### Patched versions\n\nThis issue is fixed in the following releases:\n\n| Release line | Patched version |\n| --- | --- |\n| 2.36 (main) | [v2.36.0](https://github.com/coder/coder/releases/tag/v2.36.0) |\n| 2.35 | [v2.35.0](https://github.com/coder/coder/releases/tag/v2.35.0) |\n| 2.34 | [v2.34.8](https://github.com/coder/coder/releases/tag/v2.34.8) |\n\n### Credits\n\nWe'd like to thank Anthropic's Security Team (ANT-2026-22460) for independently disclosing this issue!\n",
+    "ghsa_id": "GHSA-7v78-w67v-pm2g",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-7v78-w67v-pm2g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7v78-w67v-pm2g"
+      }
+    ],
+    "published_at": "2026-08-10T10:00:14Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "User-level ACL grants on org-scoped resources bypass organization membership checks",
+    "updated_at": "2026-08-10T10:03:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.8, 2.35.0, 2.36.0",
+        "vulnerable_version_range": ">= 2.0.0, < 2.34.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

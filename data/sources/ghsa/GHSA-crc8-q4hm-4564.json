@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-crc8-q4hm-4564",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-620",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nA third-party OIDC application holding an access token with **only the `openid` scope** could set an initial password on a Logto user account that had no password, no primary email, and no primary phone - without a `logto-verification-id` header or any other security verification.\r\n\r\n`POST /api/my-account/password` deliberately skips the verification-record requirement when the account has no existing credential to verify against, so that a social-only or SSO-only user can establish a first password. The exception was correct for its intended caller, the first-party Account Center. But nothing on the route distinguished a first-party caller from a third-party one:\r\n\r\n- `koaOidcAuth` gates the whole user router on the `openid` scope alone, and `openid` is unconditionally part of every third-party client's scopes.\r\n- This route has no claim-scope check at all - it is the one Account API route where the scope column is empty. Not even `profile` or `email` is required.\r\n\r\nThe result is that a plain `openid` authorization, the minimum any OIDC client asks for and the one users are least likely to scrutinize on the consent screen, carried a latent credential-enrollment capability. Once the password exists the exception closes and further changes require verification, so the window is one-shot - but one shot is enough, because the attacker chooses the password and can then sign in directly as the user through the normal username/password flow.\r\n\r\n### Preconditions\r\n\r\n**This is not exploitable against a default installation, and it is not a consent bypass or an unauthenticated issue.** All of the following must hold:\r\n\r\n1. **Account Center is enabled for the tenant.** It ships disabled - `account_centers.enabled` is seeded `false` for every non-admin tenant. While it is off, every Account API route returns `400 account_center.not_enabled` regardless of the caller.\r\n2. **The `password` field is set to `Edit`** in the Account Center field controls. Field controls are seeded empty, so this defaults to off and an admin has to switch it on.\r\n3. **The tenant admin registered the attacker's application as a third-party application** in the tenant.\r\n4. **The end user completed the consent screen** for that application.\r\n5. **The victim account has no password, no primary email, and no primary phone** - the eligibility condition for the initial-password exception. In practice this means a pure social or enterprise-SSO user who has never set a password or verified a contact identifier. Every other account is protected: the same request against an account with any one of those returns `401 verification_record.permission_denied`.\r\n\r\nCondition 5 is the real limiter. The affected population is a specific and usually small subset of a tenant's users, and it shrinks over time as users add identifiers.\r\n\r\n### Impact\r\n\r\nFull account takeover of an eligible user, by an application the user authorized for `openid` only.\r\n\r\nThe attacker plants a known password on the victim's account, then authenticates as that user through the ordinary username/password sign-in flow - outside the third-party application, with none of the scope restrictions that applied to the original token, and persisting after the user revokes the application's consent.\r\n\r\nReproduced end to end by the reporter on a local deployment of `@logto/core` 1.42.0: `POST /api/my-account/password` with only the third-party Bearer token, no cookies and no verification-record header, returned `204`; the password was persisted and accepted in a fresh username/password login; the same request repeated afterwards returned `401 verification_record.permission_denied`, confirming the exception had closed. No database modification was used to create the vulnerable precondition - the eligible user was produced through a normal social sign-up flow.\r\n\r\n### Related surface fixed in the same patch\r\n\r\nWhile fixing the reported route, we audited the rest of the Account API and Verification API and found the same first-party assumption throughout: the per-route authorization reuses OIDC **claim** scopes as write permissions. An admin who enables `email` for a third-party application is told the application reads the user's email address, and the user consents to *\"Your email address\"*; neither is told it can replace the primary email. The patch therefore guards every route that changes account data or mints a verification record, not just the reported one.\r\n\r\nThose other routes are a lesser concern than the reported issue and mostly required more than a bare `openid` token - either the corresponding claim scope, or a verification record that a third-party application cannot mint on its own, or both. The main ones reachable with a consented claim scope and no verification record were the profile writes (`PATCH /api/my-account`, including the `customData` blob, and `PATCH /api/my-account/profile`) and the avatar upload.\r\n\r\n### Patch\r\n\r\nFixed in https://github.com/logto-io/logto/pull/9430.\r\n\r\nThe patch adds `assertFirstPartyClient`, called alongside the existing authorization on every route that changes account data or mints a verification record - 24 call sites across the Account API and Verification API. Third-party applications receive `403 auth.third_party_application_forbidden`. The check fails closed: a client identifier that does not resolve to a registered application, including a client identifier metadata document (CIMD) URL, is treated as third-party.\r\n\r\nRead routes are unguarded and continue to work. Three reads become unreachable for third-party applications as a consequence, because they require a verification record that only a now-guarded route can mint: `GET /api/my-account/grants`, `GET /api/my-account/sessions`, and `GET /api/my-account/mfa-verifications/backup-codes`.\r\n\r\nThis is a breaking change for any third-party application that was calling the guarded routes, and there is intentionally no configuration to re-enable the old behavior.\r\n\r\n### Workarounds\r\n\r\nFor anyone who cannot upgrade immediately, any one of these closes the reported issue:\r\n\r\n- Set the Account Center `password` field to `Off` or `Read only` rather than `Edit`, or disable Account Center entirely.\r\n- Ensure users have at least one of a password, a verified primary email, or a verified primary phone - accounts outside that shape are not eligible for the initial-password exception.\r\n- Review the third-party applications registered in the tenant, and remove any that are not trusted.\r\n\r\nTo check whether the issue was exploited, look for `User.Data.Updated` hook events or audit log entries for password changes originating from a third-party client ID.\r\n\r\n### Credits\r\n\r\nReported by Jaejun Cho, who provided a complete reproduction and a proposed severity assessment.\r\n",
+    "ghsa_id": "GHSA-crc8-q4hm-4564",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-crc8-q4hm-4564",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-crc8-q4hm-4564"
+      }
+    ],
+    "published_at": "2026-09-01T07:54:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Third-party application with only the openid scope can set an initial password on a passwordless, email-less, phone-less account, enabling account takeover",
+    "updated_at": "2026-09-01T07:54:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.43.0",
+        "vulnerable_version_range": "<= 1.42.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

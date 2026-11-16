@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-c475-vw46-2r98",
+  "aliases": [],
+  "title": "logto vulnerable to SAML authentication bypass via unchecked assertion audience",
+  "summary": "### Summary\n\nLogto's SAML enterprise SSO connector accepts an assertion the configured identity provider signed for a different service provider, and completes a sign-in as whichever user that assertion names. This was reproduced end to end against the current release, and every release since 1.12.0 carries the route it was reproduced through. The affected-range note sets out the one place below that the range could turn out wider, and why that is not claimed.\r\n\r\n`handleSamlAssertion` builds a samlify `ServiceProvider` from the connector's SP entityID and the identity provider certificate, calls `parseLoginResponse`, and returns the parsed extract. samlify verifies the signature, the issuer and the `Conditions` time window, and its documentation assigns `AudienceRestriction`, the bearer `SubjectConfirmationData` `Recipient`, the response `Destination` and `InResponseTo` to the caller. Logto reads none of them, at any revision since the class was added. A signature proves which identity provider issued an assertion. The audience is the field that says which application it was issued to. With the audience unread, Logto's assertion consumer service treats every assertion that identity provider signs under the configured issuer as a valid sign-in, whatever application it was minted for, and the sign-in ends in OIDC tokens for the applications of that Logto tenant.\r\n\r\nTwo consequences were measured against the released image with a Keycloak realm as the identity provider, which signs every SAML client in the realm with one realm key under one realm issuer. A response the realm addressed to another application, posted to Logto's assertion consumer service, completed sign-in with the same `sub` and the same `email` as the baseline response addressed to Logto's own service provider. And the identity provider cannot withhold access to Logto: with Logto's own SAML client set `enabled=false` at the realm, the normal sign-in path is refused at the identity provider before any login, while that same foreign response still issues an id_token for the user. An operator who removes Logto from a user at the identity provider has not removed it.\r\n\r\n### Affected range, and how each end was established\r\n\r\nThe lower bound is the first release carrying the enterprise SSO assertion consumer service, `/authn/${ssoPath}/saml/:connectorId`, which is the route this report reproduces. It arrives in `edb2bdcce`, \"feat(core): add the saml assertion handle flow (#4872)\", committed 2023-11-17T06:14:45Z: absent from `packages/core/src/routes/authn.ts` at the `v1.11.0` tag, registered at line 175 of that file at `v1.12.0`. That commit lands after the `v1.11.0` tag, dated 2023-11-14T11:57:42Z, and before the `v1.12.0` tag, dated 2023-12-06T08:13:56Z.\r\n\r\nThe upper end is measured rather than inferred. The behaviour was reproduced end to end on the official `svhd/logto:1.45.0` image, the release tagged 2026-10-13T07:30:57Z, on two independently built rigs, through that same route.\r\n\r\nThere is one place the range could turn out wider, and it is deliberately not claimed. The unchecked helper predates the route it is usually reached through: `40a5a18d9`, \"feat(core): add saml sso class\", authored 2023-11-02T03:17:34Z and committed 2023-11-07T04:01:35Z, and the earliest release carrying it is 1.11.0, found by enumerating the `v*` tags that contain that commit and sorting them by tag date rather than by name. At `v1.11.0` the helper sits at `packages/core/src/sso/SamlConnector/utils.ts:137` with the same `parseLoginResponse` call and no audience read: a case-insensitive search of that whole file at that tag for `audience` and `InResponseTo` returns nothing, and the only match for `destination` is a local variable in the attribute-mapping code at line 114, unrelated to a response `Destination`. An HTTP route reaches it there, and that route names SAML nowhere, dispatching on the stored connector's provider name instead: `POST /interaction/single-sign-on/:connectorId/...",
+  "published_at": "2026-11-09T07:02:30.000Z",
+  "modified_at": "2026-11-09T07:02:30.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.4,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287",
+    "CWE-294",
+    "CWE-345"
+  ],
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "1.12.0",
+          "fixed": "1.46.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c475-vw46-2r98",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-c475-vw46-2r98",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c475-vw46-2r98",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2460681d40659b536dc3a60b684b225f27b2a814737ca062c8f4955e407fb964",
+  "note": null
+}

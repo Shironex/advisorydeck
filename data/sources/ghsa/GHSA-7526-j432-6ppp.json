@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-35607",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269"
+    ],
+    "description": "## Summary\n\nThe fix in commit `b6a4fb1` (\"self-registered users don't get execute perms\") stripped `Execute` permission and `Commands` from users created via the signup handler. The same fix was not applied to the proxy auth handler. Users auto-created on first successful proxy-auth login are granted execution capabilities from global defaults, even though the signup path was explicitly changed to prevent execution rights from being inherited by automatically provisioned accounts.\n\nConfirmed on v2.62.2 (commit 860c19d).\n\n## Root Cause\n\n`auth/proxy.go` `createUser()` applies defaults without restriction:\n\n    user := &users.User{\n        Username:     username,\n        Password:     hashedRandomPassword,\n        LockPassword: true,\n    }\n    setting.Defaults.Apply(user)\n    // No restriction on Execute, Commands, or Admin\n\nCompare with `http/auth.go` signup handler (lines 170-178):\n\n    d.settings.Defaults.Apply(user)\n    user.Perm.Admin = false\n    // Self-registered users should not inherit execution capabilities\n    // from default settings, regardless of what the administrator has\n    // configured as the default.\n    user.Perm.Execute = false\n    user.Commands = []string{}\n\nThe commit message for `b6a4fb1` states: \"Execution rights must be explicitly granted by an admin.\" Users auto-created via proxy auth are also automatically provisioned (created on first login without explicit admin action), and the admin has not explicitly granted them execution rights.\n\n## PoC\n\nTested on filebrowser v2.62.2, built from HEAD.\n\n    # Configure with proxy auth, default commands, and exec\n    filebrowser config set --auth.method=proxy --auth.header=X-Remote-User \\\n      --commands \"git,ls,cat,id\"\n\n    # Login as admin and verify defaults have execute=true, commands set\n    ADMIN_TOKEN=$(curl -s http://HOST/api/login -H \"X-Remote-User: admin\")\n\n    # Auto-create new user via proxy header\n    PROXY_TOKEN=$(curl -s http://HOST/api/login -H \"X-Remote-User: newproxyuser\")\n\n    # Check permissions\n    curl -s http://HOST/api/users -H \"X-Auth: $ADMIN_TOKEN\" | jq '.[] | select(.username==\"newproxyuser\") | {execute: .perm.execute, commands}'\n\nResult:\n\n    {\n      \"execute\": true,\n      \"commands\": [\"git\", \"ls\", \"cat\", \"id\"]\n    }\n\nThe auto-created proxy user inherited Execute and the full Commands list. A user created via signup would have `execute: false` and `commands: []`.\n\n## Impact\n\nIn proxy-auth deployments where the admin has configured default commands, users auto-provisioned on first proxy login receive execution capabilities that were not explicitly granted. The project established a security invariant in commit `b6a4fb1`: automatically provisioned accounts must not inherit execution rights from defaults. The proxy auto-provisioning path violates that invariant.\n\nThis is an incomplete fix for GHSA-x8jc-jvqm-pm3f (\"Signup Grants Execution Permissions When Default Permissions Includes Execution\"), which addressed the signup handler but not the proxy auth handler.\n\n## Preconditions\n\n- Proxy auth enabled (`--auth.method=proxy`)\n- Exec not disabled\n- Default settings include non-empty Commands (admin-configured)\n\n## Suggested Fix\n\nApply the same restrictions as the signup handler:\n\n    setting.Defaults.Apply(user)\n    user.Perm.Admin = false\n    user.Perm.Execute = false\n    user.Commands = []string{}\n\n---\n\n**Update:** Fix submitted as PR #5890.",
+    "ghsa_id": "GHSA-7526-j432-6ppp",
+    "html_url": "https://github.com/advisories/GHSA-7526-j432-6ppp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7526-j432-6ppp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35607"
+      }
+    ],
+    "published_at": "2026-04-08T00:05:12Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-7526-j432-6ppp",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-35607",
+      "https://github.com/filebrowser/filebrowser/pull/5890",
+      "https://github.com/advisories/GHSA-7526-j432-6ppp"
+    ],
+    "severity": "high",
+    "summary": "File Browser: Proxy auth auto-provisioned users inherit Execute permission and Commands",
+    "updated_at": "2026-04-08T00:05:13Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.63.1",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "< 2.63.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-7526-j432-6ppp",
+  "repo": {
+    "cve_id": "CVE-2026-35607",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269"
+    ],
+    "description": "## Summary\r\n\r\nThe fix in commit `b6a4fb1` (\"self-registered users don't get execute perms\") stripped `Execute` permission and `Commands` from users created via the signup handler. The same fix was not applied to the proxy auth handler. Users auto-created on first successful proxy-auth login are granted execution capabilities from global defaults, even though the signup path was explicitly changed to prevent execution rights from being inherited by automatically provisioned accounts.\r\n\r\nConfirmed on v2.62.2 (commit 860c19d).\r\n\r\n## Root Cause\r\n\r\n`auth/proxy.go` `createUser()` applies defaults without restriction:\r\n\r\n    user := &users.User{\r\n        Username:     username,\r\n        Password:     hashedRandomPassword,\r\n        LockPassword: true,\r\n    }\r\n    setting.Defaults.Apply(user)\r\n    // No restriction on Execute, Commands, or Admin\r\n\r\nCompare with `http/auth.go` signup handler (lines 170-178):\r\n\r\n    d.settings.Defaults.Apply(user)\r\n    user.Perm.Admin = false\r\n    // Self-registered users should not inherit execution capabilities\r\n    // from default settings, regardless of what the administrator has\r\n    // configured as the default.\r\n    user.Perm.Execute = false\r\n    user.Commands = []string{}\r\n\r\nThe commit message for `b6a4fb1` states: \"Execution rights must be explicitly granted by an admin.\" Users auto-created via proxy auth are also automatically provisioned (created on first login without explicit admin action), and the admin has not explicitly granted them execution rights.\r\n\r\n## PoC\r\n\r\nTested on filebrowser v2.62.2, built from HEAD.\r\n\r\n    # Configure with proxy auth, default commands, and exec\r\n    filebrowser config set --auth.method=proxy --auth.header=X-Remote-User \\\r\n      --commands \"git,ls,cat,id\"\r\n\r\n    # Login as admin and verify defaults have execute=true, commands set\r\n    ADMIN_TOKEN=$(curl -s http://HOST/api/login -H \"X-Remote-User: admin\")\r\n\r\n    # Auto-create new user via proxy header\r\n    PROXY_TOKEN=$(curl -s http://HOST/api/login -H \"X-Remote-User: newproxyuser\")\r\n\r\n    # Check permissions\r\n    curl -s http://HOST/api/users -H \"X-Auth: $ADMIN_TOKEN\" | jq '.[] | select(.username==\"newproxyuser\") | {execute: .perm.execute, commands}'\r\n\r\nResult:\r\n\r\n    {\r\n      \"execute\": true,\r\n      \"commands\": [\"git\", \"ls\", \"cat\", \"id\"]\r\n    }\r\n\r\nThe auto-created proxy user inherited Execute and the full Commands list. A user created via signup would have `execute: false` and `commands: []`.\r\n\r\n## Impact\r\n\r\nIn proxy-auth deployments where the admin has configured default commands, users auto-provisioned on first proxy login receive execution capabilities that were not explicitly granted. The project established a security invariant in commit `b6a4fb1`: automatically provisioned accounts must not inherit execution rights from defaults. The proxy auto-provisioning path violates that invariant.\r\n\r\nThis is an incomplete fix for GHSA-x8jc-jvqm-pm3f (\"Signup Grants Execution Permissions When Default Permissions Includes Execution\"), which addressed the signup handler but not the proxy auth handler.\r\n\r\n## Preconditions\r\n\r\n- Proxy auth enabled (`--auth.method=proxy`)\r\n- Exec not disabled\r\n- Default settings include non-empty Commands (admin-configured)\r\n\r\n## Suggested Fix\r\n\r\nApply the same restrictions as the signup handler:\r\n\r\n    setting.Defaults.Apply(user)\r\n    user.Perm.Admin = false\r\n    user.Perm.Execute = false\r\n    user.Commands = []string{}\r\n\r\n---\r\n\r\n**Update:** Fix submitted as PR #5890.",
+    "ghsa_id": "GHSA-7526-j432-6ppp",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-7526-j432-6ppp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7526-j432-6ppp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35607"
+      }
+    ],
+    "published_at": "2026-04-04T20:31:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Proxy auth auto-provisioned users inherit Execute permission and Commands",
+    "updated_at": "2026-04-06T20:13:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.1",
+        "vulnerable_version_range": "<= 2.62.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

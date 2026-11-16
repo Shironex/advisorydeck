@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-25hp-4mw7-9c75",
+  "aliases": [],
+  "title": "Unauthenticated admin access to the S3 Tables, Iceberg and Lance APIs",
+  "summary": "### Summary\n\nOn an S3 gateway that enforces S3 authentication but was started without `-iam.config` (the default), the S3 Tables, Iceberg REST catalog and Lance namespace APIs let a request through after its authentication has already failed, and the unauthenticated caller can name itself `admin` with a plain request header. That grants full control of the table catalog, including deleting tables and their data, to anyone who can reach the port.\n\n### Details\n\nThree composing defects, all present at HEAD.\n\n**1. An authorization default is used as an authentication fallback.** `weed/s3api/s3api_tables.go:702-713`:\n\n```go\nidentity, errCode := s3a.iam.AuthSignatureOnly(r)\nif errCode != s3err.ErrNone {\n\t// If IAM is enabled but DefaultAllow is true, we can proceed even if unauthenticated\n\tif s3a.iam.iamIntegration != nil && s3a.iam.iamIntegration.DefaultAllow() {\n\t\tglog.V(2).Infof(\"S3Tables: AuthSignatureOnly failed (%v), but DefaultAllow is true, proceeding\", errCode)\n\t} else {\n\t\ts3err.WriteErrorResponse(w, r, errCode)\n\t\treturn\n\t}\n}\n```\n\n`iceberg.Server.Auth` (`weed/s3api/iceberg/server.go:250-270`) and `lance.Server.Auth` (`weed/s3api/lance/server.go:156-172`) have the identical shape, and both servers take the `S3ApiServer` as their authenticator (`weed/command/s3.go:563` and `:612`). Both listen by default: `-port.iceberg` 8181 and `-port.lance` 9101 (`weed/command/s3.go:100-101` and `:393-400`). The function already expresses \"zero-config open\" correctly one branch earlier, with `if !s3a.iam.isEnabled() { f(w, r); return }`, so this second bypass is only ever reached when authentication is enabled. The ordinary S3 data plane, which has no such fallback, returns 403 for the same request.\n\n**2. `DefaultAllow()` is true whenever no IAM config file is given.** `weed/s3api/s3api_server.go:1189-1199` sets `DefaultEffect = EffectAllow` when `configPath == \"\"` (and `StoreType` was defaulted to `memory` two lines above). Nothing in that decision consults whether S3 authentication is enabled. The subsystem is initialised whenever `-iam` / `-s3.iam` is set, which defaults to `true` (`weed/command/s3.go:124`, `weed/command/server.go:189`), and loads whenever a signing key resolves from `jwt.filer_signing.key` or an SSE-S3 KEK (`s3api_server.go:1211-1228`).\n\n**3. The unauthenticated caller picks its own principal, and `admin` is an unconditional grant.** `authenticateRequestInternal` scrubs `X-SeaweedFS-Principal` and `X-SeaweedFS-Session-Token` from client input (`weed/s3api/auth_credentials.go:1680-1681`) but not `s3-account-id`, and `AuthSignatureOnly` never reaches its `r.Header.Set(AmzAccountId, ...)` line on a failed authentication. `getAccountID` (`weed/s3api/s3tables/handler.go:229-290`) then falls through to:\n\n```go\nif accountID := r.Header.Get(s3_constants.AmzAccountId); accountID != \"\" {\n\tif principal := normalizePrincipalID(accountID); principal != \"\" {\n\t\treturn principal            // handler.go:284-288: no admin guard here\n\t}\n}\n```\n\nand `CheckPermissionWithContext` (`weed/s3api/s3tables/permissions.go:99-102`) returns `true` for principal `\"admin\"` (`AccountAdminId`, `weed/s3api/s3_constants/s3_acp.go:5`) before the resource policy is parsed, so an explicit `Deny` on the table bucket does not stop it.\n\nThe 4.34 fix for GHSA-hgpf-8634-g44c / CVE-2026-55873 added exactly that admin guard, but only on the identity branch (`handler.go:268`, `principal != AccountAdminId || hasAdminAction(...)`), not on the header branch above. Even without the header, `defaultAllowFor` (`weed/s3api/s3tables/iam.go:54-66`) returns `true` for a request carrying no identity, so any unauthenticated caller is allowed on any table bucket that has no policy of its own. This report is scoped to the residue that fix left behind; it is not a restatement of that advisory, whose precondition was an authenticated low-privileged S3 user.\n\n**Suggested fix.** Return the authentication error in all three wrappers when `iam.isEnabled()`; scrub `s3_constants.AmzA...",
+  "published_at": "2026-11-09T19:51:19.000Z",
+  "modified_at": "2026-11-09T19:51:19.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306",
+    "CWE-639",
+    "CWE-807"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.34"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-25hp-4mw7-9c75",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-25hp-4mw7-9c75",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-25hp-4mw7-9c75",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7d45979f9e062c1181bbd70dc4c6612b78e035d225ea1f54a0097aebafb884bb",
+  "note": null
+}

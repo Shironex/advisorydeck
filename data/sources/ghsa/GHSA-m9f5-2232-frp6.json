@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-m9f5-2232-frp6",
+  "repo": {
+    "cve_id": "CVE-2026-73613",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-367",
+      "CWE-59"
+    ],
+    "description": "## Summary\r\nA scoped File Browser user holding only `Perm.Create` can cause the server (running with broader privileges) to delete an arbitrary file **outside the user's scope** - including other tenants' data or the application's own `filebrowser.db`. The default in-memory TUS upload cache registers in-progress uploads under their absolute on-disk path and, on TTL expiry, deletes them with a raw `os.Remove(item.Key())` that bypasses File Browser's `ScopedFs` scope guard entirely. By swapping an ancestor directory of a registered upload for a symlink during the cache TTL window, the attacker redirects the delete to an out-of-scope target.\r\n\r\n## Root Cause\r\nWhen `redisCacheUrl` is empty (the default - `cmd/root.go:93,183-184`), `newMemoryUploadCache` is used. A TUS `POST` registers the upload under its absolute `RealPath`: `cache.Register(file.RealPath(), len)` (`http/tus_handlers.go:113`), where `RealPath` (afero `BasePathFs.RealPath`) is a purely **lexical** `filepath.Clean(filepath.Join(base, name))` with **no `EvalSymlinks`**. When the entry is not completed within `uploadCacheTTL` (3 minutes), the ttlcache eviction callback runs a raw `os.Remove(item.Key())` on a background goroutine (`http/upload_cache_memory.go:41-45`). This is the only request-reachable filesystem mutation in the codebase that never routes through `ScopedFs`/`guard()`/`within()`. Because `os.Remove` resolves symlinks in the **parent directories** of its argument, swapping an ancestor of the frozen key for an escaping symlink causes an out-of-scope file to be deleted.\r\n\r\n## Impact\r\n- **I:H / A:H** - deletion of an attacker-chosen file/directory outside the user's scope (other tenants' data, or the single-file `./filebrowser.db` → outage). Runs silently on a background goroutine (only a `fmt.Printf`), no error surfaced.\r\n- **S:C** - impact escapes the user's scope authority. No `Perm.Delete` is required.\r\nThe precondition (an out-of-band escaping symlink under the scope, arriving via the same chrooted SFTP/rsync/mounted-volume channel) is identical to the threat model of CVE-2026-54094 → CVE-2026-55667, which the project treats as in-scope; File Browser exposes no symlink API.\r\n\r\n## Proof of Concept\r\n```\r\n# 1. Create a real in-scope dir and start a TUS upload named after the target file, no body:\r\nPOST /api/tus/d/target.db      Upload-Length: 10\r\n# 2. Within the 3-minute TTL, out-of-band (SFTP/rsync/mounted volume):\r\nrm -rf d && ln -s /srv/users/victim d\r\n# 3. Wait for eviction: os.Remove(\"<scope>/d/target.db\") follows the symlinked parent\r\n#    -> deletes /srv/users/victim/target.db. No Perm.Delete, default config.\r\n```\r\n\r\n## Attack Chain\r\n1. **Entry** - Action: `Perm.Create` user sends `POST /api/tus/d/target.db` (`Upload-Length` set, no body); `d` is a real in-scope dir. Guard: `tusPostHandler` `Perm.Create && d.Check` (`http/tus_handlers.go:43`). Bypass proof: only Create needed; `d.Check` is a rule/hidden-dotfile check, not a symlink/scope guard.\r\n2. **OpenFile guard** - Action: `d.user.Fs.OpenFile(\"d/target.db\", O_CREATE|O_WRONLY)` (`tus_handlers.go:88`). Guard: `ScopedFs.guard()`/`within()`. Bypass proof: `d` is a genuine in-scope directory at this instant, so `within()` legitimately passes and the file is created. (The direct-register-through-symlink variant IS blocked here - if `d` is already a symlink, `guard()` returns `ErrPermission` before `cache.Register` - which is why the parent-swap TOCTOU is the working vector.)\r\n3. **Register absolute key** - Action: `cache.Register(file.RealPath(), len)` (`tus_handlers.go:113`) freezes the absolute lexical key `<root>/<scope>/d/target.db`. Guard: none. Bypass proof: `RealPath` = `filepath.Clean(filepath.Join(base,name))`, no `EvalSymlinks`; the key is stored raw and never re-validated. `tusPostHandler` doesn't call `keepUploadActive`, so with no PATCH the entry simply expires.\r\n4. **Parent swap (TOCTOU)** - Action: within the 3-min TTL, out-of-band `rm -rf d && ln -s /srv/users/victim d`. Guard: none - nothing re-checks the cached key. Bypass proof: File Browser never observes or re-validates the swap.\r\n5. **Sink** - Action: ttlcache `OnEviction` (`EvictionReasonExpired`) → `os.Remove(\"<root>/<scope>/d/target.db\")` (`http/upload_cache_memory.go:44`). Guard: NONE - raw stdlib delete, no `ScopedFs`/`within()`/`d.Check`. Bypass proof: `os.Remove` (unlink) resolves the symlinked parent `d`, deleting `/srv/users/victim/target.db`.\r\n6. **Impact** - out-of-scope file/DB deletion; both `ScopedFs` and `Perm.Delete` bypassed.\r\n\r\n## Bypass Evidence\r\n- The CVE-2026-55667 fix commit `64511ce` (`git show --name-only`) touches only `files/scoped.go`, `files/file_test.go`, `http/resource_test.go`; it adds `guard()` to `ScopedFs.Remove`/`RemoveAll` (`files/scoped.go:194-206`). It never touches `http/upload_cache_memory.go`.\r\n- `os.Remove(item.Key())` at `upload_cache_memory.go:44` is the only `os.Remove` in `http/`+`files/` and never enters `ScopedFs`; `git log v2.63.15..HEAD -- http/upload_cache_memory.go` is empty (never fixed).\r\n- Local probe: `os.Remove(\"/tmp/rmtest/link_parent/victim.txt\")` with `link_parent -> /tmp/rmtest/outside` deleted the out-of-scope `victim.txt` - confirming `os.Remove` follows a symlinked parent.\r\n- Redis backend does `client.Del` only (no FS delete), so the bug is specific to the default in-memory cache.\r\n\r\n## Dedup - Distinct unfixed variant, NOT a duplicate of CVE-2026-55667\r\nCVE-2026-55667 (GHSA-fmm7-x4gx-8jhr) is out-of-scope deletion via symlink-following `ScopedFs.RemoveAll` in upload **failure-cleanup**, fixed by adding `guard()` to `ScopedFs.Remove/RemoveAll`. This finding is a **different sink** (raw `os.Remove`), **different file** (`http/upload_cache_memory.go` vs `files/scoped.go`/`http/resource.go`), **different trigger** (asynchronous ttlcache eviction 3 min later vs synchronous during the POST), and is **unfixed** - the CVE-2026-55667 fix cannot reach a stdlib `os.*` call. Separate sink → separate fix → separate advisory.\r\n\r\n## Affected Versions\r\n`>= 2.57.0, <= 2.63.18` - the eviction sink was introduced in commit `08d7a15` (first released in v2.57.0) and is present unchanged on the latest release tag v2.63.18 and on HEAD; no fix on main. Default (in-memory) upload cache only; not Redis.\r\n\r\n## Suggested Fix\r\nRoute eviction deletes through the scoped filesystem (or re-validate `item.Key()` against the user's scope via `within()` before `os.Remove`), or hold the open file handle and delete by descriptor rather than by path.\r\n\r\n---\r\nReported by **zx (Jace)** - GitHub: @manus-use",
+    "ghsa_id": "GHSA-m9f5-2232-frp6",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-m9f5-2232-frp6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m9f5-2232-frp6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73613"
+      }
+    ],
+    "published_at": "2026-07-27T15:33:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Out-of-scope file deletion via symlink-following delete in TUS upload-cache eviction",
+    "updated_at": "2026-08-14T12:04:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.19",
+        "vulnerable_version_range": "<= 2.63.18"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

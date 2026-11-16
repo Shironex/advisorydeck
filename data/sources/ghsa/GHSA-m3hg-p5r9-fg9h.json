@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-m3hg-p5r9-fg9h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:L/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe JS task runner's prototype-freezing routine covered `globalThis` functions but not internal module constructors such as `EventEmitter`. An authenticated user with Code node access could exploit this gap to execute arbitrary commands within the runner container. Because the polluted prototype is a single process-wide object, the corruption persists across every other tenant's Code node execution subsequently scheduled on that same shared runner, but not on the host. \n\nOn v1.x instances that have not enabled task runners, Code node JavaScript executes directly in the main n8n process instead, where the impact of a comparable sandbox escape could be significantly higher.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.69, 2.33.4, and 2.34.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Disable Code node access for untrusted users.\n- Run the JavaScript task runner in an isolated process per user or project where your deployment supports it.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-m3hg-p5r9-fg9h",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-m3hg-p5r9-fg9h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m3hg-p5r9-fg9h"
+      }
+    ],
+    "published_at": "2026-08-05T14:21:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "JavaScript Task Runner VM Sandbox Escape via EventEmitter Prototype Pollution Leads to Remote Code Execution",
+    "updated_at": "2026-08-05T14:21:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.69",
+        "vulnerable_version_range": "< 1.123.69"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.34.1",
+        "vulnerable_version_range": "< 2.34.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.33.4",
+        "vulnerable_version_range": "< 2.33.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

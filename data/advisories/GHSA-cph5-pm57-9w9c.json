@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-cph5-pm57-9w9c",
+  "aliases": [],
+  "title": "Direct Filesystem Buckets Permit Path Traversal Across Key-Based ACL Boundaries",
+  "summary": "### Summary\nA path traversal vulnerability exists in SurrealDB's direct filesystem bucket implementation (`surrealdb/surrealdb`). In `surrealdb/core/src/buc/controller.rs` and `store/file.rs`, key permissions are checked against the un-normalized object key, but the backend path collapses `..` sequences via path cleaning.\n\n### Vulnerability Details\n- Affected Files: `surrealdb/core/src/buc/controller.rs` (`BucketController::check_permission`), `surrealdb/core/src/buc/store/file.rs` (`FileStore::to_os_path`)\n- Mechanism: Access control policy verifies the requested object key before resolution. However, `FileStore::to_os_path` normalizes relative directory components via `.clean()` without calling `check_no_traversal` (which is only present on `PrefixedStore`). A tenant authorized only for keys within `/public/` can supply a key such as `/public/../private/confidential.txt`, which passes permission evaluation and resolves to arbitrary files within the storage root.\n- Impact: Unauthorized read, write, and deletion of files outside permitted key boundaries.\n\n### Recommended Remediation\nEnforce strict traversal checking (`check_no_traversal`) on all direct `FileStore` key inputs prior to permission evaluation and file system operations.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that runs the traversal check on the key itself for a direct `file://` bucket, so a `..` key can no longer cross the bucket's key-based ACL boundary.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(buc): filesystem bucket path traversal via symlinks, Windows backslashes, and direct-bucket keys` (commit `5edf982bf0`)",
+  "published_at": "2026-11-03T15:51:13.000Z",
+  "modified_at": "2026-11-03T15:51:13.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cph5-pm57-9w9c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cph5-pm57-9w9c",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cph5-pm57-9w9c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

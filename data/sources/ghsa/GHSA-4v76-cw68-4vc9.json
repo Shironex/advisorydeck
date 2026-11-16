@@ -1,0 +1,91 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-754"
+    ],
+    "description": "A `LIVE` query whose `WHERE` clause evaluates to an error caused the source data modifier (the user creating, updating, or deleting a record on the watched table) to fail instead. Calling any arbitrary SurrealQL function with a typed parameter and passing a value of the wrong type - for example `LIVE SELECT * FROM t WHERE string::trim(deny)` - triggered an evaluation error inside the LIVE notification path. That error then propagated through to the triggering write, rolling back the attempted change.\n\nWhile such a `LIVE` query was registered, all `CREATE`, `UPDATE`, and `DELETE` operations on the watched table failed - including those issued by a root user - for as long as the registration remained active. Registering the `LIVE` required `select` permission on the table; no other permission on the table was needed.\n\n### Impact\n\nAn authenticated user with `select` permission on a table can prevent all `CREATE`, `UPDATE`, and `DELETE` operations on that table - by any other user, up to and including root - for the lifetime of a single registered `LIVE` query. Service is restored when the `LIVE` query is killed or the session that registered it ends.\n\n### Patches\n\nA patch has been introduced that:\n\n1. **Decouples LIVE query evaluation errors from the source transaction** - when `lq_check` returns an error during the LIVE notification path, the error is now reported to the LIVE subscriber as an `Action::Error` notification and the LIVE processing path returns `Ok(())`. The triggering write proceeds normally.\n2. **Defers the error notification until after the permission check** - the `Action::Error` notification is only delivered after the LIVE subscription's `PERMISSIONS` clause has been evaluated, so unauthorised subscribers do not learn even that an error occurred (closing an information-disclosure side channel introduced by the first part of the fix).\n\n- Versions 3.1.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to upgrade should restrict the ability of untrusted users to register `LIVE` queries by removing the `select` permission on tables they want to keep writeable, or by gating LIVE registration at the application layer.",
+    "ghsa_id": "GHSA-4v76-cw68-4vc9",
+    "html_url": "https://github.com/advisories/GHSA-4v76-cw68-4vc9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4v76-cw68-4vc9"
+      }
+    ],
+    "published_at": "2026-07-01T20:13:37Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-4v76-cw68-4vc9",
+      "https://github.com/surrealdb/surrealdb/commit/af835eb199ad2327a04c42101d11aff21fce7e47",
+      "https://github.com/surrealdb/surrealdb/commit/b29e03f0714d1c4ec091fc6f27f1edbe243b8aec",
+      "https://github.com/advisories/GHSA-4v76-cw68-4vc9"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Crafting malicious LIVE queries writes to the database, resulting in DoS, without permission to the table required",
+    "updated_at": "2026-07-01T20:13:39Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4v76-cw68-4vc9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-754"
+    ],
+    "description": "A `LIVE` query whose `WHERE` clause evaluates to an error caused the source data modifier (the user creating, updating, or deleting a record on the watched table) to fail instead. Calling any arbitrary SurrealQL function with a typed parameter and passing a value of the wrong type - for example `LIVE SELECT * FROM t WHERE string::trim(deny)` - triggered an evaluation error inside the LIVE notification path. That error then propagated through to the triggering write, rolling back the attempted change.\r\n\r\nWhile such a `LIVE` query was registered, all `CREATE`, `UPDATE`, and `DELETE` operations on the watched table failed - including those issued by a root user - for as long as the registration remained active. Registering the `LIVE` required `select` permission on the table; no other permission on the table was needed.\r\n\r\n### Impact\r\n\r\nAn authenticated user with `select` permission on a table can prevent all `CREATE`, `UPDATE`, and `DELETE` operations on that table - by any other user, up to and including root - for the lifetime of a single registered `LIVE` query. Service is restored when the `LIVE` query is killed or the session that registered it ends.\r\n\r\n### Patches\r\n\r\nA patch has been introduced that:\r\n\r\n1. **Decouples LIVE query evaluation errors from the source transaction** - when `lq_check` returns an error during the LIVE notification path, the error is now reported to the LIVE subscriber as an `Action::Error` notification and the LIVE processing path returns `Ok(())`. The triggering write proceeds normally.\r\n2. **Defers the error notification until after the permission check** - the `Action::Error` notification is only delivered after the LIVE subscription's `PERMISSIONS` clause has been evaluated, so unauthorised subscribers do not learn even that an error occurred (closing an information-disclosure side channel introduced by the first part of the fix).\r\n\r\n- Versions 3.1.0 and later are not affected by this issue.\r\n\r\n### Workarounds\r\n\r\nUsers unable to upgrade should restrict the ability of untrusted users to register `LIVE` queries by removing the `select` permission on tables they want to keep writeable, or by gating LIVE registration at the application layer.\r\n\r\n### References\r\n\r\n- [SurrealQL Documentation - LIVE SELECT Statement](https://surrealdb.com/docs/surrealql/statements/live)\r\n- `Prevent LIVE query evaluation errors from aborting write transactions` (commit `b29e03f07`) - primary fix.\r\n- `Fix LIVE WHERE error notification authorization ordering` (commit `af835eb19`) - follow-up that gates the error notification behind the permission check.\r\n",
+    "ghsa_id": "GHSA-4v76-cw68-4vc9",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-4v76-cw68-4vc9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4v76-cw68-4vc9"
+      }
+    ],
+    "published_at": "2026-05-27T17:30:17Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Crafting malicious LIVE queries writes to the database, resulting in DoS, without permission to the table required",
+    "updated_at": "2026-05-27T17:30:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

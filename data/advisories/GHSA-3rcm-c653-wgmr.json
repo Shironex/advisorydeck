@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-3rcm-c653-wgmr",
+  "aliases": [],
+  "title": "Re-RELATE on an Existing Edge Echoes Stored in/out Endpoints Despite SELECT Restrictions in SurrealDB",
+  "summary": "### Summary\n\n`RELATE a->edge:existing->b` against an already-stored edge runs the update path and compares the supplied endpoints with the stored ones. On mismatch, the `InOverride`/`OutOverride` error embeds the **stored** endpoint record id - taken from `self.initial.doc.pick(&IN/OUT)` - although the message wording (\"which does not match the existing field value\") implies the caller-supplied value is echoed. Each mismatched RELATE therefore returns one true endpoint of a hidden edge directly, with no brute force: one query for `in`, one (with a matching `in`) for `out`. Graph structure the caller's SELECT permissions deny is disclosed verbatim, for both row-level (`PERMISSIONS FOR select NONE` on the edge table) and field-level (`DEFINE FIELD in/out ... PERMISSIONS FOR select NONE`) restrictions. Verified on the official v3.3.0 Docker image (2026-09-24, current release) and by source review on main `18971ffb` (2026-09-04).\r\n\n\n### Details\n\nThe edge-endpoint override check runs in `surrealdb/core/src/doc/alter.rs::default_record_data` (`InOverride`/`OutOverride` arms at v3.3.0 lines 279/296, errors at `doc/error.rs:50-59`; `alter.rs:244` and `err/mod.rs:629` on HEAD), reached from `doc/relate.rs::relate_update`:\r\n\r\n```rust\r\nmatch (self.initial.doc.as_ref().pick(&IN), self.is_new()) {\r\n    (Value::RecordId(id), false) if id == *l => { /* unchanged */ }\r\n    (_, true) => { /* new edge: supplied value stored */ }\r\n    (v, _) => bail!(DocError::InOverride { value: v.to_sql() })   // v = STORED endpoint\r\n}\r\n```\r\n\r\n`v` binds from the initial (stored) document and is formatted into the client-visible error without any permission check on `in`/`out` of the stored edge, although the read path demonstrably filters these fields for the same principal (`SELECT in, out FROM <edge>` returns nothing). The newer `RecordExists` guard (the GHSA-f82j-v89j-mf86 fix) does not preempt this path; the caller needs UPDATE permission on the edge, which is exactly what makes the boundary crossing specific - write yes, read no. The message semantics are also inverted relative to the code (it names the stored value), making the error misleading even in normal operation.\n\n### Proof of concept\n\nEnvironment: official `surrealdb/surrealdb:latest` image (v3.3.0) on 127.0.0.1:16451, root bootstraps the schema, record user `alice` created by the PoC. All data synthetic. The attached archive automates every step and removes its container on exit.\r\n\r\nSchema: edge table `wrote` with `PERMISSIONS FOR select NONE, FOR create FULL, FOR update FULL`, pre-seeded with `person:carol->wrote:edge77->book:diary`; a second table `wrote2` with full table permissions but `DEFINE FIELD in/out ... PERMISSIONS FOR select NONE`, seeded with `person:carol->wrote2:edge88->book:diary`.\r\n\r\nControls: the boundary is real and active - root sees both endpoints, alice's SELECT reveals none, and alice may create fresh edges and re-RELATE with matching endpoints:\r\n\r\n```text\r\n[PASS] C1 privileged caller reads endpoints (fixture valid)\r\n[PASS] C2 alice SELECT reveals no endpoints (boundary holds on SELECT)\r\n[PASS] C3 alice RELATE to fresh edge id succeeds (create allowed)\r\n[PASS] C4 matching-endpoint RELATE succeeds (update allowed)\r\n```\r\n\r\nPayloads: alice re-RELATEs `edge77` with one mismatched endpoint at a time:\r\n\r\n```text\r\n[PASS] T1 row-hidden edge: error echoes stored 'in' = person:carol\r\n[PASS] T2 row-hidden edge: error echoes stored 'out' = book:diary\r\n[PASS] T3 field-hidden edge: error echoes stored 'in' = person:carol\r\n```\r\n\r\nEach mismatched RELATE returns `Found person:carol for the 'in' field, ...` / `Found book:diary for the 'out' field, ...` - the stored endpoints of an edge whose SELECT returns nothing to alice.\r\n\r\nAutomated run from the attached archive (`surrealdb-relate-endpoint-echo-PoC.zip`), executed from an extracted copy in a clean state (fresh container each run):\r\n\r\n```text\r\n$ poc/poc.sh\r\n[+] PASS: C1 privileged caller reads endpoints (fixture valid)\r\n[+] PASS: C2 a...",
+  "published_at": "2026-11-03T15:50:54.000Z",
+  "modified_at": "2026-11-03T15:50:54.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-209"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-3rcm-c653-wgmr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3rcm-c653-wgmr",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-3rcm-c653-wgmr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

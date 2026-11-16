@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-hjgf-2f3h-4962",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\n\nAn internal API operation that performs remote fetches on behalf of integrations accepted a fully caller-controlled URL, method, headers, and body, performed the request from the NocoDB backend, and returned the response to the caller.\n\n### Details\n\nThe operation is exposed through the internal base API in `IntegrationPost.operations.ts` and handled in `integrations.service.ts`, which passed the supplied URL straight to axios with no destination validation and no request-filtering agent. Nothing restricted the destination to known integration provider endpoints or rejected loopback, link-local, private, or metadata addresses after server-side DNS resolution or after a redirect. The handler returned the response body, status, and headers, and additionally echoed back the expanded request configuration, which could carry decrypted integration secrets. The operation was granted at the base Editor level. From 2026.08.0 internal targets were refused and the expanded configuration was no longer echoed, but a request could still carry an integration's decrypted secret to any external host until 2026.10.1, which sends integration secrets only to the AI provider's own host, in its authentication header, and refuses placeholders of other integrations.\n\n### Impact\n\nAny authenticated user holding the Editor role on a single base - including one the attacker created themselves - could use the NocoDB backend as an HTTP client against services reachable only from the deployment network, such as internal APIs, services bound to loopback, administrative interfaces, and cloud metadata credential endpoints. Because the response body was returned to the caller, this supported direct data exfiltration rather than only blind interaction, and control over the method, headers, and body permitted state-changing requests against those internal services.\n\n### Credit\n\nThis issue was reported by [@OracleNep](https://github.com/OracleNep).\n",
+    "ghsa_id": "GHSA-hjgf-2f3h-4962",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-hjgf-2f3h-4962",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hjgf-2f3h-4962"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:59Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Server-Side Request Forgery via Integration Remote Fetch",
+    "updated_at": "2026-11-02T08:47:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

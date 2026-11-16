@@ -1,0 +1,67 @@
+{
+  "id": "GHSA-7hf9-gp2x-ppfm",
+  "aliases": [],
+  "title": "Nil node in tailnet `UpdateSelf` coordinate request lets any authenticated user crash `coderd`",
+  "summary": "### Summary\r\n\r\nAny authenticated user, or anyone holding a workspace agent token, could crash the Coder server (`coderd`) by sending a single malformed message to the tailnet coordinator.\r\n\r\n### Details\r\n\r\nThe tailnet coordinator authorized each incoming `CoordinateRequest` before checking that it was well formed. `ClientCoordinateeAuth`, `ClientUserCoordinateeAuth`, and `AgentCoordinateeAuth` in `tailnet/tunnel.go` read `UpdateSelf.Node` fields without checking that `Node` was set. A request with `UpdateSelf` present but `Node` empty caused a nil pointer dereference.\r\n\r\nThe dereference ran in the coordinator's per-peer goroutine, in both the in-memory coordinator (`tailnet/coordinator.go`) and the enterprise PostgreSQL coordinator (`enterprise/tailnet/connio.go`). These goroutines did not recover from panics, so a single malformed message stopped the whole `coderd` process.\r\n\r\n### Impact\r\n\r\nAny authenticated user could crash `coderd` with a single message and repeat it after each restart to keep the deployment unavailable. Since v2.18.0 this does not require access to a workspace; in earlier versions the user needed SSH access to a workspace. Anyone holding a workspace agent token could do the same. No elevated role is needed, and rate limiting does not help because the attack is not volumetric. The crash disconnects all users served by the affected `coderd` replica, not only the attacker.\r\n\r\nThis affects availability only. No data is exposed or modified. In deployments with multiple `coderd` replicas, each crash affects the replica the attacker is connected to. `coderd` normally restarts automatically, so each crash causes a short outage.\r\n\r\n### Patches\r\n\r\nThe fix validates the structure of every `CoordinateRequest` before authorization or any state change, in both coordinators, and rejects requests with a missing `UpdateSelf.Node` or nil `ReadyForHandshake` entries. Per-connection coordinator goroutines now recover from unexpected panics and close only the affected connection. The fix also stops request processing after a disconnect and prevents a peer from being removed twice during cleanup, which could otherwise panic on a closed channel.\r\n\r\nThe fix is available in the following releases:\r\n\r\n| Release line            | Patched version                                                  |\r\n| ----------------------- | ---------------------------------------------------------------- |\r\n| 2.39 (Mainline)         | [v2.39.0](https://github.com/coder/coder/releases/tag/v2.39.0)   |\r\n| 2.38 (Stable)           | [v2.38.0](https://github.com/coder/coder/releases/tag/v2.38.0)   |\r\n| 2.37 (Security Support) | [v2.37.3](https://github.com/coder/coder/releases/tag/v2.37.3)   |\r\n| 2.36                    | [v2.36.7](https://github.com/coder/coder/releases/tag/v2.36.7)   |\r\n| 2.35                    | [v2.35.9](https://github.com/coder/coder/releases/tag/v2.35.9)   |\r\n| 2.34 (ESR)              | [v2.34.12](https://github.com/coder/coder/releases/tag/v2.34.12) |\r\n| 2.29 (ESR)              | [v2.29.27](https://github.com/coder/coder/releases/tag/v2.29.27) |\r\n\r\nRelease lines 2.35 and 2.36 are end-of-life but received the fix in v2.35.9 and v2.36.7. Release lines 2.30 through 2.33 are end-of-life and will not receive a patch. Users on any end-of-life line should upgrade to a patched supported release.\r\n\r\n### Workarounds\r\n\r\nNone. Upgrade to a patched release.\r\n\r\n### References\r\n\r\n- Fix: [#29300](https://github.com/coder/coder/pull/29300)\r\n\r\n### Credits\r\n\r\nWe'd like to thank [Jon David Black](https://github.com/jondavid-black) and Max Maleynov for independently disclosing this issue!",
+  "published_at": "2026-11-12T10:06:34.000Z",
+  "modified_at": "2026-11-12T10:06:34.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-248",
+    "CWE-476"
+  ],
+  "affected": [
+    {
+      "product": "coder",
+      "ranges": [
+        {
+          "introduced": "2.37.0",
+          "fixed": "2.37.3"
+        },
+        {
+          "introduced": "2.36.0",
+          "fixed": "2.36.7"
+        },
+        {
+          "introduced": "2.35.0",
+          "fixed": "2.35.9"
+        },
+        {
+          "introduced": "2.30.0",
+          "fixed": "2.34.12"
+        },
+        {
+          "introduced": "2.9.0",
+          "fixed": "2.29.27"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-7hf9-gp2x-ppfm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7hf9-gp2x-ppfm",
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-7hf9-gp2x-ppfm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6a756bdd259f36a6e86354c2084e34b284662c1f00a23090875881b6d3aeb7da",
+  "note": null
+}

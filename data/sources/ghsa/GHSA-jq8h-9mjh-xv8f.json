@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jq8h-9mjh-xv8f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-862"
+    ],
+    "description": "## Summary\nThe SeaweedFS S3 server exposes an **internal gRPC listener** (default `0.0.0.0:<s3.port + 10000>`, i.e. `18333`) that hosts two services: `SeaweedS3IamCache` and `SeaweedS3LifecycleInternal`. Commit `70a26cb` (shipped in 4.46) added `checkAdminAuth` (Bearer JWT) to **`SeaweedS3IamCache`**, establishing that this listener is intended to require admin authentication. However, the sibling **`SeaweedS3LifecycleInternal.LifecycleDelete`** RPC on the *same* listener has **zero** authentication and its optimistic identity check is default-open. An unauthenticated network peer can invoke `LifecycleDelete` to destroy non-object-locked objects, versions, delete-markers, and in-progress multipart uploads across **every** bucket.\n\n## Root Cause\n1. **Missing authentication on a critical RPC (CWE-306).** `LifecycleDelete` (`weed/s3api/s3api_internal_lifecycle.go:22`) contains no `checkAdminAuth`/Bearer/Authorization check (grep count = 0), whereas the co-located `SeaweedS3IamCache` handlers contain 11. The `grpcS` server uses only `requestIDUnaryInterceptor` (`weed/util/grpc_client_server.go:200`), and `LoadServerTLS(\"grpc.s3\")` returns `(nil,nil)` when no cert is configured (plaintext) - so the RPC is unauthenticated end-to-end.\n2. **Default-open identity CAS (CWE-862).** `identityMatches(live, want)` returns `true` when `want == nil` (`s3api_internal_lifecycle.go:329-331`). `ExpectedIdentity` is optional proto field 20, so an attacker simply omits it and the compare-and-swap guard passes unconditionally.\n\n## Impact\nUnauthenticated destruction (integrity + availability) of all non-object-locked objects, versions, delete-markers, and in-progress multipart uploads across all buckets, reachable from any network position that can connect to the S3 internal gRPC port. Object-lock retention / legal-hold objects remain protected by `enforceObjectLockProtections` (line 47) - a partial guard; the majority of objects in typical deployments are unlocked.\n\n## Proof of Concept\n1. Connect (plaintext gRPC) to `<s3-host>:18333`.\n2. Call `NewSeaweedS3LifecycleInternalClient(...).LifecycleDelete(&LifecycleDeleteRequest{Bucket:\"victim\", ObjectPath:\"important.dat\", ActionKind: EXPIRATION_DAYS /* ExpectedIdentity omitted */})`.\n3. The object is deleted with no authentication.\n\n## Attack Chain\n1. **Entry:** unauth TCP → `0.0.0.0:18333` (`weed/command/s3.go:345-349`: `portGrpc = 10000 + s3.port`, `bindIp = \"0.0.0.0\"`) → `NewSeaweedS3LifecycleInternalClient` → `LifecycleDelete`.\n   - **Guard:** per-RPC auth / interceptor / TLS. **Bypass proof:** `checkAdminAuth|Bearer|Authorization` grep in the lifecycle handler = 0 (vs 11 in the guarded `SeaweedS3IamCache` sibling); `grpcS` uses only `requestIDUnaryInterceptor` (`grpc_client_server.go:200`); `LoadServerTLS(\"grpc.s3\")` returns `(nil,nil)` → plaintext (`tls.go:79-81`).\n2. **Action:** send `LifecycleDelete{Bucket, ObjectPath, ActionKind, ExpectedIdentity: nil}`.\n   - **Guard:** identity compare-and-swap. **Bypass proof:** `identityMatches(live, want)` returns `true` for `want==nil` (`s3api_internal_lifecycle.go:329-331`); `ExpectedIdentity` is optional proto field 20 → omitted.\n3. **Sink:** `lifecycleDispatch` → `createDeleteMarker` / `deleteUnversionedObjectWithClient` / `deleteSpecificObjectVersion` → filer delete.\n   - **Guard:** object-lock only (`enforceObjectLockProtections`, line 47). **Bypass proof:** non-locked objects have no protection; handler returns `DONE`.\n4. **Impact:** unauthenticated deletion of all non-object-locked objects/versions/delete-markers/MPUs across every bucket.\n\n## Bypass Evidence\n- `git show 4.46:weed/s3api/s3api_internal_lifecycle.go` → `LifecycleDelete` present, `checkAdminAuth` count = 0, `identityMatches` nil-branch present at line 329.\n- `git merge-base --is-ancestor 70a26cb 4.46` → YES: the sibling `SeaweedS3IamCache` IS guarded in the shipped 4.46 release, so the parity asymmetry is real in production, not just on HEAD.\n- Fix commit `70a26cb` file list = `s3api_server_grpc.go`, `propagating_store.go`, tests only - the lifecycle file is untouched.\n- No existing SeaweedFS advisory mentions the lifecycle service (repo advisory grep = 0).\n\n## Affected Versions\n`>= 4.41` (S3 lifecycle internal gRPC service introduced) through `<= 4.46` (latest release; unfixed on HEAD `b3aace2`). Module path `github.com/seaweedfs/seaweedfs` unchanged.\n\n## Suggested Fix\nAdd `checkAdminAuth` (the same Bearer-JWT guard introduced by `70a26cb` for `SeaweedS3IamCache`) to every `SeaweedS3LifecycleInternal` handler, and have the lifecycle worker/shell clients attach the admin token. Additionally, make the identity CAS fail-closed when `ExpectedIdentity` is absent.\n\n---\nReported by **zx (Jace)** - GitHub: @manus-use",
+    "ghsa_id": "GHSA-jq8h-9mjh-xv8f",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jq8h-9mjh-xv8f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jq8h-9mjh-xv8f"
+      }
+    ],
+    "published_at": "2026-11-09T19:50:35Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated LifecycleDelete on SeaweedFS S3 internal gRPC port allows cross-bucket object/version deletion",
+    "updated_at": "2026-11-09T19:50:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": ">= 4.41, <= 4.46"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

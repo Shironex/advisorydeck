@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-mww8-4gwh-rjfw",
+  "aliases": [],
+  "title": "Missing Origin validation on WebSocket upgrades allows Cross-Site WebSocket Hijacking",
+  "summary": "# Missing Origin validation on WebSocket upgrades allows Cross-Site WebSocket Hijacking\r\n\r\n## Summary\r\n\r\nThe WebSocket upgrade handler accepted cross-origin upgrade requests that carried the `directus_session_token` session\r\ncookie, without validating the `Origin` header of the handshake. A browser automatically attaches cookies to a WebSocket\r\nhandshake and, unlike the REST and GraphQL transports, the upgrade path is registered directly on the HTTP server and\r\ntherefore never passes through the CORS middleware. In affected deployments, a page on an attacker-controlled origin\r\ncould open a WebSocket to a Directus instance and have the connection authenticated as the visiting user.\r\n\r\n## Details\r\n\r\nWhen a WebSocket upgrade request arrived with a session cookie present, the connection was authenticated from that\r\ncookie and the socket was established with the corresponding user's accountability. No comparison was made against the\r\nrequest host, `PUBLIC_URL`, or the `CORS_ORIGIN` allowlist before accepting the upgrade.\r\n\r\nThe cookie branch was evaluated ahead of the configured WebSocket authentication mode, so setting `WEBSOCKETS_REST_AUTH`\r\nor `WEBSOCKETS_GRAPHQL_AUTH` to `handshake` or `strict` did not prevent a cookie-bearing handshake from being accepted.\r\n\r\nExploitation requires all of the following:\r\n\r\n- WebSockets are enabled (`WEBSOCKETS_ENABLED=true`). This is not the default.\r\n- The victim is signed in using session cookie authentication, which is the mode the Admin App uses.\r\n- The victim's browser attaches the session cookie to the attacker's cross-origin handshake. This happens when\r\n  `SESSION_COOKIE_SAME_SITE` is set to `none` (a configuration used for cross-origin Admin App deployments), or when the\r\n  attacker controls a site that is same-site with the API host, such as a sibling subdomain, in which case the default\r\n  `lax` setting still sends the cookie.\r\n- The victim visits the attacker-controlled page while their session is valid.\r\n\r\n## Impact\r\n\r\nAn attacker who can get a signed-in user to load a page under their control can drive an authenticated WebSocket session\r\nwith that user's permissions. Over that connection they can read, create, update, and delete items, and open\r\nsubscriptions, on any collection the victim has access to. If the victim is an administrator, this extends to system\r\ncollections such as `directus_users`, `directus_roles`, and `directus_permissions`.\r\n\r\nThe attacker's page can read WebSocket responses directly, so this results in data disclosure as well as unauthorized\r\nwrites. The session token itself is `HttpOnly` and is not exposed to the attacker's script.\r\n\r\n## Workarounds\r\n\r\nFor deployments that cannot upgrade immediately:\r\n\r\n- Disable WebSockets (`WEBSOCKETS_ENABLED=false`) if they are not in use.\r\n- Avoid `SESSION_COOKIE_SAME_SITE=none`. Serving the Admin App and the API from the same site allows the default `lax`\r\n  value, which prevents the cross-site case.\r\n- Enforce an `Origin` allowlist for the WebSocket paths at a reverse proxy in front of Directus.\r\n- Treat control of any subdomain sharing the API's registrable domain as equivalent to control of the session, and\r\n  review subdomain ownership accordingly.\r\n\r\n## Credit\r\n\r\nReported by @tonghuaroot",
+  "published_at": "2026-08-05T16:09:04.000Z",
+  "modified_at": "2026-08-05T16:09:04.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-352",
+    "CWE-1385"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "10.10.5",
+          "fixed": "12.1.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-mww8-4gwh-rjfw",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-mww8-4gwh-rjfw",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-mww8-4gwh-rjfw",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:3e0bcd8464411d1680b3fe330fdeaff9b98a6a4dac255ae1bef68a780b518eb3",
+  "note": null
+}

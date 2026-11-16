@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6g9q-qrx7-3jxf",
+  "repo": {
+    "cve_id": "CVE-2026-63203",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe Account API endpoints that return stored federated token set access tokens do not enforce the Account API scope used for social and SSO identity details. A caller with a user access token that has only `openid` can call the token retrieval endpoints and receive the user's stored social or enterprise SSO provider access token.\r\n\r\n## Impact\r\n\r\nIf federated token set storage is enabled and a user has authenticated through a supported social or enterprise SSO connector, a low-trust application with a minimally scoped Logto user access token can retrieve that user's stored provider access token. The returned token can then be used against the upstream provider APIs within the provider token's granted scopes. This bypasses the Account API user-consent boundary because the caller does not need the `identities` scope and does not need to pass a sensitive verification step.\r\n\r\n## Reproduction\r\n\r\n1. Enable federated token set storage for a social or enterprise SSO connector.\r\n2. Have a user authenticate with that connector so Logto stores the provider token.\r\n3. Obtain an Account API user access token for the same user with only `openid`, without `identities`.\r\n4. Call one of the following endpoints with that minimally scoped token:\r\n\r\n```http\r\nGET /api/my-account/identities/{target}/access-token\r\nAuthorization: Bearer <openid-only user access token>\r\n```\r\n\r\nor:\r\n\r\n```http\r\nGET /api/my-account/sso-identities/{connectorId}/access-token\r\nAuthorization: Bearer <openid-only user access token>\r\n```\r\n\r\n5. The endpoint returns the stored third-party provider access token.\r\n\r\nControl: the same caller should not receive social or SSO identity details through `GET /api/my-account` without the `identities` scope, because `getScopedProfile()` only includes those fields when `scopes.has(UserScope.Identities)` is true.\r\n\r\n## Root Cause / Technical Details\r\n\r\n`packages/core/src/middleware/koa-auth/koa-oidc-auth.ts` requires `openid` and forwards the granted scopes to route handlers. Account API routes are therefore expected to enforce their own subscopes. For example, `UserScope.Identities` is defined as the scope for social and SSO identity details, and neighboring account routes check `scopes.has(UserScope.Identities)` before returning or mutating identity and MFA data.\r\n\r\nHowever, `packages/core/src/routes/account/third-party-tokens.ts` omits that check before returning decrypted provider access tokens. In current main and in release `v1.40.1`, the social token endpoint only reads `ctx.auth.id`, looks up a stored token by user ID and target, and returns `ctx.body = await getAccessToken(...)`. The enterprise SSO token endpoint has the same pattern. Neither endpoint reads `ctx.auth.scopes`, calls `scopes.has(UserScope.Identities)`, checks `identityVerified`, or validates that the calling OAuth client was granted access to the stored provider token.\r\n\r\nThe affected code is present in latest release `v1.40.1` and current main. The third-party token route file exists from at least `v1.31.0` through `v1.40.1`.\r\n\r\n## PoC Evidence\r\n\r\nA static probe against current main confirmed the authorization properties of the two token-returning handlers:\r\n\r\n```json\r\n{\r\n  \"commit\": \"c71c8d84fcf8d0421ea2a9057da5615082c7aa88\",\r\n  \"endpoints\": {\r\n    \"get_social\": {\r\n      \"line_start\": 102,\r\n      \"line_end\": 131,\r\n      \"has_scope_check\": false,\r\n      \"has_identity_verified_check\": false,\r\n      \"returns_access_token\": true,\r\n      \"checks_user_owned_secret\": true,\r\n      \"checks_verification_record\": false\r\n    },\r\n    \"get_sso\": {\r\n      \"line_start\": 133,\r\n      \"line_end\": 163,\r\n      \"has_scope_check\": false,\r\n      \"has_identity_verified_check\": false,\r\n      \"returns_access_token\": true,\r\n      \"checks_user_owned_secret\": true,\r\n      \"checks_verification_record\": false\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nRelease revalidation confirmed `v1.40.1` has the same vulnerable code at `packages/core/src/routes/account/third-party-tokens.ts:102-163`.\r\n\r\n## Remediation\r\n\r\nRequire explicit authorization before returning stored provider tokens. At minimum, require `ctx.auth.scopes.has(UserScope.Identities)` for both social and enterprise SSO token retrieval endpoints. Consider also requiring a valid `logto-verification-id` for token disclosure, and consider binding token retrieval to the OAuth client that requested or was consented for the provider token if token set storage is meant to be app-specific. Add negative tests proving that a caller with only `openid` cannot retrieve stored social or enterprise SSO access tokens.",
+    "ghsa_id": "GHSA-6g9q-qrx7-3jxf",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-6g9q-qrx7-3jxf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6g9q-qrx7-3jxf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63203"
+      }
+    ],
+    "published_at": "2026-09-01T08:05:29Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Account API can disclose stored third-party provider tokens without the identities scope",
+    "updated_at": "2026-09-01T08:05:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.42.0",
+        "vulnerable_version_range": ">= 1.31.0, <= 1.41.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

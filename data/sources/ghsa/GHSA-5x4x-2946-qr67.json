@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-5x4x-2946-qr67",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "SurrealDB fetches the JWKS document for a JWT or record access method over the network, gated by `--allow-net`/`--deny-net`. The check in `core/src/iam/jwks.rs` (`check_capabilities_url`) validates only the URL **host string**; the fetch then runs on a `reqwest` client using the default DNS resolver, with no check on the resolved addresses. An Owner can point an access method at an `--allow-net`-permitted hostname that resolves to loopback, link-local, cloud-metadata, or private address space, causing the server to issue a GET to that internal address - one a direct URL to the same IP would block.\n\n### Impact\n\nWhat an attacker **can** do:\n\n- With the **Owner** role at database level or above (the minimum to run `DEFINE ACCESS ... TYPE JWT URL` / `TYPE RECORD ... WITH JWT URL`), point an access method at an allow-listed hostname resolving to an internal address, causing a GET the allowlist was meant to block (loopback, `169.254.169.254`, RFC 1918).\n- Infer internal host/port liveness from response-timing and JWKS-parse-success differences.\n\nWhat it **can't** do:\n\n- Read the response - the fetch is blind (body parsed only as a JWKS; failures surface as an opaque `InvalidAuth` error).\n- Modify data or affect availability (a single GET).\n\n### Patches\n\nThe JWKS fetcher now uses the same capability-aware DNS resolver as the protected `HttpClient`, re-checking every resolved address and blocking private/special-use IPs unless explicitly allow-listed.\n\n- Versions 3.2.0 and later are not affected by this issue.\n\n### Workarounds\n\n- Use only trusted JWKS hosts that resolve to fixed public addresses, or use locally defined keys instead of a remote JWKS.\n- Restrict the Owner role to trusted operators.\n- Enforce network-layer egress filtering (block loopback, `169.254.0.0/16`, and internal ranges).\n\n### References\n\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- [SurrealQL Documentation - DEFINE ACCESS](https://surrealdb.com/docs/surrealql/statements/define/access)\n- `fix(core): enforce JWKS network capabilities at the resolved IP` (included in SurrealDB 3.2.0)\n\n### Acknowledgements\n\nThanks to [@DavidCarliez](https://github.com/DavidCarliez) for finding and reporting this issue.\n",
+    "ghsa_id": "GHSA-5x4x-2946-qr67",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-5x4x-2946-qr67",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5x4x-2946-qr67"
+      }
+    ],
+    "published_at": "2026-07-02T15:31:20Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SSRF via JWKS URL - allow-listed hostname resolving to a private IP",
+    "updated_at": "2026-07-02T15:31:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.2.0",
+        "vulnerable_version_range": "< 3.2.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-r9xq-xp38-j4j3",
+  "aliases": [],
+  "title": "Sensitive `directus_settings` fields, including plaintext AI backend authorization headers, readable by minimal `app_access` users",
+  "summary": "## Summary\r\n\r\nThe built-in minimal app permissions granted unrestricted `read` access to the `directus_settings` singleton. As a\r\nresult, any authenticated user with `app_access: true` and no custom permissions could read every settings field,\r\nincluding server-side AI and MCP configuration that is intended to be admin-only.\r\n\r\nThe highest impact field is `ai_openai_compatible_headers`, which stores the custom request headers used to authenticate\r\nagainst a self-configured OpenAI-compatible backend. Unlike the provider API key fields, this field is not encrypted or\r\nconcealed, so any bearer token or API key an administrator placed there was returned in plaintext.\r\n\r\n## Impact\r\n\r\nA user whose only privilege is app access could read, among others:\r\n\r\n- `ai_openai_compatible_headers`: plaintext authorization headers for the configured OpenAI-compatible backend\r\n- `ai_openai_compatible_base_url`: internal or private endpoint of that backend\r\n- `ai_system_prompt`: server-side AI system prompt\r\n- `mcp_system_prompt`: server-side MCP system prompt\r\n\r\nThe data was reachable through both the REST (`/settings`) and GraphQL (`/graphql/system`) system endpoints, since both\r\nresolve through the same permission layer.\r\n\r\nWhere `ai_openai_compatible_headers` contained credentials, the disclosure is a usable secret rather than inert\r\nconfiguration: the value was confirmed to authenticate successfully against a backend that required it. This can lead to\r\nunauthorized use of, and billing against, the customer's AI provider account, and it discloses the internal endpoint\r\nthat backend is hosted on.\r\n\r\nThe encrypted provider key fields (`ai_openai_api_key`, `ai_openai_compatible_api_key`) were correctly masked and are\r\nnot disclosed.\r\n\r\nImpact is reduced to disclosure of AI and MCP prompt text plus backend metadata on instances where\r\n`ai_openai_compatible_headers` is unset or holds no credential material. Prompt disclosure itself may still reveal\r\noperational or tenant-specific detail.\r\n\r\nExploitation requires a valid, non-admin account on the instance. No user interaction, no custom `directus_settings`\r\npermission, and no additional privilege is needed.\r\n\r\n### Note for existing installations\r\n\r\nThe patch changes the built-in minimal app permissions. In versions before 12.3.0, the policy creation dialog in the\r\nData Studio also wrote app access permission rows into the database, so policies created that way may retain a stored\r\n`directus_settings` read permission with no field restriction, which still exposes all fields after upgrading.\r\nAdministrators should review existing policies for an unrestricted `directus_settings` read permission and remove or\r\nfield-restrict it. Directus 12.3.0 stops the dialog from persisting these rows\r\n([directus/directus#28101](https://github.com/directus/directus/pull/28101)).\r\n\r\n## Workarounds\r\n\r\nFor instances that cannot upgrade immediately:\r\n\r\n- Remove credentials from `ai_openai_compatible_headers` and rotate any value that was stored there, since it must be\r\n  assumed disclosed to every app user.\r\n- Avoid placing sensitive content in `ai_system_prompt` and `mcp_system_prompt`.\r\n\r\n## Credits\r\n\r\nReported by @kamil-sawicki",
+  "published_at": "2026-08-20T16:05:34.000Z",
+  "modified_at": "2026-08-20T16:05:34.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-522",
+    "CWE-1220"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "11.15.0",
+          "fixed": "12.2.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-r9xq-xp38-j4j3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-r9xq-xp38-j4j3",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-r9xq-xp38-j4j3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:3b150b9abd2a59feaf37323c2c7bf6553ef8e77ab0499b7e7cc8ba5930814a55",
+  "note": null
+}

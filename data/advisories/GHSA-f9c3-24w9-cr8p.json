@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-f9c3-24w9-cr8p",
+  "aliases": [],
+  "title": "Presigned S3 URLs can be retargeted across virtual-host buckets through X-Forwarded-Host",
+  "summary": "### Summary\r\n_Short summary of the problem. Make the impact and severity as clear as possible. For example: An unsafe deserialization vulnerability allows any unauthenticated user to execute arbitrary code on the server._\r\n\r\n### Details\r\nSeaweedFS verifies SigV4 presigned requests using client-supplied X-Forwarded-Host, while routing and IAM select the bucket from the actual Host. A URL for one bucket can therefore be retargeted to another bucket authorized to the signing identity.\r\n\r\n### PoC\r\nOn SeaweedFS 4.46, enable -s3.domainName=s3.test. Create alpha-bkt and beta-bkt with different contents at shared.txt, using a signer authorized for both. Generate a virtual-host presigned GET for alpha-bkt/shared.txt. The original URL returns alpha’s data. Changing Host to beta-bkt.s3.test returns 403; adding X-Forwarded-Host: alpha-bkt.s3.test:<port> returns 200 with beta’s data. The same technique retargets a presigned PUT. A signer authorized only for alpha receives 403.\r\n\r\n### Impact\r\nA presigned-URL bearer can read or modify the same signed key in other buckets accessible to the signing identity without knowing its secret. Method, key, expiry, and IAM permissions remain enforced.",
+  "published_at": "2026-11-09T19:48:49.000Z",
+  "modified_at": "2026-11-09T19:48:49.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-347"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f9c3-24w9-cr8p",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f9c3-24w9-cr8p",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f9c3-24w9-cr8p",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6ac45e20de13e645061a817825fc0ed33099c755e9e1aabcd98175ce4732387e",
+  "note": null
+}

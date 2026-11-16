@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-26q8-h657-pf84",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-295"
+    ],
+    "description": "### Summary\n\nBun's bundled root certificates included `emSign ECC Root CA - G3`. Eight eMudhra (emSign) intermediate CAs were revoked for key compromise in October 2026, and the six of them that issue TLS certificates chain to that root. Bun 1.4.3 and earlier accept certificates issued by those intermediates. The private keys have been independently recovered by multiple people and some have been disclosed publicly, so any attacker in the network path can impersonate any TLS server to Bun.\n\nBun 1.4.4 removes the root from the bundle and rejects any certificate chain that contains one of the eight compromised public keys.\n\nThis is a compromise of a certificate authority's keys, not a bug in Bun's certificate validation. Other projects that ship their own trust store were affected in the same way.\n\n### Details\n\nAny TLS client connection that uses Bun's default trust store is affected. That includes `fetch`, `bun install`, `bun add`, `bunx`, `node:https`, `node:tls`, `WebSocket`, `Bun.connect` and `fetch` over HTTP/3.\n\nA TLS server that sets `requestCert: true` without a `ca` also verifies client certificates against the default trust store, so it is affected in the same way.\n\nBun checks revocation only against a CRL passed in the `crl` option, so the CA's revocation of the intermediates does not protect affected versions by default.\n\nExecutables built with `bun build --compile` embed the Bun runtime and its trust store. An executable built with an affected version stays affected until it is rebuilt.\n\n### Impact\n\nAn attacker in the network path can present a forged certificate that Bun accepts as valid for any hostname. They can then read and modify the traffic. For `bun install` and `bunx` this includes the packages that are downloaded.\n\n### Patches\n\nUpgrade to Bun 1.4.4, and rebuild any `bun build --compile` executables with it.\n\nBun 1.4.4 has two changes:\n\n- **Three emSign roots are removed and the bundle is updated to NSS 3.131.1** (#46159, #46300). This removes `emSign ECC Root CA - G3`, `emSign Root CA - C1` and `emSign ECC Root CA - C3`. `emSign Root CA - G1` stays in the bundle, as it does in NSS 3.131.1.\n- **A chain that contains one of the eight compromised public keys fails with `CERT_REVOKED`** (#46300). The check matches the key rather than the certificate, and it applies whichever root the chain ends at. It therefore also covers cross-signed copies of the intermediates, roots loaded from the system store, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, and a `ca` option. It applies to TLS over TCP, the HTTP/3 client and `node:quic`, and to client certificates that a server verifies. `fetch` over HTTP/3 reports the failure as `HTTP3HandshakeFailed`. The list of keys is the one Node.js, Go and Chrome block.\n\n### Workarounds\n\nThere is no process-wide workaround for affected versions.\n\n- `--use-system-ca` and `NODE_USE_SYSTEM_CA=1` do not help. They add the system's certificates to the bundled ones and do not replace them.\n- Updating the operating system's certificates does not help, for the same reason.\n- Passing an explicit `ca` (or `tls.ca`) on a connection replaces the default trust store for that connection only. A list that leaves out the emSign roots protects that connection.\n- `bun install --cafile <path>` (or `--ca`) does the same for that install. `bunx` does not accept those flags before 1.4.4.\n- `cafile` under `[install]` in `bunfig.toml` does the same for `bun install`. In `~/.bunfig.toml` it also applies to `bunx`.\n\n### References\n\n- https://github.com/oven-sh/bun/pull/46159\n- https://github.com/oven-sh/bun/pull/46300\n- https://github.com/oven-sh/bun/issues/46526\n- Mozilla incident report: https://bugzilla.mozilla.org/show_bug.cgi?id=2083449\n- uv: https://github.com/astral-sh/uv/security/advisories/GHSA-hq85-5cpj-mr62\n- certifi: https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2\n- Go: CVE-2026-111943\n- Rust: https://rustsec.org/advisories/RUSTSEC-2026-0381.html, https://rustsec.org/advisories/RUSTSEC-2026-0382.html, https://rustsec.org/advisories/RUSTSEC-2026-0383.html\n",
+    "ghsa_id": "GHSA-26q8-h657-pf84",
+    "html_url": "https://github.com/oven-sh/bun/security/advisories/GHSA-26q8-h657-pf84",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-26q8-h657-pf84"
+      }
+    ],
+    "published_at": "2026-10-23T02:02:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Bundled root certificates trust compromised eMudhra (emSign) intermediate CAs",
+    "updated_at": "2026-10-23T02:02:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "bun"
+        },
+        "patched_versions": "1.4.4",
+        "vulnerable_version_range": "< 1.4.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "oven-sh/bun"
+}

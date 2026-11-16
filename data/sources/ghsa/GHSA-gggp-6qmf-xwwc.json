@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-gggp-6qmf-xwwc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\n`GET /api/v1/openai-realtime/:id` and `POST /api/v1/openai-realtime/:id` in Flowise allow a user or API key from one workspace to disclose and execute tools belonging to a `ChatFlow` in another workspace by supplying the victim `chatflowid` directly.\r\n\r\nThis is not limited to metadata exposure. The POST route reaches real tool execution through the selected victim tool and returns its output. Depending on the configured tools, this can also trigger external side effects.\r\n\r\nThis constitutes a **cross-workspace authorization bypass** affecting protected ChatFlow runtime objects and their associated tools.\r\n\r\n### Details\r\n\r\nThe `openai-realtime` routes accept a raw `chatflowid` and do not perform a resource-level authorization check to ensure that the referenced `ChatFlow` belongs to the caller's workspace.\r\n\r\nThe implementation loads the victim `ChatFlow` directly by ID and reconstructs the runtime context using the victim flow's `workspaceId` and organization. No ownership check is enforced before the victim flow is resolved and its tools are initialized.\r\n\r\nAs a result:\r\n\r\n* `GET /api/v1/openai-realtime/:id` returns the victim agent's tool definitions\r\n* `POST /api/v1/openai-realtime/:id` invokes the selected victim tool and returns its output\r\n\r\nAffected components:\r\n\r\n* `packages/server/src/routes/openai-realtime/index.ts`\r\n* `packages/server/src/services/openai-realtime/index.ts`\r\n\r\nRelevant code references:\r\n\r\n* `packages/server/src/routes/openai-realtime/index.ts:6-9`\r\n* `packages/server/src/services/openai-realtime/index.ts:8-12`\r\n* `packages/server/src/services/openai-realtime/index.ts:43-75`\r\n* `packages/server/src/services/openai-realtime/index.ts:84-107`\r\n* `packages/server/src/services/openai-realtime/index.ts:129-132`\r\n* `packages/server/src/services/openai-realtime/index.ts:142-161`\r\n\r\nTested version:\r\n\r\n* Flowise `3.1.2`\r\n* Tested commit: `ea68f9a859a9b04fa7ae732e8d878e75fd81d5c7`\r\n\r\n### Proof of Concept (PoC)\r\n\r\n#### Environment\r\n\r\n* Workspace `A`: `2716cca9-4087-409b-8cc6-a87d9beb6e5b`\r\n* Workspace `B`: `15caa1b6-9ebb-41a3-a8cc-2470ff18ca05`\r\n* Workspace `A` API key ID: `aab1c1a30d62d37fe484`\r\n* Victim flow UUID: `fee33ded-9094-42c5-b83e-ddd9f61b21ec`\r\n\r\n#### Ownership Proof (Database)\r\n\r\n```text\r\napikey/workspace:\r\n('aab1c1a30d62d37fe484', 'CVE PoC Workspace A', '2716cca9-4087-409b-8cc6-a87d9beb6e5b', 'Workspace A')\r\n\r\nchatflows/workspace:\r\n('fee33ded-9094-42c5-b83e-ddd9f61b21ec', 'Victim Tool Agent', '15caa1b6-9ebb-41a3-a8cc-2470ff18ca05', 'Workspace B')\r\n````\r\n\r\n#### Step 1 - Cross-Workspace Tool Disclosure\r\n\r\n```http\r\nGET /api/v1/openai-realtime/fee33ded-9094-42c5-b83e-ddd9f61b21ec HTTP/1.1\r\nAuthorization: Bearer <Workspace A API key>\r\n```\r\n\r\n```http\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n```\r\n\r\n```json\r\n[\r\n  {\r\n    \"name\": \"calculator\",\r\n    \"description\": \"Useful for getting the result of a math expression. The input to this tool should be a valid mathematical expression that could be executed by a simple calculator.\",\r\n    \"parameters\": {\r\n      \"type\": \"object\",\r\n      \"properties\": {\r\n        \"input\": {\r\n          \"type\": \"string\"\r\n        }\r\n      },\r\n      \"additionalProperties\": false,\r\n      \"$schema\": \"http://json-schema.org/draft-07/schema#\"\r\n    }\r\n  }\r\n]\r\n```\r\n\r\n#### Step 2 - Cross-Workspace Tool Execution\r\n\r\n```http\r\nPOST /api/v1/openai-realtime/fee33ded-9094-42c5-b83e-ddd9f61b21ec HTTP/1.1\r\nAuthorization: Bearer <Workspace A API key>\r\nContent-Type: application/json\r\n\r\n{\"chatId\":\"poc-chat-a-001\",\"toolName\":\"calculator\",\"inputArgs\":{\"input\":\"6*7\"}}\r\n```\r\n\r\n```http\r\nHTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n```\r\n\r\n```json\r\n{\r\n  \"output\": \"42\",\r\n  \"sourceDocuments\": [],\r\n  \"artifacts\": []\r\n}\r\n```\r\n\r\nThis proves that a credential from Workspace `A` can disclose and invoke tools attached to a `ChatFlow` owned by Workspace `B`.\r\n\r\nExpected behavior:\r\nThe server should reject requests for `ChatFlow` objects outside the caller's workspace.\r\n\r\nActual behavior:\r\nThe server resolves the victim `ChatFlow` and executes its tool based solely on the supplied `chatflowid`.\r\n\r\n### Impact\r\n\r\nAn authenticated attacker within the same Flowise organization can:\r\n\r\n* Enumerate tools configured on another workspace's `ChatFlow`\r\n* Execute tools belonging to a different workspace\r\n* Retrieve tool outputs, including computation results, source documents, and artifacts\r\n* Trigger unintended side effects on external integrations configured in the victim workspace\r\n\r\nThis vulnerability breaks **workspace isolation** and permits unauthorized cross-workspace access to protected `ChatFlow` runtime objects and associated tool execution surfaces.\r\n\r\n### Root Cause\r\n\r\nThe API does not enforce workspace-level authorization when resolving `chatflowid`, loading `ChatFlow` configuration, or executing associated tools. The runtime trusts the provided identifier without verifying ownership.\r\n\r\n### Remediation\r\n\r\n* Enforce strict workspace ownership validation before loading a `ChatFlow`\r\n* Reject any `chatflowid` not belonging to the caller’s workspace\r\n* Apply consistent authorization checks on both GET and POST endpoints\r\n* Ensure tool execution is strictly scoped to the authenticated workspace context\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-gggp-6qmf-xwwc",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-gggp-6qmf-xwwc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gggp-6qmf-xwwc"
+      }
+    ],
+    "published_at": "2026-08-31T14:01:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "openai-realtime endpoints allow cross-workspace tool disclosure and execution via unscoped chatflow ID",
+    "updated_at": "2026-08-31T14:01:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

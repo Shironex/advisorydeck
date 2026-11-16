@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-3gh2-ggc9-c8g8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-636"
+    ],
+    "description": "### Summary\r\nSeaweedFS fails open on unsupported S3 bucket-policy condition operators. An unauthenticated attacker can bypass a nonmatching condition and read private objects; an explicit empty-permission anonymous identity can also permit writes and deletion.\r\n\r\n\r\n### Details\r\nPolicy validation accepts unknown operators. GetConditionEvaluator returns an error for StringEqualsIgnoreCase, but EvaluateConditions skips the error and ultimately returns true, making the conditional Allow unconditional: [source](https://github.com/seaweedfs/seaweedfs/blob/d997fba1575583a89cf0cc50dc0150642286c86d/weed/s3api/policy_engine/conditions.go#L643-L755)\r\n\r\n### PoC\r\nOn SeaweedFS 4.46, create a private object and apply a wildcard-principal s3:GetObject policy conditioned on StringEquals: {\"aws:username\":\"alice\"}. An anonymous GET returns 403. Change only StringEquals to StringEqualsIgnoreCase, reapply the policy, and repeat the same GET: it returns 200 with the exact private object bytes. Restoring StringEquals restores the 403. Full runnable commands are in the linked local draft.\r\n\r\n\r\n### Impact\r\nUnauthenticated confidentiality bypass affecting private bucket inventory and objects: 7.5 High. With an explicit anonymous identity configured with actions: [], testing also reproduced unauthenticated LIST, GET, PUT, and DELETE, reaching Critical impact.\r\n",
+    "ghsa_id": "GHSA-3gh2-ggc9-c8g8",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3gh2-ggc9-c8g8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3gh2-ggc9-c8g8"
+      }
+    ],
+    "published_at": "2026-11-09T19:48:43Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unsupported S3 bucket-policy conditions make Allow statements unconditional",
+    "updated_at": "2026-11-09T19:48:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=4.46"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

@@ -1,0 +1,49 @@
+{
+  "global": null,
+  "id": "GHSA-532v-ccph-m3xg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-306",
+      "CWE-346",
+      "CWE-602"
+    ],
+    "description": "### Summary\n\nThe OAuth authorization endpoint did not assert that its caller was authenticated, allowing an anonymous request to create authorization-code records with no associated user.\n\n### Details\n\nThe authorize route in `oauth.controller.ts` was guarded only by the global authentication guard, which is authentication-optional by construction and never denies a request, and the route carried no access-control decorator. An anonymous caller therefore reached the authorization-code service with an undefined user id, and because the user foreign key is nullable the record was inserted. The flow did not extend into a usable grant: the subsequent token exchange resolved the absent user to nothing and failed before any token was issued, and the GET variant of the route only redirects to the consent page without minting a code.\n\n### Impact\n\nNo authentication is required. An anonymous caller could insert unbounded authorization-code rows carrying no user, bounded only by the endpoint's rate limiter, and received a server error where an authentication failure was appropriate. No access token could be obtained and no data was exposed through this path.\n\n### Credit\n\nThis issue was reported by [@kazisabu](https://github.com/kazisabu) and [@iamshafayat](https://github.com/iamshafayat).\n",
+    "ghsa_id": "GHSA-532v-ccph-m3xg",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-532v-ccph-m3xg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-532v-ccph-m3xg"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing Authentication on OAuth Authorization Endpoint",
+    "updated_at": "2026-11-02T08:48:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

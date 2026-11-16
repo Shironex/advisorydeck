@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-g4wm-fg3c-g4p2",
+  "repo": {
+    "cve_id": "CVE-2026-23477",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nA vulnerability in Rocket.Chat <6.12.0 allows low-privileged users, if they know an app ID, to access sensitive information about configured OAuth applications by invoking an API endpoint that lacks proper authorization checks.\r\n\r\n### Details\r\nIn Rocket.Chat versions up to 6.12.0, the API endpoint `GET /api/v1/oauth-apps.get` is exposed to any authenticated user, regardless of their role or permissions. This endpoint returns an OAuth application, as long as the user knows its ID, including potentially sensitive fields such as `client_id` and `client_secret`.\r\n\r\n### PoC\r\n#### Steps to Reproduce:\r\n\r\n1. Log in as a regular (non-admin) user.\r\n2. Obtain your `X-Auth-Token` and `X-User-Id`.\r\n3. Send the following HTTP request:\r\n\r\n```\r\nGET /api/v1/oauth-apps.get?AppId=zapier\r\nX-Auth-Token: <user_token>\r\nX-User-Id: <user_id>\r\n```\r\n\r\n#### Example Response:\r\n![image](https://github.com/user-attachments/assets/c9c7edd0-d3f3-4ef8-b791-eb081450f174)\r\n\r\nThe response contains internal configuration details of OAuth apps set up in the instance, including credentials that should only be accessible by admins.\r\n\r\n### Vulnerable File and Code Location\r\n**Affected File:**\r\n `apps/meteor/app/api/server/v1/oauthapps.ts`\r\n\r\n**Relevant Code Block (lines 25-45):**\r\n![image](https://github.com/user-attachments/assets/cb56ae69-0228-4a78-a0f0-dde38f3b2b67)\r\n\r\n**Issue:**\r\n The code above requires the user to be authenticated (`authRequired: true`) but does **not** perform any authorization or permission checks such as `hasPermissionAsync()`. As a result, **any authenticated user**, regardless of role, can access this endpoint and retrieve sensitive configuration data.\r\n\r\n### Additional Information\r\nAffected Versions: Rocket.Chat ≤ 6.12.0\r\n\r\n### Impact\r\nDisclosure of `client_id` and `client_secret` could lead to further compromise of third-party integrated services.\r\n\r\nViolation of the principle of least privilege: users without administrative roles gain access to configuration data they are not authorized to see.\r\n\r\nPotential compliance issues depending on how OAuth integrations are used (e.g., exposing keys to cloud identity providers).\r\n",
+    "ghsa_id": "GHSA-g4wm-fg3c-g4p2",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-g4wm-fg3c-g4p2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g4wm-fg3c-g4p2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-23477"
+      }
+    ],
+    "published_at": "2026-01-14T11:50:54Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthorized Access to OAuth App Details (Versions ≤ 6.12.0)",
+    "updated_at": "2026-01-14T11:50:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": ">=6.12.0",
+        "vulnerable_version_range": "<6.12.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

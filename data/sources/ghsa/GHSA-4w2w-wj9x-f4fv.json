@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-4w2w-wj9x-f4fv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "### Summary\n\nThe column default value supplied when creating or altering a column was accepted as a raw SQL expression whenever it looked like a zero-argument function call, so any such database function could be planted in a column definition and executed by the data source.\n\n### Details\n\nThe default-value sanitiser in `KnexClient.ts` tested the submitted value against a pattern for a bare word followed by empty parentheses. A value matching that shape was emitted verbatim into the generated column definition by the PostgreSQL and MySQL data-definition emitters (`PgClient.ts`, `MysqlClient.ts`), while anything else was passed as a bound string literal. Because the check validated only the shape of the value and not the identity of the function, names such as `version()`, `current_user()`, `current_database()`, `inet_server_addr()`, `pg_postmaster_start_time()`, `txid_current()`, `pg_backend_pid()`, `pg_is_in_recovery()` and `connection_id()` reached the database unchanged. The function then ran on the database server every time a row was inserted without an explicit value for the column, and its result was stored in the row and readable through the ordinary data APIs.\n\n### Impact\n\nExecution of arbitrary zero-argument functions on the database behind the base, with the results returned to the attacker through normal record reads. This disclosed the database engine version, the current database and role names, internal server addresses, server start and configuration timestamps, backend process and transaction identifiers, and replica state - details that support further attacks on the data source. Exploitation requires an authenticated account with schema-edit permission on the base, that is the Creator or Owner base role; the Editor role and below cannot create or alter columns.\n\n### Credit\n\nThis issue was reported by [@TuanHung1149](https://github.com/TuanHung1149).\n",
+    "ghsa_id": "GHSA-4w2w-wj9x-f4fv",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4w2w-wj9x-f4fv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4w2w-wj9x-f4fv"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:34Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SQL Injection via Zero-Argument Functions in Column Defaults",
+    "updated_at": "2026-11-02T08:47:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

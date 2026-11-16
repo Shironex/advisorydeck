@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-fh2q-8f75-m4h6",
+  "aliases": [],
+  "title": "REFERENCE ON DELETE CASCADE/UNSET/CUSTOM bypasses target table PERMISSIONS FOR delete/update",
+  "summary": "## Summary\n\nIn SurrealDB, when a record is deleted that is referenced by fields defined with `DEFINE FIELD ... REFERENCE ON DELETE CASCADE`, `ON DELETE UNSET`, or `ON DELETE CUSTOM`, the cascade operation on the referencing table executes with permissions unconditionally suppressed. An authenticated user who can delete a record on the referenced table can trigger unauthorized deletion, modification, or expression execution on records in a referencing table, even when that table has `PERMISSIONS FOR delete NONE` or `PERMISSIONS FOR update NONE`.\n\n## Root Cause\n\nThe function `Document::purge_references` in `surrealdb/core/src/doc/purge.rs` unconditionally disables permission checks before executing cascade operations on referencing tables. This violates the security invariant documented in `SECURITY_GUIDE.md` (lines 141-143): \"When system-internal code paths (events, views, cascades) set `perms=false`, this suppression must not extend to user-supplied expressions or user-controlled data lookups beyond the strictly required scope.\"\n\n```rust\n// CASCADE path (purge.rs:376):\nstm.compute(stk, ctx, &opt.clone().with_perms(false), None)\n\n// UNSET path (purge.rs:385):\nlet opt = opt.clone().with_perms(false);\n\n// CUSTOM path (purge.rs:453):\nlet opt = opt.clone().with_perms(false);\n```\n\nThe `with_perms(false)` call sets the `perms` field on the `Options` struct to `false`. When the cascade DELETE or UPDATE later calls `check_perms` (at `surrealdb/core/src/ctx/context.rs:612-614`), the function returns `Ok(false)` immediately without evaluating the target table's `PERMISSIONS` clause:\n\n```rust\npub fn check_perms(&self, opt: &Options, action: Action) -> Result<bool> {\n    if !opt.perms {\n        return Ok(false);\n    }\n    // ... remaining permission logic never reached\n}\n```\n\nThe parallel function `purge_edges` (purge.rs:186-232) was fixed in v3.1.0 (CVE-2026-49997, GHSA-whwg-vh4f-pmmf) to preserve the caller's `opt` and thus respect edge table permissions. The comment at purge.rs:222-227 explicitly documents this security requirement. `purge_references` retains the pre-fix pattern at all three cascade sites.\n\n## Impact\n\nAn authenticated user with DELETE permission on a referenced table (e.g., `user`) can:\n\n- **CASCADE**: Delete all records in a referencing table (e.g., `audit_log`) that point to the deleted record, bypassing `PERMISSIONS FOR delete NONE` on that table.\n- **UNSET**: Modify records in a referencing table by clearing reference fields, bypassing `PERMISSIONS FOR update NONE`.\n- **CUSTOM**: Execute admin-defined expressions against records in a referencing table with system-level privileges, bypassing all PERMISSIONS clauses.\n\nThis requires an administrator to have configured `DEFINE FIELD ... REFERENCE ON DELETE CASCADE|UNSET|CUSTOM` on the referencing table. This is a documented, production-intended feature for referential integrity. The administrator who defines both a REFERENCE cascade and restrictive PERMISSIONS expects both policies to be enforced.\n\nThe attacker cannot cross namespace or database isolation boundaries, and cannot delete records on tables where they lack DELETE permission on the referenced endpoint. The primitive is reliable and deterministic: a single DELETE statement triggers the cascade.\n\n## Proof of Concept\n\n```text\nRequirements: SurrealDB >= 2.2.0 (REFERENCE ON DELETE feature), any supported backend.\nSetup: root access to define schema, then switch to a record-scoped access user.\n```\n\n1. As root, define a schema with a referenced table and a referencing table that denies deletes:\n\n```surql\nDEFINE ACCESS user_access ON DATABASE TYPE RECORD\n    SIGNUP ( CREATE type::record('user', $id) )\n    SIGNIN ( SELECT * FROM type::record('user', $id) )\n    DURATION FOR TOKEN 1h, FOR SESSION 1h;\n\nDEFINE TABLE user SCHEMALESS\n    PERMISSIONS FOR select, create, delete FULL;\n\nDEFINE TABLE audit_log SCHEMALESS\n    PERMISSIONS\n        FOR select, create FULL,\n        FOR delete NONE;\n\nDEFINE FIELD user ON audit_log...",
+  "published_at": "2026-11-03T15:51:09.000Z",
+  "modified_at": "2026-11-03T15:51:09.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-fh2q-8f75-m4h6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fh2q-8f75-m4h6",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-fh2q-8f75-m4h6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

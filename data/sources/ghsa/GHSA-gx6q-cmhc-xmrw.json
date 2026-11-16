@@ -1,0 +1,68 @@
+{
+  "global": null,
+  "id": "GHSA-gx6q-cmhc-xmrw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Impact\nA Regular Expression Denial of Service (ReDoS) vulnerability existed in the Markdown parser used by Discourse. Specifically, the regular expression responsible for parsing image size suffixes in Markdown syntax contained ambiguous quantifiers that resulted in catastrophic backtracking when processing certain malformed numeric inputs.\n\nAn attacker with a Trust Level of 0 or higher (any registered user who can create posts or reply) could exploit this by submitting a post containing a specifically crafted Markdown image tag with long, invalid numeric dimensions. This caused the server-side Markdown rendering process (\"cooking\") to consume excessive CPU resources for an extended period. Due to internal locking mechanisms during the cooking process, a single malicious request could block all other Markdown rendering operations on the worker, leading to significant performance degradation or temporary site-wide availability issues affecting post creation, edits, and chat messages. There is no impact on data confidentiality or integrity; the malicious input is treated as literal text.\n\n### Workarounds\nSite administrators can mitigate this issue by deploying a Web Application Firewall (WAF) rule that inspects incoming post bodies for Markdown image syntax (`![...`) containing excessively long sequences of digits in the size suffix attribute (e.g., `![alt|...x...]`). Blocking requests where the size attribute contains more than a few hundred consecutive characters before processing can prevent the regex backtracking. Additionally, strictly enforcing rate limits on post creation may reduce the effectiveness of concurrent attempts to exhaust server resources.\n\n<!-- patch-triage-lifecycle:900bb76fa6b1ad21adcd3e9cc3738ea7b2597830fcfd29a3ae06111a2c2284ae -->\n\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-FT274P2I.",
+    "ghsa_id": "GHSA-gx6q-cmhc-xmrw",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-gx6q-cmhc-xmrw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gx6q-cmhc-xmrw"
+      }
+    ],
+    "published_at": "2026-11-10T17:37:51Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "ReDoS in Markdown Image Size Parsing",
+    "updated_at": "2026-11-10T17:37:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.11.0-latest.1",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": ">= 2026.10.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.9.2",
+        "vulnerable_version_range": ">= 2026.9.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.7.5",
+        "vulnerable_version_range": ">= 2026.7.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

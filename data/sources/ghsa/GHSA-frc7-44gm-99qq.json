@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-frc7-44gm-99qq",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-770"
+    ],
+    "description": "### Summary\r\n\r\nIn a distributed deployment (`cluster.enabled: true`), Qdrant peers communicate over an internal gRPC API, port 6335 by default. Before v1.20.0 this port did not require authentication unless the operator enabled `service.enforce_internal_auth` (available since v1.18.0, off by default). The internal listener binds to the same address as the public API (`service.host`), so the port is reachable wherever the public API is reachable, unless the network prevents it.\r\n\r\n### Impact\r\n\r\nA host with network access to port 6335, without an API key and without being a member of the cluster, can:\r\n\r\n- call `AddPeerToKnown` and add a peer of its choice to the cluster; a cluster member receives replicated shards, giving read access to stored data;\r\n- send Raft messages that the consensus state machine processes without a sender check, allowing modification of cluster state (collections, shard placement, peer topology);\r\n- send messages of unbounded size to the internal services and exhaust memory on the node.\r\n\r\nSingle-node deployments do not start the internal port.\r\n\r\n### Patches\r\n\r\nFrom v1.20.0, `service.enforce_internal_auth` defaults to enabled. With it enabled, the internal API accepts only `api_key` and `alt_api_key`. Enforcement requires an API key to be configured; a distributed deployment with no API key remains unauthenticated on the internal port and, since v1.19.2, logs a warning at startup.\r\n\r\nv1.20.0 does not introduce a message-size limit on the internal port. With enforcement enabled, reaching the internal port requires the admin API key.\r\n\r\nRolling upgrades to v1.20.0 follow the usual one-minor-version rule. Peers on v1.19.x already attach the API key to internal requests, so mixed 1.19/1.20 clusters keep working during the upgrade.\r\n\r\n### Workarounds\r\n\r\nFor versions before v1.20.0:\r\n\r\n1. Restrict port 6335 to the nodes of the same cluster with a firewall, security group or NetworkPolicy. Not merely \"not reachable from the internet\": if your application tier can reach 6333, check that it cannot reach 6335.\r\n2. On v1.18.0 or later: set the same `api_key` on every peer, then set `service.enforce_internal_auth: true` and restart one peer at a time. Enable TLS for internal communication (`cluster.p2p.enable_tls: true`) so the key is not sent in plain text.\r\n3. From v1.19.2: set `cluster.p2p.host` to an internal IP address so the internal port is not bound to the interface serving the public API. The node's peer URI (`--uri`) must point to the same address.\r\n\r\nSee [Enforce Authentication on Internal Communication](https://qdrant.tech/documentation/security/#enforce-authentication-on-internal-communication).\r\n\r\n### Qdrant Cloud\r\n\r\nManaged Cloud clusters run with a NetworkPolicy, enforced by Calico, that allows ingress on port 6335 only from pods of the same cluster; customer traffic gateways cannot reach the port. Managed Cloud is not materially affected. Hybrid Cloud and Private Cloud: the operator provisions the same policy; enforcement depends on the customer's CNI.\r\n\r\n### Related\r\n\r\nGHSA-3gph-6c29-p29v: with `enforce_internal_auth` enabled, versions before v1.19.2 also accepted the read-only API key and JWTs on the internal API.\r\n\r\n### Credits\r\n\r\nReported by Davi Ottenheimer (Ottenheimer GmbH) on 9 July 2026; received by Qdrant via CERT-Bund (BSI) on 21 September 2026, and independently by @zerovulnlabs via GitHub private vulnerability reporting.\r\n\r\n### References\r\n\r\n- qdrant/qdrant#10854 (default change)\r\n- qdrant/qdrant#10852, #10853\r\n- https://qdrant.tech/documentation/security/",
+    "ghsa_id": "GHSA-frc7-44gm-99qq",
+    "html_url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-frc7-44gm-99qq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-frc7-44gm-99qq"
+      }
+    ],
+    "published_at": "2026-10-22T14:29:45Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Internal gRPC API does not require authentication by default in distributed mode",
+    "updated_at": "2026-10-22T14:29:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker image / binary release",
+          "name": "qdrant"
+        },
+        "patched_versions": "1.20.0",
+        "vulnerable_version_range": "< 1.20.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "qdrant/qdrant"
+}

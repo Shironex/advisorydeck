@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-p296-7pr4-87rr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-636"
+    ],
+    "description": "\r\n## Summary\r\n\r\n`--deny-funcs` (an official CLI flag and environment variable) is SurrealDB's function-level security control: once an operator denies specific function families, no subject may execute them. The check is scattered across four call sites rather than a central dispatcher, and the **method-style invocation path of the streaming engine (the default engine in 3.x) has no check at all**:\r\n\r\n- `surrealdb/core/src/exec/parts/method.rs:46-66` (`MethodPart::evaluate`: after `descriptor.resolve()` it goes straight to `func.invoke` / `invoke_async`)\r\n- `surrealdb/core/src/exec/planner/idiom.rs:295` (planning-time `registry.get_method()` resolves the descriptor, also unchecked)\r\n\r\nCall sites that DO check (for contrast): legacy compute `expr/function.rs:90`, streaming normal-form calls `exec/physical_expr/function/builtin.rs:46`, legacy method `fnc/mod.rs:671`. SECURITY_GUIDE §11 states verbatim: \"Method-style function invocations (e.g., `$array.map(...)`) must be correctly canonicalized for capability checking\" - that invariant is not implemented on the streaming method path.\r\n\r\nSecondary independent defect (legacy layer, reported alongside): the legacy method path's canonicalization has dead branches and alias mismatches (`fnc/mod.rs:671` uses `kind_of()`, and `val/mod.rs:299-308` returns `\"int\"/\"float\"/\"decimal\"` for Number and `\"geometry<point>\"` for Geometry while the mapping table keys are `\"number\"`/`\"geometry\"` - never matched; aliases like `every/some/includes/index_of/sort_asc/...` and cross-family mappings such as `chain/expect/diff/patch/to_*/is_*` are checked against names that are not the actually registered function names). Net effect: `deny math::*` / `geo::*` / `array::any` / `array::sort::*` etc. are also partially ineffective on the legacy fallback path.\r\n\r\n## Reproduction (v3.3.0 released image, local docker; full matrix in transcripts)\r\n\r\nServer: `docker run -p 8000:8000 surrealdb/surrealdb:v3.3.0 start --user root --pass root --deny-funcs array::map memory` (or set the `SURREAL_DENY_FUNCS` env var). Then via `/sql` (basic auth):\r\n\r\nWith `--deny-funcs array::map`, the normal form is blocked and the method form passes:\r\n\r\n```\r\nT1a | RETURN array::map([1,2], |x| x*2)   -> ERR \"Function 'array::map' is not allowed to be executed\"\r\nT1b | RETURN [1,2].map(|x| x*2)           -> OK [2,4]        <- bypass\r\n```\r\n\r\n10 deny families verified one by one (normal form correctly blocked in all; method form bypasses in all): `array::map`, `math::abs`, `record::exists` (`u:1.exists()` -> true), `value::chain`, `string::len`, `array::any` (`.some()`), `array::sort::asc` (`.sort_asc()`), `type::string` (`.to_string()`), `file::get`, `file::*` (family wildcard).\r\n\r\n**file::* chain (self-sufficient write + read under `deny file::*`; 3.3.x only - the `files` experimental feature is a 3.3-era addition, ≤3.1.6 has no such flag)**: on deployments with experimental Files enabled, after `deny file::*` the `.put()` method still writes into a bucket, `.get()` reads it back (S5c/S5d: after writing `\"top-secret-bytes\"`, `$f.get()` returns `[116,111,112,...]`), and `.exists()` returns true. The demo round-trips an object we wrote ourselves; the demonstrated capability is the policy bypass itself - `.get()`/`.put()` operate on any key the bucket's own PERMISSIONS allow (default FULL), so pre-existing objects in such buckets are equally reachable, but reading a specific pre-existing object was not separately demonstrated.\r\n\r\n**Engine contrast and history arc** (`--planner-strategy compute-only` = legacy):\r\n- **2.x (day-one gap)**: method syntax and deny-funcs coexist since 2.0.0; method form was never covered by the capability check (v1.5.6 control: no method syntax, deny works).\r\n- **3.x legacy path partially fixed**: method forms of `array::map`/`record::exists`/`string::len`/`file::get` are blocked under compute-only - but `math::abs`/`value::chain`/`array::any`/`array::sort::asc`/`type::string` still bypass (A2 dead-branch / alias / cross-family mapping layer).\r\n- **3.x streaming path (the default engine) has zero checks**: all 10 families bypass in method form - the old engine was partially fixed while the new engine never implemented it. v3.2.4's `.map()` bypasses the same way.\r\n\r\n## Impact\r\n\r\n- Any deployment using `--deny-funcs` as hardening (disabling file::* / http families, internal functions) has that deny fully voided by method-form calls (streaming) or partially voided (legacy aliases/dead branches).\r\n- Most impactful verified scenario: bucket data read + write under `deny file::*` (C:H/I:L~H).\r\n- Reachability: any subject that can submit a query (RPC/HTTP/WS/DEFINE FUNCTION bodies/custom APIs); no other prerequisites. Out-of-the-box deployments that configure no deny rules are not affected.\r\n\r\n## Suggested fix\r\n\r\nCall `check_allowed_function` on the fully resolved function name in `MethodPart::evaluate` (and at the planner resolution point), aligning with the other three call sites; on the legacy side, fix the `kind_of()` mapping and alias canonicalization (checked name = registered function name). Longer term, centralize function capability checking in a single dispatcher (the `fnc::run` entry point) to eliminate the \"checklist of call sites\" structure.\r\n\r\n## Evidence\r\n\r\n`findings/20260926-surrealdb-deny-funcs-method-bypass/`: repro scripts ×4 (repro.sh-repro4.sh) plus transcripts ×4 (10-family matrix, file::* exfil chain, compute-only contrast, v3.2.4 origin pinning).\r\n[transcript.txt](https://github.com/user-attachments/files/32683238/transcript.txt)\r\n[transcript2.txt](https://github.com/user-attachments/files/32683240/transcript2.txt)\r\n[transcript3.txt](https://github.com/user-attachments/files/32683241/transcript3.txt)\r\n[transcript4.txt](https://github.com/user-attachments/files/32683242/transcript4.txt)\r\n[transcript5.txt](https://github.com/user-attachments/files/32683243/transcript5.txt)\r\n[repro.sh](https://github.com/user-attachments/files/32683247/repro.sh)\r\n[repro2.sh](https://github.com/user-attachments/files/32683249/repro2.sh)\r\n[repro3.sh](https://github.com/user-attachments/files/32683250/repro3.sh)\r\n[repro4.sh](https://github.com/user-attachments/files/32683251/repro4.sh)\r\n",
+    "ghsa_id": "GHSA-p296-7pr4-87rr",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-p296-7pr4-87rr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p296-7pr4-87rr"
+      }
+    ],
+    "published_at": "2026-10-19T08:52:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "deny-funcs capability bypass via method-style invocations on the streaming engine (day-one since 2.0.0; 10 deny families verified incl. a file::* write+read chain)",
+    "updated_at": "2026-10-19T08:52:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.1",
+        "vulnerable_version_range": "< 3.3.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-53927",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe spreadsheet-fetch endpoint (`axiosRequestMake`) accepted URLs whose path\ncontained a permitted extension anywhere in the string, and applied a hand-rolled\nregex blocklist that omitted `127.0.0.0/8` and `169.254.0.0/16`, allowing the\ncloud-metadata endpoint to be reached with a crafted URL.\n\n### Details\nThe extension matcher is now anchored to the end of the path or immediately before\nthe query string (`/\\.(xls|xlsx|xlsm|ods|ots)(\\?|$)/i` and `/\\.(csv)(\\?|$)/i`), so\n`http://169.254.169.254/credentials/.xlsx` no longer satisfies the format gate. The\nhand-rolled IP blocklist is removed in favour of `useAgent(url)` from\n`request-filtering-agent`, which blocks private and loopback ranges at the socket\nlayer.\n\n### Impact\nAuthenticated users with editor permission could read cloud metadata and other\ninternal HTTP endpoints reachable from the NocoDB process. On affected installs the\nspreadsheet import path was a credential-exfiltration primitive on cloud hosts.\n\n### Credit\nThis issue was reported by Devel Group Security Research Team through [@TREXNEGRO](https://github.com/TREXNEGRO).\nIt was independently reported by [@l3tchupkt](https://github.com/l3tchupkt).",
+    "ghsa_id": "GHSA-gprh-27j3-g5h4",
+    "html_url": "https://github.com/advisories/GHSA-gprh-27j3-g5h4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gprh-27j3-g5h4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53927"
+      }
+    ],
+    "published_at": "2026-06-17T14:06:43Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-gprh-27j3-g5h4",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-53927",
+      "https://github.com/advisories/GHSA-gprh-27j3-g5h4"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Server-Side Request Forgery via Spreadsheet Fetch URL",
+    "updated_at": "2026-07-20T21:19:59Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 0.301.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-gprh-27j3-g5h4",
+  "repo": {
+    "cve_id": "CVE-2026-53927",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nThe spreadsheet-fetch endpoint (`axiosRequestMake`) accepted URLs whose path\r\ncontained a permitted extension anywhere in the string, and applied a hand-rolled\r\nregex blocklist that omitted `127.0.0.0/8` and `169.254.0.0/16`, allowing the\r\ncloud-metadata endpoint to be reached with a crafted URL.\r\n\r\n### Details\r\nThe extension matcher is now anchored to the end of the path or immediately before\r\nthe query string (`/\\.(xls|xlsx|xlsm|ods|ots)(\\?|$)/i` and `/\\.(csv)(\\?|$)/i`), so\r\n`http://169.254.169.254/credentials/.xlsx` no longer satisfies the format gate. The\r\nhand-rolled IP blocklist is removed in favour of `useAgent(url)` from\r\n`request-filtering-agent`, which blocks private and loopback ranges at the socket\r\nlayer.\r\n\r\n### Impact\r\nAuthenticated users with editor permission could read cloud metadata and other\r\ninternal HTTP endpoints reachable from the NocoDB process. On affected installs the\r\nspreadsheet import path was a credential-exfiltration primitive on cloud hosts.\r\n\r\n### Credit\r\nThis issue was reported by Devel Group Security Research Team through [@TREXNEGRO](https://github.com/TREXNEGRO).\r\nIt was independently reported by [@l3tchupkt](https://github.com/l3tchupkt).\r\n",
+    "ghsa_id": "GHSA-gprh-27j3-g5h4",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-gprh-27j3-g5h4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gprh-27j3-g5h4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53927"
+      }
+    ],
+    "published_at": "2026-06-13T11:24:08Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Server-Side Request Forgery via Spreadsheet Fetch URL",
+    "updated_at": "2026-06-13T11:24:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

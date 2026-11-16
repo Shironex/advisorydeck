@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-47382",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe connection-test endpoint opened a raw TCP socket to the user-supplied database\nhost without resolving and range-checking the destination, so private and link-local\naddresses (including IPv4-mapped IPv6 forms and `localhost`) reached the driver.\n\n### Details\nA new `validateDbConnectionHost` helper resolves hostnames through DNS, parses each\naddress with `ipaddr.js`, normalises IPv4-mapped IPv6, and rejects addresses in the\nprivate, loopback, link-local, unique-local, reserved, unspecified, broadcast, and\ncarrier-grade-NAT ranges. `0.0.0.0`, `::`, and the literal `localhost` are special-cased.\nThe check runs before the existing SSL block in the connection-test controller and\ngates the driver invocation.\n\n### Impact\nAuthenticated users with connection-test permission could probe internal services\n(Redis, the cloud metadata endpoint, internal databases) reachable from the NocoDB\nprocess. A DNS rebinding attacker could still race the resolve-vs-connect window.\n\n### Credit\nThis issue was reported by [@helwor-01](https://github.com/helwor-01).",
+    "ghsa_id": "GHSA-w43h-r5m5-p832",
+    "html_url": "https://github.com/advisories/GHSA-w43h-r5m5-p832",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w43h-r5m5-p832"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47382"
+      }
+    ],
+    "published_at": "2026-06-05T16:19:01Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-w43h-r5m5-p832",
+      "https://github.com/nocodb/nocodb/releases/tag/2026.05.1",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-47382",
+      "https://github.com/advisories/GHSA-w43h-r5m5-p832"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Server-Side Request Forgery via Database Connection Host",
+    "updated_at": "2026-07-20T21:18:23Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2026.05.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-w43h-r5m5-p832",
+  "repo": {
+    "cve_id": "CVE-2026-47382",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe connection-test endpoint opened a raw TCP socket to the user-supplied database\nhost without resolving and range-checking the destination, so private and link-local\naddresses (including IPv4-mapped IPv6 forms and `localhost`) reached the driver.\n\n### Details\nA new `validateDbConnectionHost` helper resolves hostnames through DNS, parses each\naddress with `ipaddr.js`, normalises IPv4-mapped IPv6, and rejects addresses in the\nprivate, loopback, link-local, unique-local, reserved, unspecified, broadcast, and\ncarrier-grade-NAT ranges. `0.0.0.0`, `::`, and the literal `localhost` are special-cased.\nThe check runs before the existing SSL block in the connection-test controller and\ngates the driver invocation.\n\n### Impact\nAuthenticated users with connection-test permission could probe internal services\n(Redis, the cloud metadata endpoint, internal databases) reachable from the NocoDB\nprocess. A DNS rebinding attacker could still race the resolve-vs-connect window.\n\n### Credit\nThis issue was reported by [@helwor-01](https://github.com/helwor-01).\n",
+    "ghsa_id": "GHSA-w43h-r5m5-p832",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-w43h-r5m5-p832",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w43h-r5m5-p832"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47382"
+      }
+    ],
+    "published_at": "2026-06-04T09:46:11Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Server-Side Request Forgery via Database Connection Host",
+    "updated_at": "2026-06-04T09:46:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

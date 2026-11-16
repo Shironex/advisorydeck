@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-rpmq-gq3f-h6jg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-674"
+    ],
+    "description": "## Summary\nAn authenticated user with ordinary table write+read privileges can crash the entire `surreald` process (denial of service for all namespaces/databases/tenants on the instance) by accumulating a deeply-nested `val::Value` across many shallow requests and then triggering any of three recursion sinks that walk the value with no depth guard. Because `surrealdb-core` is built with `panic = 'abort'`, a stack overflow is an unconditional process abort. The deeply-nested value persists in storage, so it re-crashes on every subsequent read/SELECT and specifically crashes the admin `EXPORT`/backup - a persistent denial of service that survives restart until the poisoned record is purged out-of-band.\n\n## Root Cause\nThree post-parse code paths recurse over `val::Value` with NO cumulative depth counter:\n- `convert_value_to_public_value` (`surrealdb/core/src/val/mod.rs:1169`) → `convert_array_to_public` (`:1256`) / `convert_object_to_public_map` (`:1274`) - mutual native recursion on the universal query-result path.\n- `Value::fmt_sql` (`surrealdb/core/src/val/mod.rs:608`) → `Array::fmt_sql` (`surrealdb/core/src/val/array.rs:222`) - native recursion on the export/INFO path.\n- `revision::to_vec` / `revision::from_slice` (`surrealdb/core/src/catalog/record.rs:71,88`) - the storage codec (revision 0.30.0) serializes/deserializes nested collections recursively with no depth guard.\n\nThe parser recursion caps (`object_recursion_limit=100`, `query_recursion_limit=20`, `expr_recursion_limit=128`, `syn/parser/mod.rs`) are per-parse; each read-modify-write request (`UPDATE deep:1 SET v=[v]`) adds only ONE structural level and stays far under them. The compute guard (`max_computation_depth=120` via `Options::dive`) bounds expression nesting, not the runtime nesting of a value being cloned/serialized. The only value-side depth guards (`val/object_extract`) bound idiom PATH length, not value nesting. The storage write path (`kvs/tx.rs`, `catalog/record.rs`) has no cumulative depth/size check.\n\n## Impact\nDenial of service (A:H) for the whole database engine process - all namespaces, databases and tenants on the instance. `panic='abort'` (`Cargo.toml:514`) makes any of the three overflows fatal. Requires only user-level table write+read (a scoped/record user with table write suffices). No non-default configuration required. Persistent aggravating factor: the deep value survives the write and re-crashes on every subsequent read and on admin EXPORT.\n\n## Proof of Concept\n```sql\nCREATE deep:1 SET v = [];\n-- repeat ~10^4+ times (separate RPC calls), each adds one level:\nUPDATE deep:1 SET v = [v] RETURN NONE;\n-- then any read overflows the stack and aborts the process:\nSELECT v FROM deep:1;\n```\n\n## Attack Chain\n1. Entry: authenticated user with table write+read → `CREATE deep:1 SET v = []`. Guard: none. Bypass: n/a.\n2. Accumulate: loop `UPDATE deep:1 SET v = [v] RETURN NONE` (~10^4+ separate RPCs). Guard: per-parse caps (`object/query/expr_recursion_limit`) and compute cap (`max_computation_depth=120`). Bypass proof: each request adds exactly ONE structural level, never approaching a per-request cap; the store path (`catalog/record.rs:71`) encodes unconditionally with no cumulative depth check.\n3. Sink: `SELECT v FROM deep:1` → `dbs/executor.rs:1648 convert_value_to_public_value` → `val/mod.rs:1256 convert_array_to_public` recurses to full stored depth. Guard: none. Bypass proof: direct source read on v3.2.0 confirms no depth counter in `convert_value_to_public_value` / `Value::fmt_sql` / `revision` (de)serialize.\n4. Impact: native recursion overflows the ~8 MiB thread stack at depth in the tens-of-thousands → stack overflow → `panic='abort'` → whole `surreald` process aborts → DoS for all tenants. The persisted deep value re-crashes on every subsequent read/SELECT/admin-EXPORT.\n\n## Bypass Evidence\n- Parser/compute caps are per-request; each RMW step is shallow, so they never fire during accumulation.\n- Store path has zero cumulative value-depth check (`kvs/tx.rs`, `catalog/record.rs:71`).\n- All three post-parse sinks verified recursion-guard-free by direct read of `git show v3.2.0:<file>`.\n- The four published recursion advisories (GHSA-6r8p-hpg7-825g, GHSA-q8qp-67f9-wr3f, GHSA-q729-696q-g9pq, GHSA-jv2j-mqmw-xvv5) all fix the PARSER (`Expr`/`Kind`/JSON parse trees) at parse time - none touches these `val::Value` serialization sinks. `expr_recursion_limit` (GHSA-jv2j fix) is present on v3.2.0 but rejects deep expressions at parse time; this finding's `val::Value` accumulation vector never re-enters the parser deep.\n\n## Affected Versions\n`<= 3.2.0` (verified present on the latest release tag v3.2.0 and on HEAD/nightly; no fix commit exists).\n\n## Suggested Fix\nEnforce a single value-nesting depth cap at the value boundaries - `convert_value_to_public_value` (`val/mod.rs:1169`), `Value::fmt_sql` (`val/mod.rs:608`), and `revision` (de)serialize (`catalog/record.rs:71,88`) - mirroring the parser caps and the flatbuffers `MAX_VERIFIER_DEPTH`.\n\n---\nReported by **zx (Jace)** - GitHub: @manus-use",
+    "ghsa_id": "GHSA-rpmq-gq3f-h6jg",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-rpmq-gq3f-h6jg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rpmq-gq3f-h6jg"
+      }
+    ],
+    "published_at": "2026-10-19T08:51:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unbounded recursion over persisted val::Value in response serializer, SQL formatter and storage codec causes process abort (DoS)",
+    "updated_at": "2026-10-19T08:51:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": "< 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

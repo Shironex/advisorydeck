@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hmmp-q8cx-v964",
+  "repo": {
+    "cve_id": "CVE-2026-58211",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Background\r\n\r\nNATS.io is a high performance open source pub-sub distributed communication technology, built for the cloud, on-premise, IoT and edge computing.\r\n\r\nThe NATS Server can map clients that do not send credentials to a configured `no_auth_user`. Users can also be limited to specific connection types or required to connect through a trusted proxy.\r\n\r\n### Problem Description\r\n\r\nA client could be registered as the configured `no_auth_user` through a parser path used when the first client operation was not `CONNECT`.\r\n\r\nThat path did not apply the same user-level connection restrictions as normal authentication. As a result, an unauthenticated client could receive the permissions of a default user that was intended to be usable only through a specific connection type or trusted proxy.\r\n\r\nThe issue affects deployments that use `no_auth_user` together with restrictions such as `allowed_connection_types` or `proxy_required`.\r\n\r\nImpact depends on the permissions granted to the configured `no_auth_user`.\r\n\r\n### Affected Versions\r\n\r\nVersions v2.14.2, v2.12.11 and below are vulnerable. The issue is fixed in v2.14.3 and v2.12.12.\r\n\r\n### Workarounds\r\n\r\nAvoid configuring `no_auth_user` with permissions that rely on `allowed_connection_types` or `proxy_required` as the only boundary.\r\n\r\n### References\r\n\r\n * GHSA advisory: <https://github.com/nats-io/nats-server/security/advisories/GHSA-hmmp-q8cx-v964>\r\n * Credit: Asritha Bodepudi, Trail of Bits\r\n",
+    "ghsa_id": "GHSA-hmmp-q8cx-v964",
+    "html_url": "https://github.com/nats-io/nats-server/security/advisories/GHSA-hmmp-q8cx-v964",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmmp-q8cx-v964"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-58211"
+      }
+    ],
+    "published_at": "2026-06-29T15:53:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "`no_auth_user` pre-CONNECT fast path bypasses user connection restrictions",
+    "updated_at": "2026-06-30T17:59:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "patched_versions": "2.14.3, 2.12.12",
+        "vulnerable_version_range": "<= 2.14.2, <= 2.12.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nats-io/nats-server"
+}

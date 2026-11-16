@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-788p-cvgf-q973",
+  "aliases": [],
+  "title": "Stored cross-site scripting via unsanitized project color in the generated favicon",
+  "summary": "## Description\r\n\r\n### Summary\r\n\r\nThe Directus app builds a fallback favicon from the configured project color by interpolating that color into an SVG\r\nmarkup string and assigning the result to `innerHTML`. Because the value is never escaped or validated as a color, a\r\ncrafted project color breaks out of the SVG context and injects arbitrary HTML, which executes script in the origin of\r\nthe Directus application when a browser loads the app.\r\n\r\n### Details\r\n\r\n`generateFavicon` (`app/src/utils/generate-favicon.ts`) accepted the project color as a string, embedded it in an SVG\r\n`<style>` declaration, and parsed the resulting markup by assigning it to the `innerHTML` of a `<div>`. No HTML or CSS\r\nescaping was applied at any point on that path.\r\n\r\nThe value passed in is `project_color` from the `directus_settings` singleton, surfaced to the app through the\r\n`/server/info` endpoint. Any principal permitted to update `directus_settings` can therefore persist an arbitrary string\r\ninto this sink. In the default configuration that is the administrator role; the exposure that matters is a non-admin\r\npolicy that has been granted update access to `directus_settings`, which turns settings write access into script\r\nexecution in an administrator's session.\r\n\r\nTwo properties broaden the reach of the payload:\r\n\r\n- The element the markup is parsed into is never attached to the document, but that does not prevent execution. Markup\r\n  parsed via `innerHTML` on a detached element still triggers resource loading and the associated event handlers, so\r\n  injected content runs immediately.\r\n- `/server/info` is a public endpoint and the favicon is computed by the app's root component, so the payload fires for\r\n  every visitor who loads the Directus URL, including unauthenticated visitors on the login page, before any\r\n  user-specific gating.\r\n\r\n### Impact\r\n\r\nStored cross-site scripting in the Directus application. A user with permission to write project settings can persist a\r\npayload that executes for every subsequent visitor to the Directus URL, including administrators, enabling session or\r\ntoken theft and API actions performed with the victim's privileges. Where settings write access has been delegated to a\r\nnon-administrative policy, this constitutes privilege escalation to administrator.\r\n\r\nNote that administrators already hold documented code-execution capability in Directus through Flows, extensions, and\r\ncustom CSS, so an administrator-only exploitation path does not cross a trust boundary on its own.\r\n\r\n### Patches\r\n\r\nFixed in Directus 12.1.0. The favicon is now assembled with SVG DOM APIs and the color is set as an attribute value, so\r\nit cannot escape into markup.\r\n\r\n### Workarounds\r\n\r\nRestrict update access on `directus_settings` to trusted administrators, and confirm that `project_color` holds a valid\r\ncolor value.\r\n\r\n### References\r\n\r\n- CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')\r\n\r\n## Credits\r\n\r\nReported by @PhilipPhil",
+  "published_at": "2026-08-05T15:24:54.000Z",
+  "modified_at": "2026-08-05T15:24:54.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.1.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-788p-cvgf-q973",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-788p-cvgf-q973",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-788p-cvgf-q973",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:de2628783c184e4e9fdee05bada5ca863c57ecf16c3b716b2dd27239e0ac8a37",
+  "note": null
+}

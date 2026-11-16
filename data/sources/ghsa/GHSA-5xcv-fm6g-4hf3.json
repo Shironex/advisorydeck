@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-5xcv-fm6g-4hf3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\nA field-level authorization bypass exists in SurrealDB's query execution engine (`surrealdb/surrealdb`). In `surrealdb/core/src/exec/operators/scan/pipeline.rs`, computed field names are escaped with backticks prior to object insertion, mismatching permission filters.\n\n### Vulnerability Details\n- Affected File: `surrealdb/core/src/exec/operators/scan/pipeline.rs` (`build_field_state_raw`, `compute_fields_for_value`)\n- Mechanism: Computed fields format their names with `fd.name.to_raw_string()`, which automatically surrounds hyphenated or special identifiers with backticks (e.g., `private-data` becomes `` `private-data` ``). When inserted into the document, the key contains backticks, whereas the schema permission validator checks the raw unescaped name (`private-data`). The permission check fails to match and allows the field to be returned to unauthorized users.\n- Impact: Unauthorized disclosure of restricted computed fields.\n\n### Recommended Remediation\nUse unquoted raw field names for computed field dictionary keys during document evaluation and projection.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created in the 4.0 execution engine that keys computed fields by their raw, unescaped identifier, so a quoted (backtick-escaped) computed-field name no longer mismatches the field-level SELECT permission and leaks the field.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- `fix(exec): derive the computed fields a field's SELECT clause reads in its own frame` (commit `d813af6632`)\n- `test(doc,catalog): pin quoted and nested field names in write gates and field clauses` (commit `bf6a742fd8`)\n",
+    "ghsa_id": "GHSA-5xcv-fm6g-4hf3",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-5xcv-fm6g-4hf3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5xcv-fm6g-4hf3"
+      }
+    ],
+    "published_at": "2026-11-03T15:51:14Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Quoted Computed-Field Formatter Bypasses Field-Level SELECT Permissions",
+    "updated_at": "2026-11-03T15:51:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

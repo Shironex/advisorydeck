@@ -1,0 +1,96 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41279",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe text-to-speech generation endpoint (`POST /api/v1/text-to-speech/generate`) is whitelisted (no auth) and accepts a `credentialId` directly in the request body. When called without a `chatflowId`, the endpoint uses the provided `credentialId` to decrypt the stored credential (e.g., OpenAI or ElevenLabs API key) and generate speech.\n\n### Root Cause\n\n```typescript\n// packages/server/src/controllers/text-to-speech/index.ts:58-64\n} else {\n    // Use TTS config from request body\n    provider = bodyProvider\n    credentialId = bodyCredentialId  // ← attacker-controlled credential ID\n    voice = bodyVoice\n    model = bodyModel\n}\n```\n\n### Docker Validation\n\n`POST /api/v1/text-to-speech/generate` with arbitrary `credentialId` in body: endpoint processes request, sends SSE `tts_start` event, only fails when credential doesn't exist - proves code path runs without authentication.\n\n### Impact\n\n- Use victim's API keys (OpenAI, ElevenLabs, Azure, Google) without authorization\n- Burn API credits on the victim's account\n- Generate unlimited speech content at victim's expense\n- Combined with credential ID leak from Finding 2, this is trivially exploitable\n\n### Suggested Fix\n\nRemove the TTS endpoint from `WHITELIST_URLS` or validate that the credential belongs to the chatflow being used:\n\n```typescript\n// Only allow credentialId when it matches the chatflow's TTS configuration\nif (!chatflowId) {\n    return res.status(401).json({ message: 'Authentication required' })\n}\n```\n\n---\n\n## References\n\n- `packages/server/src/controllers/text-to-speech/index.ts` lines 10-162\n- `packages/server/src/utils/constants.ts` line 41 (whitelist entry)\n\n## Credits\n- Shinobi Security - https://github.com/shinobisecurity",
+    "ghsa_id": "GHSA-5fw2-mwhh-9947",
+    "html_url": "https://github.com/advisories/GHSA-5fw2-mwhh-9947",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5fw2-mwhh-9947"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41279"
+      }
+    ],
+    "published_at": "2026-04-17T21:35:14Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-5fw2-mwhh-9947",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41279",
+      "https://github.com/advisories/GHSA-5fw2-mwhh-9947"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Unauthenticated TTS endpoint accepts arbitrary credential IDs - enables API credit abuse via stored credentials",
+    "updated_at": "2026-04-24T21:00:53Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-5fw2-mwhh-9947",
+  "repo": {
+    "cve_id": "CVE-2026-41279",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe text-to-speech generation endpoint (`POST /api/v1/text-to-speech/generate`) is whitelisted (no auth) and accepts a `credentialId` directly in the request body. When called without a `chatflowId`, the endpoint uses the provided `credentialId` to decrypt the stored credential (e.g., OpenAI or ElevenLabs API key) and generate speech.\r\n\r\n### Root Cause\r\n\r\n```typescript\r\n// packages/server/src/controllers/text-to-speech/index.ts:58-64\r\n} else {\r\n    // Use TTS config from request body\r\n    provider = bodyProvider\r\n    credentialId = bodyCredentialId  // ← attacker-controlled credential ID\r\n    voice = bodyVoice\r\n    model = bodyModel\r\n}\r\n```\r\n\r\n### Docker Validation\r\n\r\n`POST /api/v1/text-to-speech/generate` with arbitrary `credentialId` in body: endpoint processes request, sends SSE `tts_start` event, only fails when credential doesn't exist - proves code path runs without authentication.\r\n\r\n### Impact\r\n\r\n- Use victim's API keys (OpenAI, ElevenLabs, Azure, Google) without authorization\r\n- Burn API credits on the victim's account\r\n- Generate unlimited speech content at victim's expense\r\n- Combined with credential ID leak from Finding 2, this is trivially exploitable\r\n\r\n### Suggested Fix\r\n\r\nRemove the TTS endpoint from `WHITELIST_URLS` or validate that the credential belongs to the chatflow being used:\r\n\r\n```typescript\r\n// Only allow credentialId when it matches the chatflow's TTS configuration\r\nif (!chatflowId) {\r\n    return res.status(401).json({ message: 'Authentication required' })\r\n}\r\n```\r\n\r\n---\r\n\r\n## References\r\n\r\n- `packages/server/src/controllers/text-to-speech/index.ts` lines 10-162\r\n- `packages/server/src/utils/constants.ts` line 41 (whitelist entry)\r\n\r\n## Credits\r\n- Shinobi Security - https://github.com/shinobisecurity",
+    "ghsa_id": "GHSA-5fw2-mwhh-9947",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-5fw2-mwhh-9947",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5fw2-mwhh-9947"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41279"
+      }
+    ],
+    "published_at": "2026-04-15T21:45:09Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated TTS endpoint accepts arbitrary credential IDs - enables API credit abuse via stored credentials",
+    "updated_at": "2026-04-20T15:32:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

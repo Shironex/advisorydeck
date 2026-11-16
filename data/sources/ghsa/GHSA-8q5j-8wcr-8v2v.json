@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8q5j-8wcr-8v2v",
+  "repo": {
+    "cve_id": "CVE-2026-82235",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400"
+    ],
+    "description": "## Summary\r\n\r\nThe single-file download handler refuses named pipes, but the directory-archive walker does not:\r\narchiving a directory that contains a FIFO calls `open(2)` on it, which blocks forever when no writer is\r\nattached. The request goroutine and the client connection are pinned indefinitely - there is no timeout,\r\nand context cancellation cannot interrupt a blocking `open(2)`. Repeated requests accumulate pinned\r\ngoroutines. The public download handler has the same gap, where it also applies to a share pointing\r\ndirectly at a named pipe, so the hang is reachable by anonymous visitors holding a public share link.\r\n\r\nVerified at v2.63.23, the final release.\r\n\r\n## Details\r\n\r\nThe guard exists at the authenticated entry point only:\r\n\r\n```go\r\n// http/raw.go:94-97 (rawHandler)\r\nif files.IsNamedPipe(file.Mode) {\r\n\tsetContentDisposition(w, r, file)\r\n\treturn 0, nil\r\n}\r\n```\r\n\r\nIt was added in [`586d198d`](https://github.com/filebrowser/filebrowser/commit/586d198d) (\"fix: fix\r\nhanging when reading a named pipe file\", #1155). Two sibling paths reach `Open` without it.\r\n\r\n`getFiles` appends every non-directory entry with a live `Open` callback and no entry-type check:\r\n\r\n```go\r\n// http/raw.go:136-142\r\narchiveFiles = append(archiveFiles, archives.FileInfo{\r\n\tFileInfo:      info,\r\n\tNameInArchive: nameInArchive,\r\n\tOpen: func() (fs.File, error) {\r\n\t\treturn d.user.Fs.Open(path)\r\n\t},\r\n})\r\n```\r\n\r\n`mholt/archives` `openAndCopyFile` then calls `file.Open()` unconditionally, and `open(2)` on a\r\nwriter-less FIFO blocks. `archiver.Archive` (`http/raw.go:212`) is passed the request context, but\r\ncancellation cannot interrupt a blocking `open(2)` syscall, so the goroutine never returns even after the\r\nclient disconnects.\r\n\r\n`publicDlHandler` calls `rawFileHandler` with no guard of its own, so a share pointing directly at a\r\nnamed pipe hangs on the single-file path too:\r\n\r\n```go\r\n// http/public.go:131-138\r\nvar publicDlHandler = withHashFile(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {\r\n\tfile := d.raw.(*files.FileInfo)\r\n\tif !file.IsDir {\r\n\t\treturn rawFileHandler(w, r, file)\r\n\t}\r\n\r\n\treturn rawDirHandler(w, r, d, file)\r\n})\r\n```\r\n\r\nCreating such a share is not prevented: `sharePostHandler` only stats the path\r\n(`http/share.go:159-168`), and `Stat` succeeds on a FIFO without opening it.\r\n\r\n## PoC\r\n\r\n```bash\r\nBASE=http://127.0.0.1:8099\r\nTOKEN=$(curl -s -X POST $BASE/api/login -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"editor\",\"password\":\"…\"}')\r\n\r\n# place a FIFO inside the user's scope (host-side; a user with shell/CLI access to the\r\n# storage tree, or any sync/mount tooling, can create one)\r\nmkdir -p /srv/fb-root/shared/f && echo x > /srv/fb-root/shared/f/normal.txt\r\nmkfifo /srv/fb-root/shared/f/pipe\r\n\r\n# archive the directory - request never completes\r\ntime curl -s --max-time 15 -o /dev/null -w '%{http_code}\\n' \\\r\n  \"$BASE/api/raw/?files=%2Fshared%2Ff%2F&algo=zip\" -H \"X-Auth: $TOKEN\"\r\n# → curl exits 28 after exactly 15.0s, zero bytes (hang; replayed 2/2)\r\n\r\n# anonymous variant: publicly share /shared/f and fetch\r\n#   $BASE/api/public/dl/<hash>/   (archive of the shared dir) - same hang, no auth needed\r\n```\r\n\r\nWith the FIFO removed, the same archive request returns 200 in ~2 ms. During the hang, concurrent\r\nrequests are still served - each hung request pins its own goroutine and connection.\r\n\r\n## Impact\r\n\r\nAny user with download permission - or an anonymous visitor holding a public share link - can pin one\r\nserver goroutine plus one connection per request, with no recovery short of restarting the process.\r\nScripted repetition accumulates pinned goroutines and connection slots into a denial-of-service\r\ncondition.\r\n\r\nThe named pipe has to be in the served tree already: File Browser's own API cannot create one, so this\r\nrequires host-side access to the storage - a shell, a mount, sync tooling, or the command-execution\r\nfeature.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\n- Do not serve trees that contain named pipes, sockets or device nodes. A dedicated data volume holding\r\n  only regular files and directories removes the precondition entirely.\r\n- A response timeout on the reverse proxy releases the client's connection, but note that it does **not**\r\n  free the blocked server-side goroutine - only a restart does.\r\n\r\n## Out of scope\r\n\r\n- **Content disclosure through a FIFO with a live writer.** `openAndCopyFile` copies with\r\n  `io.CopyN(w, fileReader, file.Size())`, and a FIFO's stat size is 0, so the entry is archived as zero\r\n  bytes.\r\n- **The preview endpoint.** `detectType` returns early with `Type: \"blob\"` for a named pipe\r\n  (`files/file.go:222-226`), so `previewHandler` answers 501 before it can reach `rawFileHandler`.\r\n\r\n## References\r\n\r\n- [`586d198d`](https://github.com/filebrowser/filebrowser/commit/586d198d) - the named-pipe guard for\r\n  single-file downloads (#1155).\r\n",
+    "ghsa_id": "GHSA-8q5j-8wcr-8v2v",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-8q5j-8wcr-8v2v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8q5j-8wcr-8v2v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-82235"
+      }
+    ],
+    "published_at": "2026-08-14T08:09:05Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Archive downloads hang forever on named pipes",
+    "updated_at": "2026-08-31T19:51:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

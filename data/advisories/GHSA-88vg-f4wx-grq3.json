@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-88vg-f4wx-grq3",
+  "aliases": [],
+  "title": "Authorization bypass via the filer `?proxyChunkId=` branch dispatching ahead of the JWT gate, enabling unauthenticated chunk read and deletion",
+  "summary": "## Summary\n\nAn **Authorization Bypass Through User-Controlled Key (CWE-639) / Missing Authentication for a Critical Function (CWE-306)** in the SeaweedFS filer: the `?proxyChunkId=` chunk-proxy branch in `filerHandler` is dispatched and returned before `maybeCheckJwtAuthorization` runs, so `GET`, `PUT`, `POST` and `DELETE` against any needle in the cluster are reachable on the filer's HTTP port with no filer credential of any kind - on a filer where `jwt.filer_signing.key` and `jwt.filer_signing.read.key` are both configured and every other request answers `401 wrong jwt`. An unauthenticated caller reads the bytes of a stored object, replaces them, or deletes the needle; the deletion becomes unrecoverable at the master's next routine garbage vacuum. A second, independent exemption in the same function serves `GET /` - the filer root listing, including `chunks[].file_id` for every file at the root - to the same unauthenticated caller, which supplies the fid the proxy branch needs.\n\nThis is an incomplete fix of the hardening in #10434 (`91979ec51`), whose own commit message names the attack: *\"The `?proxyChunkId=` branch dispatches and returns before the JWT gate, so whatever credential the proxy attaches is reachable without authentication. … An anonymous `DELETE /?proxyChunkId=<fid>` therefore arrived at the volume server holding a write-key token scoped to that fid, and the volume server honored it.\"* That change stopped the filer from minting a write-key token for an anonymous caller. It did not stop the anonymous caller from reaching the volume server, and where the volume server has no `jwt.signing.key` of its own - the shipped default, and the configuration `weed/command/scaffold/security.toml` describes for a filer deployment - the anonymous DELETE still lands.\n\n## Affected component\n\n`weed/server/filer_server_handlers.go`, `filerHandler` lines 58-79 and `maybeCheckJwtAuthorization` lines 213-219; `weed/server/filer_server_handlers_proxy.go`, `proxyToVolumeServerURL`. Confirmed at release `4.45` (`79b87202136cebdaaa7db4d94eaa5915ad381276`) and at `master` `9fef11526e6a3b59ebffa42a1a31f2f7d425b595`; the two files are byte-identical between them. The proxy branch has existed since the endpoint was added; the `GET /` exemption was added by `6940b7d06` (2026-01-29) for health checks, before the filer had `/healthz` and `/readyz`.\n\n## Deployment and attacker position\n\nThe deployment is the one GHSA-gv5w-hfx8-8cwq (CVE-2026-72921) and GHSA-99q7-x53r-6j4g (CVE-2026-77368) were both filed against: master, volume server and filer running, only the filer's HTTP port reachable by the attacker, internal master and volume ports private, and `jwt.filer_signing` / `jwt.filer_signing.read` configured so the filer accepts no unsigned request. The attacker holds no credential at all. The volume server's own `jwt.signing.key` is unset, which is the shipped default and what the scaffold recommends for a filer - its comment on `jwt.signing.read` reads *\"jwt for read is only supported with master+volume setup. Filer does not support this mode.\"*\n\n## Details\n\n`filerHandler` reads `proxyChunkId` off `/` and dispatches on it before it reaches the authorization gate:\n\n```go\n\t// proxy to volume servers\n\tvar fileId string\n\tif r.URL.Path == \"/\" {\n\t\tfileId = r.URL.Query().Get(\"proxyChunkId\")\n\t}\n\tif fileId != \"\" {\n\t\tfs.proxyToVolumeServer(w, r, fileId)\n\t\t...\n\t\treturn                                   // returns before the gate below\n\t}\n\t...\n\tisReadHttpCall := r.Method == http.MethodGet || r.Method == http.MethodHead\n\tif !fs.maybeCheckJwtAuthorization(r, !isReadHttpCall) {\n\t\twriteJsonError(w, r, http.StatusUnauthorized, errors.New(\"wrong jwt\"))\n\t\treturn\n\t}\n```\n\nThere is no method restriction on the branch, so a `PUT`, `POST` or `DELETE` is proxied to the volume server exactly as a `GET` is, with the caller's body and query forwarded. On a read the filer additionally mints a fid-scoped volume read token on the caller's behalf (`maybeGetVolumeReadJwtA...",
+  "published_at": "2026-11-09T19:46:24.000Z",
+  "modified_at": "2026-11-09T19:46:24.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306",
+    "CWE-639"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-88vg-f4wx-grq3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-88vg-f4wx-grq3",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-88vg-f4wx-grq3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ab67aec02633e20d6c5f7ec41fcf16a2152c5677ae7cfb05163be77f4a3d4db1",
+  "note": null
+}

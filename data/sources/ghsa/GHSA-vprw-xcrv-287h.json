@@ -1,0 +1,54 @@
+{
+  "global": null,
+  "id": "GHSA-vprw-xcrv-287h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-348"
+    ],
+    "description": "### Summary\n\nThe `ExtractRealIPAddress` middleware in `coderd/httpmw/realip.go` parsed the `X-Forwarded-For` header by extracting the **leftmost** (first) comma-delimited value. When Coder is deployed behind a reverse proxy that appends the real client IP to the header (the standard behavior for AWS ALB, nginx, Cloudflare, and most load balancers), the leftmost entry is whatever the original client sent, not the actual client address.\n\nAn attacker can set an arbitrary `X-Forwarded-For` value on their request. The proxy appends the real client IP, producing a header like `<spoofed>, <real-ip>`, and Coder extracted and trusted the spoofed leftmost value.\n\n> **Note:** This is exploitable only when Coder is configured with `--proxy-trusted-origins` and `--proxy-trusted-headers` that include `X-Forwarded-For`, and the upstream proxy appends (rather than overwrites) the header. This is the standard configuration for most production deployments behind a load balancer. Operators using single-value headers such as `CF-Connecting-IP` or `True-Client-IP` (which overwrite rather than append) are not affected.\n\n### Affected Component\n\n`coderd/httpmw/realip.go` - the `ExtractRealIPAddress` middleware and its `getRemoteAddress()` helper, in the `github.com/coder/coder/v2` module.\n\n### Impact\n\nThis affects Coder deployments where `TrustedOrigins` and `TrustedHeaders` (specifically `X-Forwarded-For`) are configured, which is the expected configuration when running behind a reverse proxy.\n\n**Rate-limit bypass:** Per-IP rate limiting on security-sensitive endpoints (login, one-time passcode requests, password validation) uses `req.RemoteAddr` as the rate-limit key for unauthenticated requests. By varying the spoofed IP on each request, an attacker can bypass per-IP rate limits, enabling brute-force attacks against authentication endpoints.\n\n**Audit log falsification:** The spoofed IP is recorded in audit log entries (`audit_logs.ip`), undermining forensic analysis and incident response.\n\n### Patches\n\nThe `X-Forwarded-For` chain is now walked **right-to-left**, selecting the rightmost entry that is not a configured trusted origin (the real client), and falling back to the leftmost entry only when every parsed hop is a trusted origin. This matches the algorithm recommended by RFC 7239.\n\nThe fix shipped in the following releases:\n\n| Release line | Patched version |\n|---|---|\n| 2.36 (main) | [v2.36.0](https://github.com/coder/coder/releases/tag/v2.36.0) |\n| 2.35 | [v2.35.0](https://github.com/coder/coder/releases/tag/v2.35.0) |\n| 2.34 | [v2.34.7](https://github.com/coder/coder/releases/tag/v2.34.7) |\n\nDeployments on the 2.33 line or earlier should upgrade to v2.35.0 or later.\n\n### Workarounds\n\nOperators can rely on single-value headers such as `CF-Connecting-IP` or `True-Client-IP` (which overwrite rather than append the header) instead of trusting `X-Forwarded-For`.\n\n### References\n\n- Fix: #26646\n\n### Credits\n\nWe'd like to thank Anthropic's Security Team (ANT-2026-22432) for independently disclosing this issue!\n",
+    "ghsa_id": "GHSA-vprw-xcrv-287h",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-vprw-xcrv-287h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vprw-xcrv-287h"
+      }
+    ],
+    "published_at": "2026-08-11T11:22:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IP spoofing via X-Forwarded-For header parsing enables rate-limit bypass and audit log falsification",
+    "updated_at": "2026-08-11T11:22:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.7",
+        "vulnerable_version_range": ">= 2.34.0, < 2.34.7"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.35.0",
+        "vulnerable_version_range": "< 2.34.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-mh65-9xcf-vf8v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\n\nRefresh-token rotation updated the stored token row without verifying that the update had matched anything, so two concurrent presentations of the same refresh token could each mint a valid replacement and a working session.\n\n### Details\n\n`UserRefreshToken.ts` rotated a token with an update keyed on the old token value but never inspected the affected-row count, and the caller in `users.service.ts` discarded the result inside a try/catch that reacted only to thrown errors. An update matching zero rows - precisely the case where another request had already rotated that token - therefore resolved normally, and execution continued on to issue a new refresh token, set the session cookie and return a fresh JWT. The single-use property that rotation exists to provide was never actually asserted, and a second presentation of an already-rotated token produced no detectable reuse event. The compare-and-swap pattern that would have caught this was already in use elsewhere in the codebase for OAuth tokens.\n\n### Impact\n\nAn attacker who had captured a refresh token could present it concurrently with the legitimate holder and obtain a valid authenticated session as that user. The victim's own session continued to work and nothing recorded the duplicate use, so the takeover left no signal to the user or to an operator. Exploitation requires possession of a valid refresh token.\n\n### Credit\n\nThis issue was reported by [@komyunghan](https://github.com/komyunghan).\n",
+    "ghsa_id": "GHSA-mh65-9xcf-vf8v",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-mh65-9xcf-vf8v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mh65-9xcf-vf8v"
+      }
+    ],
+    "published_at": "2026-10-27T10:05:28Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Refresh Token Reuse via Non-Atomic Rotation",
+    "updated_at": "2026-10-27T10:05:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

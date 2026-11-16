@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-ff2q-h4x7-cpj4",
+  "aliases": [],
+  "title": "ON DELETE REJECT Errors Disclose SELECT-Hidden Referencing Record Ids in SurrealDB",
+  "summary": "### Summary\n\nWhen SurrealDB rejects a delete because an `ON DELETE REJECT` reference exists, the error reads `Cannot delete `<record>` as it is referenced by `<foreign>` with an ON DELETE REJECT clause` - and `<foreign>` is taken straight from the reference index with no permission gate. A principal who may delete a record but cannot SELECT the rows referencing it learns that a hidden referencing row exists and obtains its exact record id, one candidate record per query. This crosses the row-level SELECT permission boundary of the referencing table (`PERMISSIONS FOR select WHERE public = true` demonstrated, `NONE` equally affected). Verified on the official v3.3.0 Docker image (2026-09-24, current release) and by source review on main `18971ffb` (2026-09-04).\r\n\n\n### Details\n\nThe reference-integrity check in the delete pipeline, `surrealdb/core/src/doc/purge.rs::check_referenced` (v3.3.0 line 532), scans the reference-index range for the record being deleted and, on the `Reject` strategy, constructs the referencing record id directly from the index key (`key.foreign_table`, `key.foreign_key`) and bails with `DeleteRejectedByReference(rid.to_sql(), record.to_sql())` (error at `doc/error.rs:131` on v3.3.0; `purge.rs:359` and `err/mod.rs:1182` on HEAD). Nothing on this path consults the acting principal's SELECT permissions on the foreign record, although the same principal's SELECT on the referencing table is demonstrably filtered by the row-level predicate (the row is invisible via SELECT), and the error is surfaced as `kind: Internal` - not as a permission error - so callers cannot even distinguish an integrity signal from a denial.\r\n\r\nThe rejection itself is intended behavior (referential integrity works); the flaw is the content of the failure observable. SurrealDB's own advisory line treats hidden-data-in-error-text as a patchable vulnerability class (GHSA-6g9v-7gq3-p2c6, arithmetic operand echo). The reference/edge advisory family covers only integrity issues (GHSA-4w65-7h3j-p29h CASCADE permission bypass, GHSA-whwg-vh4f-pmmf / CVE-2026-49997 edge delete bypass); no advisory covers this disclosure.\n\n### Proof of concept\n\nEnvironment: official `surrealdb/surrealdb:latest` image (v3.3.0) on 127.0.0.1:16451, root bootstraps the schema, a record user `alice` is created by the PoC. All data synthetic. The attached archive automates every step and removes its container on exit.\r\n\r\nSchema: `asset` with `PERMISSIONS FULL`; `report` with `PERMISSIONS FOR select WHERE public = true, FOR create FULL, FOR update FULL, FOR delete NONE` and `DEFINE FIELD about TYPE record<asset> REFERENCE ON DELETE REJECT`; one hidden referencing row (`report:case_hidden`, `public = false`) pointing at `asset:doc_secret`, one public row, one unreferenced asset.\r\n\r\nControls: the boundary is real and active - the unauthenticated caller is denied, root sees both rows, alice's SELECT returns only the public row, and alice can delete an unreferenced asset:\r\n\r\n```text\r\n[PASS] C0 unauthenticated SELECT denied\r\n[PASS] C1 privileged caller sees hidden row (fixture valid)\r\n[PASS] C2 alice SELECT shows only public row (boundary holds on SELECT)\r\n[PASS] C3 alice DELETE of unreferenced record succeeds\r\n```\r\n\r\nPayload: alice deletes the referenced `asset:doc_secret`:\r\n\r\n```text\r\n[PASS] T1 reject error discloses SELECT-hidden record id 'report:case_hidden'\r\n[PASS] T1b error surfaced as Internal (not a permission denial)\r\n[PASS] T2 control: root's delete rejected by REJECT clause too\r\n```\r\n\r\nThe rejected delete returns `Cannot delete 'asset:doc_secret' as it is referenced by 'report:case_hidden' with an ON DELETE REJECT clause` - naming the exact record id that alice's SELECT cannot return. Repeatable per candidate asset, yielding a hidden-row existence and record-id oracle.\r\n\r\nAutomated run from the attached archive (`surrealdb-delete-reject-record-disclosure-PoC.zip`), executed from an extracted copy in a clean state (fresh container each run):\r\n\r\n```text\r\n$ poc/po...",
+  "published_at": "2026-11-03T15:50:30.000Z",
+  "modified_at": "2026-11-03T16:02:21.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-203",
+    "CWE-209"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-ff2q-h4x7-cpj4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-ff2q-h4x7-cpj4",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-ff2q-h4x7-cpj4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

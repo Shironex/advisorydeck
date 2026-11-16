@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-757h-cm9x-wprg",
+  "repo": {
+    "cve_id": "CVE-2026-77298",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "SeaweedFS S3 accepts external OIDC JWTs directly in Authorization: Bearer and maps them to IAM roles through the configured OIDC roleMapping. The direct S3 path validates the external OIDC token but does not enforce the selected role's trust policy before returning an authenticated principal for that role. The normal STS AssumeRoleWithWebIdentity path rejects the same JWT when the role trust policy does not trust the token's federated provider, but the direct S3 Bearer path still authenticates as the mapped role and evaluates the role's attached S3 permissions. I locally reproduced this on latest release 4.39 (db42bb49757b459551607939807017d7a9d5a94a) and current origin/master (c17aebeecf1cf47f8ff19a5007db42b7754c4772). The Docker component test creates a local OIDC issuer and JWKS, a valid RS256 JWT, an OIDC roleMapping to arn:aws:iam::role/DeniedOIDCBearerRole, and a role whose trust policy trusts a different federated provider. Negative control: IAMManager.AssumeRoleWithWebIdentity with the same JWT and role ARN fails due to trust-policy rejection. Positive proof: S3IAMIntegration.AuthenticateJWT accepts the same JWT as Authorization: Bearer, sets the principal to the rejected role ARN, and S3IAMIntegration.AuthorizeAction allows s3:PutObject from the role's attached policy. Impact: a valid federated OIDC user whose token is not allowed to assume a role through STS can still access S3 as that role by sending the raw OIDC JWT directly to the S3 API, gaining the role's attached S3 permissions such as object read/write/delete. Suggested remediation: before accepting an external OIDC token as an S3 principal for a concrete role, enforce the same web identity role trust-policy validation used by AssumeRoleWithWebIdentity, or require raw external OIDC tokens to be exchanged for STS-issued session tokens before concrete-role S3 authorization.",
+    "ghsa_id": "GHSA-757h-cm9x-wprg",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-757h-cm9x-wprg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-757h-cm9x-wprg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-77298"
+      }
+    ],
+    "published_at": "2026-08-21T03:15:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "S3 OIDC Bearer authentication bypasses IAM role trust policy",
+    "updated_at": "2026-08-21T03:15:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 4.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

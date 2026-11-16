@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-vpg5-4fc4-2h8x",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\nSeaweedFS authorizes ?list-type=2&ownershipControls= as s3:GetBucketOwnershipControls but routes it to ListObjectsV2. A low-privilege principal can therefore bypass an explicit s3:ListBucket denial and retrieve object metadata.\r\n\r\n### Details\r\nlist-type is omitted from ambiguity validation. Routing selects ListObjectsV2, while authorization resolves the recognized ownershipControls selector to the weaker action. The listing handler performs no second authorization check.\r\n\r\n### PoC\r\n\r\nOn SeaweedFS 4.46, create a bucket containing a private sentinel. Give an auditor only s3:GetBucketOwnershipControls while explicitly denying s3:ListBucket.\r\n\r\n  - ?list-type=2 → 403\r\n  - ?ownershipControls= → 403\r\n  - ?list-type=2&ownershipControls= → 200 with ListBucketResult and the sentinel metadata\r\n  - Delete the policy → combined request returns 403\r\n\r\n\r\n### Impact\r\n\r\nA valid low-privilege S3 principal can disclose every object’s key, size, ETag, and modification time despite an explicit listing denial. Object contents and write operations remain inaccessible.\r\n\r\n",
+    "ghsa_id": "GHSA-vpg5-4fc4-2h8x",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-vpg5-4fc4-2h8x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vpg5-4fc4-2h8x"
+      }
+    ],
+    "published_at": "2026-11-09T19:48:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "S3 query-routing mismatch lets ownership-controls authorization disclose object inventory",
+    "updated_at": "2026-11-09T19:48:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=4.46"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-45g7-696c-frm3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\r\nThe SeaweedFS filer's lazy-remote metadata trio - `maybeLazyFetchFromRemote` (StatFile→HeadObject), `maybeLazyListFromRemote` (ListDirectory→ListObjectsV2), and `maybeDeleteFromRemote` (DeleteFile/RemoveDirectory) - builds its remote-storage client via the **unguarded** `remote_storage.GetRemoteStorage` (`weed/filer/remote_storage.go:137`), bypassing the SSRF chokepoint `BuildGuardedRemoteStorageClient` (endpoint deny-list + DNS-rebinding-safe pinned dialer) that the CVE-2026-73080 remediation wired into every *other* remote-dial path. On a default (unauthenticated) filer this yields a server-side request forgery to arbitrary internal hosts / cloud metadata endpoints, with an object-metadata + reachability read-back oracle on the fetch path and an outbound state-changing request on the delete path. CWE-918.\r\n\r\n## Root Cause\r\nCVE-2026-73080 (GHSA-87fv-vqqr-m4jr) added a single chokepoint, `BuildGuardedRemoteStorageClient`, and wired it into exactly three dial paths that read a stored `/etc/remote/<name>.conf` mount RemoteConf: volume `FetchAndWriteNeedle` (`weed/server/volume_grpc_remote.go:405`), filer body-streaming `mountedRemoteClient`/`streamFromRemote` (`weed/server/filer_server_handlers_read.go:351`), and s3 `openRemoteStream` (`weed/s3api/s3api_object_handlers.go:3323`). The filer **lazy-remote trio** resolves the *identical* stored RemoteConf but constructs its client through the unguarded `remote_storage.GetRemoteStorage(remoteConf)` (`weed/filer/remote_storage.go:137`) → `makeRemoteStorageClient` → `s3RemoteStorageMaker.MakeWithHTTPClient(conf, nil)` (`weed/remote_storage/s3/s3_storage_client.go:42`). With `httpClient==nil` the AWS SDK default transport is used - **no** pinned/rebinding-safe dialer, **no** `validateRemoteEndpoint` deny-list, and `AllowUntrustedRemoteEndpoints` is never consulted. The lazy files pre-existed the fix (feature introduced in commit `4f692bf`, in tags 4.41-4.46) and were simply missed by the fix commit `0b5fff2`.\r\n\r\n## Impact\r\nAn unauthenticated request can coerce the filer into issuing attacker-directed requests to arbitrary internal hosts/ports (loopback, RFC1918, link-local `169.254.169.254` IMDS). On the fetch path the HEAD result - reachability, `FileSize`, `ETag`, `ContentEncoding`, `Last-Modified` - is surfaced to the caller (Content-Length/Last-Modified/Etag on `filer_server_handlers_read.go:51/186/197`), giving an internal-network port/host scanning oracle plus S3 object-metadata disclosure. The DELETE path (`maybeDeleteFromRemote`→`DeleteFile`) issues outbound S3-DELETE-shaped requests to internal hosts (write-side SSRF). Because the lazy path lacks the rebinding-safe pinned dialer, a mount whose hostname flips to an internal IP is also reachable (DNS-rebinding sub-mode) with no filer write required. The response **body** is NOT surfaced (body streaming stays on the guarded `streamFromRemote`), so read-back is metadata-only.\r\n\r\n## Proof of Concept\r\nDefault filer (unauthenticated):\r\n1. `POST http://filer:8888/etc/remote/evil.conf` with a protobuf-marshalled `RemoteConf{Name:\"evil\", Type:\"s3\", S3Endpoint:\"http://169.254.169.254\", ...}`.\r\n2. `POST http://filer:8888/etc/remote/mount.mapping` with `RemoteStorageMapping{Mappings:{\"/buckets/evil\": {Name:\"evil\", Bucket:\"b\", Path:\"/\"}}}`.\r\n3. `GET http://filer:8888/buckets/evil/probe` (uncached key) → filer issues `HeadObject` to `http://169.254.169.254/b/probe`; the HEAD outcome (reachable? size/etag) is reflected to the caller.\r\n4. `DELETE http://filer:8888/buckets/evil/probe` → outbound DELETE to the internal endpoint.\r\n\r\n## Attack Chain\r\n1. **Entry:** unauth `POST /etc/remote/evil.conf` (protobuf `RemoteConf`, `S3Endpoint` = internal host). **Guard:** `/etc` write path `weed/server/filer_server_handlers_write.go:134` - `strings.HasPrefix(r.URL.Path,\"/etc\")` only sets `so.SaveInside=true`. **Bypass proof:** no rejection; `checkPermissions` (write_autochunk.go:165) is WORM-only; default filer guard inactive (see Bypass Evidence).\r\n2. **Plant mapping:** unauth `POST /etc/remote/mount.mapping`. **Guard:** config-time endpoint validation. **Bypass proof:** `grep validateRemoteEndpoint|checkBlockedIP` in `weed/filer/` + `weed/remote_storage/` → none; conf stored verbatim.\r\n3. **Reload (no restart):** local write fires `weed/filer/filer_notify.go:78` → `onMetadataChangeEvent` → `maybeReloadRemoteStorageConfigurationAndMapping` (`weed/filer/filer_on_meta_event.go:138`); event touches `DirectoryEtcRemote` → `LoadRemoteStorageConfAndMapping()` (:145) proto-unmarshals attacker conf, replaces `storageNameToConf`.\r\n4. **Trigger dial:** unauth `GET /buckets/evil/probe` → `GetOrHeadHandler` → `filer.FindEntry` (`weed/filer/filer.go:542`) store-miss → `maybeLazyFetchFromRemote` (`filer.go:560`) → `FindRemoteStorageClient` → `remote_storage.GetRemoteStorage(attackerConf)` [UNGUARDED, `remote_storage.go:137`] → `StatFile` → `conn.HeadObject` (`s3_storage_client.go:349`). **Guard:** `BuildGuardedRemoteStorageClient` deny-list + pinned dialer. **Bypass proof:** the lazy path never calls it (grep below); default SDK transport dials the literal internal endpoint.\r\n5. **Impact:** SSRF to arbitrary internal host/port + object-metadata/reachability oracle; DELETE path gives write-side SSRF.\r\n\r\n## Bypass Evidence\r\n- **Default filer is fully unauthenticated:** `weed/server/filer_server.go:235` `fs.filerGuard = security.NewGuard([]string{}, signingKey, ...)`. Empty whitelist AND empty `jwt.filer_signing.key` → `guard.go` `isWriteActive = !isEmptyWhiteList || len(signingKey)!=0 = false`; `WhiteList()` returns the handler unwrapped and `IsWhiteListed` returns true. Both read and write open by default (IP-whitelist feature disabled per issue #7094, explicit `glog.Warningf` at `filer_server.go:233`).\r\n- **No guard on the lazy path:** `grep` over `filer_lazy_remote.go`, `filer_lazy_remote_listing.go`, `remote_storage.go` (HEAD and tag 4.46) for `validateRemoteEndpoint|checkBlockedIP|AllowUntrusted|BuildGuarded|newGuardedHTTPClient|guardedRemoteClient` → NONE. Contrast: the body-streaming read path `mountedRemoteClient` (`filer_server_handlers_read.go:351`) DOES call `BuildGuardedRemoteStorageClient`.\r\n- **Metadata-only read-back:** `StatFile`→`HeadObject` returns size/etag/mtime/content-encoding only; response body never surfaced by the lazy path → C:L (seed was C:H).\r\n\r\n## Affected Versions\r\n`>= 4.41, <= 4.46` (feature introduced in 4.41 commit `4f692bf`; present and unfixed on master HEAD `3c9a4bb`). Verified: `git show 4.46:weed/filer/remote_storage.go` shows unguarded `GetRemoteStorage` at line 137; `git log 4.46..HEAD` on the three lazy files is empty (no incoming fix).\r\n\r\n## Suggested Fix\r\nRoute `FilerRemoteStorage.GetRemoteStorageClient` (`weed/filer/remote_storage.go:137`) - and the lazy trio - through `BuildGuardedRemoteStorageClient`, or add the endpoint deny-list + DNS-rebinding-safe pinned dialer + `checkGcsCredentials`/`allowedTypes` gate to `maybeLazyFetchFromRemote` / `maybeLazyListFromRemote` / `maybeDeleteFromRemote`, mirroring the sibling `streamFromRemote` fix (`filer_server_handlers_read.go:351`).\r\n\r\n## Note\r\nThis is an independent, unfixed SSRF sink in the filer lazy-remote path - NOT a bypass of the CVE-2026-73080 fix (that fix is present and correct on its own three paths). It is not covered by GHSA-87fv-vqqr-m4jr, GHSA-cprc-whx4-v3f5 (azure), or GHSA-8wr4-8f39-p7x2 (non-s3), all of which are scoped exclusively to `VolumeServer.FetchAndWriteNeedle`.\r\n\r\n---\r\nReported by **zx (Jace)** - GitHub: @manus-use",
+    "ghsa_id": "GHSA-45g7-696c-frm3",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-45g7-696c-frm3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-45g7-696c-frm3"
+      }
+    ],
+    "published_at": "2026-11-09T19:50:28Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated SSRF in SeaweedFS filer lazy-remote fetch/list/delete via unguarded GetRemoteStorage",
+    "updated_at": "2026-11-09T19:50:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 4.41, <= 4.46"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

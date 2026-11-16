@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-53931",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:L/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-441",
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe spreadsheet-import endpoint `axiosRequestMake` could be used as a generic\nHTTP proxy. Before the fix it was reachable unauthenticated, and its\nURL-extension allowlist was a regex tested against the full URL string, so\nURLs whose query string ended in `.csv` (for example\n`https://example.com/robots.txt?.csv`) satisfied the gate even though the\nunderlying request was for `robots.txt`.\n\n### Details\nThree layers of protection now apply to the endpoint:\n\n- The controller is decorated with `@UseGuards(DataApiLimiterGuard, GlobalGuard)`\n  and `@Acl('fetchViaUrl')`, so unauthenticated callers and callers without\n  the editor role are rejected before the request body is processed.\n- The extension allowlist is tested against `url.pathname` only. Callers can\n  no longer satisfy the regex by appending a `.csv` suffix to the query\n  string.\n- The downstream axios call is wired to `useAgent(url)` from\n  `request-filtering-agent`, which blocks RFC 1918, loopback, link-local,\n  and other private destinations at the socket layer.\n\n### Impact\nUnauthenticated callers could previously coerce the NocoDB process to issue\nHTTP requests on their behalf, including to internal services reachable from\nthe host. With the auth gate in place and the pathname-anchored extension\ncheck combined with socket-layer destination filtering, the endpoint is no\nlonger usable as a generic proxy and can no longer reach private ranges.\n\n### Credit\nThis issue was reported by the [GitHub Security Lab](https://securitylab.github.com/)\n([@p-](https://github.com/p-), [@m-y-mo](https://github.com/m-y-mo)).",
+    "ghsa_id": "GHSA-hmcr-rmjq-47qr",
+    "html_url": "https://github.com/advisories/GHSA-hmcr-rmjq-47qr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmcr-rmjq-47qr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53931"
+      }
+    ],
+    "published_at": "2026-06-17T14:08:26Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-hmcr-rmjq-47qr",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-53931",
+      "https://github.com/advisories/GHSA-hmcr-rmjq-47qr"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Server-Side Request Forgery via Spreadsheet Import Endpoint",
+    "updated_at": "2026-07-20T21:20:30Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 0.301.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hmcr-rmjq-47qr",
+  "repo": {
+    "cve_id": "CVE-2026-53931",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-441"
+    ],
+    "description": "### Summary\nThe spreadsheet-import endpoint `axiosRequestMake` could be used as a generic\nHTTP proxy. Before the fix it was reachable unauthenticated, and its\nURL-extension allowlist was a regex tested against the full URL string, so\nURLs whose query string ended in `.csv` (for example\n`https://example.com/robots.txt?.csv`) satisfied the gate even though the\nunderlying request was for `robots.txt`.\n\n### Details\nThree layers of protection now apply to the endpoint:\n\n- The controller is decorated with `@UseGuards(DataApiLimiterGuard, GlobalGuard)`\n  and `@Acl('fetchViaUrl')`, so unauthenticated callers and callers without\n  the editor role are rejected before the request body is processed.\n- The extension allowlist is tested against `url.pathname` only. Callers can\n  no longer satisfy the regex by appending a `.csv` suffix to the query\n  string.\n- The downstream axios call is wired to `useAgent(url)` from\n  `request-filtering-agent`, which blocks RFC 1918, loopback, link-local,\n  and other private destinations at the socket layer.\n\n### Impact\nUnauthenticated callers could previously coerce the NocoDB process to issue\nHTTP requests on their behalf, including to internal services reachable from\nthe host. With the auth gate in place and the pathname-anchored extension\ncheck combined with socket-layer destination filtering, the endpoint is no\nlonger usable as a generic proxy and can no longer reach private ranges.\n\n### Credit\nThis issue was reported by the [GitHub Security Lab](https://securitylab.github.com/)\n([@p-](https://github.com/p-), [@m-y-mo](https://github.com/m-y-mo)).\n",
+    "ghsa_id": "GHSA-hmcr-rmjq-47qr",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-hmcr-rmjq-47qr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmcr-rmjq-47qr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53931"
+      }
+    ],
+    "published_at": "2026-06-13T11:24:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Server-Side Request Forgery via Spreadsheet Import Endpoint",
+    "updated_at": "2026-06-13T11:24:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-q83r-f38r-rwvj",
+  "aliases": [],
+  "title": "Surrealism WASI socket allowlist ignores deny_net, enabling SSRF via hostname resolving to a private IP",
+  "summary": "## Summary\n\nSurrealDB's Surrealism WASM plugin runtime builds the outbound network allowlist for guest WASI Preview 2 sockets from a module's declared `allow_net` entries without ever re-checking the resolved IP addresses against the server's `deny_net` policy or against private, loopback, and link-local ranges. An authenticated principal who can load and invoke a Surrealism module (with the experimental `surrealism` capability enabled) can declare `allow_net = [\"attacker-controlled-hostname\"]` whose DNS record points at a forbidden address such as a cloud metadata endpoint (169.254.169.254), a loopback service (127.0.0.1), or an RFC1918 host. Load-time validation inspects the entry only as a host string and admits it; the runtime then resolves the hostname and stores the resulting private or denied IP directly in the guest socket filter, so guest WASM can open a raw TCP or UDP connection to an operator-forbidden internal endpoint. This is server-side request forgery over arbitrary TCP and UDP protocols and ports, defeating the exact `deny_net` egress guard that several prior SurrealDB SSRF advisories were published to enforce.\n\n## Root Cause\n\nSurrealDB enforces outbound network policy through an allow-list combined with a deny-list (`Capabilities::allows_network_target` = `allow_net.matches(target) && !deny_net.matches(target)`). For the reqwest-based HTTP and JWKS clients this policy is completed at DNS time by `FilteringResolver`, which re-checks each resolved IP against the deny-list and private-IP ranges. The Surrealism raw-socket path has no equivalent re-check, and load-time validation compares only host strings, so a hostname that resolves to a denied or private IP is never blocked.\n\nTwo independent gaps combine:\n\n1. Load-time validation is string-only. `validate_surrealism_capabilities` checks each `allow_net` entry via `NetTarget::from_str` and `allows_network_target`. An IP-range `deny_net` entry is a `NetTarget::IPNet`; matching it against a domain target (`NetTarget::Host(Domain)`) falls through to the `_ => false` arm of `NetTarget::matches`, so the deny-list never matches a hostname. A literal-IP `allow_net` entry would be rejected here, but a hostname is admitted.\n2. Runtime resolution has no deny or private-IP filter. `resolve_allow_net` resolves the admitted hostname to its IP and stores `ResolvedNetAllow::Net(<resolved IP>)` (portless entries match on any port). The WASI socket gate installed by `wasi_context::build` (`socket_addr_check`) admits an outbound connection whenever any allow filter matches the destination, with no consultation of `deny_net` or private-IP ranges.\n\n```text\nAffected components (repository-relative paths):\n- surrealism/runtime/src/net_allow.rs\n    resolve_allow_net / resolve_hostname (lines 46-107): resolves module allow_net\n    hostnames to IPs and stores them for the WASI allowlist with no deny/private filter;\n    ResolvedNetAllow::matches_socket_addr (lines 20-27) is allow-only and ignores port.\n- surrealism/runtime/src/wasi_context.rs\n    build (lines 114-155): installs socket_addr_check (lines 137-146) that admits any\n    outbound connect matching an allow filter, with no deny_net/private-IP gate, and\n    leaves TCP/UDP enabled for a non-empty allowlist.\n- surrealdb/core/src/dbs/capabilities.rs\n    validate_surrealism_capabilities (lines 1006-1057): string-only load check;\n    NetTarget::matches (lines 261-284) returns false for an IPNet deny entry against a\n    Host(Domain) target, so a hostname resolving to a denied IP passes.\n```\n\n## Impact\n\nAn attacker who can load and invoke a Surrealism module against a server with the experimental `surrealism` capability enabled can cause the server to open raw TCP and UDP connections to endpoints the operator explicitly forbade through `deny_net`. Prerequisites: the experimental `surrealism` capability is enabled; the attacker is authenticated with enough privilege to upload a `.surli` module to a bucket and invoke it; and the operato...",
+  "published_at": "2026-11-03T15:51:18.000Z",
+  "modified_at": "2026-11-03T15:51:18.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q83r-f38r-rwvj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q83r-f38r-rwvj",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q83r-f38r-rwvj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

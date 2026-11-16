@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-wm6j-2649-pv75",
+  "repo": {
+    "cve_id": "CVE-2026-7259",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-476"
+    ],
+    "description": "The following PHP code triggers a segmentation fault due to a NULL pointer dereference:\r\n\r\n```php\r\n<?php\r\nmb_regex_encoding('iso-8859-11');\r\n$test_str = 'x';\r\n\r\nif (mb_ereg_search_init($test_str)) {\r\n    $val = mb_ereg_search_pos(\"x\");\r\n    var_dump($val);\r\n} else {\r\n    var_dump(false);\r\n}\r\n```\r\n\r\nThe crash occurs due to a mismatch between Oniguruma and mbfl encoding support:\r\n\r\n1. **Oniguruma** (the regex library) supports `iso-8859-11` (Thai encoding)\r\n2. **mbfl** (mbstring's internal encoding library) does **NOT** support `iso-8859-11`\r\n\r\nhttps://github.com/php/php-src/blob/0d9ff00394d9447992bb66ccb1cef3edf70576bd/ext/mbstring/php_mbregex.c#L404-L413\r\n\r\nWhen `mb_regex_encoding('iso-8859-11')` is called:\r\n- `php_mb_regex_set_mbctype()` validates the encoding against Oniguruma → **succeeds**\r\n- `mbfl_name2encoding('iso-8859-11')` is called → returns **NULL**\r\n- `MBREX(current_mbctype_mbfl_encoding)` is set to **NULL**\r\n\r\nLater, when `mb_ereg_search_init()` calls `php_mb_check_encoding()`:\r\n- `php_mb_regex_get_mbctype_encoding()` returns NULL\r\n- `php_mb_check_encoding()` dereferences the `NULL` pointer → **SEGV**\r\n\r\nThis vulnerability allows a denial of service (DoS). An attacker can reliably crash a PHP process when user-controlled input influences the encoding passed to `mb_regex_encoding()` and the application subsequently uses mbregex search APIs.\r\n\r\nEnumeration of all Oniguruma-supported encodings vs mbfl support:\r\n\r\n| Encoding / aliases | Oniguruma | mbfl | Status |\r\n|--------------------|-----------|------|--------|\r\n| iso-8859-1 … iso-8859-10 | ✓ | ✓ | Safe |\r\n| iso-8859-11, ISO8859-11 | ✓ | ✗ | **CRASH** |\r\n| iso-8859-13 … iso-8859-16 | ✓ | ✓ | Safe |\r\n| EUC-JP aliases: UJIS | ✓ | ✗ | **CRASH** |\r\n| EUC-CN aliases: GB-2312 | ✓ | ✗ | **CRASH** |\r\n| KOI8 aliases: KOI-8R | ✓ | ✗ | **CRASH** |\r\n| ASCII aliases: US_ASCII, ISO646 | ✓ | ✗ | **CRASH** |\r\n| KOI8 (no suffix) | ✓ | ✗ | Safe (rejected by mb_regex_encoding()) |\r\n| All other encodings | ✓ | ✓ | Safe |\r\n\r\n### Credits\r\nViet Hoang Luu - The University of Melbourne\r\nAmirmohammad Pasdar - The University of Melbourne\r\nWachiraphan Charoenwet - The University of Melbourne\r\nShaanan Cohney - The University of Melbourne\r\nToby Murray - The University of Melbourne\r\nVan-Thuan Pham - The University of Melbourne\r\n",
+    "ghsa_id": "GHSA-wm6j-2649-pv75",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-wm6j-2649-pv75",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wm6j-2649-pv75"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7259"
+      }
+    ],
+    "published_at": "2026-05-07T12:57:13Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Null pointer dereference in php_mb_check_encoding() via mb_ereg_search_init()",
+    "updated_at": "2026-05-07T12:57:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

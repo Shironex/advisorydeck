@@ -1,0 +1,92 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\nAn Insecure Direct Object Reference (IDOR) vulnerability exists at the **GET /api/v1/organization/customer-default-source** endpoint. This flaw allows an authenticated attacker to bypass authorization checks and retrieve sensitive payment and profile information of other customers by manipulating the customerId parameter. The exposed data includes email addresses, account balances, currency types, and internal billing configurations.\n\n### Details\nThe application fails to implement proper object-level access control. While the endpoint requires a valid session/token, it does not verify if the requesting user has the authority to access the specific customerId provided in the query string.\n\nWhen a request is made to:\nGET /api/v1/organization/customer-default-source?customerId=cus_XXXX\n\nThe server processes the request based solely on the existence of a valid session, returning the data associated with the ID regardless of the data owner's identity. Since customer IDs follow a predictable pattern (Stripe-formatted cus_...), an attacker could potentially enumerate these IDs to scrape customer data.\n\n### PoC\n1. To reproduce the vulnerability, follow these steps:\n\n2. Log in to your account at cloud.flowiseai.com.\n\n3. Capture a request to the payment source endpoint using a proxy tool (e.g., Burp Suite).\n\n4. Change the customerId parameter in the URL to a target user's ID (e.g., cus_U9ajkQvu0e67uH).\n\nExecute the request:\n```\nGET /api/v1/organization/customer-default-source?customerId=cus_U9ajkQvu0e67uH HTTP/2\nHost: cloud.flowiseai.com\nCookie: [YOUR_AUTHENTICATED_COOKIES]\n...\n```\nResponse: \n```\n{\n  \"id\": \"cus_U9ajkQvu0e67uH\",\n  \"object\": \"customer\",\n  \"email\": \"truongnguyen210044@gmail.com\",\n  \"balance\": 0,\n  \"currency\": \"usd\",\n  \"invoice_settings\": {\n    \"custom_fields\": null,\n    \"default_payment_method\": null\n  },\n  \"livemode\": true\n  ...\n}\n```\nThe server returns a 200 OK status with the private data of the target customer.\n### Impact\n- Vulnerability Type: Broken Access Control (IDOR).\n\n- Impacted Parties: All registered users and organizations on the FlowiseAI Cloud platform.\n\n- Consequences: * Data Privacy Breach: Exposure of Personally Identifiable Information (PII) such as email addresses.\n- Financial Information Leakage: Disclosure of account balances, currency settings, and invoice metadata.\n\n- Compliance Risk: Potential violation of data protection regulations (e.g., GDPR) due to unauthorized access to user billing profiles.",
+    "ghsa_id": "GHSA-2364-jh4q-m9vm",
+    "html_url": "https://github.com/advisories/GHSA-2364-jh4q-m9vm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2364-jh4q-m9vm"
+      }
+    ],
+    "published_at": "2026-08-04T14:16:46Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-2364-jh4q-m9vm",
+      "https://github.com/FlowiseAI/Flowise/pull/6321",
+      "https://github.com/FlowiseAI/Flowise/commit/4d7899d02ca370a5510406be5c91483085a412f9",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.3",
+      "https://github.com/advisories/GHSA-2364-jh4q-m9vm"
+    ],
+    "severity": "medium",
+    "summary": "Flowise: IDOR vulnerability exists at the GET /api/v1/organization/customer-default-source endpoint",
+    "updated_at": "2026-08-04T14:16:47Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-2364-jh4q-m9vm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\r\nAn Insecure Direct Object Reference (IDOR) vulnerability exists at the **GET /api/v1/organization/customer-default-source** endpoint. This flaw allows an authenticated attacker to bypass authorization checks and retrieve sensitive payment and profile information of other customers by manipulating the customerId parameter. The exposed data includes email addresses, account balances, currency types, and internal billing configurations.\r\n\r\n### Details\r\nThe application fails to implement proper object-level access control. While the endpoint requires a valid session/token, it does not verify if the requesting user has the authority to access the specific customerId provided in the query string.\r\n\r\nWhen a request is made to:\r\nGET /api/v1/organization/customer-default-source?customerId=cus_XXXX\r\n\r\nThe server processes the request based solely on the existence of a valid session, returning the data associated with the ID regardless of the data owner's identity. Since customer IDs follow a predictable pattern (Stripe-formatted cus_...), an attacker could potentially enumerate these IDs to scrape customer data.\r\n\r\n### PoC\r\n1. To reproduce the vulnerability, follow these steps:\r\n\r\n2. Log in to your account at cloud.flowiseai.com.\r\n\r\n3. Capture a request to the payment source endpoint using a proxy tool (e.g., Burp Suite).\r\n\r\n4. Change the customerId parameter in the URL to a target user's ID (e.g., cus_U9ajkQvu0e67uH).\r\n\r\nExecute the request:\r\n```\r\nGET /api/v1/organization/customer-default-source?customerId=cus_U9ajkQvu0e67uH HTTP/2\r\nHost: cloud.flowiseai.com\r\nCookie: [YOUR_AUTHENTICATED_COOKIES]\r\n...\r\n```\r\nReponse: \r\n```\r\n{\r\n  \"id\": \"cus_U9ajkQvu0e67uH\",\r\n  \"object\": \"customer\",\r\n  \"email\": \"truongnguyen210044@gmail.com\",\r\n  \"balance\": 0,\r\n  \"currency\": \"usd\",\r\n  \"invoice_settings\": {\r\n    \"custom_fields\": null,\r\n    \"default_payment_method\": null\r\n  },\r\n  \"livemode\": true\r\n  ...\r\n}\r\n```\r\nThe server returns a 200 OK status with the private data of the target customer.\r\n### Impact\r\n- Vulnerability Type: Broken Access Control (IDOR).\r\n\r\n- Impacted Parties: All registered users and organizations on the FlowiseAI Cloud platform.\r\n\r\n- Consequences: * Data Privacy Breach: Exposure of Personally Identifiable Information (PII) such as email addresses.\r\n- Financial Information Leakage: Disclosure of account balances, currency settings, and invoice metadata.\r\n\r\n- Compliance Risk: Potential violation of data protection regulations (e.g., GDPR) due to unauthorized access to user billing profiles.\r\n### References\r\n\r\n- FPT\r\n\r\n- FPT Night Wolf",
+    "ghsa_id": "GHSA-2364-jh4q-m9vm",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-2364-jh4q-m9vm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2364-jh4q-m9vm"
+      }
+    ],
+    "published_at": "2026-07-27T15:27:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IDOR vulnerability exists at the GET /api/v1/organization/customer-default-source endpoint",
+    "updated_at": "2026-07-27T15:27:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

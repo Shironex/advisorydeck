@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-cph5-pm57-9w9c",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\nA path traversal vulnerability exists in SurrealDB's direct filesystem bucket implementation (`surrealdb/surrealdb`). In `surrealdb/core/src/buc/controller.rs` and `store/file.rs`, key permissions are checked against the un-normalized object key, but the backend path collapses `..` sequences via path cleaning.\n\n### Vulnerability Details\n- Affected Files: `surrealdb/core/src/buc/controller.rs` (`BucketController::check_permission`), `surrealdb/core/src/buc/store/file.rs` (`FileStore::to_os_path`)\n- Mechanism: Access control policy verifies the requested object key before resolution. However, `FileStore::to_os_path` normalizes relative directory components via `.clean()` without calling `check_no_traversal` (which is only present on `PrefixedStore`). A tenant authorized only for keys within `/public/` can supply a key such as `/public/../private/confidential.txt`, which passes permission evaluation and resolves to arbitrary files within the storage root.\n- Impact: Unauthorized read, write, and deletion of files outside permitted key boundaries.\n\n### Recommended Remediation\nEnforce strict traversal checking (`check_no_traversal`) on all direct `FileStore` key inputs prior to permission evaluation and file system operations.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that runs the traversal check on the key itself for a direct `file://` bucket, so a `..` key can no longer cross the bucket's key-based ACL boundary.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(buc): filesystem bucket path traversal via symlinks, Windows backslashes, and direct-bucket keys` (commit `5edf982bf0`)\n",
+    "ghsa_id": "GHSA-cph5-pm57-9w9c",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cph5-pm57-9w9c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cph5-pm57-9w9c"
+      }
+    ],
+    "published_at": "2026-11-03T15:51:13Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Direct Filesystem Buckets Permit Path Traversal Across Key-Based ACL Boundaries",
+    "updated_at": "2026-11-03T15:51:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-v3jv-rmh2-635j",
+  "repo": {
+    "cve_id": "CVE-2026-73611",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nUnder proxy authentication with a non-default `auth.logoutPage`, File Browser waives the JWT expiration inside its shared authentication middleware. An expired but validly signed token therefore keeps authenticating every protected route, administrative ones included, and can be exchanged for a fresh token at `/api/renew`, so a token stolen before it expired stays usable indefinitely. Reported against v2.63.2; introduced in v2.50.0 and verified through v2.63.21.\r\n\r\n## Details\r\n\r\nIn `http/auth.go`, `renewableErr` treats `jwt.ErrTokenExpired` as renewable whenever the auth method is proxy and the logout page is non-default, and `withUser` consults it on every request instead of only on a renewal path:\r\n\r\n```go\r\n\ttoken, err := request.ParseFromRequest(r, &extractor{}, keyFunc, request.WithClaims(&tk), request.WithParser(p))\r\n\tif (err != nil || !token.Valid) && !renewableErr(err, d) {\r\n\t\treturn http.StatusUnauthorized, nil\r\n\t}\r\n```\r\n\r\nThe middleware then loads the user named by the expired claims and continues. `withAdmin` is layered on `withUser`, so administrative routes inherit the behavior, and `renewHandler` - also built on `withUser` - hands out a new token.\r\n\r\nWaiving the expiration is intentional: under proxy authentication the trusted proxy, not the token, owns the session lifetime (see #3884, which for the same reason disables the frontend idle timer in this configuration). The defect is that the waiver was granted on the strength of the token alone, without checking that the proxy still asserts that identity.\r\n\r\n## PoC\r\n\r\nPreconditions:\r\n\r\n- File Browser uses proxy authentication.\r\n- `auth.logoutPage` is configured to a non-default value.\r\n- The attacker holds a previously valid signed token. Its permissions bound the impact.\r\n- Neither JWT forgery nor a bypass of the trusted proxy is required.\r\n\r\nSteps:\r\n\r\n1. Start an instance with proxy authentication, a non-default logout page, and `tokenExpirationTime=1s` for an accelerated test.\r\n2. Log in through the trusted proxy header as an administrator test account and keep the issued token.\r\n3. Wait for the configured token lifetime to elapse.\r\n4. Request a protected raw file with `X-Auth: <expired token>`. It returns `200` with the protected content and `X-Renew-Token: true`.\r\n5. Request `/api/settings` with the same expired token. It returns `200`.\r\n6. Request `/api/renew` with the same expired token. It returns `200` and a new token.\r\n\r\n## Impact\r\n\r\nIn the affected configuration, JWT expiration cannot end a session. A token captured before it expired continues to read protected data with the permissions it carries - administrative settings when it belongs to an administrator - and can be refreshed indefinitely.\r\n\r\n## Patches\r\n\r\nFixed in v2.63.22. The expiration is now waived only when the configured proxy header still names the user the token was issued for, which the trusted proxy asserts on any genuine request; an expired token presented on its own, or alongside a different identity, is rejected with `401`.\r\n\r\n## Workarounds\r\n\r\nLeave `auth.logoutPage` at its default value, which disables the waiver entirely and restores ordinary token expiration.\r\n\r\n## References\r\n\r\n- Fix: https://github.com/filebrowser/filebrowser/commit/72faf6dd3c85628e332d3e567124b86708ce2695\r\n- Pull request: https://github.com/filebrowser/filebrowser/pull/6053\r\n",
+    "ghsa_id": "GHSA-v3jv-rmh2-635j",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-v3jv-rmh2-635j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v3jv-rmh2-635j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73611"
+      }
+    ],
+    "published_at": "2026-07-27T15:33:19Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Expired JWTs accepted under proxy auth with a custom logout page",
+    "updated_at": "2026-08-21T06:37:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "v2.63.22",
+        "vulnerable_version_range": ">= 2.50.0, <= 2.63.21"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

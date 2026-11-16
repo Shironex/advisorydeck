@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-c4f6-59xq-95ww",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 2.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:L/VI:N/VA:N/SC:L/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nn8n's OAuth2 credential flow routed discovery and dynamic-client-registration requests through its SSRF-protected HTTP client, but the authorization-code-to-access-token exchange used a separate HTTP client with no SSRF guard. Any user able to create a credential could point its access-token URL at an internal address and complete the OAuth2 flow themselves, which caused n8n to send its fixed-shape token-exchange POST there. The attacker could not control the request's method, headers, or body beyond the OAuth2 exchange's own fields. The internal target's response was reflected back to them, but only to the extent that target responded usefully to this specific request shape, which bounded both what could be probed and what could be learned.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.69, 2.33.4, and 2.34.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Restrict network egress from the n8n host to block access to internal and link-local address ranges at the network level.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-c4f6-59xq-95ww",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-c4f6-59xq-95ww",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c4f6-59xq-95ww"
+      }
+    ],
+    "published_at": "2026-08-05T14:18:46Z",
+    "references": [],
+    "severity": "low",
+    "summary": "SSRF Protection Bypass via OAuth2 Credential Token Exchange Reflects Internal Response Body",
+    "updated_at": "2026-08-05T14:18:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.69",
+        "vulnerable_version_range": "< 1.123.69"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.34.1",
+        "vulnerable_version_range": "< 2.34.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.33.4",
+        "vulnerable_version_range": "< 2.33.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-j96w-qm45-vgp2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\n\nField references stored in an AI field's prompt were rendered as HTML in a tooltip, so a user who could edit the prompt could execute script in the browser of anyone who later opened that field's configuration.\n\n### Details\n\nIn `PromptWithFields.vue`, the mention renderer placed the verbatim contents of a prompt's `{...}` reference into a data attribute, and the tooltip was built by interpolating that attribute into an HTML string passed to the tooltip library with HTML rendering enabled. Neither step escaped or sanitized the value, so markup stored in the prompt was parsed as HTML when the tooltip was created. The same rendering pattern in row comments had been corrected earlier, but the correction was never applied to this component.\n\n### Impact\n\nSame-origin script execution in the browser of a user who opens the affected field's configuration. The payload runs in the NocoDB origin and can read the session token from `localStorage[\"nocodb-gui-v2\"]`, so an attacker can call authenticated APIs as the victim within that victim's permissions. Storing the payload requires permission to configure an AI field, which needs the Creator role or above.\n\n### Credit\n\nThis issue was reported by [@geo-chen](https://github.com/geo-chen).\n",
+    "ghsa_id": "GHSA-j96w-qm45-vgp2",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-j96w-qm45-vgp2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j96w-qm45-vgp2"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:47Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored Cross-Site Scripting via AI Field Prompt Tooltip",
+    "updated_at": "2026-10-27T10:06:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.2",
+        "vulnerable_version_range": "< 2026.06.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

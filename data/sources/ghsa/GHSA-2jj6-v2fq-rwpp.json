@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-2jj6-v2fq-rwpp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "A record user could read values hidden from them by field-level SELECT permissions through `COMPUTED` fields. On the default read path, a readable `COMPUTED` field derived from a hidden field carried that field's value. In the `RETURN` clause of a write, a `COMPUTED` field that was itself hidden could still be returned.\n\n**Reads.** The streaming query planner (the default for read-only statements since 3.0.0) evaluated a record's `COMPUTED` fields before removing the fields the caller may not select, and did not evaluate them again afterwards. A readable `COMPUTED` field whose expression read a hidden stored field therefore kept that field's value:\n\n```surql\nDEFINE FIELD secret  ON item PERMISSIONS FOR select NONE;\nDEFINE FIELD derived ON item COMPUTED secret PERMISSIONS FOR select FULL;\n\n-- As a record user: `secret` is removed, but `derived` still held its value.\nSELECT * FROM item:one;\n```\n\nThe same happened when the expression read the field through the record's own id (`COMPUTED id.secret`), and when the record was reached through a record link or a graph traversal. The legacy executor evaluates `COMPUTED` fields again against the permission-reduced record, and returned `NONE` in these cases.\n\n**Writes.** A `COMPUTED` field hidden by its own SELECT permission was removed from a statement's output only by a final pass that matched output field names. A write statement's `RETURN` clause could read the field through `$before` or `$after`, under an alias, or with `RETURN VALUE`, which put it where that pass did not look. For example, `UPDATE person:one SET name = 'x' RETURN { before: $before, after: $after }` returned the hidden field in both documents. Writes take this path whichever planner strategy is configured. The legacy executor's `SELECT` had the same gap for an aliased field or a `WHERE` condition on it.\n\n### Impact\n\nOnly schemas with `COMPUTED` fields are affected: either a readable `COMPUTED` field that reads a field hidden from the caller, or a `COMPUTED` field hidden by its own SELECT permission.\n\nWhat an attacker **can** do:\n\n- As a record user with SELECT on a table, read a hidden stored field wherever a readable `COMPUTED` field on that table derives from it, just by selecting the record (default configuration).\n- As a record user allowed to create, update, upsert or delete records in a table, read a `COMPUTED` field that is hidden from them, as it was before and after the write, through the statement's `RETURN` clause.\n- Where a `SELECT` ran on the legacy executor, read or test such a hidden `COMPUTED` field through an alias or a `WHERE` condition.\n\nWhat it **can't** do:\n\n- Read hidden fields that no `COMPUTED` field reads: hidden stored fields are still removed from every row.\n- Reach records the caller could not already select or write. This issue concerns field-level permissions only, and does not bypass table-level permissions.\n- Affect system users (root, namespace or database users), who bypass `PERMISSIONS` clauses, or gain write access the caller did not already have (confidentiality only).\n\n### Patches\n\nWhen a hidden stored field has been removed, streaming reads now evaluate `COMPUTED` fields again against the permission-reduced record before applying each `COMPUTED` field's own SELECT permission, which is the order the legacy executor uses. A `COMPUTED` field that reads its own record through `id` now sees that same reduced record, and never a value left in storage by a field that was later redefined as `COMPUTED`. Hidden `COMPUTED` fields are also removed from every permission-reduced document before a projection, a `RETURN` clause, `$before`/`$after` or a `WHERE` condition can read them.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- For reads, force the legacy executor with `--planner-strategy compute-only` (env `SURREAL_PLANNER_STRATEGY`, or `PlannerStrategy::ComputeOnly` in the embedded SDK's `Capabilities`). Before 3.3.0 the legacy executor let a `COMPUTED` field that is itself hidden be read through an alias or a `WHERE` condition, so use this only where no `COMPUTED` field relies on its own SELECT permission.\n- Give a readable `COMPUTED` field the same SELECT permission as the fields its expression reads.\n- Do not rely on a `COMPUTED` field's own SELECT permission to hide it from users who can create, update, upsert or delete records in its table. The planner strategy does not affect writes.\n- Where record users do not need to send their own queries, deny them arbitrary queries with the `--deny-arbitrary-query` capability flag.\n\n### References\n\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- `Fix field-level select permissions on computed fields, array fields and RETURN DIFF` (included in SurrealDB 3.3.0)\n- `fix(exec): re-derive computed fields against the reduced record` (included in SurrealDB 3.3.0)\n- `fix(exec): resolve a computed field's self-dereference against the reduced row` (included in SurrealDB 3.3.0)\n- `fix(exec): sanitise self-reads when a computed name shadows a stored key` (included in SurrealDB 3.3.0)\n- `fix(exec): derive the self-read view where computed fields are evaluated` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [santhreal](https://github.com/santhreal) for reporting this issue.\n",
+    "ghsa_id": "GHSA-2jj6-v2fq-rwpp",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-2jj6-v2fq-rwpp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2jj6-v2fq-rwpp"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:24Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "COMPUTED fields expose values hidden by field-level SELECT permissions",
+    "updated_at": "2026-09-28T11:15:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.0.0, < 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

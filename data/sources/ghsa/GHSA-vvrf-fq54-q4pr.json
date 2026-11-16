@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-vvrf-fq54-q4pr",
+  "repo": {
+    "cve_id": "CVE-2026-47733",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\nThe `ImageElement` component in `packages/gazzodown` renders user-controlled `src` values directly into `<a href>` and `<img src>` attributes without protocol sanitization. Unlike the analogous `LinkSpan` component - which uses `sanitizeUrl` to block `javascript:`, `data:`, and `vbscript:` protocols - `ImageElement` passes the raw URL through unchanged. An authenticated user can post a markdown image with a `javascript:` URL that, if clicked on an older browser, would execute arbitrary JavaScript in the viewer's session.\r\n\r\n## Severity\r\n**Medium** (CVSS 3.1: 4.4)\r\n\r\n`CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:L/I:L/A:N`\r\n\r\n- **Attack Vector:** Network - any authenticated user can post markdown messages\r\n- **Attack Complexity:** High - exploitation requires the victim to use a browser that does not block `javascript:` navigation with `target='_blank'` (all modern browsers do block this)\r\n- **Privileges Required:** Low - any authenticated user can post messages\r\n- **User Interaction:** Required - victim must click the rendered image link\r\n- **Scope:** Changed - JavaScript executes in the victim's browser session, crossing the application boundary\r\n- **Confidentiality Impact:** Low - could access session tokens or page content if executed\r\n- **Integrity Impact:** Low - could perform actions as the victim if executed\r\n- **Availability Impact:** None\r\n\r\n## Affected Component\r\n- `packages/gazzodown/src/elements/ImageElement.tsx` - `ImageElement` (line 52)\r\n\r\n## CWE\r\n- **CWE-79**: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')\r\n\r\n## Description\r\n\r\n### Missing sanitizeUrl on ImageElement\r\nThe `ImageElement` component renders the `src` prop directly into the `href` attribute of an `<a>` tag without any protocol sanitization:\r\n\r\n```tsx\r\n// packages/gazzodown/src/elements/ImageElement.tsx:48-56\r\nconst ImageElement = ({ src, alt }: ImageElementProps): ReactElement => {\r\n    const plainAlt = useMemo(() => flattenMarkup(alt), [alt]);\r\n\r\n    return (\r\n        <a href={src} target='_blank' rel='noopener noreferrer' title={plainAlt}>\r\n            <img src={src} data-title={src} alt={plainAlt} style={style} />\r\n        </a>\r\n    );\r\n};\r\n```\r\n\r\n### Inconsistent defense with LinkSpan\r\nThe `LinkSpan` component handles the analogous case for markdown links and correctly applies `sanitizeUrl`:\r\n\r\n```tsx\r\n// packages/gazzodown/src/elements/LinkSpan.tsx:18-20\r\nconst LinkSpan = ({ href, label }: LinkSpanProps): ReactElement => {\r\n    // Should sanitize 'href' if any of the insecure prefixes are present - see DSK-34 on Jira\r\n    const sanitizedHref = sanitizeUrl(href);\r\n```\r\n\r\nThe `sanitizeUrl` function (at `packages/gazzodown/src/elements/sanitizeUrl.ts`) specifically blocks dangerous protocols:\r\n\r\n```typescript\r\nconst dangerousProtocols = ['javascript:', 'data:', 'vbscript:'];\r\nreturn dangerousProtocols.includes(url.protocol.toLowerCase()) ? '#' : url.href;\r\n```\r\n\r\nBoth `ImageElement` and `LinkSpan` receive their URL from the same parser AST via `InlineElements.tsx`. The IMAGE case at line 55 passes `block.value.src.value` directly, while the LINK case at line 46 routes through `LinkSpan` which sanitizes.\r\n\r\n### Execution chain\r\n1. An authenticated user posts a message containing `![test](javascript:alert(document.domain))`\r\n2. The message parser (`packages/message-parser`) parses this as an IMAGE node. The grammar's `URLScheme` rule (`$([A-Za-z0-9+-] |1..32| \":\")`) accepts `javascript:` as a valid scheme. The `MarkdownLinkFilePath` alternative matches the full URL.\r\n3. Server-side validation in `sendMessage.ts` checks `javascript:` only on **attachment URL fields** (thumb_url, image_url, etc.), NOT on URLs in the message body text.\r\n4. `InlineElements.tsx:55` renders `<ImageElement src=\"javascript:alert(document.domain)\" ...>`\r\n5. `ImageElement.tsx:52` outputs `<a href=\"javascript:alert(document.domain)\" target=\"_blank\">` - **no sanitization applied**\r\n6. In a legacy browser, clicking the image would execute JavaScript in the victim's session. In modern browsers, `target='_blank'` prevents execution.\r\n\r\n## Proof of Concept\r\n```\r\n# Post in any Rocket.Chat room as an authenticated user:\r\n![click me](javascript:alert(document.domain))\r\n\r\n# The rendered image will be a broken image wrapped in an <a> tag.\r\n# The href attribute contains the raw javascript: URL.\r\n# Clicking the link in a browser that does not block javascript: with target='_blank'\r\n# would execute the payload.\r\n\r\n# In modern browsers (Chrome 90+, Firefox 87+, Safari 14+), clicking opens about:blank instead.\r\n# The vulnerability is confirmed by DOM inspection: the unsanitized href is present in the rendered HTML.\r\n```\r\n\r\n## Impact\r\n- Unsanitized `javascript:` and `data:` URLs are rendered into the DOM via `<a href>` on every message view\r\n- On legacy browsers lacking `target='_blank'` javascript: blocking, clicking the image executes arbitrary JavaScript in the victim's session context\r\n- Stored XSS - the payload persists in the message and is rendered for every viewer of the channel\r\n- Could lead to session hijacking, credential theft, or actions performed as the victim (on vulnerable browsers)\r\n- Defense-in-depth gap - the codebase relies solely on browser behavior rather than applying its own available sanitization\r\n\r\n## Recommended Remediation\r\n\r\n### Option 1: Apply sanitizeUrl to ImageElement (preferred)\r\n```tsx\r\n// packages/gazzodown/src/elements/ImageElement.tsx\r\nimport { sanitizeUrl } from './sanitizeUrl';\r\n\r\nconst ImageElement = ({ src, alt }: ImageElementProps): ReactElement => {\r\n    const plainAlt = useMemo(() => flattenMarkup(alt), [alt]);\r\n    const safeSrc = sanitizeUrl(src);\r\n\r\n    return (\r\n        <a href={safeSrc} target='_blank' rel='noopener noreferrer' title={plainAlt}>\r\n            <img src={safeSrc} data-title={safeSrc} alt={plainAlt} style={style} />\r\n        </a>\r\n    );\r\n};\r\n```\r\n\r\nThis is the minimal, consistent fix - applying the same defense already used by `LinkSpan`. The `sanitizeUrl` function is in the same directory, already tested, and blocks `javascript:`, `data:`, and `vbscript:` protocols.\r\n\r\n### Option 2: Add server-side URL protocol validation in the message parser\r\nAdd protocol validation at the parser level in `packages/message-parser/src/grammar.pegjs` to reject `javascript:`, `data:`, and `vbscript:` schemes in Image URLs. This would prevent dangerous URLs from entering the AST at all, protecting all downstream consumers. However, this is a larger change and Option 1 should be applied regardless for defense in depth.\r\n\r\n## Credit\r\nThis vulnerability was discovered and reported by [bugbunny.ai](https://bugbunny.ai).\r\n\r\n",
+    "ghsa_id": "GHSA-vvrf-fq54-q4pr",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-vvrf-fq54-q4pr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vvrf-fq54-q4pr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47733"
+      }
+    ],
+    "published_at": "2026-06-11T13:32:24Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Missing URL protocol sanitization in ImageElement allows javascript: URLs in markdown images",
+    "updated_at": "2026-06-11T13:32:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.5.0",
+        "vulnerable_version_range": "<8.5.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

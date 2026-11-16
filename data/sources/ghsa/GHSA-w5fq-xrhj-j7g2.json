@@ -1,0 +1,63 @@
+{
+  "global": null,
+  "id": "GHSA-w5fq-xrhj-j7g2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-266",
+      "CWE-269"
+    ],
+    "description": "### Impact\n\nA system robot account with the **User: Update** permission could set or remove the system administrator flag on any Harbor user. The holder of that robot's token could make a user account they control a system administrator and take full control of Harbor, or remove administrator rights from the real administrators.\n\n### Am I affected?\n\nYou are affected if a system robot account exists with the **User: Update** permission and its token is held by someone or something you do not fully trust, for example a user provisioning or sync job. Only a system administrator can create such a robot.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, only system administrators can change a user's administrator flag. Robots with User: Update get HTTP 403 on that operation, both for granting and for removing the flag. Their other user-update operations are unchanged. If automation grants or removes administrator rights through a robot, it must use an administrator account instead.\n\n**Until you can upgrade:**\n\n1. Find system robots with User: Update (see below).\n2. Remove that permission if it is not needed, or rotate the robot's secret and restrict who holds it.\n\n### Check for misuse\n\nList users who currently have administrator rights and confirm each one is expected:\n\n```sql\nSELECT user_id, username, update_time FROM harbor_user WHERE sysadmin_flag = true;\n```\n\nList system robots with User: Update:\n\n```sql\nSELECT r.id, r.name\nFROM robot r\nJOIN role_permission rp ON rp.role_type = 'robotaccount' AND rp.role_id = r.id\nJOIN permission_policy pp ON pp.id = rp.permission_policy_id\nWHERE pp.resource = 'user' AND pp.action = 'update';\n```\n\n\n\n### Credits\n\nReported by **Mitchell Benjamin** via the `cncf-harbor-security` list.\n",
+    "ghsa_id": "GHSA-w5fq-xrhj-j7g2",
+    "html_url": "https://github.com/goharbor/harbor/security/advisories/GHSA-w5fq-xrhj-j7g2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w5fq-xrhj-j7g2"
+      }
+    ],
+    "published_at": "2026-10-06T13:42:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "A system robot with user:update makes itself a system administrator",
+    "updated_at": "2026-10-06T22:15:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.13.6",
+        "vulnerable_version_range": "< 2.13.6"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.14.5",
+        "vulnerable_version_range": ">= 2.14.0, < 2.14.5"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.15.3, 2.16.0",
+        "vulnerable_version_range": ">= 2.15.0, < 2.15.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goharbor/harbor"
+}

@@ -1,0 +1,2439 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "directus",
+    "name": "Directus",
+    "category": "apps",
+    "homepage": "https://directus.io",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-jvxj-w2qp-5vmx",
+      "aliases": [],
+      "title": "IP-restricted policies bypassed via GraphQL WebSocket subscriptions",
+      "summary": "## Summary\r\n\r\nDirectus did not forward the client's IP address, user agent or origin when accepting GraphQL WebSocket (subscription) connections. Policies that restrict access by IP (`ip_access`) treat a missing IP as \"no restriction\" when resolving admin and app access. A user with a policy granting `admin_access` only from a trusted network could therefore connect over the GraphQL WebSocket endpoint from any network and receive full admin access.\r\n\r\nIn addition, the global access cache key ignored the client IP. An elevated result from the WebSocket path could be cached and returned for the same user's subsequent REST and GraphQL HTTP requests, extending the bypass beyond the WebSocket connection until the cache entry expired.\r\n\r\n## Impact\r\n\r\nDeployments are affected if they use GraphQL WebSockets (enabled by default when WebSockets are enabled) and rely on `ip_access` to limit when a policy's `admin_access` or `app_access` applies. An authenticated user holding such a policy can bypass the network restriction and act as an administrator from outside the allowed range. Activity records for actions taken over the GraphQL WebSocket path were also written without IP, user agent or origin.\r\n\r\nDeployments that do not use `ip_access` on policies are not affected by the access bypass.\r\n\r\n## Patches\r\n\r\nFixed in 12.4.0. The GraphQL WebSocket handshake now carries the request's IP, user agent and origin into the connection's accountability (#27813, released in 12.1.0), and the global access cache is now keyed on the client IP (#28190, released in 12.4.0).\r\n\r\n## Workarounds\r\n\r\nDisable GraphQL WebSockets with `WEBSOCKETS_GRAPHQL_ENABLED=false`, or avoid granting `admin_access` through policies whose only safeguard is `ip_access`.\r\n\r\n\r\n## Credits\r\n\r\nReported by [pavelkohout396](https://github.com/pavelkohout396)",
+      "published_at": "2026-10-30T15:11:35.000Z",
+      "modified_at": "2026-10-30T15:11:35.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284",
+        "CWE-778",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.0.0",
+              "fixed": "12.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-jvxj-w2qp-5vmx",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jvxj-w2qp-5vmx",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-jvxj-w2qp-5vmx",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a7c788c361a2d54c9762b51d8af88ca1956d2c08d8b15638728b5c28ef72fbec",
+      "note": null
+    },
+    {
+      "id": "GHSA-95f8-mvw7-gpj9",
+      "aliases": [],
+      "title": "File uploads can write into the extensions directory, leading to code execution in overlapping storage configurations",
+      "summary": "## Summary\r\n\r\nA user who is allowed to set `storage` and `filename_disk` when creating files could upload into the directory Directus loads extensions from, whenever that directory was reachable through a configured storage location. Directus executes extension code inside the server process, so this leads to server-side code execution. With `EXTENSIONS_AUTO_RELOAD` enabled, overwriting the entrypoint of an already loaded extension runs the uploaded code immediately. Otherwise it runs on the next restart or extension reload.\r\n\r\n## Details\r\n\r\nThe file upload path wrote to whichever storage location and `filename_disk` the payload specified, as long as the path stayed inside the storage root. It did not check whether that path was also part of the extensions namespace. Two configurations expose this:\r\n\r\n- A local storage location whose root contains `EXTENSIONS_PATH`, for example `STORAGE_LOCAL_ROOT=/directus/uploads` with `EXTENSIONS_PATH=/directus/uploads/extensions`. An upload with `filename_disk=extensions/<name>/index.mjs` overwrites that extension's entrypoint on disk.\r\n- `EXTENSIONS_LOCATION` pointing at a storage location that is also available for uploads. An upload into `EXTENSIONS_PATH` on that location places a new extension that is synced and loaded on the next start.\r\n\r\nAn earlier guard added for this class compared the storage-root-prefixed path against the location-relative `EXTENSIONS_PATH` for local drivers, so it did not trigger for the second configuration when the extensions location used the local driver.\r\n\r\nThe default configuration is not affected. `storage` and `filename_disk` are not writable by non-admin roles unless an administrator grants them explicitly, the default local layout keeps `./uploads` and `./extensions` as sibling directories, and `EXTENSIONS_LOCATION` is unset by default.\r\n\r\n## Impact\r\n\r\nAn authenticated user whose role has create (or update) permission on `directus_files` with write access to the `storage` and `filename_disk` fields can execute arbitrary JavaScript in the Directus process, on instances where an upload-writable storage location overlaps the extensions directory. That gives access to the process environment, any files and internal services the Directus process can reach, and full control over the application.\r\n\r\n## Workarounds\r\n\r\na. Do not grant non-admin roles write access to the `storage` and `filename_disk` fields of `directus_files`.\r\nb. Keep `EXTENSIONS_PATH` outside every storage location root, and do not use the storage location set as `EXTENSIONS_LOCATION` for regular uploads.\r\nc. Do not enable `EXTENSIONS_AUTO_RELOAD` in production.\r\n\r\n## Credits\r\n\r\nReported by [kamil-sawicki](https://github.com/kamil-sawicki)",
+      "published_at": "2026-10-30T15:00:21.000Z",
+      "modified_at": "2026-10-30T15:00:21.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.6,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-73",
+        "CWE-434"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.5.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-95f8-mvw7-gpj9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-95f8-mvw7-gpj9",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-95f8-mvw7-gpj9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:fe54f7ed31f10286127f740942ec7499608b7eafd909f8c8284e2b9e79f9efac",
+      "note": null
+    },
+    {
+      "id": "GHSA-32cw-mf7w-gpqr",
+      "aliases": [],
+      "title": "Authenticated persistent Denial of Service via prototype pollution in CSV import",
+      "summary": "## Summary\r\n\r\nAn authenticated user who can import into any collection can pollute `Object.prototype` for the whole Directus process with a single CSV import. The polluted key is then folded into the SQL of every subsequent object-form query, so logins and most reads fail with a database error. The instance stays unusable until it is restarted. This is a bypass of the fix for GHSA-gwvv-rr68-cmv6.\r\n\r\n## Details\r\n\r\nThe fix for GHSA-gwvv-rr68-cmv6 introduced a `setDeep` helper that builds nested paths on null-prototype objects. It was meant to reuse an existing path segment only when that segment is an own object, but it checked only `typeof node[key] === 'object'`. That plain read follows the prototype chain, so an inherited `__proto__` segment resolves to `Object.prototype` whenever the current node is an ordinary object.\r\n\r\nThe CSV importer builds each row by calling `setDeep` once per header, and it runs each cell through `parseJSON` first. A cell containing `{}` therefore places an ordinary, prototype-bearing object into the row. A later header that walks through it reaches the shared prototype:\r\n\r\n```csv\r\na,a.__proto__.polluted\r\n{},\"yes\"\r\n```\r\n\r\nThe first header sets `row.a = {}`. The second header walks `row`, then `a`, then `a.__proto__` (`Object.prototype`), and sets `Object.prototype.polluted = 'yes'`.\r\n\r\nknex builds object-form `.where()` and `.update()` clauses by enumerating inherited enumerable properties, so after the import every such query gains a phantom `polluted` column. For example, the `last_access` update that runs on every login becomes `update directus_users set last_access = ?, polluted = 'yes' where id = ? and polluted = 'yes'`, which fails with an unknown-column error. Because the injected key also lands in the `WHERE` clause, affected writes fail rather than modify extra columns.\r\n\r\n## Impact\r\n\r\n- **Persistent denial of service.** After one import request, every login and most reads fail until the process is restarted. The process itself keeps running, so health checks and supervisors do not recover it automatically.\r\n- **Low privilege.** Only an authenticated account with `create` and `update` permission on a single collection is required. No admin access or non-default configuration is needed.\r\n\r\n## Credits\r\n\r\nReported by Al Baradi Joy (@a1barad1)",
+      "published_at": "2026-10-30T14:50:56.000Z",
+      "modified_at": "2026-10-30T14:50:56.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-1321"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.5.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-32cw-mf7w-gpqr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-32cw-mf7w-gpqr",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-32cw-mf7w-gpqr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:83252798deeda7f63a7d4bb0afbec57556ccb1001eb178711a231bf5fa7c9907",
+      "note": null
+    },
+    {
+      "id": "GHSA-xf86-hfpm-92xr",
+      "aliases": [],
+      "title": "AI Chat route exposes admin-only tools to non-admin users",
+      "summary": "### Summary\r\n\r\nThe AI Chat endpoint (`POST /ai/chat`) did not enforce the admin-only restriction on AI tools. Any authenticated user with app access could request the `collections`, `fields`, `relations`, `flows` and `operations` tools, which are reserved for administrators. The MCP endpoint enforced this restriction correctly.\r\n\r\n### Impact\r\n\r\nThe tools ran with the requesting user's own accountability, so they did not grant permissions beyond what the user already had:\r\n\r\n- `collections`, `fields` and `relations` are still guarded by the admin checks in their underlying services.\r\n- `flows` and `operations` are subject to the regular permission system. A non-admin user could only read or modify flows and operations their policies already allow, the same as through the REST API.\r\n\r\nThe issue is that the admin-only tool boundary was not applied consistently. Instances where non-admin policies grant access to `directus_flows` or `directus_operations` are most affected. We recommend keeping those collections admin-only, as described in the [security best practices](https://directus.io/docs/configuration/security-best-practices).\r\n\r\nExploitation requires an AI provider to be configured on the instance.\r\n\r\n### Workarounds\r\n\r\n- Disable the AI Chat feature by removing the configured AI provider.\r\n- Make sure non-admin policies have no permissions on `directus_flows` and `directus_operations`.",
+      "published_at": "2026-10-19T20:37:26.000Z",
+      "modified_at": "2026-10-19T20:37:26.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.14.0",
+              "fixed": "12.3.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xf86-hfpm-92xr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xf86-hfpm-92xr",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xf86-hfpm-92xr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9cb8f4b91a4e6a36f7e8019a533c0bd5ddfa4a9bda0a4362b8689cfdb5262372",
+      "note": null
+    },
+    {
+      "id": "GHSA-2xcm-7h22-3m66",
+      "aliases": [],
+      "title": "Update and delete by query evaluate filters without read permissions, leaking hidden field values",
+      "summary": "## Summary\r\n\r\nUpdate-by-query and delete-by-query requests resolved their target items with a read that skipped permission checks. The request's `filter` was therefore evaluated against every row and every field in the collection, including fields and rows the user is not allowed to read. Because the response lists which items were updated or deleted, a user with update or delete permission on a collection could use it as a boolean oracle to recover the values of fields hidden from them by their read permissions.\r\n\r\n## Details\r\n\r\n`ItemsService.getKeysByQuery`, used by `updateByQuery` and `deleteByQuery`, read the matching primary keys through a new `ItemsService` created without the caller's accountability. Without accountability the permission layer applies no field or row restrictions, so a filter on a field the user cannot read was accepted and evaluated normally. The subsequent `updateMany` / `deleteMany` only checks update or delete permission on the resolved keys, not whether the user could have read the fields used to find them.\r\n\r\nThe affected path is reachable wherever a query is passed to an update or delete, including the REST `PATCH` and `DELETE` endpoints for items and system collections (`{ \"query\": { \"filter\": ... }, \"data\": ... }`), the WebSocket `items` handler, and the MCP item tools.\r\n\r\nA probe such as the following reveals whether a hidden `salary` field of item `1` is greater than a given value, depending on whether item `1` appears in the response:\r\n\r\n```json\r\nPATCH /items/employees\r\n{\r\n  \"query\": { \"filter\": { \"_and\": [{ \"id\": { \"_eq\": 1 } }, { \"salary\": { \"_gt\": 100000 } }] } },\r\n  \"data\": { \"name\": \"unchanged\" }\r\n}\r\n```\r\n\r\nRepeating this with range operators or `_starts_with` recovers the full value.\r\n\r\n## Impact\r\n\r\nAn authenticated user with update or delete permission on a collection can recover the values of fields in that collection that their read permissions hide from them. Each probe performs a real update or delete on the matched items, but only one the user was already permitted to make, so the impact is limited to confidentiality.\r\n\r\n## Workarounds\r\n\r\nUntil upgrading, avoid granting update or delete permission on collections that contain fields hidden from the same role by its read permissions.",
+      "published_at": "2026-10-19T19:24:53.000Z",
+      "modified_at": "2026-10-19T19:24:53.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-2xcm-7h22-3m66",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-2xcm-7h22-3m66",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-2xcm-7h22-3m66",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:86656468b071514ed8d8bbf22b270f9687f22684f315c50965f1d7a6dde6f3cd",
+      "note": null
+    },
+    {
+      "id": "GHSA-8xp8-xrh2-88vr",
+      "aliases": [],
+      "title": "Public registration sends the verification email to the submitted address instead of the matched account",
+      "summary": "## Summary\r\n\r\nPublic registration resolves existing accounts with a case-normalized email comparison, but it builds the email verification token and selects the email recipient from the address exactly as submitted in the request. On MySQL and MariaDB, whose default collations are accent insensitive, an accented variant of an existing address matches that account's row while the verification link is delivered to the mailbox of the submitted variant. This separates the account that gets verified from the address that receives the verification link.\r\n\r\n## Details\r\n\r\nRegistration matches an existing account with a lowercased comparison against the stored email. When a matching account is found and its status is `unverified`, the request is treated as a verification resend rather than rejected. The token payload and the mail recipient are then taken from the submitted address rather than from the account that was matched, and the verification endpoint resolves the address in the token back to an account through the same collation-sensitive comparison.\r\n\r\nUnder an accent-insensitive collation, `vïctïm@example.com` and `victim@example.com` are the same row for the lookup and two different mailboxes for delivery. An attacker registers the victim's canonical address, which creates an unverified account with a password the attacker chooses, then registers an accented variant of that same address. The second request matches the account created by the first, takes the resend path because the account is still unverified, and mails a verification link addressed to the accented variant, which the attacker controls. Following that link resolves back to the account holding the victim's canonical address and activates it.\r\n\r\nThis was confirmed against MariaDB 11.8.8 with no collation configured, where the server default is `utf8mb4_uca1400_ai_ci` and the accented variant matches the stored canonical address. PostgreSQL, SQLite and SQL Server do not compare accented characters as equal under their default collations, so those deployments are not affected.\r\n\r\nThe related email canonicalization issue in password reset and invite was addressed in CVE-2024-27295. Public registration was introduced after that fix and did not adopt the same handling.\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker can obtain an active account whose stored email address is one they do not control, with credentials they set themselves. Any downstream behavior that treats the stored email as an identity, such as SSO account linking, notification routing, allowlisting by domain, or manual review of registered users, then points at the victim's address for an account held by the attacker. The account's permissions are those of the role configured for public registration.\r\n\r\nThe same mechanism also allows an attacker to complete verification for a pending registration that the victim started, activating the account without the victim's involvement.\r\n\r\n## Preconditions\r\n\r\nPublic registration and email verification must be enabled, and the database must be MySQL or MariaDB with an accent-insensitive collation, which is the default on both. The attacker must be able to receive mail at the accented variant of the target address, which they can host themselves.\r\n\r\n## Workarounds\r\n\r\nDisable public registration, or disable email verification for registration, or configure an accent-sensitive collation for the email column on MySQL and MariaDB deployments.",
+      "published_at": "2026-09-02T15:07:13.000Z",
+      "modified_at": "2026-09-02T15:07:13.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-706"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "10.11.0",
+              "fixed": "12.3.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-8xp8-xrh2-88vr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-8xp8-xrh2-88vr",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-8xp8-xrh2-88vr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6718a710ff4b2496e5ade539e0434d7dfbfc73af4f1e048a55311b54068b2829",
+      "note": null
+    },
+    {
+      "id": "GHSA-7h45-q5jx-7r87",
+      "aliases": [],
+      "title": "Share update allows reassigning user_created and role",
+      "summary": "### Summary\r\n\r\nA non-admin user who can update their own shares can reassign a share's creator (`user_created`), `role`, `item`, and `collection` fields after the share is created. The update is authorized against the row as it existed before the change, and the resulting row is never revalidated, so these fields can be set to values the user would not be permitted to assign when creating a share. By reassigning both `user_created` and `role` to an administrator the shares effective permissions get elevated.\r\n\r\nThis is a server-side authorization gap in the share update path. It does not by itself produce an administrator token. It re-opens a previously patched privilege-escalation surface on the effective permissions of a share.\r\n\r\n### Prerequisites\r\n\r\n- An authenticated non-admin account that holds update permission on `directus_shares`. This is not part of the baseline app-access grant, which is read-only on a user's own shares, but it is part of the recommended defaults permission template for `directus_shares` that instances commonly apply so the share feature is usable.\r\n- An item the account is allowed to share.\r\n- Knowledge of an administrator user and role identifier to assign. In the reported case these were read from a relation on the shareable item using ordinary read permissions.\r\n\r\n### Details\r\n\r\nThe recommended default permission for updating `directus_shares` selects rows where the caller is the creator and permits writes to the full field set, including the creator, role, item, and collection. The ownership filter is evaluated only against the row as it exists before the update, so an owned share passes the check. The merged row is never re-checked to decide whether the caller may assign the new values.\r\n\r\nTwo guards that are enforced when a share is created are absent on update. On create, the creator is forced to the acting user, and a share-access check is run against the target item to confirm the caller is allowed to share it. On update, the supplied creator value is stored as given and no equivalent share-access check is run against the new item or collection, so both the creator and the shared target can be repointed to values the caller was never authorized to set. The read-only marking on the creator field in the schema is a Data Studio UI hint and does not constrain writes through the API.\r\n\r\nWhen a guest authenticates through the share, Directus derives one accountability from the share's creator and another from the share's role, and applies administrator reach only when both resolve to an administrator. After both fields are reassigned to an administrator, both inputs resolve to administrator and the share is evaluated with full-schema reach starting from the shared item. This is the bypass of the CVE-2025-24353 intersection, which assumed the creator and selected role remain trustworthy after creation, when in fact both are mutable together through update.\r\n\r\n### Impact\r\n\r\nImproper authorization (CWE-863) and improper privilege management (CWE-269). A non-admin can raise the effective permissions of a share they own beyond both their own permissions and the share role's permissions, exposing data reachable from the shared item that neither principal should be able to expose. The direct impact is to confidentiality. This issue alone does not grant write or availability impact.",
+      "published_at": "2026-09-02T15:02:48.000Z",
+      "modified_at": "2026-09-02T15:02:48.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-269",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.3.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-7h45-q5jx-7r87",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7h45-q5jx-7r87",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-7h45-q5jx-7r87",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:1835f63fa0e31c5fab698e7767a2abae2abcaecacdd08f55ad0341a571af9ee1",
+      "note": null
+    },
+    {
+      "id": "GHSA-gwvv-rr68-cmv6",
+      "aliases": [],
+      "title": "Unauthenticated persistent Denial of Service via prototype pollution in the `deep` query parameter",
+      "summary": "## Summary\r\n\r\nA single unauthenticated `GET` request to the Directus items API can crash the Node.js process and keep it down. The\r\n`deep` query parameter, when supplied as a JSON string, is parsed and its keys are used to build an object path that is\r\nwritten with a prototype-walking setter, with no validation of the key names. A crafted payload uses inherited built-in\r\nmethod names (rather than `__proto__`, `constructor`, or `prototype`) to corrupt a shared JavaScript built-in. Directus\r\nlater invokes that built-in in its logging path, which now throws outside any request handler and terminates the server.\r\nThe instance stays down until it is restarted, and the same request kills it again.\r\n\r\n## Details\r\n\r\nThe `deep` sanitization runs inside the global query-sanitization middleware, which executes before any per-collection\r\npermission check. A missing token is admitted as the `public` role without throwing, so the vulnerable code path is\r\nreached by a completely unauthenticated request, and even for a collection that does not exist.\r\n\r\nWhen `deep` is provided as a JSON string it is parsed and walked key-by-key into an object path, which is then written\r\nwith a setter that traverses and reuses inherited properties. Because the setter follows the prototype chain, a path\r\nbuilt from attacker-controlled keys named after inherited built-in methods reads the corresponding function on the\r\nprototype and overwrites one of its properties. This corrupts a shared built-in that is used pervasively across Node.js\r\nand Directus's logging stack. The next time that built-in is invoked (on response finalization, outside the request\r\ntry/catch), it throws an unhandled error and the process exits.\r\n\r\nNotably:\r\n\r\n- The write never touches `__proto__`, `constructor`, or `prototype`, so blocklists that only cover those three keys do\r\n  not apply. Several other built-in names are reachable in the same way.\r\n- Query-string bracket notation is not a viable delivery vector because the underlying query parser strips\r\n  prototype-named bracket keys by default. Supplying `deep` as an opaque JSON string bypasses that protection, because\r\n  the string is only parsed later, inside the sanitization routine, which does not strip prototype-named keys.\r\n\r\nCWE-1321 (Improperly Controlled Modification of Object Prototype Attributes / Prototype Pollution) leading to CWE-400\r\n(Uncontrolled Resource Consumption / Denial of Service).\r\n\r\n## Impact\r\n\r\n- **Complete, persistent Denial of Service from one unauthenticated request.** The Node process exits, so the admin app\r\n  and the entire API stay offline until an operator restarts the server.\r\n- **Unauthenticated and pre-authorization.** The request is admitted as `public`, and the vulnerable code runs before\r\n  any permission decision, so no public-read configuration, token, seeded data, or non-default settings are required.\r\n- **Re-triggerable.** Process supervisors (pm2, systemd, Docker `restart: always`) bring the server back, but the same\r\n  request kills it again, keeping the instance in a crash loop.\r\n\r\n## References\r\n\r\n- Fix: https://github.com/directus/directus/pull/27992\r\n- GHSA-gwvv-rr68-cmv6\r\n\r\n## Credits\r\n\r\nReported by Positive Security (https://positive.security/)",
+      "published_at": "2026-08-20T16:44:55.000Z",
+      "modified_at": "2026-08-20T16:44:55.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-1321"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-gwvv-rr68-cmv6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gwvv-rr68-cmv6",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-gwvv-rr68-cmv6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6eb6345117e5a3be9c601aca38dac119a305356015036e8f59d73cadae2488aa",
+      "note": null
+    },
+    {
+      "id": "GHSA-4jw7-6mqj-vrhq",
+      "aliases": [],
+      "title": "Server-side request forgery in AI chat file downloads bypasses the outbound IP deny-list",
+      "summary": "## Summary\r\n\r\nThe AI chat endpoint (`POST /ai/chat`) fetches user-supplied URLs server-side without the IP validation Directus applies\r\nto its other outbound requests. A chat message may include a file part, and the URL carried by that part is passed to\r\nthe AI SDK, which downloads any file the target model cannot handle natively using a plain `fetch`. That download does\r\nnot go through Directus's IP-validated HTTP agent, so the `IMPORT_IP_DENY_LIST` control does not apply to it.\r\n\r\nThe AI SDK has its own download guard, but it only rejects literal private IP addresses and the `localhost` family and\r\nperforms no DNS resolution. A public hostname that resolves to a private address (for example a name pointing at\r\n`127.0.0.1` or `169.254.169.254`) therefore passes the check and is fetched.\r\n\r\nAny authenticated user with app access can use this to make the Directus server issue requests to internal-only\r\ndestinations. Administrator rights are not required.\r\n\r\n## Details\r\n\r\nDirectus passes client-supplied chat messages to the AI SDK's `streamText` after converting them to model messages. For\r\nany file or image part whose URL the configured model does not support natively, the SDK downloads the content itself\r\nusing the default download function, which calls global `fetch` directly. Every other server-side fetch in Directus goes\r\nthrough `agentWithIpValidation` (`api/src/request/agent-with-ip-validation.ts`), which resolves the target host and\r\nrejects denied addresses; the AI SDK download path did not, so the deny-list was not enforced there.\r\n\r\nThe URL used for that download is attacker-controlled:\r\n\r\n- From 11.16.0 onward, `api/src/ai/chat/lib/transform-file-parts.ts` rewrites each file part's `url` with the value of\r\n  `providerMetadata.directus.fileId` taken from the request body. That value is expected to be an opaque provider file\r\n  id and was not validated as such, so a URL placed there becomes the download target.\r\n- In 11.14.0 through 11.15.x, before that rewrite existed, the file part's `url` field itself was passed through\r\n  unvalidated and served as the download target.\r\n\r\nThe SDK's `validateDownloadUrl` guard blocks literal private IP addresses and the `localhost`, `.local`, and\r\n`.localhost` hostnames. Because it does not resolve DNS, a public hostname whose A record points into private space is\r\naccepted, and the request is then made from the Directus process. The response body is read (subject to the SDK's size\r\nlimit) and forwarded to the configured LLM provider as file content, where it can surface in the model's reply to the\r\ncaller.\r\n\r\nAffected endpoint: `POST /ai/chat`.\r\n\r\nPreconditions:\r\n\r\n- `AI_ENABLED` is true (the default). In 11.14.x the AI router was mounted unconditionally.\r\n- An administrator has configured an LLM provider with an API key, which is the normal state for the feature to be\r\n  usable.\r\n- The caller is any authenticated user with app access. The handler only checks `req.accountability.app`, so\r\n  `admin_access` is not required.\r\n\r\n## Impact\r\n\r\nAny user with app access can cause the server to issue HTTP requests to destinations that are not reachable from the\r\nnetwork the user is on, including loopback services, RFC1918 hosts, and cloud instance metadata endpoints. This bypasses\r\nthe `IMPORT_IP_DENY_LIST` control that protects the rest of Directus's outbound requests.\r\n\r\nBecause the fetched response body is read and forwarded to the configured LLM provider as file content, the contents of\r\ninternal responses (credentials returned by a metadata service, for example) can be exfiltrated to that provider and\r\nsurfaced through the model's reply, making this a read-capable SSRF rather than a blind one.\r\n\r\n## Workarounds\r\n\r\nFor deployments that cannot upgrade, set `AI_ENABLED=false`, or leave every LLM provider unconfigured (no API key),\r\nwhich prevents the request from reaching the download path. Restricting app access does not mitigate this, since\r\nordinary non-admin app users can trigger it...",
+      "published_at": "2026-08-20T16:30:17.000Z",
+      "modified_at": "2026-08-20T16:30:17.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.16.0",
+              "fixed": "12.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-4jw7-6mqj-vrhq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-4jw7-6mqj-vrhq",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-4jw7-6mqj-vrhq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:392afe9f18355c4588a23dcff92e0b1dea8a7b9829e279c41185ea123b6f809b",
+      "note": null
+    },
+    {
+      "id": "GHSA-7vcx-mhxq-9j96",
+      "aliases": [],
+      "title": "Denial of service via image-transform endpoint accepting unvalidated target dimensions",
+      "summary": "## Summary\r\n\r\nDenial of service on `GET /assets/<id>` in Directus. The transform-eligibility check in `AssetsService.getAsset`\r\nvalidates only the source image's stored dimensions against `ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION` (default `6000`). The\r\nuser-supplied target dimensions in the `width` and `height` query parameters are passed to Sharp's resize operation with\r\nno equivalent cap, so a tiny source image can be transformed into a very large raster, materialising a gigabyte-scale\r\nRGBA pixel buffer per request.\r\n\r\nOn deployments that have configured any of the four `directus_settings` branding-image fields (`project_logo`,\r\n`public_background`, `public_foreground`, `public_favicon`), the transform endpoint is reachable by an unauthenticated\r\nattacker, because those fields are exempt from the normal access check and their identifiers are disclosed by the\r\nunauthenticated `/server/info` endpoint. On other deployments, exploitation requires an authenticated account with\r\n`directus_files:read` on at least one image.\r\n\r\n## Details\r\n\r\nThe eligibility check compares the source image's stored width and height against `ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION`\r\nand rejects transforms when either source axis exceeds the limit. No equivalent validation is applied to the requested\r\noutput dimensions before they reach Sharp, and `withoutEnlargement` is only honoured when the caller explicitly enables\r\nit. As a result, a request for output far larger than the source (for example, a 1x1 source rendered at 20000x20000) is\r\naccepted and allocates a multi-gigabyte pixel buffer before the per-transform timeout (default\r\n`ASSETS_TRANSFORM_TIMEOUT=7500ms`) fires.\r\n\r\n`HEAD` requests trigger the full transform while transferring no response body, so the server-side cost is unchanged\r\nwhile the attacker's bandwidth cost is effectively zero. The concurrent transform queue is bounded by\r\n`ASSETS_TRANSFORM_MAX_CONCURRENT` (default `25`), giving a theoretical worst-case allocation on the order of tens of\r\ngigabytes under sustained load; on under-provisioned hosts the Node process is OOM-killed well before that. There is no\r\nrate limiter on `/assets/*` in the default configuration (`RATE_LIMITER_ENABLED=false`).\r\n\r\n## Impact\r\n\r\nA remote attacker can issue small HTTP requests (including `HEAD`) that each cause the Directus process to allocate\r\ngigabyte-sized image buffers and saturate CPU cores, degrading or denying service for legitimate clients. On deployments\r\nwith branding images configured, the attack is unauthenticated; otherwise it requires an authenticated account with\r\n`directus_files:read`. In both cases the impact ceiling is the transform queue size multiplied by the per-transform\r\nbuffer size, which on typical hosts is sufficient to exhaust available memory.\r\n\r\n## Credits\r\n\r\nReported by @chndlrx",
+      "published_at": "2026-08-20T16:17:22.000Z",
+      "modified_at": "2026-08-20T16:17:22.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-405"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-7vcx-mhxq-9j96",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7vcx-mhxq-9j96",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-7vcx-mhxq-9j96",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6eb6345117e5a3be9c601aca38dac119a305356015036e8f59d73cadae2488aa",
+      "note": null
+    },
+    {
+      "id": "GHSA-r9xq-xp38-j4j3",
+      "aliases": [],
+      "title": "Sensitive `directus_settings` fields, including plaintext AI backend authorization headers, readable by minimal `app_access` users",
+      "summary": "## Summary\r\n\r\nThe built-in minimal app permissions granted unrestricted `read` access to the `directus_settings` singleton. As a\r\nresult, any authenticated user with `app_access: true` and no custom permissions could read every settings field,\r\nincluding server-side AI and MCP configuration that is intended to be admin-only.\r\n\r\nThe highest impact field is `ai_openai_compatible_headers`, which stores the custom request headers used to authenticate\r\nagainst a self-configured OpenAI-compatible backend. Unlike the provider API key fields, this field is not encrypted or\r\nconcealed, so any bearer token or API key an administrator placed there was returned in plaintext.\r\n\r\n## Impact\r\n\r\nA user whose only privilege is app access could read, among others:\r\n\r\n- `ai_openai_compatible_headers`: plaintext authorization headers for the configured OpenAI-compatible backend\r\n- `ai_openai_compatible_base_url`: internal or private endpoint of that backend\r\n- `ai_system_prompt`: server-side AI system prompt\r\n- `mcp_system_prompt`: server-side MCP system prompt\r\n\r\nThe data was reachable through both the REST (`/settings`) and GraphQL (`/graphql/system`) system endpoints, since both\r\nresolve through the same permission layer.\r\n\r\nWhere `ai_openai_compatible_headers` contained credentials, the disclosure is a usable secret rather than inert\r\nconfiguration: the value was confirmed to authenticate successfully against a backend that required it. This can lead to\r\nunauthorized use of, and billing against, the customer's AI provider account, and it discloses the internal endpoint\r\nthat backend is hosted on.\r\n\r\nThe encrypted provider key fields (`ai_openai_api_key`, `ai_openai_compatible_api_key`) were correctly masked and are\r\nnot disclosed.\r\n\r\nImpact is reduced to disclosure of AI and MCP prompt text plus backend metadata on instances where\r\n`ai_openai_compatible_headers` is unset or holds no credential material. Prompt disclosure itself may still reveal\r\noperational or tenant-specific detail.\r\n\r\nExploitation requires a valid, non-admin account on the instance. No user interaction, no custom `directus_settings`\r\npermission, and no additional privilege is needed.\r\n\r\n### Note for existing installations\r\n\r\nThe patch changes the built-in minimal app permissions. In versions before 12.3.0, the policy creation dialog in the\r\nData Studio also wrote app access permission rows into the database, so policies created that way may retain a stored\r\n`directus_settings` read permission with no field restriction, which still exposes all fields after upgrading.\r\nAdministrators should review existing policies for an unrestricted `directus_settings` read permission and remove or\r\nfield-restrict it. Directus 12.3.0 stops the dialog from persisting these rows\r\n([directus/directus#28101](https://github.com/directus/directus/pull/28101)).\r\n\r\n## Workarounds\r\n\r\nFor instances that cannot upgrade immediately:\r\n\r\n- Remove credentials from `ai_openai_compatible_headers` and rotate any value that was stored there, since it must be\r\n  assumed disclosed to every app user.\r\n- Avoid placing sensitive content in `ai_system_prompt` and `mcp_system_prompt`.\r\n\r\n## Credits\r\n\r\nReported by @kamil-sawicki",
+      "published_at": "2026-08-20T16:05:34.000Z",
+      "modified_at": "2026-08-20T16:05:34.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-522",
+        "CWE-1220"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.15.0",
+              "fixed": "12.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-r9xq-xp38-j4j3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-r9xq-xp38-j4j3",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-r9xq-xp38-j4j3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3b150b9abd2a59feaf37323c2c7bf6553ef8e77ab0499b7e7cc8ba5930814a55",
+      "note": null
+    },
+    {
+      "id": "GHSA-fq27-7m2r-q6vm",
+      "aliases": [],
+      "title": "Manual trigger Flows can be executed by unauthenticated users",
+      "summary": "# Summary\r\n\r\nFlows with a manual trigger are intended to be executable only by an authenticated user. The authentication check in the\r\nmanual trigger handler only verified that an accountability object was present on the request. Unauthenticated API\r\nrequests are assigned a default public accountability object, which satisfied that check, so anonymous callers were not\r\nrejected. Authorization then fell through to the permission check, which resolves an accountability object without a\r\nuser or role to the Public role.\r\n\r\nAs a result, an unauthenticated request to the public trigger endpoint (`POST /flows/trigger/:id`) could execute an\r\nactive manual Flow whenever the Flow is enabled for a collection that the Public role can read.\r\n\r\nThis is an incomplete fix of CVE-2025-53889 (GHSA-7cvf-pxgp-42fc). The guard introduced in 11.9.0 added a permission\r\ncheck on the target collection and items, but did not distinguish public accountability from an authenticated identity.\r\n\r\nFlows using the Webhook trigger are publicly triggerable by design and are not affected.\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker can execute automation that was intended to be available only to logged in users, and can\r\nrepeat that execution at will.\r\n\r\nThe consequences depend on how the Flow is configured. Operations in a Flow can be set to run with full permissions, in\r\nwhich case they execute regardless of the caller's access rights. A manual Flow built for staff use can therefore give\r\nan anonymous caller read, create, update or delete access to data that the Public role cannot reach directly. Flows can\r\nalso perform other side effecting actions, such as outbound HTTP requests, notifications and mail, which become\r\nanonymously reachable.\r\n\r\nExploitation requires all of the following:\r\n\r\n- An active Flow with a manual trigger exists.\r\n- The Flow is enabled for a collection that the Public role has read access to.\r\n- The attacker knows the Flow's ID.\r\n- If the Flow requires item selection, the attacker also needs the ID of an item in that collection that the Public role\r\n  can read.\r\n\r\nProjects that expose public content collections while using manual Flows for privileged editorial, moderation, approval,\r\nnotification or integration actions are the most exposed.\r\n\r\n## Workarounds\r\n\r\nIf upgrading is not immediately possible, any of the following reduce or remove exposure:\r\n\r\n- Remove Public role read access from collections that are selected on manual Flows.\r\n- Disable manual Flows that are attached to publicly readable collections, or convert them to a trigger type that is not\r\n  publicly reachable.\r\n- Review manual Flows for operations that run with full permissions and scope them down.\r\n\r\n## References\r\n\r\n- https://github.com/directus/directus/pull/27997\r\n- https://github.com/directus/directus/security/advisories/GHSA-7cvf-pxgp-42fc (CVE-2025-53889)\r\n\r\n## Credit\r\n\r\nReported by @sengadev",
+      "published_at": "2026-08-20T15:52:55.000Z",
+      "modified_at": "2026-08-20T15:52:55.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.9.0",
+              "fixed": "12.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-fq27-7m2r-q6vm",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-fq27-7m2r-q6vm",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-fq27-7m2r-q6vm",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:02e56a17f2b5e21ddec7862ccf927fe8fa3c206cefef415d756197484d993ea8",
+      "note": null
+    },
+    {
+      "id": "GHSA-3742-46gx-c8cc",
+      "aliases": [],
+      "title": "Improper path validation in TUS uploads allows writing to arbitrary storage paths",
+      "summary": "## Summary\r\n\r\nThe TUS (resumable upload) implementation creates the `directus_files` record through the generic `ItemsService` rather\r\nthan through `FilesService`. The `filename_disk` sanitisation and validation that `FilesService` applies on the regular\r\nupload path is therefore skipped, and the `filename_disk` value supplied by the client in the TUS `Upload-Metadata`\r\nheader is passed verbatim to the storage driver as the destination path.\r\n\r\nAn authenticated user who is permitted to create files can consequently choose the storage path their upload is written\r\nto, place uploads outside the configured storage root prefix, and overwrite the stored content of existing file records.\r\n\r\n## Impact\r\n\r\nThe concrete effect depends on the storage driver in use:\r\n\r\n- **Local driver.** The supplied path is joined onto the storage root after leading traversal segments are dropped, so\r\n  writes remain inside the storage root. The attacker still controls the complete sub path and can create or overwrite\r\n  any object beneath it.\r\n- **Object storage drivers (S3 and equivalents).** The supplied path is joined onto the configured root prefix without\r\n  normalisation, so relative traversal segments escape that prefix and can address any key in the bucket or container.\r\n\r\nIn both cases no uniqueness check is performed on `filename_disk`, so an upload can be pointed at the disk name of an\r\nexisting file record. The bytes served for that unrelated record are then replaced with attacker controlled content.\r\n\r\nWhere the deployment places the extensions directory or the temporary directory inside the storage root, or serves\r\nextensions from the same storage location used for uploads, this write primitive reaches a location whose contents are\r\nloaded and executed by the server. That escalation is configuration dependent and is not reachable in a default\r\ndeployment.\r\n\r\n## Preconditions\r\n\r\n- TUS uploads enabled (`TUS_ENABLED`, which defaults to `false`).\r\n- An authenticated account holding create permission on `directus_files`. No administrative access is required.\r\n\r\n## Workarounds\r\n\r\n- Leave TUS uploads disabled (`TUS_ENABLED=false`, the default).\r\n- Restrict create permission on `directus_files` to trusted roles.\r\n- Keep the extensions and temporary directories outside the storage root, and do not share a storage bucket between\r\n  uploads and the extensions location.\r\n\r\n## Credit\r\n\r\nReported by @oduoke567",
+      "published_at": "2026-08-05T16:36:32.000Z",
+      "modified_at": "2026-08-05T16:36:32.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22",
+        "CWE-73"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "10.13.0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-3742-46gx-c8cc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-3742-46gx-c8cc",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-3742-46gx-c8cc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:38769dc6cd0dc2a012af404b4c08440f83f51a89582af1b3a5f035eea9838583",
+      "note": null
+    },
+    {
+      "id": "GHSA-xw72-c69j-h2rj",
+      "aliases": [],
+      "title": "Directus is vulnerable to denial of service through unauthenticated Argon2 hash utility endpoints",
+      "summary": "## Summary\r\n\r\nDirectus exposed the utility endpoints `POST /utils/hash/generate` and `POST /utils/hash/verify` to unauthenticated callers. The verify endpoint validated a caller-supplied Argon2 hash directly. Because Argon2 reads its cost parameters (memory, iterations, parallelism) from the encoded hash string, an unauthenticated attacker could supply a hash with very high cost parameters and force the server to perform an expensive verification for each request.\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker can trigger high-cost password-verification work with a small number of requests. Because each verification can be configured to allocate a large amount of memory and CPU, a low volume of concurrent requests can exhaust server resources. This shares the same compute path used by legitimate authentication, so login and other authentication flows are degraded or made unavailable.\r\n\r\nIn testing, 8 concurrent requests increased administrator login latency from roughly 0.5 seconds to 6.6-7.1 seconds (about 13-14x slower than baseline). Higher-cost parameters and greater concurrency can drive the host toward memory exhaustion and process failure.\r\n\r\n### Affected component\r\n\r\nThe `/utils/hash/generate` and `/utils/hash/verify` HTTP endpoints (and their GraphQL and SDK equivalents), which were reachable without authentication and did not enforce a limit on the Argon2 cost parameters accepted from the request.\r\n\r\n## Credits\r\n\r\nReported by @lalalala5678",
+      "published_at": "2026-08-05T16:27:16.000Z",
+      "modified_at": "2026-08-05T16:27:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-306",
+        "CWE-400",
+        "CWE-405",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xw72-c69j-h2rj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xw72-c69j-h2rj",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xw72-c69j-h2rj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5e264bce8b2e07e48e889521dfea1ce18d4a43619cf8b3d072d3641616bbf1d6",
+      "note": null
+    },
+    {
+      "id": "GHSA-6hpw-rhhq-6xq3",
+      "aliases": [],
+      "title": "Unauthenticated telemetry submission and settings write via pre-authorization side effects on the project owner endpoint",
+      "summary": "## Summary\r\n\r\nThe `POST /settings/owner` endpoint derives its authorization from the settings singleton write it performs, which\r\npasses through the permission layer. In affected versions two side effects ran before that write: an outbound owner\r\nreport to the configured compliance intake endpoint containing request-supplied fields, and, if that report failed, a\r\ndirect database write setting `directus_settings.project_status` to `pending`. Directus populates accountability\r\nglobally but does not reject unauthenticated requests at the middleware layer, so an unauthenticated caller received\r\n`403 Forbidden` while both side effects had already been dispatched.\r\n\r\n## Details\r\n\r\nThe route has no per-route authorization guard. The outbound report was issued ahead of the settings write and was\r\nintentionally not awaited, so it continued to settle after the outer request had already failed with a permission error.\r\n\r\nThe report is a POST to the configured compliance endpoint (`COMPLIANCE_URL`, default `compliance.directus.io`) whose\r\nbody is assembled from the request payload (`project_owner`, `org_name`, `project_usage`, `product_updates`) together\r\nwith the instance's `project_id` and version. Every payload field is caller-supplied and none are validated before the\r\nreport is sent. The destination is fixed by configuration and is not influenced by the request.\r\n\r\nThe rejection handler attached to that call performed a direct query-builder update of\r\n`directus_settings.project_status`, bypassing the permission layer entirely. This path is reached only when the outbound\r\nreport fails, which is the standing condition on deployments with restricted outbound network access.\r\n`project_status = 'pending'` is the flag read by the daily project status job, which re-sends the stored owner\r\ninformation and then clears the flag.\r\n\r\nAn unauthenticated read of `project_id` from the settings table also preceded the check. That value is not returned to\r\nthe caller and is not disclosed.\r\n\r\nBoth side effects require `PROJECT_OWNER_ENABLED`, which is enabled by default. With it disabled the reporting helper\r\nreturns before issuing any request, and neither side effect occurs.\r\n\r\n## Impact\r\n\r\nAn unauthenticated caller able to reach the API could:\r\n\r\n- Cause the instance to submit caller-controlled strings to the configured compliance intake endpoint, from the\r\n  instance's own network position and under its `project_id`, with no authorization. This permits submitting spurious\r\n  owner records attributable to the deployment and polluting the intake pipeline.\r\n- On deployments where the outbound report fails, set `directus_settings.project_status` to `pending`. The written value\r\n  is fixed and not attacker-chosen. Its effect is that the daily project status job sends one additional owner report\r\n  per day until a report succeeds.\r\n\r\nThe stored owner information itself is not modified, nothing is disclosed to the caller, and no privilege escalation or\r\naccess to other collections follows. The persistent effect on the instance is limited to a single non-security settings\r\nfield.\r\n\r\n## Workarounds\r\n\r\nFor deployments that cannot upgrade immediately:\r\n\r\n- Set `PROJECT_OWNER_ENABLED=false` if the project owner and compliance reporting flow is not in use. Neither side\r\n  effect can be triggered while it is disabled.\r\n- Block `POST /settings/owner` at a reverse proxy in front of Directus, or restrict it to authenticated requests.\r\n- If the flag has already been flipped, clearing `directus_settings.project_status` returns the instance to its prior\r\n  state.\r\n\r\n## Credit\r\n\r\nReported by @Paincakess",
+      "published_at": "2026-08-05T16:15:09.000Z",
+      "modified_at": "2026-08-05T16:15:09.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-696",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "11.13.0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-6hpw-rhhq-6xq3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-6hpw-rhhq-6xq3",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-6hpw-rhhq-6xq3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:538a1dff4218e30f98ba2a8bd0b045bf5ad8540bb060d77d84e617c9c961857e",
+      "note": null
+    },
+    {
+      "id": "GHSA-mww8-4gwh-rjfw",
+      "aliases": [],
+      "title": "Missing Origin validation on WebSocket upgrades allows Cross-Site WebSocket Hijacking",
+      "summary": "# Missing Origin validation on WebSocket upgrades allows Cross-Site WebSocket Hijacking\r\n\r\n## Summary\r\n\r\nThe WebSocket upgrade handler accepted cross-origin upgrade requests that carried the `directus_session_token` session\r\ncookie, without validating the `Origin` header of the handshake. A browser automatically attaches cookies to a WebSocket\r\nhandshake and, unlike the REST and GraphQL transports, the upgrade path is registered directly on the HTTP server and\r\ntherefore never passes through the CORS middleware. In affected deployments, a page on an attacker-controlled origin\r\ncould open a WebSocket to a Directus instance and have the connection authenticated as the visiting user.\r\n\r\n## Details\r\n\r\nWhen a WebSocket upgrade request arrived with a session cookie present, the connection was authenticated from that\r\ncookie and the socket was established with the corresponding user's accountability. No comparison was made against the\r\nrequest host, `PUBLIC_URL`, or the `CORS_ORIGIN` allowlist before accepting the upgrade.\r\n\r\nThe cookie branch was evaluated ahead of the configured WebSocket authentication mode, so setting `WEBSOCKETS_REST_AUTH`\r\nor `WEBSOCKETS_GRAPHQL_AUTH` to `handshake` or `strict` did not prevent a cookie-bearing handshake from being accepted.\r\n\r\nExploitation requires all of the following:\r\n\r\n- WebSockets are enabled (`WEBSOCKETS_ENABLED=true`). This is not the default.\r\n- The victim is signed in using session cookie authentication, which is the mode the Admin App uses.\r\n- The victim's browser attaches the session cookie to the attacker's cross-origin handshake. This happens when\r\n  `SESSION_COOKIE_SAME_SITE` is set to `none` (a configuration used for cross-origin Admin App deployments), or when the\r\n  attacker controls a site that is same-site with the API host, such as a sibling subdomain, in which case the default\r\n  `lax` setting still sends the cookie.\r\n- The victim visits the attacker-controlled page while their session is valid.\r\n\r\n## Impact\r\n\r\nAn attacker who can get a signed-in user to load a page under their control can drive an authenticated WebSocket session\r\nwith that user's permissions. Over that connection they can read, create, update, and delete items, and open\r\nsubscriptions, on any collection the victim has access to. If the victim is an administrator, this extends to system\r\ncollections such as `directus_users`, `directus_roles`, and `directus_permissions`.\r\n\r\nThe attacker's page can read WebSocket responses directly, so this results in data disclosure as well as unauthorized\r\nwrites. The session token itself is `HttpOnly` and is not exposed to the attacker's script.\r\n\r\n## Workarounds\r\n\r\nFor deployments that cannot upgrade immediately:\r\n\r\n- Disable WebSockets (`WEBSOCKETS_ENABLED=false`) if they are not in use.\r\n- Avoid `SESSION_COOKIE_SAME_SITE=none`. Serving the Admin App and the API from the same site allows the default `lax`\r\n  value, which prevents the cross-site case.\r\n- Enforce an `Origin` allowlist for the WebSocket paths at a reverse proxy in front of Directus.\r\n- Treat control of any subdomain sharing the API's registrable domain as equivalent to control of the session, and\r\n  review subdomain ownership accordingly.\r\n\r\n## Credit\r\n\r\nReported by @tonghuaroot",
+      "published_at": "2026-08-05T16:09:04.000Z",
+      "modified_at": "2026-08-05T16:09:04.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-352",
+        "CWE-1385"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "10.10.5",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-mww8-4gwh-rjfw",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-mww8-4gwh-rjfw",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-mww8-4gwh-rjfw",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3e0bcd8464411d1680b3fe330fdeaff9b98a6a4dac255ae1bef68a780b518eb3",
+      "note": null
+    },
+    {
+      "id": "GHSA-5h38-6755-g83w",
+      "aliases": [],
+      "title": "Path traversal in the Mail Service template engine allows arbitrary host file disclosure",
+      "summary": "## Description\r\n\r\n### Summary\r\n\r\nThe Directus Mail Service resolves email template names without confirming that the resolved path stays inside the\r\nconfigured templates directory. An authenticated user who can configure a Flow \"Send Email\" operation can supply a\r\nrelative template name that traverses outside the templates root, causing the Liquid engine to load and render an\r\narbitrary file from the host filesystem. Combined with the ability to place a file with an attacker-controlled name and\r\nlocation, this becomes a Local File Inclusion primitive that discloses sensitive host files.\r\n\r\nThis is most impactful in multi-tenant or managed-hosting deployments, where a tenant-level administrator is expected to\r\noperate only within the application boundary and has no legitimate access to the underlying host filesystem.\r\n\r\n### Details\r\n\r\n`MailService.renderTemplate` builds the template path by joining the caller-supplied `template` value onto the templates\r\ndirectory with `path.resolve`. Because `path.resolve` collapses `../` segments, a relative value such as\r\n`../../some/other/location/file` resolves to a path outside the intended templates root, and no check rejected paths\r\nthat escaped that root. The Liquid engine then reads and renders whichever file the path points to and returns the\r\nrendered output in the email body.\r\n\r\nThe `template` value is reachable by any user who can create or edit a Flow mail operation (the operation's `template`\r\noption flows directly into the render call). To make the resolved path land on a file the engine will load, an attacker\r\npairs this with control over a stored file's on-disk name and location; that file-placement issue is tracked separately\r\nunder GHSA-xjxq-pj7h-g676. Once a suitable file exists, the traversal in the mail service turns it into readable output,\r\nand Liquid include directives within a rendered template can pull in further host files.\r\n\r\n### Impact\r\n\r\n- **Host file disclosure from an application context.** A user restricted to application features can read files outside\r\n  the application boundary, such as environment files and other host configuration.\r\n- **Secret exposure and downstream escalation.** Disclosure of the application secret and database credentials can\r\n  enable session-token forgery and impersonation, so the confidentiality breach can cascade into broader compromise.\r\n- **Weakened tenant isolation.** In shared-hosting or SaaS deployments, a tenant administrator can reach files belonging\r\n  to the host or to co-located tenants, breaking the isolation those deployments rely on.\r\n\r\nThe vulnerability requires an authenticated account with administrative capabilities (managing Flows and files), so it\r\nis primarily an authority-boundary and tenant-isolation issue rather than an unauthenticated exposure.\r\n\r\n## Credits\r\n\r\nReported by @drkim-dev",
+      "published_at": "2026-08-05T15:58:01.000Z",
+      "modified_at": "2026-08-05T15:58:01.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22",
+        "CWE-73"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-5h38-6755-g83w",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-5h38-6755-g83w",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-5h38-6755-g83w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:de2628783c184e4e9fdee05bada5ca863c57ecf16c3b716b2dd27239e0ac8a37",
+      "note": null
+    },
+    {
+      "id": "GHSA-p623-wgx3-wxp8",
+      "aliases": [],
+      "title": "Directus applies side effects in service overrides before permission checks, allowing unauthorized data modification",
+      "summary": "## Description\r\n\r\n### Summary\r\n\r\nSeveral Directus service classes override the base `ItemsService` mutation methods to perform cleanup work (nullifying\r\nforeign keys, clearing caches) before delegating to the superclass. The caller's `delete` or `update` permission check\r\nruns inside the superclass method, so those side effects were applied before authorization was evaluated. When the\r\nsuperclass subsequently rejected the request with `403 Forbidden`, the side effects had already been committed.\r\n\r\nThe most impactful instance is `FlowsService.deleteMany` (`api/src/services/flows.ts`), which nullified `resolve` and\r\n`reject` on every row in `directus_operations` belonging to the target flow. Because Directus does not require a token\r\nto reach a service (the `authenticate` middleware assigns accountability but does not reject anonymous requests), and\r\nthe flows controller adds no pre-service authorization layer, an unauthenticated caller issuing `DELETE /flows/:pk`\r\nreceived `403 Forbidden` while the operation graph of that flow was permanently disconnected. The flow row and its\r\noperation rows survive, so the Admin App still lists the flow as active, but execution halts after the first step and\r\nthe original link targets are not recoverable without manual reconstruction by an administrator.\r\n\r\nTwo sibling services shared the same ordering defect and are covered by the same patch:\r\n\r\n- `UsersService.deleteMany` (`api/src/services/users.ts`) nullified `directus_comments.user_updated`,\r\n  `directus_notifications.sender`, and `directus_versions.user_updated` for the target user before authorization,\r\n  allowing an unauthorized caller to strip authorship metadata from rows belonging to a user they cannot delete.\r\n- `SharesService.updateMany` and `SharesService.deleteMany` (`api/src/services/shares.ts`) invoked the global\r\n  permissions cache flush before authorization. The target primary key does not need to correspond to an existing row,\r\n  so any path-valid UUID triggered a full invalidation of the `fetchPolicies` / `fetchPermissions` / `fetchGlobalAccess`\r\n  cache (process-local, and Redis-shared where configured), forcing all subsequent requests to re-derive permissions\r\n  from the database.\r\n\r\nThe same patch also reordered non-externally-reachable side effects in `SettingsService.setOwner` and\r\n`DeploymentService.deleteByProvider`, and stopped the user-invite controller from surfacing a rejected invite as an\r\nerror.\r\n\r\n### Impact\r\n\r\n- **Availability of automation.** An unauthorized or unauthenticated caller who knows a flow's UUID can permanently\r\n  break that flow's operation chain. Flow UUIDs are not secrets: webhook-trigger flows expose theirs in the public\r\n  trigger URL, and manual-trigger flows are readable by app users under common permission configurations. The operation\r\n  is repeatable across every flow whose UUID is observable, and the previous `resolve` / `reject` values are destroyed\r\n  rather than merely disabled. Webhook consumers continue to receive successful responses while downstream steps\r\n  silently no longer run.\r\n- **Integrity of attribution data.** Authorship and sender columns on comments, notifications, and content versions\r\n  could be nulled by a caller with no permission to delete the referenced user, removing the record of who last modified\r\n  the affected rows.\r\n- **Performance and resource consumption.** Repeated unauthenticated requests against the shares endpoints kept the\r\n  permissions cache cold, shifting permission resolution for every authenticated request back onto the database. The\r\n  flush emits no event or log entry, so the activity appears only as routine `403` noise.\r\n\r\nNo path in this class reads or exfiltrates content, alters flow or user configuration, or grants elevated privileges.\r\nThe impact is confined to availability, cached state, and the specific audit columns listed above.\r\n\r\n### Patches\r\n\r\nFixed in **Directus 12.1.0** (`@directus/api` 37.0.0). The affected overrides now...",
+      "published_at": "2026-08-05T15:43:00.000Z",
+      "modified_at": "2026-08-05T15:43:00.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-696",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-p623-wgx3-wxp8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-p623-wgx3-wxp8",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-p623-wgx3-wxp8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:de2628783c184e4e9fdee05bada5ca863c57ecf16c3b716b2dd27239e0ac8a37",
+      "note": null
+    },
+    {
+      "id": "GHSA-788p-cvgf-q973",
+      "aliases": [],
+      "title": "Stored cross-site scripting via unsanitized project color in the generated favicon",
+      "summary": "## Description\r\n\r\n### Summary\r\n\r\nThe Directus app builds a fallback favicon from the configured project color by interpolating that color into an SVG\r\nmarkup string and assigning the result to `innerHTML`. Because the value is never escaped or validated as a color, a\r\ncrafted project color breaks out of the SVG context and injects arbitrary HTML, which executes script in the origin of\r\nthe Directus application when a browser loads the app.\r\n\r\n### Details\r\n\r\n`generateFavicon` (`app/src/utils/generate-favicon.ts`) accepted the project color as a string, embedded it in an SVG\r\n`<style>` declaration, and parsed the resulting markup by assigning it to the `innerHTML` of a `<div>`. No HTML or CSS\r\nescaping was applied at any point on that path.\r\n\r\nThe value passed in is `project_color` from the `directus_settings` singleton, surfaced to the app through the\r\n`/server/info` endpoint. Any principal permitted to update `directus_settings` can therefore persist an arbitrary string\r\ninto this sink. In the default configuration that is the administrator role; the exposure that matters is a non-admin\r\npolicy that has been granted update access to `directus_settings`, which turns settings write access into script\r\nexecution in an administrator's session.\r\n\r\nTwo properties broaden the reach of the payload:\r\n\r\n- The element the markup is parsed into is never attached to the document, but that does not prevent execution. Markup\r\n  parsed via `innerHTML` on a detached element still triggers resource loading and the associated event handlers, so\r\n  injected content runs immediately.\r\n- `/server/info` is a public endpoint and the favicon is computed by the app's root component, so the payload fires for\r\n  every visitor who loads the Directus URL, including unauthenticated visitors on the login page, before any\r\n  user-specific gating.\r\n\r\n### Impact\r\n\r\nStored cross-site scripting in the Directus application. A user with permission to write project settings can persist a\r\npayload that executes for every subsequent visitor to the Directus URL, including administrators, enabling session or\r\ntoken theft and API actions performed with the victim's privileges. Where settings write access has been delegated to a\r\nnon-administrative policy, this constitutes privilege escalation to administrator.\r\n\r\nNote that administrators already hold documented code-execution capability in Directus through Flows, extensions, and\r\ncustom CSS, so an administrator-only exploitation path does not cross a trust boundary on its own.\r\n\r\n### Patches\r\n\r\nFixed in Directus 12.1.0. The favicon is now assembled with SVG DOM APIs and the color is set as an attribute value, so\r\nit cannot escape into markup.\r\n\r\n### Workarounds\r\n\r\nRestrict update access on `directus_settings` to trusted administrators, and confirm that `project_color` holds a valid\r\ncolor value.\r\n\r\n### References\r\n\r\n- CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')\r\n\r\n## Credits\r\n\r\nReported by @PhilipPhil",
+      "published_at": "2026-08-05T15:24:54.000Z",
+      "modified_at": "2026-08-05T15:24:54.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-788p-cvgf-q973",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-788p-cvgf-q973",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-788p-cvgf-q973",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:de2628783c184e4e9fdee05bada5ca863c57ecf16c3b716b2dd27239e0ac8a37",
+      "note": null
+    },
+    {
+      "id": "GHSA-xjxq-pj7h-g676",
+      "aliases": [],
+      "title": "TUS Upload Authorization Bypass Allows Cross-User File Overwrite",
+      "summary": "## Summary\r\n\r\nOn Directus instances with the TUS resumable upload endpoint enabled (`TUS_ENABLED=true`), the endpoint did not enforce item level authorization on the file targeted by an upload replacement. An authenticated user holding `create` and `update` permission on `directus_files` could overwrite any other user's file, both its stored contents and its `directus_files` record, by naming the victim's file id in the `Upload-Metadata` header of a new upload.\r\n\r\nThis is a variant of [GHSA-qqmv-5p3g-px89](https://github.com/directus/directus/security/advisories/GHSA-qqmv-5p3g-px89). The fix for that advisory added an item level access check for the `id` upload metadata key, but the upload completion handlers acted on a second, adjacent metadata key (`replace_id`) that was never validated against the caller. An upload supplying only `replace_id` was evaluated as an ordinary `create` against the caller's own permissions, while the completion path resolved and rewrote the referenced record using internal services that run without accountability.\r\n\r\nThe same upload path also lacked two guards that the regular `/files` endpoint applied to a client supplied `filename_disk`: storage path normalization and the filename uniqueness check. That gave a second route to clobbering another user's stored object, and, on deployments where the extensions or temporary directory sits inside the configured storage location, to writing into those directories.\r\n\r\n## Impact\r\n\r\n- **Cross-user file overwrite.** The attacker needs only their own create and update permission on `directus_files` plus the target file's id. File ids are not secrets: they appear in asset URLs, relational payloads, and ordinary API responses.\r\n- **Metadata rewrite at elevated privilege.** The victim's record was updated by an internal service instantiated without accountability, so per field permissions and item level rules on the victim's record did not apply. Attacker controlled `filename_download`, `filesize`, `type`, and extracted `metadata` replaced the original values.\r\n- **Content substitution under the original owner's identity.** The record's `id` and `uploaded_by` were preserved, so any consumer that trusts the record's owner (published content referencing an asset by id, CDN cached asset URLs, email templates, documents attached to records) served the attacker's content in place of the original.\r\n- **Loss of the original data.** The previously stored object and its generated thumbnails were deleted as part of the replacement, so the original content was not recoverable from Directus.\r\n\r\nNo credential disclosure and no direct code execution were identified, and reading another user's file content was not part of this issue.\r\n\r\n## Affected versions\r\n\r\n- Package: `directus` (npm), and the corresponding `directus/directus` container images\r\n- Affected: `>= 10.13.0, < 12.1.0`\r\n- Patched: `12.1.0`\r\n\r\nPreconditions: `TUS_ENABLED=true` (this is not the default) and an attacker role whose policy grants `create` and `update` on `directus_files`.\r\n\r\nThe affected metadata handling was introduced together with TUS support in 10.13.0. Versions below 11.16.1 are additionally affected by GHSA-qqmv-5p3g-px89. The fix was not backported, so instances on 11.x need to move to 12.1.0 or later.\r\n\r\n## Severity\r\n\r\n**High, 7.1**\r\n\r\n`CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L`\r\n\r\n- **AV:N** the TUS endpoint is reachable over the network.\r\n- **AC:L** a single upload creation request with one extra metadata key, no race or special conditions.\r\n- **PR:L** any authenticated role with create and update on `directus_files`, which is a routine grant for content editors.\r\n- **UI:N** no action by the victim is required.\r\n- **S:U** the impact stays within the Directus authorization scope.\r\n- **C:N** the attacker gains no read access to the victim's data.\r\n- **I:H** arbitrary overwrite of another user's file contents and privileged rewrite of its metadata record.\r\n- **A:L** the original stored o...",
+      "published_at": "2026-08-05T15:13:43.000Z",
+      "modified_at": "2026-08-05T15:13:43.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "10.13.0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xjxq-pj7h-g676",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xjxq-pj7h-g676",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-xjxq-pj7h-g676",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:38769dc6cd0dc2a012af404b4c08440f83f51a89582af1b3a5f035eea9838583",
+      "note": null
+    },
+    {
+      "id": "GHSA-ff8w-8crv-9rcf",
+      "aliases": [],
+      "title": "Resource exhaustion via unbounded GraphQL documents on the WebSocket endpoint",
+      "summary": "# Summary\r\n\r\nThe GraphQL WebSocket endpoint did not apply the parser and validation limits that guard the HTTP GraphQL endpoint.\r\nDocuments arriving over the WebSocket transport were parsed without the `GRAPHQL_QUERY_TOKEN_LIMIT` bound. Because that\r\ntransport accepts `query` and `mutation` operations alongside subscriptions, an ordinary query with deeply nested\r\nrelational fields could be executed there without the document size ceiling that applies over HTTP, expanding a single\r\nclient message into a disproportionate amount of server side work.\r\n\r\n# Details\r\n\r\nThe HTTP GraphQL endpoint parses incoming documents through a middleware that enforces `GRAPHQL_QUERY_TOKEN_LIMIT`,\r\ncapping document size before any execution work begins. The WebSocket transport did not route through that middleware\r\nand supplied no equivalent bound of its own, so document size and nesting depth were effectively unbounded on that path.\r\n\r\nTwo consequences follow. The cost of parsing, validating, and executing a single client message was unbounded. And\r\nbecause relational fields can be nested repeatedly, each additional level multiplies the underlying database work, so\r\none message can expand into a large number of queries and hold database connections for its duration.\r\n\r\nThe same transport also did not honour `GRAPHQL_INTROSPECTION=false`, leaving introspection and validation field hints\r\navailable over WebSockets on instances that had disabled them over HTTP. The WebSocket GraphQL schema is scoped to user\r\ndefined collections and generated against the connected client's own permissions, so this revealed no more of the schema\r\nthan that client was already entitled to see. It is a hardening parity gap rather than an information disclosure.\r\n\r\nAmplification depends on the deployed data model: nesting deeply requires user defined collections with cyclic or self\r\nreferencing relations. System collections are absent from this schema, so `directus_*` data and system mutations are not\r\nreachable over this transport.\r\n\r\n# Impact\r\n\r\nAvailability. A client that can reach the GraphQL WebSocket endpoint can consume CPU, memory, and database connections\r\nout of proportion to the size of its request, degrading or exhausting the API for other users. In the default\r\nauthentication mode the client must present a valid access token, so exploitation is limited to authenticated users.\r\nConfidentiality and integrity are not affected.\r\n\r\n# Affected configurations\r\n\r\nAn instance is affected only if all of the following hold:\r\n\r\n- `WEBSOCKETS_ENABLED` is `true` (default: `false`)\r\n- `WEBSOCKETS_GRAPHQL_ENABLED` is `true` (default: `true` once WebSockets are enabled)\r\n- the WebSocket GraphQL endpoint is reachable by the attacker\r\n\r\nExposure is wider where `WEBSOCKETS_GRAPHQL_AUTH` is set to `public` (default: `handshake`), since the endpoint is then\r\nreachable without a token, but only to the extent that the public role has read access to related collections.\r\n\r\n# Patches\r\n\r\nFixed in Directus `12.1.0` (`@directus/api` `37.0.0`). The WebSocket transport now parses documents under\r\n`GRAPHQL_QUERY_TOKEN_LIMIT` and validates them against the same shared rule set as the HTTP endpoint, including the\r\nintrospection settings, so the two transports enforce the same protections. Upgrade to `12.1.0` or later.\r\n\r\n# Workarounds\r\n\r\nIf you cannot upgrade immediately, set `WEBSOCKETS_GRAPHQL_ENABLED=false`, or `WEBSOCKETS_ENABLED=false` to disable all\r\nWebSocket endpoints.\r\n\r\n# Credits\r\n\r\nReported by ProScan AppSec (https://proscan.one).",
+      "published_at": "2026-08-05T14:59:23.000Z",
+      "modified_at": "2026-08-05T14:59:23.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-693",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-ff8w-8crv-9rcf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-ff8w-8crv-9rcf",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-ff8w-8crv-9rcf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:de2628783c184e4e9fdee05bada5ca863c57ecf16c3b716b2dd27239e0ac8a37",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-10716",
+      "aliases": [
+        "GHSA-chfm-g7r3-vv42"
+      ],
+      "title": "Directus <12.1.0 - Authenticated time-based SQL injection in PostgreSQL/PostGIS collection creation",
+      "summary": "Directus contains an authenticated SQL injection vulnerability in the collection creation flow when the instance uses PostgreSQL with PostGIS enabled. An administrator can create a collection with a geometry field whose fields[].type value starts with geometry but contains attacker-controlled SQL syntax after the geometry subtype.This issue affects Directus: before 12.1.0.",
+      "published_at": "2026-08-05T14:49:54.000Z",
+      "modified_at": "2026-08-06T17:58:17.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00417,
+        "percentile": 0.36526,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-89"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://fluidattacks.com/es/advisories/metallica",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/directus/directus",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-chfm-g7r3-vv42",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases#release-v12.1.0",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-10716",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-10716",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-10716",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-10716",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-chfm-g7r3-vv42",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-chfm-g7r3-vv42",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5e264bce8b2e07e48e889521dfea1ce18d4a43619cf8b3d072d3641616bbf1d6",
+      "note": null
+    },
+    {
+      "id": "GHSA-g293-vf99-xv36",
+      "aliases": [],
+      "title": "Unthrottled system GraphQL resolvers allow anonymous DoS via alias amplification",
+      "summary": "## Summary\r\n\r\nA prior advisory (GHSA-6q22-g298-grjh) addressed GraphQL alias-amplification on `server_health` by wrapping the\r\nresolvers in `resolvers/system.ts` with a deduplication layer. The companion resolver file `resolvers/system-global.ts`\r\nwas not covered. Several anonymously reachable, expensive resolvers remain un-deduplicated, so a single anonymous\r\n`POST /graphql/system` request containing many aliased calls is multiplied into many server-side operations.\r\n\r\nThis enables an unauthenticated attacker, in a single HTTP request, to:\r\n\r\n- **Account-lockout DoS**: flip any account with a guessable email to a suspended state by exceeding the per-account\r\n  failed-login threshold.\r\n- **Mail flooding**: trigger an arbitrary number of password-reset emails to any address, exhausting SMTP quota and\r\n  harassing the recipient.\r\n- **CPU exhaustion**: force many argon2id hashing operations per request, amplified further by parallel connections.\r\n- **Accelerated credential probing**: test up to the lockout threshold of credentials against an account in a single\r\n  request.\r\n\r\n## Details\r\n\r\nThe affected resolvers in `resolvers/system-global.ts` are anonymously reachable and each carry meaningful server-side\r\ncost (argon2id hashing, user lookups, or SMTP sends): `auth_login`, `auth_password_request`, `utils_hash_generate`, and\r\n`utils_hash_verify`.\r\n\r\nBecause GraphQL aliasing lets one document invoke the same field many times, and these resolvers are not deduplicated,\r\none HTTP request expands into N operations. The HTTP-level rate limiter counts requests, not resolver invocations, so\r\nthe amplification bypasses it even when the limiter is enabled.\r\n\r\nDefault configuration increases exposure rather than mitigating it. The HTTP and email rate limiters are disabled by\r\ndefault, the default per-account failed-login threshold is low enough to be crossed within a single amplified request,\r\nand GraphQL introspection is enabled by default, making the schema anonymously discoverable.\r\n\r\n## Impact\r\n\r\nAny Directus deployment with `/graphql/system` reachable by the attacker is affected. An unauthenticated attacker can\r\nsuspend arbitrary accounts (including privileged ones with guessable emails), flood arbitrary recipients with\r\npassword-reset mail, and impose amplified server-side CPU cost, all from a single anonymous request and repeatable from\r\none IP. This is a denial-of-service and resource-abuse issue. It does not by itself grant account takeover, since the\r\nper-account lockout caps the credential-probing window.\r\n\r\n## Credits\r\n\r\nReported by @assakafpix",
+      "published_at": "2026-08-05T14:37:34.000Z",
+      "modified_at": "2026-08-05T14:37:34.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-645",
+        "CWE-770",
+        "CWE-799"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-g293-vf99-xv36",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-g293-vf99-xv36",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-g293-vf99-xv36",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5e264bce8b2e07e48e889521dfea1ce18d4a43619cf8b3d072d3641616bbf1d6",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-126539",
+      "aliases": [
+        "GHSA-97xr-jchp-xm3c"
+      ],
+      "title": "Directus before 12.1.0 Authorization Bypass via Public WebSocket REST Interface",
+      "summary": "Directus before 12.1.0 contains an authorization bypass vulnerability that allows unauthenticated attackers to skip permission checks by sending a failed auth message on public-mode WebSocket connections. Attackers can send an invalid token so handleAuthRequest sets accountability to null, then read, create, update or delete records in any user-defined collection.",
+      "published_at": "2026-08-05T14:10:57.000Z",
+      "modified_at": "2026-11-12T17:59:28.909Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00463,
+        "percentile": 0.40688,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-269",
+        "CWE-284",
+        "CWE-636",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-97xr-jchp-xm3c",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/commit/8d4cd86783bcbf5444eaf290e8dcecb33929300e",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v12.1.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/directus/directus/blob/v12.0.2/api/src/websocket/controllers/base.ts#L381-L397",
+          "type": "web"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/directus-before-12.1.0-authorization-bypass-via-public-websocket-rest-interface",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-126539",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-126539",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-126539",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-126539",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-97xr-jchp-xm3c",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-97xr-jchp-xm3c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5e264bce8b2e07e48e889521dfea1ce18d4a43619cf8b3d072d3641616bbf1d6",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-61836",
+      "aliases": [
+        "GHSA-c6w9-5g5j-jh2p"
+      ],
+      "title": "Directus: Authorization-dependent response served from unsegmented cache key",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 12.0.0, when response caching is enabled, the cache-key derivation in api/src/utils/get-cache-key.ts includes version, path, query, and accountability.user but omits authorization context such as share, role, roles, admin, app, and policies. Directus share tokens and anonymous requests can both reduce to user null, so different shares or anonymous clients requesting the same URL and query can receive a permission-filtered cached response without permission re-evaluation. This issue is fixed in version 12.0.0.",
+      "published_at": "2026-06-24T16:40:53.000Z",
+      "modified_at": "2026-07-20T21:48:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00474,
+        "percentile": 0.41549,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-524",
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-c6w9-5g5j-jh2p",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/pull/27707",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/commit/7ba4efb97525d3af33570537c76e44baea767f13",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v12.0.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-61836",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-c6w9-5g5j-jh2p",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-61836",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-61836",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-61836",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-61836",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-c6w9-5g5j-jh2p",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-c6w9-5g5j-jh2p",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:32b2d854b95149897b790ced05425adf5ea149ef3227462d5611d526ca2a6a66",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-61835",
+      "aliases": [
+        "GHSA-j5h6-vqc3-phqh"
+      ],
+      "title": "Directus: SSRF Protection Bypass via 0.0.0.0 in File Import",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 12.0.0, the SSRF protection on Directus's file-import-from-URL feature can be bypassed using the address 0.0.0.0 because api/src/request/is-denied-ip.ts treats 0.0.0.0 as a keyword for local interfaces but never blocks the literal address itself. On Linux and macOS, connecting to 0.0.0.0 reaches localhost, so an authenticated user with file-upload rights can make the server fetch internal services through the /files/import endpoint and retrieve the response as a downloadable file. This issue is fixed in version 12.0.0.",
+      "published_at": "2026-06-24T16:35:02.000Z",
+      "modified_at": "2026-07-21T14:07:42.434Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00407,
+        "percentile": 0.35571,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "12.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-j5h6-vqc3-phqh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/pull/27606",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/commit/f75b25fa44b05c6022b20f231c20bc6e50f021d7",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v12.0.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-61835",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-j5h6-vqc3-phqh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-61835",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-61835",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-61835",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-61835",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-j5h6-vqc3-phqh",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-j5h6-vqc3-phqh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:32b2d854b95149897b790ced05425adf5ea149ef3227462d5611d526ca2a6a66",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35442",
+      "aliases": [
+        "GHSA-38hg-ww64-rrwc"
+      ],
+      "title": "Directus: Authenticated Users Can Extract Concealed Fields via Aggregate Queries",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.17.0, aggregate functions (min, max) applied to fields with the conceal special type incorrectly return raw database values instead of the masked placeholder. When combined with groupBy, any authenticated user with read access to the affected collection can extract concealed field values, including static API tokens and two-factor authentication secrets from directus_users. This vulnerability is fixed in 11.17.0.",
+      "published_at": "2026-04-02T16:44:49.000Z",
+      "modified_at": "2026-11-09T01:41:55.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00343,
+        "percentile": 0.28272,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.17.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-38hg-ww64-rrwc",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35442",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-38hg-ww64-rrwc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35442",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35442",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35442",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35442",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-38hg-ww64-rrwc",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-38hg-ww64-rrwc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:077098fab0d430e779a2a4869d19865dfaa98a57348460f426edf6fbcbe9ec2c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35441",
+      "aliases": [
+        "GHSA-6q22-g298-grjh",
+        "GHSA-ph52-67fq-75wj"
+      ],
+      "title": "Directus Affected by GraphQL Alias Amplification Denial-of-Service Due to Missing Query Cost/Complexity Limits",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.17.0, Directus' GraphQL endpoints (/graphql and /graphql/system) did not deduplicate resolver invocations within a single request. An authenticated user could exploit GraphQL aliasing to repeat an expensive relational query many times in a single request, forcing the server to execute a large number of independent complex database queries concurrently, multiplying database load linearly with the number of aliases. The existing token limit on GraphQL queries still permitted enough aliases for significant resource exhaustion, while the relational depth limit applied per alias without reducing the total number executed. Rate limiting is disabled by default, meaning no built-in throttle prevented this from causing CPU, memory, and I/O exhaustion that could degrade or crash the service. Any authenticated user, including those with minimal read-only permissions, could trigger this condition. This vulnerability is fixed in 11.17.0.",
+      "published_at": "2026-04-02T16:44:26.000Z",
+      "modified_at": "2026-04-07T19:02:14.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00368,
+        "percentile": 0.31085,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.17.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-ph52-67fq-75wj",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-6q22-g298-grjh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-6q22-g298-grjh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35441",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-ph52-67fq-75wj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35441",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35441",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35441",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35441",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6q22-g298-grjh",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-6q22-g298-grjh",
+          "license": "CC-BY-4.0"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-ph52-67fq-75wj",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-ph52-67fq-75wj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:1f4639ed2c449c61822be3f6030d617eec6c749af54d1ade8d006692e8176c54",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-39943",
+      "aliases": [
+        "GHSA-mvv8-v4jj-g47j"
+      ],
+      "title": "Directus exposes sensitive fields in revision history",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.17.0, Directus stores revision records (in directus_revisions) whenever items are created or updated. Due to the revision snapshot code not consistently calling the prepareDelta sanitization pipeline, sensitive fields (including user tokens, two-factor authentication secrets, external auth identifiers, auth data, stored credentials, and AI provider API keys) could be stored in plaintext within revision records. This vulnerability is fixed in 11.17.0.",
+      "published_at": "2026-04-02T16:31:52.000Z",
+      "modified_at": "2026-04-10T14:06:06.440Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00173,
+        "percentile": 0.06722,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200",
+        "CWE-312"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.17.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-mvv8-v4jj-g47j",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v11.17.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-39943",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mvv8-v4jj-g47j",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-39943",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-39943",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-39943",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-39943",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-mvv8-v4jj-g47j",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-mvv8-v4jj-g47j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:1f4639ed2c449c61822be3f6030d617eec6c749af54d1ade8d006692e8176c54",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35412",
+      "aliases": [
+        "GHSA-qqmv-5p3g-px89"
+      ],
+      "title": "Directus has a TUS Upload Authorization Bypass Allows Arbitrary File Overwrite",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.16.1, Directus' TUS resumable upload endpoint (/files/tus) allows any authenticated user with basic file upload permissions to overwrite arbitrary existing files by UUID. The TUS controller performs only collection-level authorization checks, verifying the user has some permission on directus_files, but never validates item-level access to the specific file being replaced. As a result, row-level permission rules (e.g., \"users can only update their own files\") are completely bypassed via the TUS path while being correctly enforced on the standard REST upload path. This vulnerability is fixed in 11.16.1.",
+      "published_at": "2026-04-02T16:27:03.000Z",
+      "modified_at": "2026-04-07T16:23:16.091Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00308,
+        "percentile": 0.23914,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.16.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-qqmv-5p3g-px89",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35412",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qqmv-5p3g-px89",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35412",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35412",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35412",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35412",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-qqmv-5p3g-px89",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-qqmv-5p3g-px89",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5f789d0a54cf45525430a5ac521e5e2bb4a748e5d2e5c3d484f01dc0623a4630",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35409",
+      "aliases": [
+        "GHSA-wv3h-5fx7-966h"
+      ],
+      "title": "Directus has a SSRF Protection Bypass via IPv4-Mapped IPv6 Addresses in File Import",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.16.0, a Server-Side Request Forgery (SSRF) protection bypass has been identified and fixed in Directus. The IP address validation mechanism used to block requests to local and private networks could be circumvented using IPv4-Mapped IPv6 address notation. This vulnerability is fixed in 11.16.0.",
+      "published_at": "2026-04-02T16:26:22.000Z",
+      "modified_at": "2026-04-08T14:05:02.971Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00342,
+        "percentile": 0.28163,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.16.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-wv3h-5fx7-966h",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35409",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-wv3h-5fx7-966h",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35409",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35409",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35409",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35409",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-wv3h-5fx7-966h",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-wv3h-5fx7-966h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ace274189011709cf622df0a7ab8d95cb290bceaf66da56042a20563e74eb3ea",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35413",
+      "aliases": [
+        "GHSA-wxwm-3fxv-mrvx"
+      ],
+      "title": "Directus GraphQL Schema SDL Disclosure Setting",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.16.1, when GRAPHQL_INTROSPECTION=false is configured, Directus correctly blocks standard GraphQL introspection queries (__schema, __type). However, the server_specs_graphql resolver on the /graphql/system endpoint returns an equivalent SDL representation of the schema and was not subject to the same restriction. This allowed the introspection control to be bypassed, exposing schema structure (collection names, field names, types, and relationships) to unauthenticated users at the public permission level, and to authenticated users at their permitted permission level. This vulnerability is fixed in 11.16.1.",
+      "published_at": "2026-04-02T16:26:04.000Z",
+      "modified_at": "2026-04-08T14:05:44.361Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00319,
+        "percentile": 0.2527,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.16.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-wxwm-3fxv-mrvx",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35413",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-wxwm-3fxv-mrvx",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35413",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35413",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35413",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35413",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-wxwm-3fxv-mrvx",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-wxwm-3fxv-mrvx",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:97d73a1833ac334d7a6ad732069addd9fc68c8807624a7948a02825f144fb87a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35410",
+      "aliases": [
+        "GHSA-cf45-hxwj-4cfj"
+      ],
+      "title": "Directus has an Open Redirect via Parser Bypass in OAuth2/SAML Authentication Flow",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.16.1, an open redirect vulnerability exists in the login redirection logic. The isLoginRedirectAllowed function fails to correctly identify certain malformed URLs as external, allowing attackers to bypass redirect allow-list validation and redirect users to arbitrary external domains upon successful authentication. This vulnerability is fixed in 11.16.1.",
+      "published_at": "2026-04-02T16:18:19.000Z",
+      "modified_at": "2026-04-18T11:30:47.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00261,
+        "percentile": 0.17997,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-184",
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.16.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-cf45-hxwj-4cfj",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35410",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-cf45-hxwj-4cfj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35410",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35410",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35410",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35410",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cf45-hxwj-4cfj",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-cf45-hxwj-4cfj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:97d73a1833ac334d7a6ad732069addd9fc68c8807624a7948a02825f144fb87a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35411",
+      "aliases": [
+        "GHSA-q75c-4gmv-mg9x"
+      ],
+      "title": "Directus is an Open Redirect in Admin 2FA Setup Page",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.16.1, Directus is vulnerable to an open redirect via the redirect query parameter on the /admin/tfa-setup page. When an administrator who has not yet configured Two-Factor Authentication (2FA) visits a crafted URL, they are presented with the legitimate Directus 2FA setup page. After completing the setup process, the application redirects the user to the attacker-controlled URL specified in the redirect parameter without any validation. This vulnerability could be used in phishing attacks targeting Directus administrators, as the initial interaction occurs on a trusted domain. This vulnerability is fixed in 11.16.1.",
+      "published_at": "2026-04-02T16:18:03.000Z",
+      "modified_at": "2026-04-07T14:19:56.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00261,
+        "percentile": 0.18023,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.16.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-q75c-4gmv-mg9x",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35411",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-q75c-4gmv-mg9x",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35411",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35411",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35411",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35411",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-q75c-4gmv-mg9x",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-q75c-4gmv-mg9x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:97d73a1833ac334d7a6ad732069addd9fc68c8807624a7948a02825f144fb87a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-39942",
+      "aliases": [
+        "GHSA-393c-p46r-7c95"
+      ],
+      "title": "Directus has a Path Traversal and Broken Access Control in File Management API",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.17.0, the PATCH /files/{id} endpoint accepts a user-controlled filename_disk parameter. By setting this value to match the storage path of another user's file, an attacker can overwrite that file's content while manipulating metadata fields such as uploaded_by to obscure the tampering. This vulnerability is fixed in 11.17.0.",
+      "published_at": "2026-04-02T16:03:30.000Z",
+      "modified_at": "2026-04-09T19:37:24.389Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00208,
+        "percentile": 0.10977,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-284",
+        "CWE-639",
+        "CWE-915"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.17.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-393c-p46r-7c95",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v11.17.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-39942",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-393c-p46r-7c95",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-39942",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-39942",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-39942",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-39942",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-393c-p46r-7c95",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-393c-p46r-7c95",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:077098fab0d430e779a2a4869d19865dfaa98a57348460f426edf6fbcbe9ec2c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35408",
+      "aliases": [
+        "GHSA-8m32-p958-jg99"
+      ],
+      "title": "Directus is Missing Cross-Origin Opener Policy",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to 11.17.0, Directus's Single Sign-On (SSO) login pages lacked a Cross-Origin-Opener-Policy (COOP) HTTP response header. Without this header, a malicious cross-origin window that opens the Directus login page retains the ability to access and manipulate the window object of that page. An attacker can exploit this to intercept and redirect the OAuth authorization flow to an attacker-controlled OAuth client, causing the victim to unknowingly grant access to their authentication provider account (e.g. Google, Discord). This vulnerability is fixed in 11.17.0.",
+      "published_at": "2026-04-02T16:01:08.000Z",
+      "modified_at": "2026-04-07T16:23:42.264Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00172,
+        "percentile": 0.06699,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-346",
+        "CWE-693"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.17.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-8m32-p958-jg99",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-35408",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8m32-p958-jg99",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35408",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35408",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35408",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35408",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-8m32-p958-jg99",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-8m32-p958-jg99",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:077098fab0d430e779a2a4869d19865dfaa98a57348460f426edf6fbcbe9ec2c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-26185",
+      "aliases": [
+        "GHSA-jr94-gj3h-c8rf"
+      ],
+      "title": "Directus Affected by User Enumeration via Password Reset Timing Attack",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Before 11.14.1, a timing-based user enumeration vulnerability exists in the password reset functionality. When an invalid reset_url parameter is provided, the response time differs by approximately 500ms between existing and non-existing users, enabling reliable user enumeration. This vulnerability is fixed in 11.14.1.",
+      "published_at": "2026-02-12T16:47:36.000Z",
+      "modified_at": "2026-02-13T17:15:49.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00388,
+        "percentile": 0.3339,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-203"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.15.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-jr94-gj3h-c8rf",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/pull/26485",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/commit/e69aa7a5248c6e3e822cb1ac354dee295df90b2a",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/directus/directus/releases/tag/v11.14.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-26185",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-jr94-gj3h-c8rf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-26185",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-26185",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-26185",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-26185",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-jr94-gj3h-c8rf",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-jr94-gj3h-c8rf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5dc2b931db795ab81e04326a3312c44d803dbcb382e964b36df784bf5e06c7d9",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-22032",
+      "aliases": [
+        "GHSA-3573-4c68-g8cc"
+      ],
+      "title": "Directus has open redirect in SAML",
+      "summary": "Directus is a real-time API and App dashboard for managing SQL database content. Prior to version 11.14.0, an open redirect vulnerability exists in the Directus SAML authentication callback endpoint. During SAML authentication, the `RelayState` parameter is intended to preserve the user's original destination. However, while the login initiation flow validates redirect targets against allowed domains, this validation is not applied to the callback endpoint. This allows an attacker to craft a malicious authentication request that redirects users to an arbitrary external URL upon completion. The vulnerability is present in both the success and error handling paths of the callback. This vulnerability can be exploited without authentication. Version 11.14.0 contains a patch.",
+      "published_at": "2026-01-06T18:55:01.000Z",
+      "modified_at": "2026-01-15T14:53:09.871Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00231,
+        "percentile": 0.14046,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "directus",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "11.14.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-3573-4c68-g8cc",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/directus/directus/commit/dad9576ea9362905cc4de8028d3877caff36dc23",
+          "type": "fix"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-22032",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3573-4c68-g8cc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-22032",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-22032",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-22032",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-22032",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-3573-4c68-g8cc",
+          "url": "https://github.com/directus/directus/security/advisories/GHSA-3573-4c68-g8cc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:879003f8ad1ef7696988e23f39ced7b1a02abb6094fcf14d93a61918e929569d",
+      "note": null
+    }
+  ]
+}

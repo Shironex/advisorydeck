@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-73080",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Impact\n`VolumeServer.FetchAndWriteNeedle` fetches a caller-supplied remote endpoint and writes the response into a needle. Before 4.24 this RPC performed no authentication and no validation of the target, so anyone able to reach a volume server's gRPC port could coerce the server into issuing requests to arbitrary hosts - including loopback, link-local, RFC 1918, and cloud metadata endpoints such as `169.254.169.254` - and read the response back. On cloud deployments this discloses instance metadata and IAM credentials, and can be used to reach otherwise-unexposed internal services (SSRF with response read-back).\n\nThe volume server gRPC plane is unauthenticated on a default deployment, so no credentials are required. Configuring the documented JWT signing keys does not close it, because that hardening does not apply to this RPC.\n\n### Affected component\n- `weed/server/volume_grpc_remote.go` (`FetchAndWriteNeedle`)\n- `weed/remote_storage/s3/s3_storage_client.go`\n\n### Patches\nFixed in **4.24**. `FetchAndWriteNeedle` now requires admin authorization and refuses loopback / link-local / RFC 1918 / IMDS destinations through a guarded dialer that resolves the host itself and pins the resolved address for the duration of the request, defeating DNS-rebinding. The Rust volume server carries the equivalent endpoint validation.\n\n### Workarounds\nRestrict volume server gRPC ports to trusted hosts via firewall / network policy, and enable mTLS via `security.toml`.",
+    "ghsa_id": "GHSA-87fv-vqqr-m4jr",
+    "html_url": "https://github.com/advisories/GHSA-87fv-vqqr-m4jr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-87fv-vqqr-m4jr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73080"
+      }
+    ],
+    "published_at": "2026-08-11T15:58:23Z",
+    "references": [
+      "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-87fv-vqqr-m4jr",
+      "https://github.com/seaweedfs/seaweedfs/pull/9441",
+      "https://github.com/seaweedfs/seaweedfs/commit/69da20bdaec923e5a43d8aa71bf3c0a2051fc019",
+      "https://github.com/seaweedfs/seaweedfs/releases/tag/4.24",
+      "https://github.com/advisories/GHSA-87fv-vqqr-m4jr"
+    ],
+    "severity": "critical",
+    "summary": "SeaweedFS: Unauthenticated SSRF with response read-back via VolumeServer.FetchAndWriteNeedle",
+    "updated_at": "2026-08-11T15:58:24Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.0.0-20260512171120-69da20bdaec9",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "vulnerable_version_range": "< 0.0.0-20260512171120-69da20bdaec9"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-87fv-vqqr-m4jr",
+  "repo": {
+    "cve_id": "CVE-2026-73080",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Impact\n`VolumeServer.FetchAndWriteNeedle` fetches a caller-supplied remote endpoint and writes the response into a needle. Before 4.24 this RPC performed no authentication and no validation of the target, so anyone able to reach a volume server's gRPC port could coerce the server into issuing requests to arbitrary hosts - including loopback, link-local, RFC 1918, and cloud metadata endpoints such as `169.254.169.254` - and read the response back. On cloud deployments this discloses instance metadata and IAM credentials, and can be used to reach otherwise-unexposed internal services (SSRF with response read-back).\n\nThe volume server gRPC plane is unauthenticated on a default deployment, so no credentials are required. Configuring the documented JWT signing keys does not close it, because that hardening does not apply to this RPC.\n\n### Affected component\n- `weed/server/volume_grpc_remote.go` (`FetchAndWriteNeedle`)\n- `weed/remote_storage/s3/s3_storage_client.go`\n\n### Patches\nFixed in **4.24**. `FetchAndWriteNeedle` now requires admin authorization and refuses loopback / link-local / RFC 1918 / IMDS destinations through a guarded dialer that resolves the host itself and pins the resolved address for the duration of the request, defeating DNS-rebinding. The Rust volume server carries the equivalent endpoint validation.\n\n### Workarounds\nRestrict volume server gRPC ports to trusted hosts via firewall / network policy, and enable mTLS via `security.toml`.\n\n### References\n- Fixed by seaweedfs/seaweedfs#9441 (endpoint validation mirrored to the Rust volume server in #10001)\n- Reported by Kadir Arslan (https://github.com/KadirArslan)\n",
+    "ghsa_id": "GHSA-87fv-vqqr-m4jr",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-87fv-vqqr-m4jr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-87fv-vqqr-m4jr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73080"
+      }
+    ],
+    "published_at": "2026-07-08T21:39:15Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated SSRF with response read-back via VolumeServer.FetchAndWriteNeedle",
+    "updated_at": "2026-08-11T15:55:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "4.24",
+        "vulnerable_version_range": "< 4.24"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

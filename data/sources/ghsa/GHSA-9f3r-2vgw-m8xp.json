@@ -1,0 +1,102 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-32758",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-863"
+    ],
+    "description": "## Description\n\nThe `resourcePatchHandler` in `http/resource.go` validates the destination path against configured access rules before the path is cleaned/normalized. The rules engine (`rules/rules.go`) uses literal string prefix matching (`strings.HasPrefix`) or regex matching against the raw path. The actual file operation (`fileutils.Copy`, `patchAction`) subsequently calls `path.Clean()` which resolves `..` sequences, producing a different effective path than the one validated.\n\nThis allows an authenticated user with Create or Rename permissions to bypass administrator-configured deny rules by including `..` (dot-dot) path traversal sequences in the `destination` query parameter of a PATCH request.\n\n## Steps to Reproduce\n\n### 1. Verify the rule works normally\n\n```bash\n# This should return 403 Forbidden\ncurl -X PATCH \\\n  -H \"X-Auth: <alice_jwt>\" \\\n  \"http://host/api/resources/public/test.txt?action=copy&destination=%2Frestricted%2Fcopied.txt\"\n```\n\n### 2. Exploit the bypass\n\n```bash\n# This should succeed despite the deny rule\ncurl -X PATCH \\\n  -H \"X-Auth: <alice_jwt>\" \\\n  \"http://host/api/resources/public/test.txt?action=copy&destination=%2Fpublic%2F..%2Frestricted%2Fcopied.txt\"\n```\n\n### 3. Result\n\nThe file `test.txt` is copied to `/restricted/copied.txt` despite the deny rule for `/restricted/`.\n\n## Root Cause Analysis\n\nIn `http/resource.go:209-257`:\n\n```go\ndst := r.URL.Query().Get(\"destination\")       // line 212\ndst, err := url.QueryUnescape(dst)             // line 214 - dst contains \"..\"\nif !d.Check(src) || !d.Check(dst) {            // line 215 - CHECK ON UNCLEANED PATH\n    return http.StatusForbidden, nil\n}\n```\n\nIn `rules/rules.go:29-35`:\n\n```go\nfunc (r *Rule) Matches(path string) bool {\n    if r.Regex {\n        return r.Regexp.MatchString(path)      // regex on literal path\n    }\n    return strings.HasPrefix(path, r.Path)     // prefix on literal path\n}\n```\n\nIn `fileutils/copy.go:12-17`:\n\n```go\nfunc Copy(afs afero.Fs, src, dst string, ...) error {\n    if dst = path.Clean(\"/\" + dst); dst == \"\" { // CLEANING HAPPENS HERE, AFTER CHECK\n        return os.ErrNotExist\n    }\n```\n\nThe rules check sees `/public/../restricted/copied.txt` (no match for `/restricted/` prefix).\nThe file operation resolves it to `/restricted/copied.txt` (within the restricted path).\n\n## Secondary Issue\n\nIn the same handler, the error from `url.QueryUnescape` is checked after `d.Check()` runs (lines 214-220), meaning the rules check executes on a potentially malformed string if unescaping fails.\n\n## Impact\n\nAn authenticated user with Copy (Create) or Rename permission can write or move files into any path within their scope that is protected by deny rules. This bypasses both:\n\n- Prefix-based rules: `strings.HasPrefix` on uncleaned path misses the match\n- Regex-based rules: Standard patterns like `^/restricted/.*` fail on uncleaned path\n\nCannot be used to:\n\n- Escape the user's BasePathFs scope (afero prevents this)\n- Read from restricted paths (GET handler uses cleaned `r.URL.Path`)\n\n## Suggested Fix\n\nClean the destination path before the rules check:\n\n```go\ndst, err := url.QueryUnescape(dst)\nif err != nil {\n    return errToStatus(err), err\n}\ndst = path.Clean(\"/\" + dst)\nsrc = path.Clean(\"/\" + src)\nif !d.Check(src) || !d.Check(dst) {\n    return http.StatusForbidden, nil\n}\nif dst == \"/\" || src == \"/\" {\n    return http.StatusForbidden, nil\n}\n```",
+    "ghsa_id": "GHSA-9f3r-2vgw-m8xp",
+    "html_url": "https://github.com/advisories/GHSA-9f3r-2vgw-m8xp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9f3r-2vgw-m8xp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32758"
+      }
+    ],
+    "published_at": "2026-03-16T20:45:12Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-9f3r-2vgw-m8xp",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-32758",
+      "https://github.com/filebrowser/filebrowser/commit/4bd7d69c82163b201a987e99c0c50d7ecc6ee5f1",
+      "https://github.com/filebrowser/filebrowser/releases/tag/v2.62.0",
+      "https://github.com/advisories/GHSA-9f3r-2vgw-m8xp"
+    ],
+    "severity": "medium",
+    "summary": "File Browser has an Access Rule Bypass via Path Traversal in Copy/Rename Destination Parameter",
+    "updated_at": "2026-03-20T21:15:20Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.62.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "<= 2.61.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-9f3r-2vgw-m8xp",
+  "repo": {
+    "cve_id": "CVE-2026-32758",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-863"
+    ],
+    "description": "## Description\r\n\r\nThe `resourcePatchHandler` in `http/resource.go` validates the destination path against configured access rules before the path is cleaned/normalized. The rules engine (`rules/rules.go`) uses literal string prefix matching (`strings.HasPrefix`) or regex matching against the raw path. The actual file operation (`fileutils.Copy`, `patchAction`) subsequently calls `path.Clean()` which resolves `..` sequences, producing a different effective path than the one validated.\r\n\r\nThis allows an authenticated user with Create or Rename permissions to bypass administrator-configured deny rules by including `..` (dot-dot) path traversal sequences in the `destination` query parameter of a PATCH request.\r\n\r\n## Steps to Reproduce\r\n\r\n### 1. Verify the rule works normally\r\n\r\n```bash\r\n# This should return 403 Forbidden\r\ncurl -X PATCH \\\r\n  -H \"X-Auth: <alice_jwt>\" \\\r\n  \"http://host/api/resources/public/test.txt?action=copy&destination=%2Frestricted%2Fcopied.txt\"\r\n```\r\n\r\n### 2. Exploit the bypass\r\n\r\n```bash\r\n# This should succeed despite the deny rule\r\ncurl -X PATCH \\\r\n  -H \"X-Auth: <alice_jwt>\" \\\r\n  \"http://host/api/resources/public/test.txt?action=copy&destination=%2Fpublic%2F..%2Frestricted%2Fcopied.txt\"\r\n```\r\n\r\n### 3. Result\r\n\r\nThe file `test.txt` is copied to `/restricted/copied.txt` despite the deny rule for `/restricted/`.\r\n\r\n## Root Cause Analysis\r\n\r\nIn `http/resource.go:209-257`:\r\n\r\n```go\r\ndst := r.URL.Query().Get(\"destination\")       // line 212\r\ndst, err := url.QueryUnescape(dst)             // line 214 - dst contains \"..\"\r\nif !d.Check(src) || !d.Check(dst) {            // line 215 - CHECK ON UNCLEANED PATH\r\n    return http.StatusForbidden, nil\r\n}\r\n```\r\n\r\nIn `rules/rules.go:29-35`:\r\n\r\n```go\r\nfunc (r *Rule) Matches(path string) bool {\r\n    if r.Regex {\r\n        return r.Regexp.MatchString(path)      // regex on literal path\r\n    }\r\n    return strings.HasPrefix(path, r.Path)     // prefix on literal path\r\n}\r\n```\r\n\r\nIn `fileutils/copy.go:12-17`:\r\n\r\n```go\r\nfunc Copy(afs afero.Fs, src, dst string, ...) error {\r\n    if dst = path.Clean(\"/\" + dst); dst == \"\" { // CLEANING HAPPENS HERE, AFTER CHECK\r\n        return os.ErrNotExist\r\n    }\r\n```\r\n\r\nThe rules check sees `/public/../restricted/copied.txt` (no match for `/restricted/` prefix).\r\nThe file operation resolves it to `/restricted/copied.txt` (within the restricted path).\r\n\r\n## Secondary Issue\r\n\r\nIn the same handler, the error from `url.QueryUnescape` is checked after `d.Check()` runs (lines 214-220), meaning the rules check executes on a potentially malformed string if unescaping fails.\r\n\r\n## Impact\r\n\r\nAn authenticated user with Copy (Create) or Rename permission can write or move files into any path within their scope that is protected by deny rules. This bypasses both:\r\n\r\n- Prefix-based rules: `strings.HasPrefix` on uncleaned path misses the match\r\n- Regex-based rules: Standard patterns like `^/restricted/.*` fail on uncleaned path\r\n\r\nCannot be used to:\r\n\r\n- Escape the user's BasePathFs scope (afero prevents this)\r\n- Read from restricted paths (GET handler uses cleaned `r.URL.Path`)\r\n\r\n## Suggested Fix\r\n\r\nClean the destination path before the rules check:\r\n\r\n```go\r\ndst, err := url.QueryUnescape(dst)\r\nif err != nil {\r\n    return errToStatus(err), err\r\n}\r\ndst = path.Clean(\"/\" + dst)\r\nsrc = path.Clean(\"/\" + src)\r\nif !d.Check(src) || !d.Check(dst) {\r\n    return http.StatusForbidden, nil\r\n}\r\nif dst == \"/\" || src == \"/\" {\r\n    return http.StatusForbidden, nil\r\n}\r\n```",
+    "ghsa_id": "GHSA-9f3r-2vgw-m8xp",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-9f3r-2vgw-m8xp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9f3r-2vgw-m8xp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32758"
+      }
+    ],
+    "published_at": "2026-03-14T12:43:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Access Rule Bypass via Path Traversal in Copy/Rename Destination Parameter",
+    "updated_at": "2026-03-16T19:22:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.62.0",
+        "vulnerable_version_range": "<= 2.61.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

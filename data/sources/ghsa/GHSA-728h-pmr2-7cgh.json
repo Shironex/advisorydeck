@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-728h-pmr2-7cgh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe waiting-webhook endpoint accepts a Send-and-Wait node reference in two forms. It decided which validation to apply before normalising the second form, so a request in that shape was accepted without the signature approvals require. A caller holding an execution's resume token can release an approval intended for someone else; everything downstream then runs under the workflow owner's credentials, which depending on the workflow can reach command execution.\n\n## Patches\n\nThe issue has been fixed in n8n versions 2.42.1 and 2.41.4. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Avoid using Send-and-Wait nodes that gate high-consequence actions in workflows where an earlier public, unauthenticated trigger node exposes a `resumeToken` to external callers.\n- Restrict or disable public webhook and chat trigger endpoints that precede Send-and-Wait approval nodes until the instance is patched.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-728h-pmr2-7cgh",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-728h-pmr2-7cgh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-728h-pmr2-7cgh"
+      }
+    ],
+    "published_at": "2026-09-30T08:35:24Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Send-and-Wait HMAC Bypass Allows Unauthenticated Approval of Waiting Executions",
+    "updated_at": "2026-09-30T08:35:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.42.1",
+        "vulnerable_version_range": "< 2.42.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.41.4",
+        "vulnerable_version_range": "< 2.41.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

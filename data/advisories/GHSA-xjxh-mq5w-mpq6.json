@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-xjxh-mq5w-mpq6",
+  "aliases": [],
+  "title": "Shared View Row Filter Bypass via Primary Key Lookup",
+  "summary": "### Summary\n\nPublic shared-view endpoints that resolved a record by its primary key did not apply the view's row filter, so an anonymous holder of a share link could reach records the view was configured to exclude.\n\n### Details\n\nA shared view's row filter is the publisher's access boundary for anonymous recipients. In `BaseModelSqlv2.ts`, the list and count paths built their WHERE clause from that filter, but the fetch-by-primary-key path constrained the query only on the key itself, row-level security, and the soft-delete flag.\n\nThree public route families in `public-datas.service.ts` used that fetch-by-primary-key path as their record-visibility check: the many-to-many and link-to-another-record endpoints, the has-many endpoint, and the single-record read that gates the public attachment download registered in `public-datas.controller.ts`. Two of them carried a comment stating that the parent record's visibility in the shared view had been verified, an intent the call did not implement.\n\n### Impact\n\nNo authentication is required: an attacker needs only the share link, which is meant to be distributed, plus the view password when one is configured. Because primary keys on NocoDB-created tables are sequential integers, an anonymous recipient could enumerate excluded records and read their linked-record data and download their attachment files, defeating the row filter that defines what the share exposes.\n\n### Credit\n\nThis issue was reported by [@Pig-Tail](https://github.com/Pig-Tail), and independently by [@KasperBuilds](https://github.com/KasperBuilds), [@S2Lobby](https://github.com/S2Lobby), [@CyberKareem](https://github.com/CyberKareem), [@arpitjain099](https://github.com/arpitjain099) and [@komyunghan](https://github.com/komyunghan).",
+  "published_at": "2026-11-02T08:47:21.000Z",
+  "modified_at": "2026-11-02T08:47:21.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xjxh-mq5w-mpq6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xjxh-mq5w-mpq6",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xjxh-mq5w-mpq6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:af0317099ec98c3e33b2233709b40592ce584a90541fa3c2186caffd51b5b1ca",
+  "note": null
+}

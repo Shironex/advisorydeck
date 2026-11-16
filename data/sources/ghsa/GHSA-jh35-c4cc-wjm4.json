@@ -1,0 +1,67 @@
+{
+  "global": null,
+  "id": "GHSA-jh35-c4cc-wjm4",
+  "repo": {
+    "cve_id": "CVE-2026-25922",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-347"
+    ],
+    "description": "### Summary\r\n\r\nWhen using a SAML Source that has the option **Verify Assertion Signature** under **Verification Certificate** enabled and not **Verify Response Signature**, or does not have the **Encryption Certificate** setting under **Advanced Protocol settings** configured, it was possible for an attacker to inject a malicious assertion before the signed assertion that authentik would use instead.\r\n\r\n### Patches\r\n\r\nauthentik 2025.8.6, 2025.10.4 and 2025.12.4 fix this issue, for other versions the workaround below can be used.\r\n\r\n### Impact\r\n\r\nDepending on configuration of the source it is possible to authenticate as any existing user.\r\n\r\n### Workarounds\r\n\r\nConfigure the SAML Source to enable **Verify Response Signature** or the **Encryption Certificate** if possible.\r\n\r\nIf this isn't possible, add this property mapping expression on the SAML source to detect duplicate assertions:\r\n\r\n```python\r\nassertions = root.findall(\"{urn:oasis:names:tc:SAML:2.0:assertion}Assertion\")\r\nif len(assertions) > 1:\r\n  raise ValueError(\"Multiple assertions found\")\r\nreturn {}\r\n```\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io).",
+    "ghsa_id": "GHSA-jh35-c4cc-wjm4",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-jh35-c4cc-wjm4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jh35-c4cc-wjm4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-25922"
+      }
+    ],
+    "published_at": "2026-02-12T14:00:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Signature Verification bypass in SAML Source Assertion",
+    "updated_at": "2026-02-12T14:00:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.8.6",
+        "vulnerable_version_range": "<= 2025.8.5"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.10.4",
+        "vulnerable_version_range": "<= 2025.10.3"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.12.4",
+        "vulnerable_version_range": "<= 2025.12.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

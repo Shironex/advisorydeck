@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-5w6j-qm42-4rc2",
+  "aliases": [],
+  "title": "JavaScript Built-in Bridge Bypasses Function Capability Enforcement",
+  "summary": "### Summary\nA capability check bypass exists in SurrealDB's embedded JavaScript scripting engine (`surrealdb/surrealdb`). In `surrealdb/core/src/fnc/script/modules/surrealdb/functions/mod.rs`, JavaScript bridges call internal dispatchers directly without verifying function permissions.\n\n### Vulnerability Details\n- Affected File: `surrealdb/core/src/fnc/script/modules/surrealdb/functions/mod.rs` (`run()`, `fut()`)\n- Mechanism: SurrealQL enforces fine-grained function capabilities via `Function::compute()` and `BuiltinFunctionExec::evaluate()`. However, the JavaScript bridge `surrealdb.functions.*` calls `fnc::synchronous()` and `fnc::asynchronous()` directly, skipping capability checks. An unprivileged user denied access to sensitive built-in functions in SurrealQL can execute them arbitrarily via embedded JavaScript functions.\n- Impact: Bypass of function authorization restrictions in scripted execution environments.\n\n### Recommended Remediation\nEnforce capability checks (`check_function_capability()`) inside the JavaScript function bridge before delegating to internal function dispatchers.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that enforces function-capability checks inside the embedded JavaScript built-in bridge, so a denied built-in function can no longer be reached from script.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealQL Documentation - Scripting functions](https://surrealdb.com/docs/surrealql/functions/script)\n- `fix(script): JS bridge bypasses the query and function capabilities` (commit `0b8be14543`)",
+  "published_at": "2026-11-03T15:51:03.000Z",
+  "modified_at": "2026-11-03T15:51:03.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-5w6j-qm42-4rc2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-5w6j-qm42-4rc2",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-5w6j-qm42-4rc2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

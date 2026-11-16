@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-qmx6-fpcw-q3xg",
+  "aliases": [],
+  "title": "S3 API: bucket policy not enforced on POST Object uploads - an S3 identity can overwrite another identity's data",
+  "summary": "<html><body>\r\n<!--StartFragment--><html><head></head><body><h3>Summary</h3>\r\n<p>The SeaweedFS S3 gateway does <strong>not evaluate bucket policies</strong> on the POST Object upload path (<code>PostPolicyBucketHandler</code> - <code>POST /{bucket}</code> with <code>Content-Type: multipart/form-data</code>; the HTML-form / presigned-POST upload).</p>\r\n<p>Authorization for POST Object is performed <strong>only</strong> with the coarse per-identity action check (<code>identity.CanDo(ACTION_WRITE, bucket, \"\")</code>) plus verification of the caller's POST-policy signature. The bucket-policy engine that runs for every other S3 request (<code>authRequestWithAuthType</code> → <code>EvaluatePolicy</code> / <code>VerifyActionPermission</code>) is never invoked.</p>\r\n<p>Consequently, when a bucket policy is used to restrict an authenticated S3 identity - the standard S3 mechanism for isolating multiple tenants that share a bucket, confining an identity to a key prefix, requiring encryption, or restricting by source IP - that restriction is silently ineffective for POST Object uploads. An identity that is denied <code>s3:PutObject</code> on a key can still create or <strong>overwrite</strong> that key by sending the upload as a POST instead of a PUT.</p>\r\n<h3>Trust boundary crossed</h3>\r\n<p><strong>One S3 identity writes and overwrites another S3 identity's data</strong> - the second in-scope example in SECURITY.md (\"One S3 identity reading, writing, or deleting another identity's data\").</p>\r\n<p>Two S3 identities (<code>tenant-a</code>, <code>tenant-b</code>) share the bucket <code>shared</code>. A bucket policy confines each to its own prefix (<code>shared/a/*</code>, <code>shared/b/*</code>). <code>tenant-a</code> uses POST Object to overwrite <code>shared/b/report.txt</code>, an object owned by <code>tenant-b</code>, which <code>tenant-a</code> is explicitly denied from writing.</p>\r\n<h3>Affected version</h3>\r\n<p><code>master</code>, version string <code>4.45</code> (<code>weed/util/version/constants.go</code>: <code>MAJOR_VERSION=4</code>, <code>MINOR_VERSION=45</code>); source archive of <code>master</code> retrieved 2026-09-01. The code path is long-standing; reproduce on current <code>master</code>.</p>\r\n<h3>Deployment and configuration</h3>\r\n<ul>\r\n<li>A single <code>weed server -s3 -filer</code> process (master + volume + filer + S3 in one; the same result holds for split deployments).</li>\r\n<li>S3 authentication <strong>enabled</strong> via <code>-s3.config</code> (identities file).</li>\r\n<li>Only the S3 API port (default <code>8333</code>) is reachable by the attacker. No access to master/volume/filer ports is needed.</li>\r\n<li>The bucket owner has attached a bucket policy (via `PUT /{bucket}?police identities.</li>\r\n</ul>\r\n<h3>Attacker starting position</h3>\r\n<p>A <strong>valid S3 user</strong> holding ordinary credentials and the coarse <code>Write</code> action for the shared bucket in the identities file (<code>\"Write:shared\"</code>) - the grant every identity thatares the bucket must have for its S3 operations to route. The bucket poeep that identity inside its own prefix.</p>\r\n<h3>Expected vs. actual</h3>\r\n<ul>\r\n<li><strong>Expected:</strong> a POST Object upload is authorized identically to the equivalent PUT - an explicit bucket-policy <code>Deny</code> blocks it.</li>\r\n<li><strong>Actual:</strong> the PUT is denied (<code>403 AccessDenied</code>); the POST succeeds (ten / overwritten.</li>\r\n</ul>\r\n<h3>Root cause</h3>\r\n<p><strong><code>weed/s3api/auth_credentials.go</code> - <code>AuthPostPolicy()</code></strong></p>\r\n<p>A POST Object request carries its credentials in the multipart form body, so <code>getRequestAuthType(r)</code> classifies the request as <code>authTypeAnonymous</code>. The request is treated as anonymous and denied with <code>ErrAccessDenied</code>, which triggers this branch:</p>\r\n<pre><code class=\"language-go\">identity, errCode, authType := iam.authRequestWithAuthType(r, action)\r\nif errCode == s...",
+  "published_at": "2026-09-23T00:32:52.000Z",
+  "modified_at": "2026-09-23T00:32:52.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-qmx6-fpcw-q3xg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qmx6-fpcw-q3xg",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-qmx6-fpcw-q3xg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:196fff57e6848a212ed723ccf27898dd51176a28d9007bea44255b3f797678f6",
+  "note": null
+}

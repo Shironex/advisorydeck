@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-2jc3-58q7-mm2j",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-639"
+    ],
+    "description": "SurrealDB record access methods defined `WITH REFRESH` issue a refresh token that a client can later exchange for new access tokens. The `revoke` RPC method invalidates such a refresh token. That method performed no authentication and no proof of possession: it took the target namespace, database, and access method from an access token that was decoded without verifying its signature, took the grant identifier from a refresh string that was only format-checked, and then carried out the revocation as root. It never verified that the caller actually held the refresh token's key.\n\nA grant identifier is not a secret. `ACCESS <ac> SHOW ALL` reveals every grant's `id` (only the key is redacted) and requires only `VIEWER`-level view permission on the access method, and the identifier is embedded in every issued refresh token. So any caller who learned a grant identifier - a low-privileged database user, or anyone to whom a token leaked - could permanently revoke the corresponding refresh token without holding its key. This turned an operation that over SurrealQL (`ACCESS ... REVOKE GRANT`) requires the Owner role into one reachable by a low-privileged, or in principle unauthenticated, RPC caller.\n\nThe victim's refresh token was then permanently invalidated: every subsequent refresh failed, forcing re-authentication.\n\n### Impact\n\nThis affects deployments that use record access methods defined `WITH REFRESH` and expose the `/rpc` endpoint (the default), where an attacker can learn a grant identifier - for example through any database-level account (including `VIEWER`) via `ACCESS <ac> SHOW ALL`, or through a leaked refresh token.\n\nWhat an attacker **can** do:\n\n- Permanently revoke another user's refresh token by supplying its grant identifier to the `revoke` RPC, without holding the token's key.\n- Enumerate all grant identifiers for an access method with only `VIEWER`-level view permission, and revoke every user's refresh token for that method, denying refresh to all of its users.\n\nWhat it **can't** do:\n\n- Recover the refresh token's key, sign in as the victim, or read the victim's data - this is not account takeover or data disclosure. The victim can re-authenticate with their credentials.\n- Guess a grant identifier without a disclosure channel; the identifier carries roughly 68 bits of entropy, so a low-privilege or token-leak channel is required in practice.\n- Affect deployments that do not use `WITH REFRESH`.\n\n### Patches\n\nRevoking a refresh token now requires proof of possession. The presented refresh key is verified with a constant-time comparison against the stored grant - the same check the refresh (sign-in) path already performs - before anything is revoked, so only the holder of the token (or an Owner acting through SurrealQL) can revoke it. Every failure is reported as an opaque authentication error, so a caller cannot distinguish a wrong key from a missing, expired, or already-revoked grant.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Deny the `revoke` RPC method via capabilities where refresh-token revocation is not required (for example `--deny-rpc revoke`, env `SURREAL_CAPS_DENY_RPC`).\n- Restrict network access to the `/rpc` endpoint to trusted clients.\n- Treat grant identifiers as sensitive: limit who holds database-level accounts that can run `ACCESS <ac> SHOW ALL`, since it discloses grant identifiers.\n\n### References\n\n- [SurrealQL Documentation - DEFINE ACCESS](https://surrealdb.com/docs/surrealql/statements/define/access)\n- [SurrealDB Documentation - RPC protocol](https://surrealdb.com/docs/surrealdb/integration/rpc)\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- `fix(iam): require proof of possession to revoke a refresh token` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [Yanhaoxi](https://github.com/Yanhaoxi) for reporting this issue.\n",
+    "ghsa_id": "GHSA-2jc3-58q7-mm2j",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-2jc3-58q7-mm2j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2jc3-58q7-mm2j"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "The `revoke` RPC invalidates any user's refresh token without authentication or proof of possession",
+    "updated_at": "2026-09-28T11:15:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.0.0, < 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

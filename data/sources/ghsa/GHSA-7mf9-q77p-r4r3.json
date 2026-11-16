@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7mf9-q77p-r4r3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\n\nConcurrent password-reset requests carrying the same reset token could each complete successfully, because the token was read and validated long before it was cleared.\n\n### Details\n\n`users.service.ts` handled a reset by reading the user row keyed on `reset_password_token`, checking the expiry and the account's auth provider, hashing the submitted password, and only then issuing an unconditional update that cleared the token. The read and the clearing write were neither wrapped in a transaction nor expressed as a conditional update, so nothing tied the clear to the row state that had been validated. Two deliberately slow bcrypt operations, salt generation and hashing at cost factor 10, sat between the two, holding the window open long enough that a batch of simultaneously released requests all passed validation before any of them cleared the token; each then went on to write a password, emit a password-reset audit event and return success. Sequential replay of a consumed token was rejected correctly - the defect was strictly concurrent.\n\n### Impact\n\nA single reset token authorized several independent password changes instead of one. Every concurrent caller was told the reset had succeeded while only the last write actually took effect, so an account owner completing a reset at the same moment as another party holding the same token could be locked out of the account while being told the change had been applied, and the audit trail recorded one event per call rather than one per intended change. No authentication is required - the reset token is itself the authorization - though the attacker must already hold a valid, unexpired token.\n\n### Credit\n\nThis issue was reported by [@NinjaGPT](https://github.com/NinjaGPT).\n",
+    "ghsa_id": "GHSA-7mf9-q77p-r4r3",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-7mf9-q77p-r4r3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7mf9-q77p-r4r3"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:23Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Password Reset Token Race Condition",
+    "updated_at": "2026-10-27T10:06:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.1",
+        "vulnerable_version_range": "< 2026.08.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

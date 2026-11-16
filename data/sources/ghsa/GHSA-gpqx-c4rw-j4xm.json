@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-gpqx-c4rw-j4xm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe public relation endpoints of a shared view checked parent-record visibility with a primary-key read that did not apply the view's row filter, letting an anonymous share-link holder read the linked records of rows the filter excludes.\n\n### Details\n\nThe has-many, many-to-many, link-to-another-record and one-to-many routes in `public-datas.controller.ts` are served by two handlers in `public-datas.service.ts`, each of which fetched the parent row by the caller-supplied id before returning its relations. That read, in `BaseModelSqlv2.ts`, applied only the primary key, row-level security and the soft-delete filter, never the view's root filter list that the row-listing path applies - so any valid primary key satisfied the visibility gate.\n\nThe column-level hardening already present on these same handlers, namely the check that the relation column is shown in the view and the restriction applied to nested-link queries, constrains which relation column may be named rather than which parent row may be addressed, so it did not cover this case. The routes themselves carry only the public rate-limiting guard, which performs no authentication.\n\n### Impact\n\nNo authentication is required beyond the shared-view link and its password, if one is set. Since primary keys are typically auto-increment integers, an anonymous link holder could enumerate them and read the linked and related records of rows the view's filter was meant to exclude, defeating row-level scoping of the share. Access remains confined to the shared base.\n\n### Credit\n\nThis issue was reported by [@CyberKareem](https://github.com/CyberKareem).\n",
+    "ghsa_id": "GHSA-gpqx-c4rw-j4xm",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-gpqx-c4rw-j4xm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gpqx-c4rw-j4xm"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:07Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Shared View Row Filter Bypass via Linked Record Endpoints",
+    "updated_at": "2026-11-02T08:47:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

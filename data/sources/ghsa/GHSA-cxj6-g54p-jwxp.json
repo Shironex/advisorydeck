@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-cxj6-g54p-jwxp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nThe v3 upload-by-URL endpoint enforced its attachment size limit against the size the remote server advertised, so a response that understated or omitted its length was streamed to storage in full.\n\n### Details\n\nThe handler in `data-attachment-v3.service.ts` compared the content length reported by the remote server against the configured attachment limit and, if it passed, piped the response body straight into the storage adapter. Nothing counted the bytes actually written, so the advertised length was the only bound and it is controlled by whichever server the URL points at. A server that reported a small size, or sent no length at all, could then return a body of any size, and the value recorded as the attachment's size was the advertised figure rather than the measured one.\n\n### Impact\n\nAn authenticated user with permission to attach files to a record could write arbitrarily large files into the instance's attachment storage from a server under their own control, exhausting the host's disk space or the configured storage quota. A base Editor role is required.\n\n### Credit\n\nThis issue was reported by [@DavidCarliez](https://github.com/DavidCarliez).\n",
+    "ghsa_id": "GHSA-cxj6-g54p-jwxp",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-cxj6-g54p-jwxp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cxj6-g54p-jwxp"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:54Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Attachment Size Limit Bypass via Upload by URL",
+    "updated_at": "2026-10-27T10:06:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.2",
+        "vulnerable_version_range": "< 2026.06.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

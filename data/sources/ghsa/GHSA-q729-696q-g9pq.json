@@ -1,0 +1,96 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-63760",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-674"
+    ],
+    "description": "The SurrealDB value and JSON parser did not enforce the configured recursion depth limit when parsing nested `{`, `[`, or `(` tokens. The expression parser already enforced the limit for these tokens; the value/JSON parser omitted it. An unauthenticated attacker could send a deeply nested JSON payload to the WebSocket `/rpc` endpoint and exhaust server memory, crashing the process.\n\nThis is an incomplete fix for [GHSA-6r8p-hpg7-825g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g), which addressed the same class of bug in the expression parser but did not cover the value/JSON parser code path.\n\n### Impact\n\nAn unauthenticated remote attacker can crash a SurrealDB server with a single WebSocket message. No credentials or query execution privileges are required.\n\n### Patches\n\nA patch enforces the configured recursion depth limit in `parse_value` and `parse_json`, bringing them in line with the rest of the parser.\n\n- Versions 3.1.0 and later are not affected by this issue.\n\n### Workarounds\n\nRestrict network access to the WebSocket `/rpc` endpoint to trusted clients.",
+    "ghsa_id": "GHSA-q729-696q-g9pq",
+    "html_url": "https://github.com/advisories/GHSA-q729-696q-g9pq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q729-696q-g9pq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63760"
+      }
+    ],
+    "published_at": "2026-07-01T20:03:33Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q729-696q-g9pq",
+      "https://github.com/surrealdb/surrealdb/commit/1bd9826f477f4089134460dc5574b6f4e6916973",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-63760",
+      "https://www.vulncheck.com/advisories/surrealdb-before-denial-of-service-via-json-parser",
+      "https://github.com/advisories/GHSA-q729-696q-g9pq"
+    ],
+    "severity": "high",
+    "summary": "SurrealDB has Denial of Service in JSON parser due to nested objects",
+    "updated_at": "2026-09-04T20:47:51Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-q729-696q-g9pq",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-674"
+    ],
+    "description": "The SurrealDB value and JSON parser did not enforce the configured recursion depth limit when parsing nested `{`, `[`, or `(` tokens. The expression parser already enforced the limit for these tokens; the value/JSON parser omitted it. An unauthenticated attacker could send a deeply nested JSON payload to the WebSocket `/rpc` endpoint and exhaust server memory, crashing the process.\r\n\r\nThis is an incomplete fix for [GHSA-6r8p-hpg7-825g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g), which addressed the same class of bug in the expression parser but did not cover the value/JSON parser code path.\r\n\r\n### Impact\r\n\r\nAn unauthenticated remote attacker can crash a SurrealDB server with a single WebSocket message. No credentials or query execution privileges are required.\r\n\r\n### Patches\r\n\r\nA patch enforces the configured recursion depth limit in `parse_value` and `parse_json`, bringing them in line with the rest of the parser.\r\n\r\n- Versions 3.1.0 and later are not affected by this issue.\r\n\r\n### Workarounds\r\n\r\nRestrict network access to the WebSocket `/rpc` endpoint to trusted clients.\r\n\r\n### References\r\n\r\n- [SurrealDB Documentation - WebSocket Protocol](https://surrealdb.com/docs/surrealdb/integration/rpc)\r\n- [GHSA-6r8p-hpg7-825g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g) - the original recursion-depth advisory; this one covers the parser path that fix missed.\r\n- `Enforce recursion depth limit in parse_value and parse_json` (commit `1bd9826f4`).\r\n",
+    "ghsa_id": "GHSA-q729-696q-g9pq",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q729-696q-g9pq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q729-696q-g9pq"
+      }
+    ],
+    "published_at": "2026-05-27T17:26:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Denial of Service in JSON parser due to nested objects",
+    "updated_at": "2026-05-27T17:26:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-xxc3-72qf-3g5r",
+  "aliases": [],
+  "title": "S3 bucket-policy Allow overrides an authenticated identity's explicit Deny",
+  "summary": "# S3 bucket-policy Allow overrides an authenticated identity's explicit Deny\n\n## Summary\n\nSeaweedFS evaluates a matching S3 bucket-policy `Allow` before the authenticated principal's identity-side policies. The bucket-policy result short-circuits the later IAM check, so a non-admin S3 principal can read an object that an administrator-controlled identity policy explicitly denies after the principal installs a bucket-policy `Allow` for itself.\n\nThis report demonstrates that boundary crossing with a real loopback `weed mini` deployment and a static non-admin identity. The same ordering defect is test-verified for enabled-group and STS-session explicit Denies, and for secondary object-key authorization helpers; those extensions are clearly separated from the daemon-verified claim below.\n\n### Evidence tiers\n\n| Claim | Evidence tier | Result |\n|---|---|---|\n| Static identity `GetObject` explicit Deny bypass | Real `weed mini` daemons, signed S3 requests, synthetic object body | Reproduced on 4.46 and master `966692fa`; fixed builds deny it |\n| Enabled-group and real STS-session explicit Deny composition | In-process signed-request regression tests, including race runs | Unpatched path permits the bucket Allow; proposed fix preserves the Deny |\n| CopySource, DeleteObjects body key, and POST Object secondary-key paths | In-process helper tests and source inspection | Same bucket-Allow short circuit reaches these helpers |\n| Resource policy supplying an Allow over implicit identity denial | Positive regression control | Preserved by the proposed fix |\n| Public `Principal: \"*\"` bucket policy | Anonymous positive regression control | Preserved by the proposed fix |\n\n## Affected package and versions\n\n- Ecosystem: Go\n- Package: `github.com/seaweedfs/seaweedfs`\n- Runtime-confirmed latest release as of 2026-09-10: **4.46**, commit `d997fba1575583a89cf0cc50dc0150642286c86d`.\n- Runtime-confirmed master snapshot: `966692fa232c8ba4e5dcfe649cfd1443421364d8`.\n- Remote master at the final check: `3c9a4bbddad0533de32765f8f6262d00562ec4e5`, five commits later. An authenticated compare showed that none of the intervening commits changed `weed/s3api/auth_credentials.go`, `weed/iam`, or the policy-authorization paths involved here. I did not rerun the daemon on `3c9a4bbd`.\n- Earliest affected release: not bisected. PR #7471 introduced the relevant bucket-Allow short circuit, but only 4.46 and the listed master snapshot are claimed as confirmed; please set the final range from repository history.\n\n## Deployment, attacker, and trust boundary\n\nThe reproduction starts `weed mini` with master, volume, filer, S3, and admin components bound to `127.0.0.1`. The S3 gateway uses a static S3 configuration and advanced IAM is enabled with `-s3.iam=true`. The attacker reaches only the S3 endpoint. Internal component ports are not part of the attack path.\n\nThe attacker is a valid non-admin S3 principal with:\n\n- `s3:GetObject` Allow only for `victim-bucket/allowed/*`;\n- `s3:GetObject` explicit Deny for `victim-bucket/secret/*`; and\n- a deliberate, legitimate `s3:PutBucketPolicy` Allow on `victim-bucket`.\n\nThe trust boundary is the public S3 API between that delegated non-admin principal and the administrator-controlled identity, group, and session policy plane. The boundary is crossed when the principal edits the resource-side bucket policy and thereby escapes the administrator's explicit Deny to retrieve `secret/payroll.txt`.\n\nAll credentials, buckets, and object bodies below are synthetic. The administrator identity only creates the bucket and seeds the two objects.\n\n## Why this is not intended behavior\n\nThe current comment says a bucket-policy Allow bypasses IAM checks to support cross-account access and policy-only principals. That goal is valid for an **implicit** identity-side denial: a resource policy can supply the missing Allow. It does not mean a resource policy may override an applicable **explicit Deny**.\n\nThe proposed fix keeps the intended implicit-d...",
+  "published_at": "2026-11-09T19:49:38.000Z",
+  "modified_at": "2026-11-09T19:49:38.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-696",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.46",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-xxc3-72qf-3g5r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xxc3-72qf-3g5r",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-xxc3-72qf-3g5r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:26aa4ad411349c74dbfd93000610e5a2c5c22bf227a7fa8048c90c45c898dff0",
+  "note": null
+}

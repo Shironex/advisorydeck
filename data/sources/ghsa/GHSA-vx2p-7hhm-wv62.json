@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-vx2p-7hhm-wv62",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "A database user of one tenant could read and write another tenant's data over HTTP by authenticating to their own tenant and selecting the other in the same request.\n\nWith HTTP Basic authentication, the account was verified against the namespace/database named in the `Surreal-Auth-NS` / `Surreal-Auth-DB` headers. The session's *selected* namespace/database came from the separate `Surreal-NS` / `Surreal-DB` headers and was never checked against the level the caller authenticated at. After the switch, the caller's identity stayed bound to their own tenant, but queries ran against the foreign one, where the only remaining gate was the table's `PERMISSIONS` clause. So a table declared `PERMISSIONS FULL`, or with a predicate the caller happened to satisfy, admitted the request. That is a common table shape when the namespace/database itself is treated as the tenant boundary.\n\nFor example, a database `VIEWER` of `attacker_ns/attacker_db` sending `Surreal-Auth-NS: attacker_ns` and `Surreal-Auth-DB: attacker_db`, but `Surreal-NS: victim_ns` and `Surreal-DB: victim_db`, could `SELECT * FROM secrets` on `POST /sql` and read the victim tenant's rows. They could also create rows there and call its `PERMISSIONS FULL` functions.\n\nThe same root cause was reported through several paths, each published as its own advisory and all fixed in 3.3.0:\n\n- [GHSA-2v9j-645m-pcrq](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-2v9j-645m-pcrq): the `USE` statement\n- [GHSA-w5v9-jc5f-5rmc](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-w5v9-jc5f-5rmc): the headers and the RPC `use` method, for system users\n- [GHSA-3vw5-j55x-486h](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-3vw5-j55x-486h): `RETURN … FETCH`, for record users\n\n### Impact\n\nWhat an attacker **can** do:\n\n- With a database-level account in any one tenant (a `VIEWER` is enough), select another tenant through the `Surreal-NS` / `Surreal-DB` headers. They can then read, create, and modify rows in its tables, and call its functions, wherever `PERMISSIONS` allow it, such as `PERMISSIONS FULL`. The account's own role does not limit this, because an out-of-scope caller is judged only by the table's `PERMISSIONS`.\n\nWhat it **can't** do:\n\n- Reach any tenant without valid credentials for some namespace/database on the instance. This is not an unauthenticated bypass.\n- Read or write a table whose relevant `PERMISSIONS` clause denies the operation, including `PERMISSIONS NONE` (the `DEFINE TABLE` default).\n- Pass IAM-gated operations such as `INFO FOR DB`, or change roles.\n- Affect single-tenant deployments, or callers that already hold instance-wide (root) scope.\n\n### Patches\n\nA request can no longer select a namespace/database outside the caller's authenticated level. The check applies to the `USE` statement, the RPC `use` method, and HTTP sessions built from the `Surreal-NS` / `Surreal-DB` headers. Root can select any namespace/database, and a namespace user any database in their namespace. Database and record users can select only their own namespace/database. Anonymous callers remain governed by table `PERMISSIONS`.\n\nThe query-time scope checks now apply to every scoped principal, not only record users. They also cover record fetches and the document write pipeline, so a read or write in a foreign tenant is refused however the session reached it.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- On shared instances, use separate deployments, not namespace/database boundaries, to isolate tenants. Until you upgrade, issue namespace-, database-, and record-level credentials only to parties trusted with every tenant on the instance.\n- Prefer a `PERMISSIONS WHERE` clause that checks the caller's identity, such as `$auth` or a token claim, over `PERMISSIONS FULL`. This reduces exposure but does not restore the boundary.\n\n### References\n\n- [SurrealQL Documentation - USE](https://surrealdb.com/docs/surrealql/statements/use)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- [SurrealDB Documentation - Security and authentication](https://surrealdb.com/docs/surrealdb/security/authentication)\n- `fix(core): enforce tenant boundary on USE / process_use` (included in SurrealDB 3.3.0)\n- `fix(server): confine Surreal-NS/Surreal-DB header context to the auth level` (included in SurrealDB 3.3.0)\n- `fix(core): confine record users to their own tenant on the write path` (included in SurrealDB 3.3.0)\n- `fix(doc): re-verify record-auth namespace/database scope in the document pipeline` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [Alpastx](https://github.com/Alpastx) for reporting this issue.\n",
+    "ghsa_id": "GHSA-vx2p-7hhm-wv62",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-vx2p-7hhm-wv62",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vx2p-7hhm-wv62"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:18Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Cross-tenant access through the Surreal-NS / Surreal-DB headers with Basic authentication",
+    "updated_at": "2026-09-28T11:15:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": "< 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

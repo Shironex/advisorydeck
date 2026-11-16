@@ -1,0 +1,97 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-63746",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "An authenticated record or scope user could read records on any table reachable through a graph edge or `REFERENCES TO` back-reference, regardless of that table's `PERMISSIONS FOR select` clause.\n\nTraversing `SELECT * FROM source->edge->target` returned full documents from `target` even when `target` was defined as `PERMISSIONS FOR select NONE`. The same bypass extended through multi-hop chains, so any table reachable by a sequence of edges from a readable starting point was exposed.\n\nThe root cause: `GraphEdgeScan` and `ReferenceScan` fetched records straight from storage without routing them through `Document::pluck_select`, so the target table's permission expression was never consulted.\n\n### Impact\n\nAn authenticated record or scope user can read records on any table reachable through a chain of graph edges or back-references from a table they have `select` on, regardless of the target's `PERMISSIONS FOR select` clause. Confidentiality-only and bounded to the caller's current database - namespace and database isolation are unaffected.\n\n### Patches\n\nA new per-batch permission cache (`exec::permission::CachedTableSelect`) resolves each target table's `SELECT` permission once and filters yielded values through `check_permission_for_value`, matching the regular `SELECT` code path.\n\n- Versions 3.1.0 and later are not affected.\n\n### Workarounds\n\n- Remove `select` permission on edge tables whose targets should be hidden.\n- Use namespace or database isolation as the primary boundary where feasible.",
+    "ghsa_id": "GHSA-vjjx-rfw4-rmfc",
+    "html_url": "https://github.com/advisories/GHSA-vjjx-rfw4-rmfc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vjjx-rfw4-rmfc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63746"
+      }
+    ],
+    "published_at": "2026-07-01T20:10:34Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-vjjx-rfw4-rmfc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-63746",
+      "https://www.vulncheck.com/advisories/surrealdb-before-permission-bypass-via-graph-traversal",
+      "https://github.com/advisories/GHSA-vjjx-rfw4-rmfc"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Graph traversal bypasses table SELECT permissions",
+    "updated_at": "2026-09-04T20:12:56Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-vjjx-rfw4-rmfc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "An authenticated record or scope user could read records on any table reachable through a graph edge or `REFERENCES TO` back-reference, regardless of that table's `PERMISSIONS FOR select` clause.\r\n\r\nTraversing `SELECT * FROM source->edge->target` returned full documents from `target` even when `target` was defined as `PERMISSIONS FOR select NONE`. The same bypass extended through multi-hop chains, so any table reachable by a sequence of edges from a readable starting point was exposed.\r\n\r\nThe root cause: `GraphEdgeScan` and `ReferenceScan` fetched records straight from storage without routing them through `Document::pluck_select`, so the target table's permission expression was never consulted.\r\n\r\n### Impact\r\n\r\nAn authenticated record or scope user can read records on any table reachable through a chain of graph edges or back-references from a table they have `select` on, regardless of the target's `PERMISSIONS FOR select` clause. Confidentiality-only and bounded to the caller's current database - namespace and database isolation are unaffected.\r\n\r\n### Patches\r\n\r\nA new per-batch permission cache (`exec::permission::CachedTableSelect`) resolves each target table's `SELECT` permission once and filters yielded values through `check_permission_for_value`, matching the regular `SELECT` code path.\r\n\r\n- Versions 3.1.0 and later are not affected.\r\n\r\n### Workarounds\r\n\r\n- Remove `select` permission on edge tables whose targets should be hidden.\r\n- Use namespace or database isolation as the primary boundary where feasible.\r\n\r\n### References\r\n\r\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- [SurrealQL Documentation - Graph relationships](https://surrealdb.com/docs/surrealql/datamodel/relationships)\r\n- [SurrealQL Documentation - RELATE statement](https://surrealdb.com/docs/surrealql/statements/relate)\r\n- `fix(exec): enforce table SELECT permission in graph / reference scans` (commit `2c37a1a6b`)\r\n",
+    "ghsa_id": "GHSA-vjjx-rfw4-rmfc",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-vjjx-rfw4-rmfc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vjjx-rfw4-rmfc"
+      }
+    ],
+    "published_at": "2026-05-27T17:28:48Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Graph traversal bypasses table SELECT permissions",
+    "updated_at": "2026-05-27T17:28:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

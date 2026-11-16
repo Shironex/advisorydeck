@@ -1,0 +1,87 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.6,
+        "vector_string": "CVSS:3.0/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-798"
+    ],
+    "description": "**Detection Method:** Kolega.dev Deep Code Scan\n\n| Attribute | Value |\n|---|---|\n| Location | packages/server/src/enterprise/middleware/passport/index.ts:55 |\n| Practical Exploitability | High |\n| Developer Approver | faizan@kolega.ai |\n\n### Description\nExpress session secret has a weak default value 'flowise' when EXPRESS_SESSION_SECRET is not set.\n\n### Affected Code\n```\nsecret: process.env.EXPRESS_SESSION_SECRET || 'flowise'\n```\n\n### Evidence\nThe default session secret 'flowise' is publicly visible and weak. Session cookies signed with this secret can be forged by attackers.\n\n### Impact\nSession hijacking and forgery - attackers can create arbitrary session cookies to impersonate any user, bypassing all authentication mechanisms.\n\n### Recommendation\nRequire EXPRESS_SESSION_SECRET to be set with a strong random value. Throw an error on startup if not configured. Use cryptographically strong random strings (minimum 256 bits).\n\n### Notes\nThe Express session secret defaults to the string 'flowise' when EXPRESS_SESSION_SECRET is not set (line 55). This secret is used to sign session cookies via express-session middleware. Since 'flowise' is publicly visible in the source code, an attacker can forge valid session cookies to impersonate any user without authentication. The .env.example file has this commented out (# EXPRESS_SESSION_SECRET=flowise), implying it's optional, which compounds the risk. Unlike development-only defaults, this code path is active in production if the environment variable is not set. The application should require EXPRESS_SESSION_SECRET to be explicitly configured with a cryptographically strong random value and fail to start otherwise.",
+    "ghsa_id": "GHSA-2qqc-p94c-hxwh",
+    "html_url": "https://github.com/advisories/GHSA-2qqc-p94c-hxwh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2qqc-p94c-hxwh"
+      }
+    ],
+    "published_at": "2026-04-16T21:22:00Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-2qqc-p94c-hxwh",
+      "https://github.com/advisories/GHSA-2qqc-p94c-hxwh"
+    ],
+    "severity": "medium",
+    "summary": "Flowise: Weak Default Express Session Secret",
+    "updated_at": "2026-04-16T21:22:03Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-2qqc-p94c-hxwh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.6,
+        "vector_string": "CVSS:3.0/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "**Detection Method:** Kolega.dev Deep Code Scan\r\n\r\n| Attribute | Value |\r\n|---|---|\r\n| Severity | Critical |\r\n| CWE | CWE-798 (Use of Hard-coded Credentials) |\r\n| Location | packages/server/src/enterprise/middleware/passport/index.ts:55 |\r\n| Practical Exploitability | High |\r\n| Developer Approver | faizan@kolega.ai |\r\n\r\n### Description\r\nExpress session secret has a weak default value 'flowise' when EXPRESS_SESSION_SECRET is not set.\r\n\r\n### Affected Code\r\n```\r\nsecret: process.env.EXPRESS_SESSION_SECRET || 'flowise'\r\n```\r\n\r\n### Evidence\r\nThe default session secret 'flowise' is publicly visible and weak. Session cookies signed with this secret can be forged by attackers.\r\n\r\n### Impact\r\nSession hijacking and forgery - attackers can create arbitrary session cookies to impersonate any user, bypassing all authentication mechanisms.\r\n\r\n### Recommendation\r\nRequire EXPRESS_SESSION_SECRET to be set with a strong random value. Throw an error on startup if not configured. Use cryptographically strong random strings (minimum 256 bits).\r\n\r\n### Notes\r\nThe Express session secret defaults to the string 'flowise' when EXPRESS_SESSION_SECRET is not set (line 55). This secret is used to sign session cookies via express-session middleware. Since 'flowise' is publicly visible in the source code, an attacker can forge valid session cookies to impersonate any user without authentication. The .env.example file has this commented out (# EXPRESS_SESSION_SECRET=flowise), implying it's optional, which compounds the risk. Unlike development-only defaults, this code path is active in production if the environment variable is not set. The application should require EXPRESS_SESSION_SECRET to be explicitly configured with a cryptographically strong random value and fail to start otherwise.\r\n",
+    "ghsa_id": "GHSA-2qqc-p94c-hxwh",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-2qqc-p94c-hxwh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2qqc-p94c-hxwh"
+      }
+    ],
+    "published_at": "2026-04-15T14:07:44Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Weak Default Express Session Secret",
+    "updated_at": "2026-04-15T14:07:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<=3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

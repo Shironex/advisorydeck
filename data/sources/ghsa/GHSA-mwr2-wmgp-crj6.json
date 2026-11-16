@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-mwr2-wmgp-crj6",
+  "repo": {
+    "cve_id": "CVE-2026-55775",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 2.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:L/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-285"
+    ],
+    "description": "### Summary\r\n\r\nA user that is granted namespace management (`/sys/namespaces`) capabilities within a non-root namespace (\"the victim namespace\") can abuse special handling of the literal path `\"root\"` in namespace path canonicalization to manage the victim namespace itself. \r\n\r\n### Details\r\n\r\nSeveral endpoints under `/sys/namespaces/*` accept a namespace path segment that is canonicalized and then appended to the path of the sys mount's containing namespace (set via path prefix or `X-Vault-Namespace` header) to determine the absolute path of the namespace to operate on.\r\n\r\nGiven the special namespace path `\"root\"` canonicalizes to en empty path (`\"\"`), when passed as `/sys/namespaces/root`, the resulting absolute namespace path remains equal to the sys mount's containing namespace. Given ACLs are evaluated before namespace path canonicalization, this allows users with capabilities on `/sys/namespaces/root` within any given namespace to operate on the namespace itself instead.\r\n\r\n### Impact\r\n\r\nUsers that were granted the required capabilities can abuse this vulnerability to:\r\n\r\n- Look up\r\n- Delete\r\n- Lock\r\n- Patch custom metadata\r\n\r\nagainst the namespace containing the system backend they can manage `sys/namespaces/root` in. The exact range of operations that can be performed depends on the specific capabilities granted on said path and any sub-paths such as `/api-lock`.\r\n\r\nNotably, the root namespace is immutable and cannot be modified, deleted or locked, and is thus unaffected. Also note that users can only abuse this vulnerability to operate on the direct parent or \"containing\" namespace relative to their capabilities, not arbitrary namespaces.\r\n\r\n### Patch\r\n\r\nThis will be fixed in OpenBao v2.5.5.\r\n\r\n### PoC\r\n\r\nStart a development server:\r\n\r\n```sh\r\nbao server -dev\r\n```\r\n\r\nCreate a namespace:\r\n\r\n```sh\r\nbao namespace create victim\r\n```\r\n\r\nThis will be the namespace we gain unauthorized management of.\r\n\r\nCreate a policy that allows management of namespaces, _inside_ of the victim\r\nnamespace.\r\n\r\n```sh\r\nbao policy write -namespace=victim namespace-management - <<EOF\r\npath \"sys/namespaces/*\" {\r\n\tcapabilities = [\"read\", \"update\", \"patch\", \"delete\"]\r\n}\r\nEOF\r\n```\r\n\r\nThen create a token with above policy attached:\r\n\r\n```sh\r\nexport BAO_TOKEN=$(bao token create -namespace=victim -policy=namespace-management -field=token)\r\n```\r\n\r\nOperate on the victim's namespace using the token, for example by outright deleting it:\r\n\r\n```sh\r\nbao namespace delete -namespace=victim root\r\n```",
+    "ghsa_id": "GHSA-mwr2-wmgp-crj6",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-mwr2-wmgp-crj6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mwr2-wmgp-crj6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55775"
+      }
+    ],
+    "published_at": "2026-06-19T11:28:42Z",
+    "references": [],
+    "severity": "low",
+    "summary": "OpenBao's System Backend allows Unauthorized Management of the containing Namespace",
+    "updated_at": "2026-06-19T11:28:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/openbao/openbao"
+        },
+        "patched_versions": "2.5.5",
+        "vulnerable_version_range": "<=2.5.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-8c6x-pfjq-9gr7",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 2.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-266"
+    ],
+    "description": "## Summary\r\n\r\n`UserViewSet` defines `create()` and `update()` with superuser-protection checks, but inherits `destroy()` from `DestroyModelMixin` with no override. The Django `User` model has no `owner` field, so `PaperlessObjectPermissions.has_object_permission()` returns `True`. A non-superuser with `delete_user` permission can delete superuser accounts.\r\n\r\n## Description\r\n\r\n`UserViewSet` (`src/paperless/views.py:143-192`) checks `request.user.is_superuser` before allowing `is_superuser=True` or `is_staff=True` in `create()` and `update()`. The `destroy()` method inherits from `DestroyModelMixin` with no such check. The `User` model lacks an `owner` field, so `PaperlessObjectPermissions.has_object_permission()` (`src/documents/permissions.py:44-51`) falls through to its \"no owner\" branch and returns `True` for all user objects.\r\n\r\n### Attack scenario and impact\r\n\r\n_Further details redacted to reduce exploitation._",
+    "ghsa_id": "GHSA-8c6x-pfjq-9gr7",
+    "html_url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-8c6x-pfjq-9gr7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8c6x-pfjq-9gr7"
+      }
+    ],
+    "published_at": "2026-04-27T03:11:39Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Non-Superusers can delete Superusers",
+    "updated_at": "2026-04-27T03:11:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "paperless-ngx"
+        },
+        "patched_versions": "2.20.15",
+        "vulnerable_version_range": "< 2.20.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "paperless-ngx/paperless-ngx"
+}

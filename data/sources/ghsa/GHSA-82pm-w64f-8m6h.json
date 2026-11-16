@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-82pm-w64f-8m6h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "### Summary\n\nChanging a password from within the application updated the stored credential but left any outstanding password-reset token on the user record, so a reset link issued earlier stayed usable afterwards.\n\n### Details\n\nThe in-application password-change path in `users.service.ts` wrote the new salt and hash and rotated the session token version, but did not clear `reset_password_token` or `reset_password_expires`. The reset flow in the same service locates an account solely by that stored token value, so a link issued before the change still matched a live row and still authorized setting a new password for the remainder of the token's expiry window. Nothing else in the change path revoked the outstanding token either.\n\n### Impact\n\nSomeone holding an unexpired reset link - typically obtained through earlier access to the account's mailbox - could set a password of their own after the legitimate owner had already changed theirs, regaining control of the account in exactly the situation where the owner was acting on a suspected compromise. No authentication is required beyond possession of the reset link.\n\n### Credit\n\nThis issue was reported by [@kunalmhaske21212](https://github.com/kunalmhaske21212).\n",
+    "ghsa_id": "GHSA-82pm-w64f-8m6h",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-82pm-w64f-8m6h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-82pm-w64f-8m6h"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:04Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Password Reset Token Not Invalidated on Password Change",
+    "updated_at": "2026-11-02T08:48:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.04.1",
+        "vulnerable_version_range": "< 2026.04.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

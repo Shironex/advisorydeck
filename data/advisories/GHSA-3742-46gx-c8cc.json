@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-3742-46gx-c8cc",
+  "aliases": [],
+  "title": "Improper path validation in TUS uploads allows writing to arbitrary storage paths",
+  "summary": "## Summary\r\n\r\nThe TUS (resumable upload) implementation creates the `directus_files` record through the generic `ItemsService` rather\r\nthan through `FilesService`. The `filename_disk` sanitisation and validation that `FilesService` applies on the regular\r\nupload path is therefore skipped, and the `filename_disk` value supplied by the client in the TUS `Upload-Metadata`\r\nheader is passed verbatim to the storage driver as the destination path.\r\n\r\nAn authenticated user who is permitted to create files can consequently choose the storage path their upload is written\r\nto, place uploads outside the configured storage root prefix, and overwrite the stored content of existing file records.\r\n\r\n## Impact\r\n\r\nThe concrete effect depends on the storage driver in use:\r\n\r\n- **Local driver.** The supplied path is joined onto the storage root after leading traversal segments are dropped, so\r\n  writes remain inside the storage root. The attacker still controls the complete sub path and can create or overwrite\r\n  any object beneath it.\r\n- **Object storage drivers (S3 and equivalents).** The supplied path is joined onto the configured root prefix without\r\n  normalisation, so relative traversal segments escape that prefix and can address any key in the bucket or container.\r\n\r\nIn both cases no uniqueness check is performed on `filename_disk`, so an upload can be pointed at the disk name of an\r\nexisting file record. The bytes served for that unrelated record are then replaced with attacker controlled content.\r\n\r\nWhere the deployment places the extensions directory or the temporary directory inside the storage root, or serves\r\nextensions from the same storage location used for uploads, this write primitive reaches a location whose contents are\r\nloaded and executed by the server. That escalation is configuration dependent and is not reachable in a default\r\ndeployment.\r\n\r\n## Preconditions\r\n\r\n- TUS uploads enabled (`TUS_ENABLED`, which defaults to `false`).\r\n- An authenticated account holding create permission on `directus_files`. No administrative access is required.\r\n\r\n## Workarounds\r\n\r\n- Leave TUS uploads disabled (`TUS_ENABLED=false`, the default).\r\n- Restrict create permission on `directus_files` to trusted roles.\r\n- Keep the extensions and temporary directories outside the storage root, and do not share a storage bucket between\r\n  uploads and the extensions location.\r\n\r\n## Credit\r\n\r\nReported by @oduoke567",
+  "published_at": "2026-08-05T16:36:32.000Z",
+  "modified_at": "2026-08-05T16:36:32.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-73"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "10.13.0",
+          "fixed": "12.1.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-3742-46gx-c8cc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3742-46gx-c8cc",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-3742-46gx-c8cc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:38769dc6cd0dc2a012af404b4c08440f83f51a89582af1b3a5f035eea9838583",
+  "note": null
+}

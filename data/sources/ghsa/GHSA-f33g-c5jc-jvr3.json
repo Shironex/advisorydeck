@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-f33g-c5jc-jvr3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "### Summary\n\nThe table-creation API accepted a client-supplied formula `parsed_tree` and persisted it without rebuilding it from the formula text. At query time the stored binary-operator value was interpolated into raw SQL, so a crafted operator injected SQL against the base's data source.\n\n### Details\n\nCreating a table through `tables.service.ts` passes each column's properties through `getColumnPropsFromUIDT`, which spreads the caller's object and kept a supplied `parsed_tree`; `Column.bulkInsert` then persisted that syntax tree for the formula column instead of one derived from the validated formula text. When the formula was later evaluated, `parsed-tree-builder.ts` interpolated the tree's binary-expression operator into a `knex.raw` fragment without binding or validating it, whereas the save-time check only ever inspected call-expression function names. A crafted operator value therefore terminated the intended expression and appended attacker-controlled SQL, which ran against whatever database backs the base. On a single-container install whose metadata is held in the same SQLite database, this read the internal user and token tables and let the attacker's own account be rewritten to super administrator. Table creation now rebuilds the formula tree from the formula text and discards any client-supplied tree, and the operator of a reused stored tree is checked against the parser's own operator set before the builder runs.\n\n### Impact\n\nAn attacker needs an account with the Creator role on a base, which is required to create a table or add a formula column. The injected SQL runs with the privileges of the base's data-source connection. On an install that keeps its metadata in SQLite, this exposed every user record and token on the instance and allowed the attacker to gain the super administrator role; against an external data source it allowed reading and modifying data on the connected database. No action by another user is required.\n\n### Credit\n\nThis issue was reported by [@HDdssX](https://github.com/HDdssX).\n",
+    "ghsa_id": "GHSA-f33g-c5jc-jvr3",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-f33g-c5jc-jvr3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f33g-c5jc-jvr3"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:35Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SQL Injection via Formula Parsed Tree Operator",
+    "updated_at": "2026-11-02T08:47:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.0",
+        "vulnerable_version_range": "< 2026.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

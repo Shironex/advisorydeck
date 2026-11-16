@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-j5w6-26x9-fc2q",
+  "aliases": [],
+  "title": "SSRF guard treats IPv4 link-local 169.254.0.0/16 as public - admin OIDC-client logo fetch can reach cloud metadata (IMDS)",
+  "summary": "## Summary\r\n\r\nThe SSRF protection used when Pocket ID fetches a remote OIDC-client logo (`POST /api/oidc/clients` / `PUT /api/oidc/clients/:id`, body fields `logoUrl` / `darkLogoUrl`) classifies the IPv4 link-local range `169.254.0.0/16` as a **public** address. Because `169.254.0.0/16` is where cloud platforms expose their Instance Metadata Service (AWS/GCP/Azure IMDS `169.254.169.254`, AWS ECS task-metadata `169.254.170.2`), an authenticated administrator can supply a logo URL that causes the Pocket ID server to issue an outbound HTTP GET to the cloud metadata endpoint, against the intent of the SSRF guard. The guard correctly blocks loopback, RFC1918 and CGNAT, but the link-local range is missing from the block list.\r\n\r\n## Reachability / How input reaches sink\r\n\r\n- Network route: `POST /api/oidc/clients` (createClientHandler) and `PUT /api/oidc/clients/:id` (updateClientHandler), both behind `authMiddleware.Add()` (administrator session required).\r\n- Tainted body fields `logoUrl` / `darkLogoUrl` flow into `downloadAndSaveLogoFromURL`, whose only SSRF gate is `utils.IsURLPrivate` → `IsPrivateIP`.\r\n\r\n## Affected component\r\n\r\n- File: `backend/internal/utils/ip_util.go`\r\n- Function: `IsPrivateIP` (consumed by `IsURLPrivate`)\r\n- Sink: `backend/internal/service/oidc_service.go` → `downloadAndSaveLogoFromURL` (the OIDC-client logo fetcher), reached from `createClientHandler` and `updateClientHandler`.\r\n- Version verified vulnerable: **v2.8.0** (latest release at time of report).\r\n\r\n## Details\r\n\r\n`IsPrivateIP` is built from a fixed list of CIDR blocks:\r\n\r\n```go\r\nvar localhostIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},  // 127.0.0.0/8\r\n    {IP: net.IPv6loopback, Mask: net.CIDRMask(128, 128)},     // ::1/128\r\n}\r\nvar privateLanIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},     // 10.0.0.0/8\r\n    {IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},  // 172.16.0.0/12\r\n    {IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)}, // 192.168.0.0/16\r\n}\r\nvar tailscaleIPNets = []*net.IPNet{\r\n    {IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}, // 100.64.0.0/10\r\n}\r\n\r\nfunc IsPrivateIP(ip net.IP) bool {\r\n    return IsLocalhostIP(ip) || IsPrivateLanIP(ip) || IsTailscaleIP(ip) || IsLocalIPv6(ip)\r\n}\r\n```\r\n\r\n`IsLocalIPv6` only matches operator-configured ranges (`LocalIPv6Ranges`, empty by default). There is no entry for the IPv4 link-local range `169.254.0.0/16` nor the IPv6 link-local range `fe80::/10` nor the unspecified addresses `0.0.0.0` / `::`. Consequently `IsURLPrivate` returns `(false, nil)` - i.e. \"not private, allowed\" - for any hostname that resolves into `169.254.0.0/16`.\r\n\r\n`downloadAndSaveLogoFromURL` calls `IsURLPrivate` both on the initial URL and inside the redirect `CheckRedirect` callback, so a public→`169.254.x` redirect bypasses identically.\r\n\r\nBecause the dominant exploitation target is the deterministic literal IP `http://169.254.169.254/...` (cloud metadata), no DNS rebinding is required. On a Pocket ID instance deployed in a cloud environment (AWS/GCP/Azure/ECS), an administrator can read the instance metadata service - including, on AWS IMDSv1 / improperly-configured IMDSv2, temporary IAM role credentials.\r\n\r\nNote on IPv6 transition forms: Go's `net.ParseIP` canonicalises an IPv4-mapped address such as `::ffff:169.254.169.254` to its 4-byte form, so the mapped variant is also classified as public and bypasses; mapped-loopback `::ffff:127.0.0.1` is correctly blocked because it canonicalises into the guarded `127.0.0.0/8`.\r\n\r\n## PoC / Proof of concept\r\n\r\nTested against a freshly deployed Pocket ID `v2.8.0` (official `ghcr.io/pocket-id/pocket-id:v2.8.0` image) in Docker, with two HTTP collectors joined to the same Docker networks:\r\n- `collector-imds` bound to `169.254.169.254` (simulated cloud metadata endpoint - the guard *should* block this but does not)\r\n- `collector-priv` bound to `192.168.250.254` (RFC1918 - negative cont...",
+  "published_at": "2026-07-13T09:04:35.000Z",
+  "modified_at": "2026-07-13T09:04:35.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:C/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.11.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-j5w6-26x9-fc2q",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-j5w6-26x9-fc2q",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-j5w6-26x9-fc2q",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:47386bae5ead937fc438a08c952ea3d3b4ab354de45a5237076f7e2264a7e7d5",
+  "note": null
+}

@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-x7x8-95gh-42xm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nA validation bypass in Flowise's MCP server configuration allows authenticated attackers to achieve arbitrary code execution by exploiting an unvalidated `cwd` parameter that bypasses existing security controls.\r\n\r\n### Root Cause\r\nThe `validateMCPServerConfig()` function in `packages/components/nodes/tools/MCP/core.ts` validates the `command`, `args`, and `env` parameters but completely ignores the `cwd` parameter. This parameter is later passed directly to `StdioClientTransport`, allowing attackers to bypass path validation by using clean filenames in `args` while controlling the working directory via `cwd`.\r\n\r\n### Attack Vector\r\n1. Attacker uses clean filename in `args` array: `[\"script.js\"]` (passes validation)\r\n2. Attacker sets `cwd` to point to directory with malicious files: `\"/upload/path\"` (unvalidated)\r\n3. Validation succeeds because filename contains no path traversal\r\n4. Process spawns from attacker-controlled directory, executing malicious code\r\n\r\n### Impact\r\n- Authenticated remote code execution\r\n- Bypass of existing security controls\r\n- Affects all current Flowise installations\r\n\r\n## Affected Versions\r\n- All current versions of Flowise (tested on latest Docker image)\r\n- Specifically affects MCP server configuration functionality\r\n\r\n## Vulnerable Code Location\r\n**File**: `packages/components/nodes/tools/MCP/core.ts`\r\n**Function**: `validateMCPServerConfig()` (lines 364-392)\r\n\r\n```typescript\r\nexport const validateMCPServerConfig = (serverParams: any): void => {\r\n    // Validates command, args, env but NOT cwd\r\n    // ...\r\n    // BUG: serverParams.cwd is never validated but gets passed to StdioClientTransport\r\n}\r\n```\r\n## Proof of Concept\r\n```javascript\r\n// Vulnerable configuration that passes validation:\r\nconst maliciousConfig = {\r\n    command: 'node',\r\n    args: ['script.js'],        // Clean filename - passes validation\r\n    cwd: '/tmp/uploaded-files', // Unvalidated - contains malicious script.js\r\n    env: {}\r\n};\r\n// This bypasses all existing security checks\r\n```\r\n\r\n## Suggested Fix\r\nAdd cwd validation to `validateMCPServerConfig()`:\r\n\r\n```typescript\r\n// Add after existing validations:\r\nif (serverParams.cwd) {\r\n    if (typeof serverParams.cwd !== 'string') {\r\n        throw new Error('cwd parameter must be a string');\r\n    }\r\n    \r\n    if (path.isAbsolute(serverParams.cwd)) {\r\n        throw new Error('cwd parameter cannot be an absolute path');\r\n    }\r\n    \r\n    if (serverParams.cwd.includes('..')) {\r\n        throw new Error('cwd parameter cannot contain path traversal');\r\n    }\r\n    \r\n    const safeCwdPattern = /^[a-zA-Z0-9_-]+$/;\r\n    if (!safeCwdPattern.test(serverParams.cwd)) {\r\n        throw new Error('cwd parameter contains invalid characters');\r\n    }\r\n}\r\n```\r\n\r\nAnother option is to block it completely.\r\n\r\n## Relationship to Existing CVEs\r\nThis appears to be separate from CVE-2026-40933, which addressed command flag validation. This vulnerability involves a different parameter (`cwd` vs `args`) and requires a separate fix.\r\n\r\n## CWE Classification\r\n- **CWE-20**: Improper Input Validation\r\n- **CWE-78**: OS Command Injection\r\n\r\n## Reporter Information\r\n**Name**: Diego Meyer\r\n\r\n## Request CVE Assignment\r\n☑️ Yes, please request a CVE ID for this vulnerability\r\n\r\n## Coordinated Disclosure\r\n☑️ This is being reported privately first to allow for coordinated disclosure\r\n",
+    "ghsa_id": "GHSA-x7x8-95gh-42xm",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-x7x8-95gh-42xm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x7x8-95gh-42xm"
+      }
+    ],
+    "published_at": "2026-08-31T14:01:10Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Flowise MCP Server Config cwd Parameter Validation Bypass",
+    "updated_at": "2026-08-31T14:01:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": " <= 3.1.3"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

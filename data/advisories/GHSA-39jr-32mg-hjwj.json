@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-39jr-32mg-hjwj",
+  "aliases": [],
+  "title": "Missing Authorization in seaweed-volume",
+  "summary": "### Summary\r\nThe Rust volume server (`seaweed-volume/`, documented as \"a drop-in replacement for the SeaweedFS Go volume server\") is missing the admin-authorization check on 15 of the 29 gRPC RPCs that the Go volume server gates behind it. An operator who sets `-whiteList` to restrict which hosts can perform destructive volume-server operations gets that protection on some RPCs and not others, with no indication of the gap. From any host that is not on the whitelist, `ReadAllNeedles` streams the raw content of every file in a volume, `BatchDelete` deletes files by ID, and `FetchAndWriteNeedle` overwrites them, all with no authorization check at all.\r\n\r\nThis is not a new design decision that happens to differ from Go. In May 2026 the Go volume server got a fix (`69da20bda`, #9441) that added `checkGrpcAdminAuth` to `FetchAndWriteNeedle` \"for parity with the rest of the destructive volume-server RPCs.\" In June, that fix was ported to Rust (`b5ecfcd28`, #10001), but only its SSRF-guard half. The admin-auth half was dropped in the port, and the same gap exists in 14 other RPCs that were apparently never audited against the Go side at all.\r\n### Scope\r\n\r\nThis report targets the trust boundary SECURITY.md describes as in-scope: \"unauthenticated access to data or operations that require authentication,\" reached here specifically through the carve-out in the Trust model section, which reads: \"[internal APIs are not an authentication boundary] unless you explicitly enable a control (for example volume JWT or filer authentication) and that control is bypassed.\" `-whiteList` is exactly that kind of explicitly-enabled control, and it is demonstrably bypassed: in the same server session, with the same whitelist configuration, `AllocateVolume` correctly refuses the test client while `ReadAllNeedles` and `BatchDelete` do not. This is not \"direct access to an internal cluster port\" (the out-of-scope case); the operator locked the door, and 15 of 29 doors don't check the lock.\r\n\r\n`-whiteList` is not a soft or advisory setting standing in for a \"real\" control; the project's own sources describe it as one. The Rust porting plan (`VOLUME_SERVER_RUST_PLAN.md`) titles the relevant section \"Phase 7: Security Layer,\" with the stated goal \"JWT authentication, whitelist guard, TLS configuration\" (lines 405-406), and lists the whitelist guard as item 7.1 (line 415), alongside JWT (7.2, line 420) and TLS (7.3, line 427), as peer components of that same security layer, not as a lesser mechanism next to \"real\" authentication. And the Go reference implementation's own comment on `checkGrpcAdminAuth` (`weed/server/volume_grpc_admin.go:41-42`) frames a denial as evidence of hostile activity, not misconfiguration: \"Failed authorization attempts are logged so an operator running with a configured whitelist can spot misconfigured callers and probe attempts.\"\r\n\r\n- **Affected version:** release tag `4.41` (2026-08-06) and current `master` (`db5a086d048c5c2d6e51e82bb070d20df04d688d`, 2026-08-12). Confirmed by reading `seaweed-volume/src/server/grpc_server.rs` as checked out at the `4.41` tag directly (`git show 4.41:seaweed-volume/src/server/grpc_server.rs`): `read_all_needles` has no `check_grpc_admin_auth` call in that tagged revision either, so this is not a master-only regression.\r\n- **Deployment/configuration:** a single Rust volume server (`weed-volume`) started with `-whiteList` set to a non-empty list, pointed at any master (real or the fake stub used for the PoC). No other SeaweedFS component (filer, S3 gateway, admin server) is involved or required.\r\n- **Reachable ports:** the volume server's gRPC port (HTTP port + 10000, e.g. `18080` for the default `8080`), reachable by the attacking client. No HTTP-only access needed for the exploit itself, though HTTP is used in the PoC to plant/verify file content.\r\n- **Authentication in effect:** `-whiteList` is set and confirmed active (the control call denies the attacker throughout). No volume JWT, no filer aut...",
+  "published_at": "2026-09-09T23:27:29.000Z",
+  "modified_at": "2026-09-09T23:27:29.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.35",
+          "last_affected": "4.41"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-39jr-32mg-hjwj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-39jr-32mg-hjwj",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-39jr-32mg-hjwj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:e998628a3fce5314ab8d508ddb292203519cda7d83b0a0ea7925a5a717a0f2a7",
+  "note": null
+}

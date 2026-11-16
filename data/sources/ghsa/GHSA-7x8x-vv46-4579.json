@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7x8x-vv46-4579",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nFive Enterprise-tier endpoints fetch or mutate a workspace/organization/role by a client-supplied id with no verification that it belongs to the acting user's own org/workspace. All five are gated behind `IdentityManager.checkFeatureByPlan(...)` (a paid-license feature flag) or a hardcoded `assertEnterprisePlatform()` check, so we could not execute them to completion on an unlicensed local instance - the underlying authorization gap is nonetheless confirmed by direct source review, and we are reporting it for maintainers to verify against their own licensed Enterprise test environment. We deliberately did not attempt to work around the license gate or test against Flowise Cloud production, since #1 below is destructive (data deletion) and doing so against real customer data would be irresponsible.\r\n\r\n### Details\r\n\r\n**1. `DELETE /api/v1/workspace/{id}`** (`enterprise/controllers/workspace.controller.ts:190` → `services/workspace.service.ts:164`, `deleteWorkspaceById`) - gated by `checkFeatureByPlan('feat:workspaces')`.\r\n`workspaceId` from `req.params.id` only checked for *existence*, never ownership, before a full cascading delete of that workspace's `ChatFlow`, `DocumentStore`, `Evaluation`, `Dataset`, `Credential`, `CustomTemplate`, `ApiKey`, `Assistant`, `Execution`, `ChatMessage`, `UpsertHistory`, and all related rows, then the workspace itself. **If confirmed, this allows any user holding `workspace:delete` in their own (possibly free-tier) workspace to permanently destroy any OTHER tenant's entire workspace and all its data, instance-wide.**\r\n\r\n**2. `POST /api/v1/account/invite`** (`enterprise/controllers/account.controller.ts:24` → `services/account.service.ts:349`, `saveInviteAccount`) - gated by `checkFeatureByPlan('feat:workspaces')`.\r\n`data.workspace.id` (client-supplied) fetched with no check it belongs to the caller's org; the invite is created against that target workspace with a role scoped only to the target's own org (not the caller's). Effectively lets an attacker self-invite into any workspace instance-wide.\r\n\r\n**3. `PUT`/`DELETE /api/v1/organizationuser`** (`enterprise/controllers/organization-user.controller.ts:103`/`113`) - gated by `checkFeatureByPlan('feat:users')`.\r\n`organizationId`/`userId` taken directly from the request with no check that `organizationId` matches the caller's own org (the `read` handler on the same controller correctly performs this check; `update`/`delete` do not). Enables cross-org member role-change/removal (the delete path can soft-delete + scrub the target `User` row entirely on Enterprise platform).\r\n\r\n**4. `PUT /api/v1/role`** (`enterprise/controllers/role.controller.ts:62` → `services/role.service.ts:119`, `updateRole`) - gated at the mount level: `routes/index.ts:141`, `checkFeatureByPlan('feat:roles')`.\r\nThe controller validates that the **client-supplied** `organizationId` field matches the caller's own org, but never checks that the **targeted role** (fetched by `id` alone) actually belongs to that org - an attacker can satisfy the assert with their own org id while pointing `id` at a foreign org's role, which `updateRole` then silently modifies anyway (it overwrites `organizationId` back to the role's real org before saving).\r\n\r\n**5. `POST /api/v1/loginmethod/test`** (`enterprise/controllers/login-method.controller.ts:162`, `testConfig`) - blocked by a hardcoded `assertEnterprisePlatform()` (Enterprise-only feature).\r\nSibling methods `create`/`update` in the same controller correctly call `assertQueryOrganizationMatchesActiveOrg(user, req.body.organizationId)` (confirmed present in current code). `testConfig` never received the same check, and merges the caller-supplied test config with the **stored, decrypted** `clientSecret` of the TARGET org's real SSO provider before performing a live test call - letting an org admin trigger an SSO handshake using another org's secret. **Related prior advisory: GHSA-cwc3-p92j-g7qm / CVE-2026-30823 fixed the identical missing-check on this controller's `create`/`update` - this is that same fix never applied to the third method in the same file.**\r\n\r\n### Why not live-executed\r\nAll five require either a paid Enterprise license (`feat:workspaces`/`feat:users`/`feat:roles` all resolve to `false` on an unlicensed instance's `user.features`) or run only in Enterprise platform mode. We registered a real instance and confirmed via reading `enterprise/rbac/PermissionCheck.ts` and the relevant controllers/services that no ownership check exists anywhere in these five call chains - the same \"trace every fetch, confirm no scoping\" method that yielded 9 other findings we DID execute to completion in this application (submitted as separate advisories). We ask maintainers to confirm #1-4 in a licensed Enterprise test environment.\r\n\r\n### Impact\r\n#1 is the most severe (full cross-tenant data destruction). #2-4 are cross-org privilege escalation / unauthorized access. #5 is unauthorized use of another org's stored secret.\r\n\r\n### Suggested fix\r\nFor #1-3: add ownership/membership assertions before acting (matching patterns already used elsewhere, e.g. `assertQueryOrganizationMatchesActiveOrg`, `assertWorkspaceIdAccessibleToUser`). For #4: verify `oldRole.organizationId === user.activeOrganizationId` after fetching the role by id, not just that the client-supplied `organizationId` field matches. For #5: add the same `assertQueryOrganizationMatchesActiveOrg` call already present on `create`/`update` in the same controller.",
+    "ghsa_id": "GHSA-7x8x-vv46-4579",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-7x8x-vv46-4579",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7x8x-vv46-4579"
+      }
+    ],
+    "published_at": "2026-08-31T14:00:39Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-tenant/cross-org authorization gaps in Enterprise role, and SSO-config endpoints",
+    "updated_at": "2026-08-31T14:00:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

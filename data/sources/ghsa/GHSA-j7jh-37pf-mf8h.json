@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-j7jh-37pf-mf8h",
+  "repo": {
+    "cve_id": "CVE-2026-72837",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nFile Browser's **proxy** and **hook** authentication auto-provisioning paths do not honor the isolation that `createUserDir` is meant to provide when the configured default scope is the CLI default `.`.\r\n\r\nWhen `createUserDir=true`, the regular signup handler clears the inherited scope before calling `MakeUserDir`, generating a per-user directory such as `/users/alice`. The proxy and hook authentication paths omit this step: they pass the inherited default scope (`.`) directly to `MakeUserDir`, which normalizes it to `/` instead of generating a user-specific directory.\r\n\r\nAs a result, every automatically provisioned proxy-auth or hook-auth user receives the File Browser server root as its scope. With the default non-admin permissions, one valid low-privileged upstream identity can read, create, overwrite, rename, share, and delete files belonging to other users inside the File Browser root.\r\n\r\nThis is not a reverse-proxy header spoofing issue. It remains exploitable when the reverse proxy correctly authenticates the user, overwrites any client-supplied identity header, and strips the forwarded credentials. Reproduced against `v2.63.18`; the proxy path was runtime-verified across `v2.32.0`-`v2.63.18` (the first release in which missing proxy users are auto-provisioned).\r\n\r\n## Affected configuration\r\n\r\nThe confirmed proxy-auth case requires:\r\n\r\n```text\r\nauth.method=proxy\r\nauth.header=X-Remote-User\r\ncreateUserDir=true\r\ndefaults.scope=.   (the CLI default)\r\n```\r\n\r\nThe same provisioning error exists in **hook authentication** when the hook authenticates a previously unknown user and does not explicitly return a different `user.scope`.\r\n\r\nJSON authentication through `/api/signup` is **not** affected by this exact root-scope bug, because that handler explicitly clears the inherited scope when `createUserDir` is enabled.\r\n\r\nThe attacker only needs a normal upstream-authenticated account. No File Browser admin privileges are required, and no reverse-proxy bypass is required.\r\n\r\n## Root cause\r\n\r\n`MakeUserDir` (`settings/dir.go`) only derives a username-specific home when the incoming scope is empty:\r\n\r\n```go\r\nuserScope = strings.TrimSpace(userScope)\r\nif userScope == \"\" && s.CreateUserDir {\r\n    username = cleanUsername(username)\r\n    userScope = path.Join(s.UserHomeBasePath, username)\r\n}\r\n\r\nuserScope = path.Join(\"/\", userScope)\r\n```\r\n\r\nThe proxy auto-provisioning path (`auth/proxy.go`) applies the defaults, including the default scope `.`, and then calls `MakeUserDir` without clearing the scope:\r\n\r\n```go\r\nsetting.Defaults.Apply(user)\r\n// ...\r\nuserHome, err = setting.MakeUserDir(user.Username, user.Scope, srv.Root)\r\n```\r\n\r\nThe hook auto-provisioning path (`auth/hook.go`) behaves equivalently:\r\n\r\n```go\r\nd := &users.User{\r\n    Username: a.Cred.Username,\r\n    Scope:    a.Settings.Defaults.Scope,\r\n    // ...\r\n}\r\nu = a.GetUser(d)\r\nuserHome, err := a.Settings.MakeUserDir(u.Username, u.Scope, a.Server.Root)\r\n```\r\n\r\nBecause both pass `\".\"` instead of an empty string, `MakeUserDir` does not derive `/users/<username>`; it normalizes `\".\"` to `/`, and every provisioned user is saved with `Scope=\"/\"`.\r\n\r\nBy comparison, the signup handler already contains the missing isolation step (`http/auth.go`):\r\n\r\n```go\r\nif d.settings.CreateUserDir {\r\n    user.Scope = \"\"\r\n}\r\nuserHome, err := d.settings.MakeUserDir(user.Username, user.Scope, d.server.Root)\r\n```\r\n\r\nRelevant locations: `auth/proxy.go`, `auth/hook.go`, `settings/dir.go`, `http/auth.go` (correct signup behavior for comparison), `cmd/users.go` (default scope is `.`).\r\n\r\n## PoC\r\n\r\n### Proxy auth, behind a real reverse proxy\r\n\r\nThe PoC uses real Nginx `auth_basic`, derives `X-Remote-User` from Nginx's authenticated `$remote_user`, overwrites any client-supplied `X-Remote-User`, and strips the Basic Auth `Authorization` header before forwarding to File Browser:\r\n\r\n```nginx\r\nproxy_set_header X-Remote-User $remote_user;\r\nproxy_set_header Authorization \"\";\r\n```\r\n\r\nWith `auth.method=proxy`, `auth.header=X-Remote-User`, and `createUserDir=true`, two independently authenticated upstream users (`alice`, `bob`) are auto-created as non-admin users with the same `Scope=\"/\"`. A spoof attempt - Alice authenticating to Nginx while sending `X-Remote-User: mallory` - still authenticates as Alice, because Nginx overwrites the header before forwarding. Observed on `v2.63.18`:\r\n\r\n```text\r\nALICE_SAVED_SCOPE=/\r\nBOB_SAVED_SCOPE=/\r\nBOB_READ_BODY=secret-from-alice\r\nALICE_READ_AFTER_OVERWRITE_BODY=overwritten-by-bob\r\nBOB_DELETE_STATUS=204\r\n```\r\n\r\nBob, a different upstream user, can read, overwrite, and then delete Alice's file.\r\n\r\n### Proxy/hook auth, on loopback\r\n\r\nThe same result is reproducible without a proxy front-end, using the trusted proxy header directly:\r\n\r\n```bash\r\nconfig init --root /tmp/root --auth.method proxy --auth.header X-Remote-User --createUserDir\r\n```\r\n\r\n```bash\r\nvictim_token=$(curl -sS -X POST -H 'X-Remote-User: victim-user'   http://127.0.0.1:18081/api/login)\r\nattacker_token=$(curl -sS -X POST -H 'X-Remote-User: attacker-user' http://127.0.0.1:18081/api/login)\r\n```\r\n\r\n`users ls` then shows both users saved with `Scope=\"/\"`, and the attacker can read, overwrite, and delete the victim's file:\r\n\r\n```text\r\nID  Username       Scope  Admin  Create  Rename  Modify  Delete  Share  Download\r\n1   victim-user    /      false  true    true    true    true    true   true\r\n2   attacker-user  /      false  true    true    true    true    true   true\r\n```\r\n\r\nNo `/users/victim-user` or `/users/attacker-user` directory is created - the proof file is stored directly under the configured server root. Hook auth exhibits the same behavior when the hook authenticates a previously unknown user and does not return an explicit `user.scope`.\r\n\r\n## Impact\r\n\r\nA valid non-admin proxy- or hook-authenticated user can access other externally-provisioned users' files even when the administrator enabled `createUserDir` to isolate users. Depending on the default permissions and server-root contents, the attacker can:\r\n\r\n- read files belonging to every other File Browser user;\r\n- upload files into other users' directories;\r\n- overwrite or rename other users' files;\r\n- delete other users' files or directories;\r\n- create public shares for data belonging to other users; and\r\n- access administrative or application files if they are located below the configured File Browser root.\r\n\r\nThe practical boundary violation is from one external-auth user to all data below the File Browser server root.\r\n\r\n## Patches\r\n\r\nFixed in **v2.63.19**. Auto-provisioned user creation is centralized in `settings.CreateUserHome`, used by signup, proxy auth, and hook auth, so the three paths cannot diverge again. When `createUserDir` is enabled and no explicit scope was supplied, the scope is cleared so a per-user home directory (`/users/<username>`) is derived; a derived scope already owned by another user is rejected (compared case-insensitively). For hook auth, an explicit `user.scope` returned by the trusted hook is preserved.\r\n\r\n## Workarounds\r\n\r\nUntil upgrading, do not rely on `createUserDir` for isolation under proxy or hook auth: assign each provisioned user an explicit, non-overlapping scope. Existing deployments should audit externally-provisioned users for `Scope=\"/\"` and relocate them into per-user directories.\r\n\r\n## Credits\r\n\r\nIndependently reported by @thesmartshadow (proxy auth) and @B1gN0Se (proxy and hook auth); this advisory consolidates both reports.\r\n",
+    "ghsa_id": "GHSA-j7jh-37pf-mf8h",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-j7jh-37pf-mf8h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j7jh-37pf-mf8h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72837"
+      }
+    ],
+    "published_at": "2026-07-27T05:44:27Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Proxy and hook auto-provisioning ignore createUserDir and grant the server root scope",
+    "updated_at": "2026-08-21T06:38:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.20",
+        "vulnerable_version_range": "<= 2.63.19"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

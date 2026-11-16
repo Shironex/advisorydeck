@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-3j72-rgq3-c2j7",
+  "aliases": [],
+  "title": "SeaweedFS 4.42 inline GCS credentials allow unauthenticated SSRF with response read-back",
+  "summary": "Summary\r\n\r\nSeaweedFS 4.42 allows an unauthenticated caller with network access to the volume server gRPC port to bypass the endpoint SSRF protection in `VolumeServer.FetchAndWriteNeedle`. The caller can supply inline Google Cloud Storage credential JSON containing attacker-controlled `credential_source.url` and `token_url` destinations. SeaweedFS accepts the JSON and the Google authentication client sends requests to those destinations without applying SeaweedFS's loopback, private-network, link-local, or cloud-metadata address restrictions.\r\n\r\nThe bypass allows the volume server to make attacker-directed GET and POST requests to internal services and return their response bodies through the gRPC error. The attached local proof of concept reproduces both request paths through a real TCP gRPC server and client using SeaweedFS 4.42.\r\n\r\n### Details\r\n\r\n#### Affected components\r\n\r\n- `weed/server/volume_grpc_remote.go`: `VolumeServer.FetchAndWriteNeedle`, `guardedRemoteClient`, and `gcsCredentialsArePath`\r\n- `weed/remote_storage/gcs/gcs_storage_client.go`: `gcsRemoteStorageMaker.Make`\r\n\r\n`FetchAndWriteNeedle` accepts both a remote-storage configuration and a remote object location. When its default endpoint protection is enabled, explicit S3-compatible and Azure endpoints are validated and routed through a protected HTTP client. That client rejects internal destinations and revalidates the resolved address when connecting.\r\n\r\nGCS follows a different path. The handler rejects a GCS credential value only when it is a non-empty filesystem path. A value beginning with `{` is accepted as inline JSON. GCS is then classified as a fixed-host backend, so it is constructed through the ordinary remote-storage client path rather than the protected HTTP client.\r\n\r\nThe accepted JSON is passed to the Google credential parser without validating the credential type or URLs embedded in it. A valid `external_account` credential document supports attacker-controlled values including:\r\n\r\n- `credential_source.url`, fetched with an HTTP GET when the token source obtains a subject token;\r\n- `credential_source.headers`, attached to that GET;\r\n- `token_url`, which receives an HTTP POST containing the retrieved subject token.\r\n\r\nThe Google authentication client performs these requests before accessing the normal GCS object endpoint. When either destination returns an error, its response body is included in the authentication error. `FetchAndWriteNeedle` wraps that error and returns it to the gRPC caller, creating response read-back.\r\n\r\nThe exploitable data flow is:\r\n\r\n```text\r\ngRPC caller\r\n  -> FetchAndWriteNeedle.remote_conf\r\n  -> inline GCS external_account JSON accepted\r\n  -> GCS omitted from guardedRemoteClient\r\n  -> credential_source.url GET with attacker-selected headers\r\n  -> optional token_url POST carrying the retrieved subject token\r\n  -> internal response body included in authentication error\r\n  -> gRPC error returned to caller\r\n```\r\n\r\n#### Security boundary\r\n\r\nThis report does not claim that exposing an internal cluster port is itself a vulnerability. It demonstrates a bypass of the endpoint-validation control that SeaweedFS deliberately applies to `FetchAndWriteNeedle` when `volume.allowUntrustedRemoteEndpoints` is disabled, which is the default.\r\n\r\nWith that protection enabled, an equivalent direct S3 request targeting loopback is rejected before any connection is made. The inline-GCS input reaches the same prohibited destination because the actual URLs are nested in credential JSON and are dialed by the OAuth token source outside the guarded transport. Restrictive network policy, mTLS, or a non-empty admin whitelist can prevent an attacker from reaching the RPC, but they do not correct this validation bypass.\r\n\r\n#### Deployment and attacker starting position\r\n\r\nThe minimal affected configuration is:\r\n\r\n- a SeaweedFS 4.42 volume server with an existing local volume;\r\n- the volume server gRPC port reachable by the attacker;\r\n- `volume.allowUnt...",
+  "published_at": "2026-09-18T20:00:36.000Z",
+  "modified_at": "2026-09-18T20:00:36.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3j72-rgq3-c2j7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3j72-rgq3-c2j7",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3j72-rgq3-c2j7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1a164aa23247004b9f2850c4c86c33e4a82f44be404747bc0d5dc98ab3c82c07",
+  "note": null
+}

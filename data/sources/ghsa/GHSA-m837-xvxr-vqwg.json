@@ -1,0 +1,87 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-942"
+    ],
+    "description": "### Summary\n\nThe TTS generation endpoint sets `Access-Control-Allow-Origin: *` as a hardcoded response header, independent of the server's CORS configuration. This enables any webpage to make cross-origin requests to generate speech using stored credentials.\n\n### Root Cause\n\n```typescript\n// packages/server/src/controllers/text-to-speech/index.ts:83\nres.setHeader('Access-Control-Allow-Origin', '*')\nres.setHeader('Access-Control-Allow-Headers', 'Cache-Control')\n```\n\n### Impact\n\n- Cross-origin credential abuse - any webpage can trigger TTS using stored credentials\n- Bypasses the server's CORS policy (`getCorsOptions()`) which is otherwise restrictive by default\n- Combined with Finding 3 (TTS credential abuse), enables drive-by credential abuse via malicious webpages\n\n### Suggested Fix\n\nRemove the hardcoded CORS wildcard and let the server's CORS middleware handle the headers:\n\n```typescript\n// Remove these lines:\n// res.setHeader('Access-Control-Allow-Origin', '*')\n// res.setHeader('Access-Control-Allow-Headers', 'Cache-Control')\n```\n\n---\n\n## References\n\n- `packages/server/src/controllers/text-to-speech/index.ts` line 83",
+    "ghsa_id": "GHSA-m837-xvxr-vqwg",
+    "html_url": "https://github.com/advisories/GHSA-m837-xvxr-vqwg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m837-xvxr-vqwg"
+      }
+    ],
+    "published_at": "2026-05-20T15:38:02Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-m837-xvxr-vqwg",
+      "https://github.com/advisories/GHSA-m837-xvxr-vqwg"
+    ],
+    "severity": "medium",
+    "summary": "Flowise: Hardcoded CORS wildcard on TTS endpoint enables cross-origin credential abuse from any webpage",
+    "updated_at": "2026-05-20T15:38:05Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-m837-xvxr-vqwg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe TTS generation endpoint sets `Access-Control-Allow-Origin: *` as a hardcoded response header, independent of the server's CORS configuration. This enables any webpage to make cross-origin requests to generate speech using stored credentials.\r\n\r\n### Root Cause\r\n\r\n```typescript\r\n// packages/server/src/controllers/text-to-speech/index.ts:83\r\nres.setHeader('Access-Control-Allow-Origin', '*')\r\nres.setHeader('Access-Control-Allow-Headers', 'Cache-Control')\r\n```\r\n\r\n### Impact\r\n\r\n- Cross-origin credential abuse - any webpage can trigger TTS using stored credentials\r\n- Bypasses the server's CORS policy (`getCorsOptions()`) which is otherwise restrictive by default\r\n- Combined with Finding 3 (TTS credential abuse), enables drive-by credential abuse via malicious webpages\r\n\r\n### Suggested Fix\r\n\r\nRemove the hardcoded CORS wildcard and let the server's CORS middleware handle the headers:\r\n\r\n```typescript\r\n// Remove these lines:\r\n// res.setHeader('Access-Control-Allow-Origin', '*')\r\n// res.setHeader('Access-Control-Allow-Headers', 'Cache-Control')\r\n```\r\n\r\n---\r\n\r\n## References\r\n\r\n- `packages/server/src/controllers/text-to-speech/index.ts` line 83\r\n",
+    "ghsa_id": "GHSA-m837-xvxr-vqwg",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-m837-xvxr-vqwg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m837-xvxr-vqwg"
+      }
+    ],
+    "published_at": "2026-05-14T14:10:48Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Hardcoded CORS wildcard on TTS endpoint enables cross-origin credential abuse from any webpage",
+    "updated_at": "2026-05-14T14:10:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

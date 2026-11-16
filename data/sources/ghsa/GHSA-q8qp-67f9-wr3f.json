@@ -1,0 +1,90 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-674"
+    ],
+    "description": "The SurrealDB type/kind parser did not enforce the configured recursion depth limit when parsing nested type annotations. The expression parser already enforced the limit for analogous constructs; the kind parser omitted it. An authenticated attacker could send a query with deeply nested type annotations (e.g., `array<option<array<option<...>>>>`) and exhaust server memory, crashing the process.\n\nThis is an incomplete fix for [GHSA-6r8p-hpg7-825g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g), which addressed the same class of bug in the expression parser but did not cover the kind/type annotation parser code path.\n\n### Impact\n\nAn authenticated user with query execution privileges can crash a SurrealDB server with a single WebSocket message containing deeply nested type annotations.\n\n### Patches\n\nA patch has been introduced that wraps `parse_concrete_kind` and the `OPTION<...>` arm of `parse_inner_kind` with `enter_object_recursion!`, bounding the recursive cycle `parse_concrete_kind → parse_inner_kind → parse_inner_single_kind → parse_concrete_kind` at the configured `object_recursion_limit` (default 100). Regression tests cover both cast and `DEFINE FIELD` paths.\n\n- Versions 3.1.0 and later are not affected by this issue.\n\n### Workarounds\n\nRestrict the ability of untrusted users to execute arbitrary queries via the `--deny-arbitrary-query` capability flag for the affected user classes (guest, record, or system). Disabling untrusted access to the WebSocket `/rpc` endpoint also prevents exploitation; the HTTP `/sql` endpoint's 1 MiB body limit constrains nesting to a depth where OOM is not feasible.",
+    "ghsa_id": "GHSA-q8qp-67f9-wr3f",
+    "html_url": "https://github.com/advisories/GHSA-q8qp-67f9-wr3f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q8qp-67f9-wr3f"
+      }
+    ],
+    "published_at": "2026-07-01T20:05:14Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q8qp-67f9-wr3f",
+      "https://github.com/surrealdb/surrealdb/commit/61d509b766afdf67cc26d8203fd7dc583c8d77aa",
+      "https://github.com/advisories/GHSA-q8qp-67f9-wr3f"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB vulnerable to Denial of Service due to nested types annotations",
+    "updated_at": "2026-07-01T20:05:15Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-q8qp-67f9-wr3f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-674"
+    ],
+    "description": "The SurrealDB type/kind parser did not enforce the configured recursion depth limit when parsing nested type annotations. The expression parser already enforced the limit for analogous constructs; the kind parser omitted it. An authenticated attacker could send a query with deeply nested type annotations (e.g., `array<option<array<option<...>>>>`) and exhaust server memory, crashing the process.\r\n\r\nThis is an incomplete fix for [GHSA-6r8p-hpg7-825g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g), which addressed the same class of bug in the expression parser but did not cover the kind/type annotation parser code path.\r\n\r\n### Impact\r\n\r\nAn authenticated user with query execution privileges can crash a SurrealDB server with a single WebSocket message containing deeply nested type annotations.\r\n\r\n### Patches\r\n\r\nA patch has been introduced that wraps `parse_concrete_kind` and the `OPTION<...>` arm of `parse_inner_kind` with `enter_object_recursion!`, bounding the recursive cycle `parse_concrete_kind → parse_inner_kind → parse_inner_single_kind → parse_concrete_kind` at the configured `object_recursion_limit` (default 100). Regression tests cover both cast and `DEFINE FIELD` paths.\r\n\r\n- Versions 3.1.0 and later are not affected by this issue.\r\n\r\n### Workarounds\r\n\r\nRestrict the ability of untrusted users to execute arbitrary queries via the `--deny-arbitrary-query` capability flag for the affected user classes (guest, record, or system). Disabling untrusted access to the WebSocket `/rpc` endpoint also prevents exploitation; the HTTP `/sql` endpoint's 1 MiB body limit constrains nesting to a depth where OOM is not feasible.\r\n\r\n### References\r\n\r\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\r\n- [SurrealQL Documentation - DEFINE TABLE](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- [GHSA-6r8p-hpg7-825g - Uncontrolled Recursion in SurrealQL Parsing](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6r8p-hpg7-825g) - the original recursion-depth advisory; this advisory addresses the kind/type annotation parser code path that was not covered by the original fix\r\n-  `Fix Denial of Service due to nested types annotations` (commit `61d509b76`)\r\n",
+    "ghsa_id": "GHSA-q8qp-67f9-wr3f",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-q8qp-67f9-wr3f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q8qp-67f9-wr3f"
+      }
+    ],
+    "published_at": "2026-05-27T17:27:32Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Denial of Service due to nested types annotations",
+    "updated_at": "2026-05-27T17:27:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

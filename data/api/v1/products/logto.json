@@ -1,0 +1,1933 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:39:31Z",
+  "product": {
+    "slug": "logto",
+    "name": "Logto",
+    "category": "auth",
+    "homepage": "https://logto.io",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-2pq4-jqvf-f7qj",
+      "aliases": [],
+      "title": "Concurrent requests can redeem one authorization code or pushed request_uri more than once",
+      "summary": "> [!NOTE]\n> **Also covers GHSA-5w7f-g655-933c (PAR `request_uri`)**, consolidated here: same root cause, same reporter, same fix. Concurrent requests can redeem one authorization code, or complete authorization with one pushed `request_uri`, more than once.\n>\n> **Severity reconciled to Medium.** Every variant needs the attacker to already hold the single-use artifact: PKCE is required for all clients except `client_secret_basic`, so a code is redeemable only with its verifier or the client secret, and a pushed `request_uri` is completed only through the victim's authenticated session. What the race adds is a second redemption that evades single-use and replay detection.\n\n---\n\n### Summary\r\nA Time-of-Check to Time-of-Use (TOCTOU) race condition in Logto's OIDC database adapter allows an attacker to bypass the single-use restriction of OAuth 2.0 Authorization Codes. By sending concurrent token exchange requests, an attacker can redeem a single intercepted authorization code multiple times, resulting in the issuance of multiple distinct access and refresh tokens bound to the victim's identity. This violates RFC 6749 §4.1.2.\r\n\r\n### Details\r\nThe vulnerability stems from a non-atomic check-then-consume pattern in the OIDC provider's grant handler and Logto's Postgres adapter. \r\n\r\n1. In the grant handler (`authorization_code.js`), the code checks if `code.consumed` is true (based on a prior `SELECT` query). If false, it calls `code.consume()`.\r\n2. In Logto's adapter (`packages/core/src/queries/oidc-model-instance.ts:167-174`), `consumeInstanceById` executes an `UPDATE` statement without a Compare-And-Swap (CAS) guard:\r\n```typescript\r\nconst consumeInstanceById = async (modelName: string, id: string) => {\r\n  await pool.query(sql`\r\n    update ${table}\r\n    set ${fields.consumedAt}=${convertToTimestamp()}\r\n    where ${fields.modelName}=${modelName}\r\n    and ${fields.id}=${id}\r\n    // MISSING: AND ${fields.consumedAt} IS NULL\r\n  `);\r\n};\r\n```\r\nUnder high concurrency, multiple threads can pass the JS-level check before any `UPDATE` commits. Because the `UPDATE` is idempotent and lacks a row-level lock or CAS condition, all concurrent requests succeed, minting distinct tokens for the same code.\r\n\r\n### PoC\r\n\r\n1. Victim authenticates and obtains an authorization code via the standard OIDC flow.\r\n2. Attacker intercepts the authorization code (e.g., via malicious browser extension, referer leakage, or compromised native app).\r\n3. Attacker uses a script to send 8 concurrent `POST /oidc/token` requests using the same code and PKCE verifier, synchronized via a threading barrier.\r\n4. Observe: 2 to 3 requests return HTTP 200 with distinct `access_token`, `refresh_token`, and `id_token` values. All minted tokens carry the victim's `sub` claim.\r\n\r\n### Impact\r\nAny attacker who can intercept an authorization code can multiply their access by racing the token exchange. This defeats the single-use guarantee, allowing the attacker to establish multiple concurrent sessions as the victim, bypassing downstream rate-limiting or single-session enforcement mechanisms.",
+      "published_at": "2026-11-09T07:11:11.000Z",
+      "modified_at": "2026-11-09T07:11:11.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-367"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-2pq4-jqvf-f7qj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-2pq4-jqvf-f7qj",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-2pq4-jqvf-f7qj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+      "note": null
+    },
+    {
+      "id": "GHSA-c5hj-jm58-pxh9",
+      "aliases": [],
+      "title": "Third-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)",
+      "summary": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/pull/9855). The third-party token endpoints of the Account API now reject access tokens issued to third-party applications, as the other Account API routes already do.\n>\n> GHSA-mg64-x3xv-96rc and GHSA-cvjg-j6fr-vcjv reported the same issue and were consolidated here; their reporters are credited.\n\n---\n\n## Summary\r\n\r\nThird-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)\r\n\r\n## Affected code\r\n\r\n`packages/core/src/routes/account/third-party-tokens.ts`:118\r\n\r\nthird-party-tokens.ts (GET social, no first-party/step-up check):\r\nL112  async (ctx, next) => {\r\nL113    const { id: userId, scopes } = ctx.auth;\r\nL114    const { target } = ctx.guard.params;\r\nL118    assertThat(scopes.has(UserScope.Identities), 'auth.forbidden', 403);\r\nL120    const tokenSetSecret = await secretsQueries.findSocialTokenSetSecretByUserIdAndTarget(userId, target);\r\nL132    ctx.body = await getAccessToken(libraries, queries, tokenSetSecret);   // returns decrypted UPSTREAM token\r\n(no assertFirstPartyClient anywhere in this file)\r\n\r\ngetAccessToken returns the plaintext upstream token (third-party-tokens.ts:55-74):\r\nL55   const { access_token, refresh_token } = decryptTokens({ iv, encryptedDek, ciphertext, authTag });\r\nL72   if (!expiresAt || now < expiresAt) { return formatTokenResponse(access_token, metadata, now); }\r\n\r\nThe boundary these endpoints skip (assert-first-party-client.ts:19-23):\r\nL19  export const assertFirstPartyClient = async (queries, clientId?) => {\r\nL20    if (clientId !== undefined && (await isThirdPartyApplication(queries, clientId))) {\r\nL21      throw new RequestError({ code: 'auth.third_party_application_forbidden', status: 403 });\r\n\r\nAuth chain imposes no first-party restriction:\r\nkoa-oidc-auth.ts:91  assertThat(scopes.has('openid'), ...403);   // any app has openid\r\nkoa-account-center.ts:23  assertThat(accountCenter.enabled, 'account_center.not_enabled');  // tenant toggle only\r\n\r\nEvery sibling account route DOES call it, e.g. identities.ts:126,161,194 ; email-and-phone.ts:52,98,139,181 ; mfa-verifications.ts:109,280,424,468 ; sessions.ts:93 ; grants.ts:90 ; logto-config.ts:79 ; index.ts:104,167,192,275 - third-party-tokens.ts has zero occurrences.\r\n\r\nThe route's own test confirms the only gate is the scope (third-party-tokens.test.ts:86-95): a token with just {openid, identities} and no clientId 'passes the scope gate for GET social access-token' (proceeds to reading the stored secret).\r\n\r\n## Attacker model\r\n\r\nOperator of a third-party (non-first-party) OAuth application registered in the Logto tenant, which the victim end-user has signed into and consented the `identities` user scope to. The attacker holds only a normal opaque OIDC access token issued to that app (scopes `openid identities`). No admin, no Management API scope, no server access.\r\n\r\n## Details\r\n\r\nEvery account-mutating/identity endpoint on the userRouter enforces the triad `scopes.has(...)` + (often) `identityVerified` + `assertFirstPartyClient(queries, clientId)`. `assertFirstPartyClient` is the documented boundary that keeps third-party OAuth apps (which always carry `openid`) out of account-management data: its own docstring says enabling a claim scope like `email` for a third-party app only tells the app it may *read* that claim, not act on the account. The two GET handlers (and the PUT) in third-party-tokens.ts break this pattern: they gate ONLY on `scopes.has(UserScope.Identities)` and never call `assertFirstPartyClient`, nor do they require `identityVerified`. The handlers then decrypt and return the *upstream provider's* live access token (the Google/Microsoft/SSO IdP token Logto stored during social/SSO login, refreshing it via the connector if expired). The `identities` scope's semantic grant is 'your social and SSO identity details' (userinfo claims `identities`/`sso_...",
+      "published_at": "2026-11-09T07:10:47.000Z",
+      "modified_at": "2026-11-09T07:10:47.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-862",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c5hj-jm58-pxh9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-c5hj-jm58-pxh9",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c5hj-jm58-pxh9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+      "note": null
+    },
+    {
+      "id": "GHSA-25xg-rqq2-87gq",
+      "aliases": [],
+      "title": "SAML application authentication endpoint accepts XML that is not well-formed",
+      "summary": "### Summary\n\nLogto's SAML application authentication endpoint (`GET` and `POST /api/saml/:id/authn`, where Logto is the identity provider for a registered service provider) accepted authentication requests whose XML is not well-formed. The XML format check that Logto registers with samlify could never report a failure, so such a request was processed like a well-formed one.\n\n### Details\n\n`SamlApplication.setSchemaValidator` (`packages/core/src/saml-application/SamlApplication/index.ts`) registered this validator:\n\n```ts\nsaml.setSchemaValidator({\n  validate: async (xmlContent: string) => {\n    try {\n      XMLValidator.validate(xmlContent, { allowBooleanAttributes: true });\n      return true;\n    } catch {\n      return false;\n    }\n  },\n});\n```\n\n- fast-xml-parser's `XMLValidator.validate()` returns `true`, or an error object such as `{ err: { code: 'InvalidChar', msg: \"char '&' is not expected.\", ... } }`. It never throws, so the `catch` branch was unreachable and the validator resolved `true` for every input.\n- samlify ignores the resolved value and fails a request only when the validator rejects (`flow.js`, in the redirect, POST and simple-sign flows). Returning `false` would not have rejected a request either.\n\nThe check is a well-formedness check, not XML Schema validation. For example, an `AuthnRequest` with an unescaped ampersand in element text (`<samlp:Extensions>R&D dept</samlp:Extensions>`) received the same `302` redirect to sign-in as a well-formed request, on both bindings, and Logto stored the same pending SAML session that it stores for every accepted request.\n\n### Impact\n\nThe check is defence in depth, and it failing open grants no access. A request whose XML is not well-formed was handled exactly like a well-formed request from the same caller:\n\n- Unless the application requires signed authentication requests, the endpoint accepts requests from any caller by design.\n- The pending SAML session only lets the flow resume after sign-in. It expires after 60 minutes and grants nothing by itself; the user still has to sign in before Logto issues a SAML response.\n- Signature verification for applications that require signed authentication requests is not affected.\n\nThere is no authentication or authorization bypass, and no privilege beyond what an anonymous caller already has.\n\n### Affected versions\n\n`>= 1.23.1, <= 1.45.0`. The endpoint and the validator were introduced in 1.23.1.\n\n### Patches\n\nFixed in 1.46.0 (logto-io/logto#9947). The validator now rejects XML that is not well-formed, and the endpoint answers such a request with `400 application.saml.invalid_saml_request` on both bindings.\n\n### Workarounds\n\nOn 1.44.0 or later, requiring signed authentication requests for the application limits the endpoint to requests signed by its service provider.\n\n### Credit\n\nReported by Wenhao Wu (Southeast University).",
+      "published_at": "2026-11-09T07:10:31.000Z",
+      "modified_at": "2026-11-09T07:10:31.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-636"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.23.1",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-25xg-rqq2-87gq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-25xg-rqq2-87gq",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-25xg-rqq2-87gq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4d338a989e3e1ac1f3c95b25f0d5ac48bf34613091e9543677518492c26cc1e8",
+      "note": null
+    },
+    {
+      "id": "GHSA-x8h5-94m9-7jw4",
+      "aliases": [],
+      "title": "Email/SMS connector credentials returned in the API response body and stored in audit logs on an outbound network error",
+      "summary": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/pull/9849). Upgrade to 1.46.0 or later. The fix is in Logto core, so connectors don't need updating.\n\n---\n\nI am the author of logto-io/logto#9849 (sanitizing `got` errors in the core error handler). While addressing a review comment on that PR, I found a related issue that goes beyond logging, so I am reporting it privately through this advisory.\n\n## Summary\n\nWhen an outbound request made by a connector fails at the network level (timeout, connection reset, DNS failure), several connectors wrap the raw `got` `RequestError` in a `ConnectorError`:\n\n- `packages/connectors/connector-sendgrid-email/src/index.ts` (`throw new ConnectorError(ConnectorErrorCodes.General, error)`)\n- `connector-mailgun`, `connector-http-email`, `connector-smtp2go-email`, `connector-saml` do the same.\n\nA `got` `RequestError` carries the full request `Options` as an enumerable property, and `Options.toJSON()` returns its internals: headers (including `Authorization: Bearer <SendGrid API key>`), `username`/`password` (Mailgun basic auth, also embedded in the serialized `url` as `https://api:<key>@api.mailgun.net/...`), `json`/`form` bodies (recipient address, verification code).\n\nTwo sinks then expose that object:\n\n1. **HTTP response body.** `packages/core/src/middleware/koa-connector-error-handler.ts` converts the `ConnectorError` into `new RequestError({ code: 'connector.general', status: 400, errorDescription: JSON.stringify(data) }, data)`. `RequestError.toBody()` (`packages/core/src/errors/RequestError/index.ts`) returns `pick(this, 'code', 'data', 'details')`, so `data` - the serialized `got` error with the credentials - is sent to the caller. The `errorDescription` interpolation also puts the same JSON in the i18n `message`.\n2. **Audit logs.** `packages/core/src/middleware/koa-audit-log.ts` stores `pick(error, 'message', 'code', 'data')` in the `logs` table, which is readable in the Console and through the Management API.\n\nThe endpoints that send a verification code (`POST /api/verification-codes`, the experience API `.../verifications/verification-code`, `routes-me/verification-code`) are reachable without authentication, so an anonymous caller who requests a code during a provider outage receives the provider API key in a 400 response.\n\n## Reproduction (reasoning, verified at the unit level)\n\n```js\nimport { RequestError, Options } from 'got';\nimport { ConnectorError, ConnectorErrorCodes } from '@logto/connector-kit';\n\nconst options = new Options('https://api.sendgrid.com/v3/mail/send', {\n  method: 'POST',\n  headers: { Authorization: 'Bearer SG.FAKE' },\n  json: { from: 'a@b.c' },\n});\nconst gotError = new RequestError('Timeout awaiting request', { code: 'ETIMEDOUT' }, options);\nconst wrapped = new ConnectorError(ConnectorErrorCodes.General, gotError);\n\nwrapped.message.includes('SG.FAKE');                       // true\nJSON.stringify({ data: wrapped.data }).includes('SG.FAKE'); // true - what toBody() returns\n```\n\nEnd to end: configure the SendGrid connector, make `api.sendgrid.com` unreachable (hosts file or egress rule), then `POST /api/verification-codes` with an email address. The 400 body contains `data.options.headers.authorization`.\n\n## Suggested fix\n\nNever let a raw `got` error become `data`. Either:\n\n- in `@logto/connector-kit`, make `ConnectorError` reduce an `Error` passed as `data` to `{ name, code, message }` (drop `options`, `request`, `response`), which fixes every connector at once; or\n- in `koa-connector-error-handler.ts`, sanitize `data` before building the `RequestError` (the `sanitizeError` helper from #9849 can be reused), and never interpolate the raw JSON into `errorDescription`;\n- and in the email/SMS connectors, pass `error.message` rather than the error object (as `connector-vonage-sms` already does).\n\n## Impact note\n\nSelf-hosted deployments that use the SendGrid, Mailgun, SMTP2GO or HTTP email connectors are affected on every network-level failure to...",
+      "published_at": "2026-11-09T07:10:06.000Z",
+      "modified_at": "2026-11-09T07:10:06.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-209",
+        "CWE-532"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-x8h5-94m9-7jw4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-x8h5-94m9-7jw4",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-x8h5-94m9-7jw4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+      "note": null
+    },
+    {
+      "id": "GHSA-3xj6-982x-2r3g",
+      "aliases": [],
+      "title": "One-time token can be verified twice concurrently due to missing status predicate in UPDATE query",
+      "summary": "## Summary\n\nLogto's one-time token verification contains a TOCTOU race condition. The `verifyOneTimeToken()` function reads a token's status as Active, validates it, then issues an UPDATE query that has no WHERE status = Active predicate. Under PostgreSQL Read Committed isolation, two concurrent transactions can both read Active, both pass validation, and both update the row to Consumed - each returning success to the caller.\n\n## Impact\n\nA one-time password-reset token or magic-link token that should be single-use can be consumed by two concurrent flows:\n- Password reset replay: An attacker with the token can race the verification to establish two independent password-reset sessions and call resetPassword() on each to set a password of their choice (account takeover).\n- Magic-link dual sign-in: Two tabs loading the same sign-in token URL can both complete sign-in, creating two authenticated sessions from one token.\n\n## Root Cause\n\npackages/core/src/queries/one-time-tokens.ts has an updateOneTimeTokenStatus function that issues:\n  UPDATE one_time_tokens SET status = Consumed WHERE token = $token RETURNING *\nThere is no AND status = Active predicate. Both concurrent writers succeed.\n\npackages/core/src/libraries/one-time-token.ts#verifyOneTimeToken() performs a read-then-write: checkOneTimeToken() reads and validates the token is Active, then updateOneTimeTokenStatus() updates to Consumed without checking current status.\n\nUnder PostgreSQL Read Committed:\n- T1 reads status=Active (passes check)\n- T2 reads status=Active (passes check, T1 has not committed yet)\n- T1 UPDATE to Consumed, commits\n- T2 UPDATE to Consumed (finds row by token, no status predicate - succeeds)\n\n## Affected Routes\n\n- Management API: POST /api/one-time-tokens/verify\n- Experience API: POST /experience/verification/one-time-token/verify\n- Forgot-password flow: identifyForgotPasswordWithOneTimeToken()\n\n## Proof\n\nPostgreSQL-backed concurrency test: 30/30 race iterations both transactions successfully verified the same Active token (100% reproduction).\n\n## Remediation\n\nAdd AND status = Active to the UPDATE WHERE clause:\n  UPDATE one_time_tokens SET status = Consumed WHERE token = $token AND status = Active RETURNING *\n\n## Credit\n\nAnonymous researcher",
+      "published_at": "2026-11-09T07:03:59.000Z",
+      "modified_at": "2026-11-09T07:03:59.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-362"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3xj6-982x-2r3g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-3xj6-982x-2r3g",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3xj6-982x-2r3g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+      "note": null
+    },
+    {
+      "id": "GHSA-c475-vw46-2r98",
+      "aliases": [],
+      "title": "logto vulnerable to SAML authentication bypass via unchecked assertion audience",
+      "summary": "### Summary\n\nLogto's SAML enterprise SSO connector accepts an assertion the configured identity provider signed for a different service provider, and completes a sign-in as whichever user that assertion names. This was reproduced end to end against the current release, and every release since 1.12.0 carries the route it was reproduced through. The affected-range note sets out the one place below that the range could turn out wider, and why that is not claimed.\r\n\r\n`handleSamlAssertion` builds a samlify `ServiceProvider` from the connector's SP entityID and the identity provider certificate, calls `parseLoginResponse`, and returns the parsed extract. samlify verifies the signature, the issuer and the `Conditions` time window, and its documentation assigns `AudienceRestriction`, the bearer `SubjectConfirmationData` `Recipient`, the response `Destination` and `InResponseTo` to the caller. Logto reads none of them, at any revision since the class was added. A signature proves which identity provider issued an assertion. The audience is the field that says which application it was issued to. With the audience unread, Logto's assertion consumer service treats every assertion that identity provider signs under the configured issuer as a valid sign-in, whatever application it was minted for, and the sign-in ends in OIDC tokens for the applications of that Logto tenant.\r\n\r\nTwo consequences were measured against the released image with a Keycloak realm as the identity provider, which signs every SAML client in the realm with one realm key under one realm issuer. A response the realm addressed to another application, posted to Logto's assertion consumer service, completed sign-in with the same `sub` and the same `email` as the baseline response addressed to Logto's own service provider. And the identity provider cannot withhold access to Logto: with Logto's own SAML client set `enabled=false` at the realm, the normal sign-in path is refused at the identity provider before any login, while that same foreign response still issues an id_token for the user. An operator who removes Logto from a user at the identity provider has not removed it.\r\n\r\n### Affected range, and how each end was established\r\n\r\nThe lower bound is the first release carrying the enterprise SSO assertion consumer service, `/authn/${ssoPath}/saml/:connectorId`, which is the route this report reproduces. It arrives in `edb2bdcce`, \"feat(core): add the saml assertion handle flow (#4872)\", committed 2023-11-17T06:14:45Z: absent from `packages/core/src/routes/authn.ts` at the `v1.11.0` tag, registered at line 175 of that file at `v1.12.0`. That commit lands after the `v1.11.0` tag, dated 2023-11-14T11:57:42Z, and before the `v1.12.0` tag, dated 2023-12-06T08:13:56Z.\r\n\r\nThe upper end is measured rather than inferred. The behaviour was reproduced end to end on the official `svhd/logto:1.45.0` image, the release tagged 2026-10-13T07:30:57Z, on two independently built rigs, through that same route.\r\n\r\nThere is one place the range could turn out wider, and it is deliberately not claimed. The unchecked helper predates the route it is usually reached through: `40a5a18d9`, \"feat(core): add saml sso class\", authored 2023-11-02T03:17:34Z and committed 2023-11-07T04:01:35Z, and the earliest release carrying it is 1.11.0, found by enumerating the `v*` tags that contain that commit and sorting them by tag date rather than by name. At `v1.11.0` the helper sits at `packages/core/src/sso/SamlConnector/utils.ts:137` with the same `parseLoginResponse` call and no audience read: a case-insensitive search of that whole file at that tag for `audience` and `InResponseTo` returns nothing, and the only match for `destination` is a local variable in the attribute-mapping code at line 114, unrelated to a response `Destination`. An HTTP route reaches it there, and that route names SAML nowhere, dispatching on the stored connector's provider name instead: `POST /interaction/single-sign-on/:connectorId/...",
+      "published_at": "2026-11-09T07:02:30.000Z",
+      "modified_at": "2026-11-09T07:02:30.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-294",
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.12.0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c475-vw46-2r98",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-c475-vw46-2r98",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c475-vw46-2r98",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2460681d40659b536dc3a60b684b225f27b2a814737ca062c8f4955e407fb964",
+      "note": null
+    },
+    {
+      "id": "GHSA-m7px-7mj4-gj53",
+      "aliases": [],
+      "title": "MFA bypass: switching interaction event SignIn→Register after identification skips second-factor verification",
+      "summary": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/commit/0d7eeedf49dff7496de933d015d3a0b4b55b247b). Changing the interaction event now discards the identified user, together with the MFA factors staged for them and their trusted-device opt-in, so an interaction switched from sign-in to registration can no longer finish without the second factor. An email or phone MFA challenge is also bound to the user it was created for.\n>\n> Upgrade to 1.46.0; no configuration change is needed. The MFA policy setting does not mitigate this on earlier versions. Until you can upgrade, setting the sign-in mode to sign-in only (registration disabled) blocks the event switch.\n>\n> GHSA-f78f-ghjf-hrx2 covers a related gap in the same check and is also fixed in 1.46.0.\n\n---\n\n## Summary\r\n\r\nMFA bypass: switching interaction event SignIn→Register after identification skips second-factor verification\r\n\r\n## Affected code\r\n\r\n`packages/core/src/routes/experience/classes/experience-interaction.ts`:546\r\n\r\nexperience-interaction.ts:545-548 (the flawed gate):\r\n545  // Verified, only SignIn requires MFA verification, for register, it does not make sense to verify MFA\r\n546  if (this.#interactionEvent === InteractionEvent.SignIn) {\r\n547    await this.guardMfaVerificationStatus(log);\r\n548  }\r\n\r\nexperience-interaction.ts:192-211 (event switch keeps the identified user; only profile is cleared):\r\n206  if (this.#interactionEvent !== interactionEvent) {\r\n207    this.profile.cleanUp();\r\n208  }\r\n209  this.#interactionEvent = interactionEvent;   // this.userId is never reset\r\n\r\nexperience-interaction.ts:229-265 (identifyUser sets userId; only blocks the Register event at entry, so it runs under SignIn):\r\n230  assertThat(this.interactionEvent !== InteractionEvent.Register, new RequestError({ code: 'session.invalid_interaction_type', status: 400 }));\r\n264  this.userCache = user;\r\n265  this.userId = id;\r\n\r\nsign-in-experience-validator.ts:114-122 (switch to Register allowed whenever registration is enabled):\r\n114  case InteractionEvent.Register: {\r\n115    assertThat(signInMode !== SignInMode.SignIn || hasVerifiedOneTimeToken, new RequestError({ code: 'auth.forbidden', status: 403 }));\r\n\r\nmfa.ts:520-529 (residual Register-time check only requires factors BOUND, not verified):\r\n521  assertThat(\r\n522    configuredFactors.some((factor) => linkedFactors.includes(factor)),\r\n523    new RequestError({ code: 'user.missing_mfa', status: 422 }, ...)\r\n524  );\r\n\r\nindex.ts:101-126 (the PUT /experience/interaction-event route with no re-identification/MFA guard):\r\n118  await experienceInteraction.setInteractionEvent(interactionEvent);\r\n\r\nCorroborating test - an existing identified user under a Register event submits successfully with no MFA verification (experience-interaction.test.ts:345-354): createSignInInteraction({ interactionEvent: InteractionEvent.Register }) with userId = existing mockUser, then experienceInteraction.submit() resolves.\r\n\r\n## Attacker model\r\n\r\nAn unauthenticated attacker who knows only the victim's password (the first factor). No bearer token, no admin, no second factor. They drive their own OIDC sign-in interaction (they hold the interaction cookie from PUT /api/experience). Requires the tenant to have registration enabled (signInMode = SignInAndRegister, the Logto default) and password sign-in enabled.\r\n\r\n## Details\r\n\r\nExperienceInteraction.submit() only verifies the user's second factor (MFA) when the interaction event is SignIn: `if (this.#interactionEvent === InteractionEvent.SignIn) { await this.guardMfaVerificationStatus(log); }` (experience-interaction.ts:546-548). The comment on line 545 states the assumption 'for register, it does not make sense to verify MFA' - i.e., the code assumes a Register submit is always a brand-new user. That assumption is violated: an attacker can (1) identify an EXISTING victim under a SignIn interaction using only the password (identifyUser sets this.userId = victim, experience-interaction.ts:264-265),...",
+      "published_at": "2026-11-09T07:01:27.000Z",
+      "modified_at": "2026-11-09T07:01:27.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-841"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-m7px-7mj4-gj53",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-m7px-7mj4-gj53",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-m7px-7mj4-gj53",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4d8586d0129bb84df46657afd7ff49142b6e898233f8a455119051417bf90e5a",
+      "note": null
+    },
+    {
+      "id": "GHSA-f78f-ghjf-hrx2",
+      "aliases": [],
+      "title": "MFA bypass: a verified enterprise-SSO or sign-in-passkey verification record not bound to the identified user skips the mandatory second factor",
+      "summary": "## Summary\n\nLogto skips the mandatory second factor for a sign-in whenever the interaction holds a verified\n**enterprise SSO** or **sign-in passkey** verification record, without checking that the record is\nthe one the interaction identified its account with. The same unchecked condition also exempts the\ninteraction from the mandatory MFA **enrollment** requirement.\n\nAn attacker who holds a first factor for the target account - a leaked or phished password, for\nexample - and who can place one verified enterprise SSO or sign-in passkey record in the same\ninteraction therefore completes the sign-in without the account holder's second factor, and a\nsession is issued for the target account.\n\n## Details\n\nAll references are in `packages/core/src/routes/experience/`.\n\nThe tenant MFA policy is applied at two points in `classes/experience-interaction.ts`, and both\ntested only whether such a record was present:\n\n- `isMfaGateFulfilled()`, consulted by `guardMfaVerificationStatus()`, which decides whether a\n  second factor has to be verified. It returned before the interaction's account was resolved at\n  all.\n- the `assertMfaFulfilled()` condition in `submit()`, which decides whether an account under a\n  mandatory policy has to enroll a factor before a session is issued.\n\nBoth read `hasVerifiedSsoIdentity` and `hasVerifiedSignInPasskey`, each of which was\n`Boolean(record?.isVerified)` over the interaction's verification records, with no reference to the\naccount being signed in. The social identity record carried the same presence-only reading, where\nthe mandatory profile requirement reads it.\n\n`EnterpriseSsoVerification.isVerified`\n(`classes/verifications/enterprise-sso-verification.ts`) is `Boolean(enterpriseSsoUserInfo &&\nissuer)`. That class carries no user at all, so such a record counts as verified on the strength of\nthe assertion alone - whoever it belongs to, and whether or not it resolves to any Logto account.\nA `SignInPasskey` record does name the credential's owner, but the policy never compared it.\n\nThe verification records are retained across a change of interaction event, by design: a\nregistration that follows a failed sign-in creates the account from the record the sign-in already\nverified. A first-factor record is never re-bound afterwards. Presence was therefore not a safe\nproxy for the account under any ordering, and a record left behind by an earlier identification in\nthe same interaction could reach the policy as well.\n\nFor contrast, the second-factor records already carried this rule:\n`MfaValidator.getVerifiedMfaVerificationRecords` requires an affirmative owner, and the WebAuthn\nMFA route asserts `identifiedUserId === webAuthnVerification.userId`. Enterprise SSO and sign-in\npasskey are first-factor records and reach neither.\n\nReproduced at runtime against the experience API, as integration tests in Logto's own harness: an\naccount under a mandatory TOTP policy is challenged for its second factor on a password sign-in,\nand is not challenged when such a record is present.\n\n## Impact\n\nAn account protected by a mandatory MFA policy can be signed into with only a first factor for it\n- the exact compromise MFA is deployed to survive. Any tenant that enforces MFA and has enterprise\nSSO or passkey sign-in enabled is affected.\n\nThe preconditions are lower than the code might suggest. Besides a first factor for the target\naccount, the attacker needs one of:\n\n- **Enterprise SSO** - a valid assertion from a provider the tenant has configured. It does not\n  have to resolve to a Logto account, because such a record is verified without resolving to a\n  user.\n- **Sign-in passkey** - a passkey they control, registered on an account in the same tenant.\n\nApplies to the `/api/experience/*` interaction API. The deprecated `/api/interaction/*` surface is\nnot affected.\n\n## Patches\n\nFixed in 1.46.0.\n\nA verified enterprise SSO or sign-in passkey record now counts for the MFA policy only when it is\nthe record this interaction established its...",
+      "published_at": "2026-11-09T07:01:07.000Z",
+      "modified_at": "2026-11-09T07:01:08.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-303"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-f78f-ghjf-hrx2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f78f-ghjf-hrx2",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-f78f-ghjf-hrx2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4d8586d0129bb84df46657afd7ff49142b6e898233f8a455119051417bf90e5a",
+      "note": null
+    },
+    {
+      "id": "GHSA-gfg4-7mg4-wpm2",
+      "aliases": [],
+      "title": "Apple connector trusts the unsigned user.email form field, allowing account takeover",
+      "summary": "### Summary\n\n`@logto/connector-apple` takes a user's email from the `user` field of Apple's sign-in callback in preference to the email claim in Apple's signed ID token. Apple delivers `user` as an ordinary form field that the browser relays to Logto (`response_mode=form_post`), and it is not covered by any signature, so the person signing in can replace it with any address. Logto then treats that address as the Apple account's email.\n\nAn attacker with any Apple ID can therefore use a victim's email address to get into the victim's existing Logto account, or to register an account under the victim's address before the victim does.\n\n### Impact\n\nEvery tenant that enables the Apple social connector is affected. The attacker needs only their own Apple ID and the victim's email address. The victim does not have to do anything.\n\n- **Takeover of an existing account.** When a social sign-in carries an email that already belongs to a Logto user, Logto offers to link the new social identity to that user, and the linking request is not tied to any proof that the person signing in owns the address. With a forged email, the attacker's Apple ID is linked to the victim's account and the attacker is signed in as the victim.\n- **Pre-account takeover.** If no user has the address yet, social sign-up creates a new user with the forged address as its primary email, without verifying it. When the real owner later signs in to that tenant with an email verification code, they land in the account the attacker created, which the attacker can still enter with their Apple ID.\n\n### Patches\n\nFixed in `@logto/connector-apple` 1.6.11 and Logto 1.46.0. The connector now uses only the email in Apple's signed ID token, and only when Apple marks it as verified.\n\n### Workarounds\n\nDisable the Apple social connector until you can upgrade.\n\n### Details\n\n`packages/connectors/connector-apple/src/index.ts`, `getUserInfo`:\n\n```ts\nemail:\n  user?.email ??\n  (payload.email && payload.email_verified === true ? String(payload.email) : undefined),\n```\n\n`payload` holds the verified claims of Apple's ID token. `user` is parsed from the callback form data, so `??` lets the unsigned value win. This was introduced in `@logto/connector-apple` 1.2.0 (Logto 1.14.0) by \"support apple sign-in with email\" (#5454).\n\nCore uses the email the connector returns without verifying it again:\n\n- `packages/core/src/libraries/social.ts`, `findSocialRelatedUser`, looks up an existing user by that email so the identity can be linked to them.\n- `packages/core/src/routes/experience/classes/verifications/social-verification.ts`, `toSyncedProfile`, sets it as a new user's `primaryEmail` when no other user has it. The deprecated `/api/interaction` API does the same in `packages/core/src/routes/interaction/actions/helpers.ts`.\n\nApple includes the `email` claim in the ID token on every authorization when the email scope was granted, so the form field is never needed for the email. Apple may send `email_verified` as either a boolean or the string `\"true\"`.",
+      "published_at": "2026-11-09T07:00:51.000Z",
+      "modified_at": "2026-11-09T07:00:52.000Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.14.0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-gfg4-7mg4-wpm2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gfg4-7mg4-wpm2",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-gfg4-7mg4-wpm2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9d321af811fdd511fe939e1060899e34f23a84d2fca9aefdc697a2f262bd77cc",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55216",
+      "aliases": [
+        "GHSA-gc94-xqg8-v8r7"
+      ],
+      "title": "Account takeover via email_verified bypass in social account linking (Azure AD, OAuth2 connectors)",
+      "summary": "> [!IMPORTANT]\n> **Action required: upgrading alone does not remove the exposure.**\n>\n> The fix is a configuration option, not a change of default. Logto 1.46.0 adds a `disableEmailSync` option to the OAuth 2.0 connector (`@logto/connector-oauth` 1.8.0). The Azure AD connector has had the same option since 1.43.0. Both default to `false`, so the connector keeps using the email its provider returns until an administrator turns the option on.\n>\n> If you use the OAuth 2.0 or Azure AD connector with a provider that does not verify email addresses, or lets a user or directory administrator set the email freely, upgrade to 1.46.0 and enable `disableEmailSync` on that connector. The Google, GitHub and OIDC connectors are not affected, because they only return an email that the provider marks as verified.\n\n---\n\n## Summary\r\n\r\nWhen a social sign-in finds an existing account by email, Logto links the social identity and signs the user in without checking whether the social provider asserted the email as verified. An attacker who can present a social identity carrying a victim's email (without owning that mailbox) can take over the victim's account.\r\n\r\nThe matching SSO path already guards this (`email_verified ?? trustUnverifiedEmail`), and the GitHub connector correctly uses only the verified && primary email - so the social path looks like an oversight rather than intended behavior.\r\n\r\nValidated end-to-end locally against `svhd/logto:latest` (core 1.40.1).\r\n\r\n## Where (core 1.40.1)\r\n\r\n- `packages/core/src/libraries/social.ts` → `findSocialRelatedUser` does `findUserByEmail(info.email)` with no `email_verified` check.\r\n- `packages/core/src/routes/experience/classes/helpers.ts` (case `VerificationType.Social`): when `linkSocialIdentity` is true it uses `identifyRelatedUser()` (the email-matched user).\r\n- `packages/core/src/routes/experience/classes/experience-interaction.ts` `identifyUser()` only calls `guardIdentificationMethod` (method-enablement) - no email-verification gate and no proof of ownership of the matched account.\r\n- `linkSocialIdentity` is a client-supplied request body field (`routes/experience/index.ts`, `POST /api/experience/identification`).\r\n\r\nConnectors that let an attacker carry an unverified/attacker-set email:\r\n\r\n- `connector-azuread` → `email: conditional(mail)` (Microsoft Graph `mail` is mutable/unverified - the classic nOAuth pattern).\r\n- The standard `connector-oauth2` → surfaces whatever the configured userInfo endpoint maps to `email` via `profileMap`, with no verification check. (This is the connector I used in the PoC.)\r\n\r\n(Contrast, safe by default) `connector-github` (verified && primary), `connector-google` and `connector-oidc` only emit the email when the provider marked it verified - so they are not affected unless an admin explicitly opts into `trustUnverifiedEmail` (OIDC). This is exactly why the social-linking path should be checking verification too.\r\n\r\n## Validated PoC\r\n\r\n(all on localhost, docker compose from the repo)\r\n\r\n1. Created a victim user `victim@example.com` (Management API).\r\n2. Configured a standard OAuth2 social connector pointing at a tiny mock IdP I control, whose `/userinfo` returns `{ sub: \"attacker-sub-001\", email: \"victim@example.com\" }` - no `email_verified` field (models nOAuth / an unverified-email IdP).\r\n3. Drove the sign-in experience as the \"attacker\": social verification (Logto fetched my `/userinfo`), then `POST /api/experience/identification` with `{ verificationId, linkSocialIdentity: true }` → 204, then `POST /api/experience/submit` → 200 with a completed sign-in.\r\n4. The victim account's `identities` now contains the attacker's social identity:\r\n\r\n   ```json\r\n   \"pocoauth2\": {\r\n     \"userId\": \"attacker-sub-001\",\r\n     \"details\": { \"email\": \"victim@example.com\", ... }\r\n   }\r\n   ```\r\n\r\n   The attacker is now signed in as - and permanently linked to - the victim's account.\r\n\r\n(Happy to share the mock-IdP + driver script; it's ~3 small files.)\r\n\r\n## Impact\r\n\r\nAccount t...",
+      "published_at": "2026-11-05T06:57:54.000Z",
+      "modified_at": "2026-11-05T06:57:55.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.46.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-gc94-xqg8-v8r7",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gc94-xqg8-v8r7",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-gc94-xqg8-v8r7",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4d8586d0129bb84df46657afd7ff49142b6e898233f8a455119051417bf90e5a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-63203",
+      "aliases": [
+        "GHSA-6g9q-qrx7-3jxf"
+      ],
+      "title": "Logto: Account API can disclose stored third-party provider tokens without the identities scope",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. From 1.31.0 until 1.42.0, the Account API handlers in packages/core/src/routes/account/third-party-tokens.ts allow a caller holding a same-user access token with only the openid scope to retrieve stored social or enterprise SSO provider access tokens through GET /api/my-account/identities/{target}/access-token or GET /api/my-account/sso-identities/{connectorId}/access-token. The handlers authenticate the user but do not require the identities scope that protects neighboring identity-detail operations, bypassing the intended Account API consent boundary. Exploitation requires federated token-set storage to be enabled and the affected user to have authenticated through a supported connector. A low-trust application can use the disclosed provider token against upstream APIs within that token's granted scopes. This issue is fixed in version 1.42.0.",
+      "published_at": "2026-09-01T08:05:29.000Z",
+      "modified_at": "2026-09-24T15:47:41.056Z",
+      "severity": {
+        "level": "high",
+        "score": 7.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00311,
+        "percentile": 0.24343,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.31.0",
+              "fixed": "1.42.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-6g9q-qrx7-3jxf",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9116",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/b560d17a4da4c25da95e3c73af4485d18ab7c224",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.42.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-63203",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-63203",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-63203",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-63203",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6g9q-qrx7-3jxf",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-6g9q-qrx7-3jxf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:e544da07647208973a9ed4aaddcc4abf46720ca9d06bd0b33520a4f1e99496aa",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-56739",
+      "aliases": [
+        "GHSA-3556-624q-c5w3"
+      ],
+      "title": "Logto: SSRF via Webhooks and Custom OAuth2 Connector UserInfo Endpoint",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.43.0, Logto fetches administrator-controlled outbound destinations without validating the address used for the connection. Webhook delivery in packages/core/src/libraries/hook/utils.ts can reach special-use and cloud metadata addresses. Custom OAuth2 connectors can use an attacker-selected userInfoEndpoint and forward the OAuth access token in the Authorization header, while OIDC connectors can fetch an attacker-selected jwksUri. The affected operations require tenant administrative configuration access, but they cross the server's network boundary and can expose internal data or upstream provider credentials. This issue is fixed in version 1.43.0.",
+      "published_at": "2026-09-01T08:02:32.000Z",
+      "modified_at": "2026-09-28T20:11:21.968Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:H/VI:L/VA:L/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00296,
+        "percentile": 0.22527,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.43.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3556-624q-c5w3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9501",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/16f4b2e732d5114ac98646c9370ec6ab61d6ed26",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.43.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-56739",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-56739",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-56739",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-56739",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-3556-624q-c5w3",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-3556-624q-c5w3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c11c4906e14fefc7fabad17f6fe2289c2c203a3f37e713b0ba3888d104ce886",
+      "note": null
+    },
+    {
+      "id": "GHSA-5wr4-942j-h43m",
+      "aliases": [],
+      "title": "JWT Customizer node:vm execution has no effective timeout, allowing full-process or tenant-wide DoS",
+      "summary": "# VULN-005 - JWT Customizer Local-VM Timeout Is Ineffective, Allowing Tenant-Wide / Cross-Tenant DoS\r\n\r\n## Status\r\nCONFIRMED\r\n\r\n## Classification\r\n- **Vulnerability**: Uncontrolled Resource Consumption / Missing Timeout Enforcement on Untrusted Script Execution\r\n- **CWE**: CWE-400 - Uncontrolled Resource Consumption (contributing: CWE-834 - Excessive Iteration; CWE-1088 not applicable)\r\n- **Severity**: High\r\n- **CVSS (estimate)**: 8.2 - CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:H\r\n\r\n## Location\r\n- **File**: `packages/core/src/utils/local-vm/index.ts` (`runScriptFunctionInLocalVm`, lines 12-41)\r\n  - Line 20: first `runInNewContext(script + `;${functionName};`, globalContext)` call - compiles the script **and runs all of its top-level statements**, with **no `timeout` option at all**.\r\n  - Lines 33-38: second `runInNewContext('(async () => customFunction(payload))();', ..., { timeout: 3000 })` - the `timeout` only bounds the *synchronous* evaluation of that one statement (which just returns a `Promise` almost immediately); it does **not** bound the actual asynchronous execution of `customFunction(payload)` that happens afterward.\r\n- **File**: `packages/core/src/oidc/extra-token-claims.ts` (line 337) and `packages/core/src/routes/logto-config/jwt-customizer.ts` (line 244) - both `await` the result with no additional outer timeout.\r\n- **Function / Route / Endpoint**: OIDC token issuance (`getExtraTokenClaimsForJwtCustomization`, every access-token / client-credentials grant once a JWT customizer is configured) and Management API `POST /configs/jwt-customizer/test`.\r\n\r\n## Vulnerable Code\r\n```ts\r\n// packages/core/src/utils/local-vm/index.ts:12-41\r\nexport const runScriptFunctionInLocalVm = async (\r\n  script: string,\r\n  functionName: string,\r\n  payload: unknown\r\n) => {\r\n  const globalContext = Object.freeze({\r\n    fetch: async (...args: Parameters<typeof fetch>) => fetch(...args),\r\n  });\r\n  // (1) NO timeout option here -- any top-level busy loop in `script` blocks\r\n  //     the single-threaded Node event loop for as long as it runs.\r\n  const customFunction: unknown = runInNewContext(script + `;${functionName};`, globalContext);\r\n\r\n  if (typeof customFunction !== 'function') {\r\n    throw new TypeError(`The script does not have a function named \\`${functionName}\\``);\r\n  }\r\n\r\n  // (2) `timeout: 3000` only bounds the synchronous statement\r\n  //     `(async () => customFunction(payload))();`, i.e. the creation of the\r\n  //     Promise -- NOT the asynchronous continuation of `customFunction`\r\n  //     (e.g. an unresolved `fetch()` or an intentionally-never-resolving Promise).\r\n  const result: unknown = await runInNewContext(\r\n    '(async () => customFunction(payload))();',\r\n    Object.freeze({ customFunction, payload }),\r\n    { timeout: 3000 }\r\n  );\r\n\r\n  return result;\r\n};\r\n```\r\n\r\n## Why It's Vulnerable\r\nThe code comment claims *\"Limit the execution time to 3 seconds, throws error if the script takes too long to execute\"* - but this guarantee does not actually hold for two independent reasons, each individually sufficient to cause denial of service:\r\n\r\n1. **No timeout on the compile/top-level-execution call.** `runInNewContext(script + ';functionName;', globalContext)` is called with no third `options` argument, so `node:vm`'s `timeout` protection is not applied at all to this call. Any code the script places *outside* the `getCustomJwtClaims` function body (e.g. a top-level `while (true) {}`, or a large synchronous computation) executes synchronously and unconditionally, blocking Node's single-threaded event loop for as long as it runs - with a genuine infinite loop, forever, requiring a process restart to recover.\r\n\r\n2. **The `timeout: 3000` on the second call does not bound the actual script execution.** `node:vm`'s `timeout` option only limits the *synchronous* portion of the code string being run. The code string here - `(async () => customFunction(payload))();` - is an IIFE that returns immediately with a `Promise` (invoking an `...",
+      "published_at": "2026-09-01T07:57:07.000Z",
+      "modified_at": "2026-09-01T07:57:07.000Z",
+      "severity": {
+        "level": "high",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.43.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-5wr4-942j-h43m",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-5wr4-942j-h43m",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-5wr4-942j-h43m",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c11c4906e14fefc7fabad17f6fe2289c2c203a3f37e713b0ba3888d104ce886",
+      "note": null
+    },
+    {
+      "id": "GHSA-crc8-q4hm-4564",
+      "aliases": [],
+      "title": "Third-party application with only the openid scope can set an initial password on a passwordless, email-less, phone-less account, enabling account takeover",
+      "summary": "### Summary\r\n\r\nA third-party OIDC application holding an access token with **only the `openid` scope** could set an initial password on a Logto user account that had no password, no primary email, and no primary phone - without a `logto-verification-id` header or any other security verification.\r\n\r\n`POST /api/my-account/password` deliberately skips the verification-record requirement when the account has no existing credential to verify against, so that a social-only or SSO-only user can establish a first password. The exception was correct for its intended caller, the first-party Account Center. But nothing on the route distinguished a first-party caller from a third-party one:\r\n\r\n- `koaOidcAuth` gates the whole user router on the `openid` scope alone, and `openid` is unconditionally part of every third-party client's scopes.\r\n- This route has no claim-scope check at all - it is the one Account API route where the scope column is empty. Not even `profile` or `email` is required.\r\n\r\nThe result is that a plain `openid` authorization, the minimum any OIDC client asks for and the one users are least likely to scrutinize on the consent screen, carried a latent credential-enrollment capability. Once the password exists the exception closes and further changes require verification, so the window is one-shot - but one shot is enough, because the attacker chooses the password and can then sign in directly as the user through the normal username/password flow.\r\n\r\n### Preconditions\r\n\r\n**This is not exploitable against a default installation, and it is not a consent bypass or an unauthenticated issue.** All of the following must hold:\r\n\r\n1. **Account Center is enabled for the tenant.** It ships disabled - `account_centers.enabled` is seeded `false` for every non-admin tenant. While it is off, every Account API route returns `400 account_center.not_enabled` regardless of the caller.\r\n2. **The `password` field is set to `Edit`** in the Account Center field controls. Field controls are seeded empty, so this defaults to off and an admin has to switch it on.\r\n3. **The tenant admin registered the attacker's application as a third-party application** in the tenant.\r\n4. **The end user completed the consent screen** for that application.\r\n5. **The victim account has no password, no primary email, and no primary phone** - the eligibility condition for the initial-password exception. In practice this means a pure social or enterprise-SSO user who has never set a password or verified a contact identifier. Every other account is protected: the same request against an account with any one of those returns `401 verification_record.permission_denied`.\r\n\r\nCondition 5 is the real limiter. The affected population is a specific and usually small subset of a tenant's users, and it shrinks over time as users add identifiers.\r\n\r\n### Impact\r\n\r\nFull account takeover of an eligible user, by an application the user authorized for `openid` only.\r\n\r\nThe attacker plants a known password on the victim's account, then authenticates as that user through the ordinary username/password sign-in flow - outside the third-party application, with none of the scope restrictions that applied to the original token, and persisting after the user revokes the application's consent.\r\n\r\nReproduced end to end by the reporter on a local deployment of `@logto/core` 1.42.0: `POST /api/my-account/password` with only the third-party Bearer token, no cookies and no verification-record header, returned `204`; the password was persisted and accepted in a fresh username/password login; the same request repeated afterwards returned `401 verification_record.permission_denied`, confirming the exception had closed. No database modification was used to create the vulnerable precondition - the eligible user was produced through a normal social sign-up flow.\r\n\r\n### Related surface fixed in the same patch\r\n\r\nWhile fixing the reported route, we audited the rest of the Account API and Verification API...",
+      "published_at": "2026-09-01T07:54:52.000Z",
+      "modified_at": "2026-09-01T07:54:52.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-620",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.43.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-crc8-q4hm-4564",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-crc8-q4hm-4564",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-crc8-q4hm-4564",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c11c4906e14fefc7fabad17f6fe2289c2c203a3f37e713b0ba3888d104ce886",
+      "note": null
+    },
+    {
+      "id": "GHSA-vrv3-3j98-vfpp",
+      "aliases": [],
+      "title": "Token exchange accepts an ID token as an access-token subject and ignores the subject token's issuing client, widening a consented credential into the user's full first-party API authorization",
+      "summary": "### Summary\r\n\r\nThe OAuth 2.0 Token Exchange grant (`POST /oidc/token`) did not validate what kind of credential it was handed as `subject_token`, nor which client that credential belonged to. Two independent flaws in `validateSubjectToken` let a narrowly consented, client-scoped credential be converted into a broader API access token for the same user.\r\n\r\n**1. Token type confusion - an ID token accepted as an access-token subject.** When the subject token is declared as `urn:ietf:params:oauth:token-type:access_token`, the implementation first tries an opaque-token lookup and, on failure, falls back to JWT verification. That fallback verified only the signature and the `issuer`, then trusted `payload.sub`. OIDC ID tokens are signed by the same keys under the same issuer, so an ID token - an authentication assertion scoped to its relying party, carrying no API authorization - passed the check and resolved to the user. RFC 8693 §2.1/§3 require validation appropriate to the declared type; RFC 8725 §3.12 requires different JWT kinds from one issuer to be mutually exclusive.\r\n\r\n**2. Missing first-party check on the subject token's issuing client.** The subject token's issuing client (`token.clientId` on the opaque path, `payload.client_id` on the JWT path) was discarded entirely, so any access token belonging to user U was interchangeable regardless of which client held it. This is exploitable on its own, without any type confusion: a third-party application's ordinary opaque access token could be submitted directly as the subject.\r\n\r\nThe second flaw is the more consequential of the two, because of what token exchange does with the result. The issued token does **not** inherit the subject token's audience or scopes - it carries the *receiver's* authorization for that user. Third-party applications cannot enable token exchange, so the receiver is always first-party, which means the issued token carries every scope the user's roles grant on the requested resource. A credential the user consented to for one narrow purpose was therefore convertible into the user's full first-party authorization.\r\n\r\nThe consent boundary is erased; the user's role assignments still bound the result. Scopes the user's roles do not grant are not issued, and the Logto Management API is not reachable this way.\r\n\r\n### Preconditions\r\n\r\n**This is not exploitable against a default installation, and it is not token forgery or a consent bypass.** All of the following must hold:\r\n\r\n1. **A first-party application in the tenant has token exchange enabled.** `allowTokenExchange` defaults to `false` on every new application and an admin must switch it on. With it off, the same request is rejected with `requested grant type is not allowed for this client`.\r\n2. **The attacker controls a client registered in the tenant** whose credentials the victim can be induced to authorize - in the reported scenario, a third-party application onboarded by the tenant admin.\r\n3. **The victim completed authentication or consent** for the attacker's application, yielding a genuine, unexpired, same-issuer token for that user. `openid` alone is sufficient.\r\n4. **The receiver's `client_id` is known.** No client secret is needed: a first-party *public* client (Native or SPA) may enable token exchange, so knowing the public identifier is enough to act as the receiver.\r\n5. **The exchanged scopes are meaningful at a target resource** - the impact is realized only against an API that trusts the tenant's tokens and enforces those scopes.\r\n\r\nSignature verification was never bypassed. A tampered token is rejected, and declaring the ID token truthfully as `subject_token_type=...:id_token` is rejected.\r\n\r\n### Impact\r\n\r\nAn attacker-controlled application that the victim authorized for authentication only could obtain an API access token carrying the victim's full first-party authorization on a requested resource, then use it for protected reads and state-changing writes as that user.\r\n\r\nBounded by th...",
+      "published_at": "2026-09-01T07:54:16.000Z",
+      "modified_at": "2026-09-01T07:54:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-863",
+        "CWE-1287"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.38.0",
+              "fixed": "1.43.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-vrv3-3j98-vfpp",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-vrv3-3j98-vfpp",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-vrv3-3j98-vfpp",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a7b355882681e2d4c4cd09be0ea85546736b521f4e9a9bc73b5010138cf5de88",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-82263",
+      "aliases": [],
+      "title": "Logto Server-Side Request Forgery via OIDC SSO Connector Issuer URL",
+      "summary": "Logto through 1.42.0 contains a server-side request forgery vulnerability in the OIDC SSO connector creation endpoint that fails to validate the issuer URL parameter. Tenant administrators with Management API credentials can supply arbitrary internal URLs to trigger HTTP GET requests to private network services, with response content returned in API responses.",
+      "published_at": "2026-08-28T16:18:48.639Z",
+      "modified_at": "2026-09-24T14:19:54.723Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00459,
+        "percentile": 0.40337,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "1.42.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/issues/9465",
+          "type": "report"
+        },
+        {
+          "url": "https://github.com/logto-io/logto",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/blob/v1.42.0/packages/core/src/sso/OidcConnector/utils.ts",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/16f4b2e732d5114ac98646c9370ec6ab61d6ed26",
+          "type": "fix"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/logto-server-side-request-forgery-via-oidc-sso-connector-issuer-url",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-82263",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-82263",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-82263",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-82263",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:326422a7fa5b92b4eea5039616c222ad83ad5fdc115de303aade7c58cf83c78d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-82262",
+      "aliases": [],
+      "title": "Logto Server-Side Request Forgery via webhook test endpoint",
+      "summary": "Logto through 1.42.0 contains a server-side request forgery vulnerability in the POST /api/hooks/:id/test endpoint that accepts arbitrary URLs without host validation. Tenant administrators with Management API tokens can make the server issue HTTP POST requests to internal URLs and retrieve response bodies from services on the private network.",
+      "published_at": "2026-08-28T16:18:47.953Z",
+      "modified_at": "2026-09-24T14:19:53.810Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00459,
+        "percentile": 0.40336,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "1.42.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/issues/9465",
+          "type": "report"
+        },
+        {
+          "url": "https://github.com/logto-io/logto",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/blob/v1.42.0/packages/core/src/libraries/hook/utils.ts",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/16f4b2e732d5114ac98646c9370ec6ab61d6ed26",
+          "type": "fix"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/logto-server-side-request-forgery-via-webhook-test-endpoint",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-82262",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-82262",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-82262",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-82262",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:326422a7fa5b92b4eea5039616c222ad83ad5fdc115de303aade7c58cf83c78d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-63187",
+      "aliases": [
+        "GHSA-869c-8mm3-w5cj"
+      ],
+      "title": "Logto: OS command injection vulnerability exists in the Commitlint workflow",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. From 1.40.1 until 1.41.0, Logto's .github/workflows/commitlint.yml directly interpolated github.event.pull_request.title into the Commitlint on PR title step's inline echo command before piping the title to npx commitlint. A pull request title containing a single quote could terminate the echo string and append arbitrary shell commands on the GitHub Actions runner. The pull_request trigger used a read-only GITHUB_TOKEN and did not expose repository secrets, but injected commands could alter or disrupt the ephemeral workflow execution. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-08-14T02:48:43.000Z",
+      "modified_at": "2026-08-25T14:00:02.109Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0039,
+        "percentile": 0.33686,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-94"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.40.1",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-869c-8mm3-w5cj",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9112",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/4a1cab21c14d26d288ffffc509cc2a8cae247b92",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-63187",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-63187",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-63187",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-63187",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-869c-8mm3-w5cj",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-869c-8mm3-w5cj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ae40dba577e069f431a4da3be4a98ac9d17c5f1f1a3d764f738ef6c9a1095d00",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15611",
+      "aliases": [],
+      "title": "Unverified email-based SSO account linking",
+      "summary": "Logto allows unverified email-based SSO account linking, enabling an attacker to register an identity at a permissive IdP using a victim’s email and gain unauthorized access to the victim’s account.",
+      "published_at": "2026-07-23T15:45:48.250Z",
+      "modified_at": "2026-07-27T16:32:47.244Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00482,
+        "percentile": 0.42116,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.11.0",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/libraries/verification-helpers/single-sign-on.ts#L274",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/routes/experience/classes/verifications/enterprise-sso-verification.ts#L284-L297",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15611",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15611",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15611",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15611",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15611",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15611",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:669ed6246c9c7ca908b666346f7797976e0e08011d891feb08840b16e222cbaf",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15612",
+      "aliases": [],
+      "title": "LOIDC nonce validation bypass",
+      "summary": "Logto bypasses OIDC nonce validation when the nonce claim is absent from the id_token, enabling replay of authentication tokens and weakening session-binding.",
+      "published_at": "2026-07-23T15:45:27.100Z",
+      "modified_at": "2026-07-27T16:37:08.498Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00243,
+        "percentile": 0.15552,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.10.1",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/sso/OidcConnector/utils.ts#L175-L182",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15612",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15612",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15612",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15612",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15612",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15612",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:d465ae176edaa77a860022dcb0e1620a1743cd22df1e9224283c753736f9fe98",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15614",
+      "aliases": [],
+      "title": "IdP-initiated SAML sessions not reliably invalidated (replay)",
+      "summary": "Logto silently fails to delete IdP-initiated SAML sessions, enabling session replay and reuse within the session’s validity window.",
+      "published_at": "2026-07-23T15:44:11.159Z",
+      "modified_at": "2026-07-27T15:35:54.176Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00346,
+        "percentile": 0.28651,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.21.0",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/libraries/verification-helpers/single-sign-on.ts#L81-L99",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15614",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15614",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15614",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15614",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15614",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15614",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:32eb4d4823a6fde8e50695e2869a9783b46bd2c2221de77aeaa9619d1f008686",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15615",
+      "aliases": [],
+      "title": "SAML <Conditions> element not validated",
+      "summary": "Logto omits validation of the SAML <Conditions> element, enabling attackers to strip time and audience restrictions and replay assertions indefinitely.",
+      "published_at": "2026-07-23T15:43:42.802Z",
+      "modified_at": "2026-07-27T15:23:36.546Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00193,
+        "percentile": 0.09007,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.12.0",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/sso/SamlConnector/utils.ts#L175-L205",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/connectors/connector-saml/src/utils.ts#L46-L110",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15615",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15615",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15615",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15615",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15615",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15615",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:b77e19b67abeed080b6fb9d6a182fcd27471615f8355e4d57ec9fcb125eb9b9d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15616",
+      "aliases": [],
+      "title": "Local MFA not enforced during SSO sign-in",
+      "summary": "Logto does not enforce locally configured MFA during SSO authentication, allowing users to bypass second-factor requirements and grants unauthorized access.",
+      "published_at": "2026-07-23T15:43:03.647Z",
+      "modified_at": "2026-07-27T15:28:21.318Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00529,
+        "percentile": 0.45297,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.19.0",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/routes/experience/classes/experience-interaction.ts#L538-L540",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15616",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15616",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15616",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15616",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15616",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15616",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:6d579e56bf0e419ad2cfed347f2e7c9b82f8aae61349993f6bcd57e260e78056",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-15617",
+      "aliases": [],
+      "title": "Principal/domain lookup without case normalization",
+      "summary": "Logto performs principal lookup without normalizing email and identifier strings, enabling principal collision and unauthorized account access via case- or Unicode-different identities.",
+      "published_at": "2026-07-23T15:41:29.123Z",
+      "modified_at": "2026-07-27T15:33:20.686Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "source": "nvd"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00427,
+        "percentile": 0.37464,
+        "date": "2026-11-15"
+      },
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "1.10.1",
+              "last_affected": "1.37.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/blob/ea3ede35028dfd0bbb6d7b239623ce0e7f6cdff8/packages/core/src/libraries/verification-helpers/single-sign-on-guard.ts#L23-L33",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-15617",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-15617",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-15617",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-15617",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "nvd",
+          "id": "CVE-2026-15617",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-15617",
+          "license": "NVD-TOU"
+        }
+      ],
+      "revision": "sha256:d465ae176edaa77a860022dcb0e1620a1743cd22df1e9224283c753736f9fe98",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-63188",
+      "aliases": [
+        "GHSA-rxjr-6c9q-h67x"
+      ],
+      "title": "logto-tunnel serves files outside --experience-path via path traversal",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 0.3.9, the Logto Tunnel npm package enabled createStaticFileProxy from packages/tunnel/src/commands/tunnel/index.ts and passed request.url from static asset requests through packages/tunnel/src/commands/tunnel/utils.ts using path.join(staticPath, request.url) and then fs.open(requestPath, \"r\") without URL normalization or a containment check. When --experience-path was enabled and the tunnel port was reachable, an unauthenticated requester could send a path containing ../ to createStaticFileProxy and read files outside the configured static directory that were readable by the logto-tunnel process. The service used server.listen(port), which could expose the tunnel to other hosts depending on the platform and deployment. This issue is fixed in version 0.3.9.",
+      "published_at": "2026-07-02T07:39:52.000Z",
+      "modified_at": "2026-08-21T21:48:40.521Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0054,
+        "percentile": 0.45997,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "0.3.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-rxjr-6c9q-h67x",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9113",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/5686815955534f803d3d50738259efd0f741e62c",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/@logto/tunnel@0.3.9",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-63188",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-63188",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-63188",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-63188",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-rxjr-6c9q-h67x",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-rxjr-6c9q-h67x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4d072c15e8c483f4edbd1391d8bdd11e62fdd6d02edf09d9104fcba197cbf050",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55377",
+      "aliases": [
+        "GHSA-q4h3-38gc-4p4j"
+      ],
+      "title": "Logto: Account Center MFA management step-up bypass via WebAuthn registration verification",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.41.0, Logto's Account Center step-up check accepted any active verification record that belonged to the current user and had isVerified === true. A WebAuthn registration verification record for binding a new passkey could be created and verified with only an existing Account API bearer token, then sent in the logto-verification-id header and treated as identityVerified=true by Account Center routes, allowing MFA factor management without proving possession of an existing password, identifier, or MFA factor. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-07-01T04:04:02.000Z",
+      "modified_at": "2026-07-13T16:20:47.725Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00401,
+        "percentile": 0.34844,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-q4h3-38gc-4p4j",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9110",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/f56255a7edf3b22b0ec2fdb814814ce6b0123b74",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55377",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55377",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55377",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55377",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-q4h3-38gc-4p4j",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-q4h3-38gc-4p4j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5009ed0bdcb13d8e623b58413b732ac60562a1710a40ee0ab623faab54e1302c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55370",
+      "aliases": [
+        "GHSA-6wj7-c66m-6c82"
+      ],
+      "title": "Logto: TOTP code can be replayed within the RFC 6238 validity window (one-time use violation)",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.41.0, Logto's existing TOTP verification accepted a successfully used TOTP code again while the code remained inside the RFC 6238 acceptance window because the verifier used otplib's stateless check with window = 1 and did not persist or compare the accepted TOTP time-step counter. An attacker who has the victim's first factor and captures a live TOTP value can replay that value to satisfy MFA during the same acceptance window. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-07-01T04:02:27.000Z",
+      "modified_at": "2026-07-10T20:14:41.325Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00336,
+        "percentile": 0.27334,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-294"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-6wj7-c66m-6c82",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9109",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/9118867f6cbadc7291cf913beb4fede91ed5d374",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55370",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55370",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55370",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55370",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6wj7-c66m-6c82",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-6wj7-c66m-6c82",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:910c1aaeda39ce8004e0f37b7e36af2934b6e9941bb414c52e355dc2b88945e6",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-62317",
+      "aliases": [
+        "GHSA-qp7j-c3q2-g739"
+      ],
+      "title": "Logto: ReDoS via unescaped user input in email subaddressing regex (blockSubaddressing)",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.41.0, Logto's email subaddressing blocklist in packages/core/src/libraries/sign-in-experience/email-blocklist-policy.ts used the attacker-controlled domain from email input to construct subaddressingRegex when blockSubaddressing was enabled. The permissive emailRegEx accepted multiple at signs and regular expression metacharacters, and POST /api/experience/verification/verification-code could therefore cause catastrophic backtracking in subaddressingRegex.test(email). The resulting event-loop stall could make authentication, token issuance, SSO, and the administrative console unavailable. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-07-01T03:55:45.000Z",
+      "modified_at": "2026-08-21T19:05:49.589Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00742,
+        "percentile": 0.55247,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-1333"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-qp7j-c3q2-g739",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9106",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/021381237511bc0d42f81d65df8b036b01f40547",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-62317",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-62317",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-62317",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-62317",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-qp7j-c3q2-g739",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-qp7j-c3q2-g739",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5009ed0bdcb13d8e623b58413b732ac60562a1710a40ee0ab623faab54e1302c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55789",
+      "aliases": [
+        "GHSA-vfpw-vq44-4p63"
+      ],
+      "title": "Logto: SAML IdP injects user-controlled profile attributes raw into signed assertions, allowing privilege escalation at relying Service Providers",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.41.0, Logto's self-hosted SAML application IdP built the signed SAML response and assertion by string-substituting user-controlled profile attributes such as name, email, and custom attribute-mapping values into element-text placeholders of a SAML XML template using samlify 2.10.0, which left those placeholders unescaped. An authenticated low-privilege user could place XML markup in a profile attribute so Logto signed a forged SAML attribute, such as an arbitrary role, allowing privilege escalation at relying Service Providers that authorize on SAML attributes. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-07-01T03:53:56.000Z",
+      "modified_at": "2026-07-13T18:16:18.449Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00344,
+        "percentile": 0.28362,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-91",
+        "CWE-1395"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-vfpw-vq44-4p63",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9107",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/9097054860f0d638d90778d3dcde2ba050b844b6",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55789",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55789",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55789",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55789",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-vfpw-vq44-4p63",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-vfpw-vq44-4p63",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5009ed0bdcb13d8e623b58413b732ac60562a1710a40ee0ab623faab54e1302c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-54714",
+      "aliases": [
+        "GHSA-cpm5-w86q-w85f"
+      ],
+      "title": "Logto: XSS via unescaped RelayState in SAML auto-submit form",
+      "summary": "Logto is the modern, open-source auth infrastructure for SaaS and AI apps. Prior to 1.41.0, @logto/core reflected the SAML RelayState, SAMLResponse, and actionUrl into a Logto-origin auto-submit HTML form in packages/core/src/saml-application/SamlApplication/utils.ts without HTML-attribute escaping. A SAML application flow with a crafted RelayState from GET or POST /api/saml/:id/authn could inject script that runs on the Logto tenant origin after the user completes login. This issue is fixed in version 1.41.0.",
+      "published_at": "2026-07-01T03:53:38.000Z",
+      "modified_at": "2026-07-13T18:18:36.103Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00338,
+        "percentile": 0.27594,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "logto",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-cpm5-w86q-w85f",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/pull/9008",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/commit/209fa0a5cbe8522f9cf31873239dc6424099bb5e",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/logto-io/logto/releases/tag/v1.41.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-54714",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-54714",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-54714",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-54714",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cpm5-w86q-w85f",
+          "url": "https://github.com/logto-io/logto/security/advisories/GHSA-cpm5-w86q-w85f",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:910c1aaeda39ce8004e0f37b7e36af2934b6e9941bb414c52e355dc2b88945e6",
+      "note": null
+    }
+  ]
+}

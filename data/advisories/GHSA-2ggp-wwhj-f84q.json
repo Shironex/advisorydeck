@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-2ggp-wwhj-f84q",
+  "aliases": [],
+  "title": "SQL Injection via Formula Date Format Argument on MySQL",
+  "summary": "### Summary\n\nThe format argument of the `DATETIME_FORMAT` formula function was written into a MySQL string literal without escaping backslashes. A user allowed to add or edit formula fields on a MySQL-backed base could end that literal early and have the rest of the argument compiled as SQL.\n\n### Details\n\nOn MySQL, the `DATETIME_FORMAT` mapping in `functionMappings/mysql.ts` passes the format to `datetime-format.mysql.handler.ts`, which translates it into a `DATE_FORMAT` pattern and places that pattern in the query as a quoted string inside raw SQL. `extractDatetimeFormat` in `commonFns.ts` only checks that the format is a constant string. The handler escaped `%` in literal text and doubled single quotes, but left backslashes as they were. Under MySQL's default `sql_mode` a backslash escapes the character that follows it, so a backslash placed before a quote cancelled the doubling and ended the string, and the rest of the format was compiled as part of the statement. That statement runs as the data source's database user whenever the field is evaluated, including on reads of its table. The PostgreSQL and SQLite handlers were not affected, nor were MySQL servers running with `NO_BACKSLASH_ESCAPES`. The MySQL handler now escapes backslashes in literal text before the pattern is quoted.\n\n### Impact\n\nAn attacker needs an account that can add or edit fields on a base whose data source is MySQL or MariaDB, which the Creator role allows. They could run SQL of their choosing within the queries NocoDB issues for that base, as the data source's database user, and read any data that user can reach, including tables outside the base. Expensive queries could also slow the database server for its other users. Bases on PostgreSQL or SQLite were not affected.\n\n### Credit\n\nThis issue was reported by [@scofaild23](https://github.com/scofaild23).",
+  "published_at": "2026-11-02T08:47:37.000Z",
+  "modified_at": "2026-11-02T08:47:37.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-89"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "2026.07.0",
+          "fixed": "2026.10.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2ggp-wwhj-f84q",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2ggp-wwhj-f84q",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2ggp-wwhj-f84q",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7a8a347d64e5ad17e7172a35d9e67cf73df3392df0ce2c3787ec6f29bce6501e",
+  "note": null
+}

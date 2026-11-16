@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-2rwf-5cmp-5xwq",
+  "aliases": [],
+  "title": "Stored Cross-Site Scripting via OAuth Redirect URI",
+  "summary": "### Summary\n\nOAuth client registration accepted a redirect URI with any URL scheme, including `javascript:`, and the authorization endpoint handed that stored value back to the browser as a navigation target. A payload planted on a client the attacker owned therefore executed in the NocoDB origin when a signed-in user reached the consent screen.\n\n### Details\n\nThe create and update schemas in the OAuth module validated `redirect_uris` with a generic URL check that accepts opaque schemes such as `javascript:`, `data:` and `vbscript:`, and client registration was available to any authenticated account, including an organization-level Viewer. Four paths then consumed the value without a scheme check: the consent screen's deny handler built its redirect entirely client-side from the raw query parameter; the deny branch in `oauth-authorization.service.ts` built a redirect before any validation ran; the error handler in the same path reflected the rejected URI back after validation threw; and the consent screen's approve handler assigned the server's response to `window.location`. Because `oauth.controller.ts` did not match the requested redirect URI against the client's registered list before a redirect was constructed, both buttons on the consent screen navigated the victim's tab to the attacker's scheme.\n\n### Impact\n\nSame-origin script execution in the victim's NocoDB tab. An attacker registers a client carrying a `javascript:` redirect URI and sends a consent link to a signed-in user; whichever button that user presses, the payload runs in the NocoDB origin and can read the session token from `localStorage[\"nocodb-gui-v2\"]`, then call authenticated APIs as the victim - including against an administrator, leading to account takeover. Registering the client requires an authenticated account of any role; the victim only has to open the link while signed in.\n\n### Credit\n\nThis issue was reported by [@CyberKareem](https://github.com/CyberKareem) and independently by [@Akokonunes](https://github.com/Akokonunes).",
+  "published_at": "2026-11-02T08:48:19.000Z",
+  "modified_at": "2026-11-02T08:48:19.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2rwf-5cmp-5xwq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2rwf-5cmp-5xwq",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2rwf-5cmp-5xwq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:af0317099ec98c3e33b2233709b40592ce584a90541fa3c2186caffd51b5b1ca",
+  "note": null
+}

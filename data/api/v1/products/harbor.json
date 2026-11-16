@@ -1,0 +1,1228 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "harbor",
+    "name": "Harbor",
+    "category": "storage",
+    "homepage": "https://goharbor.io",
+    "version_scheme": "semver",
+    "branches": [
+      {
+        "name": "2.15",
+        "eol": false,
+        "eol_date": null,
+        "latest": "2.15.5"
+      },
+      {
+        "name": "2.14",
+        "eol": false,
+        "eol_date": null,
+        "latest": "2.14.6"
+      },
+      {
+        "name": "2.13",
+        "eol": false,
+        "eol_date": null,
+        "latest": "2.13.6"
+      },
+      {
+        "name": "2.12",
+        "eol": true,
+        "eol_date": "2026-03-20",
+        "latest": "2.12.4"
+      },
+      {
+        "name": "2.11",
+        "eol": true,
+        "eol_date": "2025-09-17",
+        "latest": "2.11.2"
+      },
+      {
+        "name": "2.10",
+        "eol": true,
+        "eol_date": "2025-04-09",
+        "latest": "2.10.3"
+      },
+      {
+        "name": "2.9",
+        "eol": true,
+        "eol_date": "2024-11-08",
+        "latest": "2.9.5"
+      },
+      {
+        "name": "2.8",
+        "eol": true,
+        "eol_date": "2024-06-04",
+        "latest": "2.8.6"
+      },
+      {
+        "name": "2.7",
+        "eol": true,
+        "eol_date": "2023-12-14",
+        "latest": "2.7.4"
+      },
+      {
+        "name": "2.6",
+        "eol": true,
+        "eol_date": "2023-08-31",
+        "latest": "2.6.4"
+      },
+      {
+        "name": "2.5",
+        "eol": true,
+        "eol_date": "2023-04-13",
+        "latest": "2.5.6"
+      },
+      {
+        "name": "2.4",
+        "eol": true,
+        "eol_date": "2022-12-16",
+        "latest": "2.4.3"
+      },
+      {
+        "name": "2.3",
+        "eol": true,
+        "eol_date": "2022-08-28",
+        "latest": "2.3.5"
+      },
+      {
+        "name": "2.2",
+        "eol": true,
+        "eol_date": "2022-04-07",
+        "latest": "2.2.4"
+      },
+      {
+        "name": "2.1",
+        "eol": true,
+        "eol_date": "2021-10-25",
+        "latest": "2.1.6"
+      },
+      {
+        "name": "2.0",
+        "eol": true,
+        "eol_date": "2021-06-17",
+        "latest": "2.0.6"
+      },
+      {
+        "name": "1.10",
+        "eol": true,
+        "eol_date": "2021-02-23",
+        "latest": "1.10.19"
+      },
+      {
+        "name": "1.9",
+        "eol": true,
+        "eol_date": "2020-09-18",
+        "latest": "1.9.4"
+      }
+    ]
+  },
+  "advisories": [
+    {
+      "id": "GHSA-x955-mxjx-g5cj",
+      "aliases": [],
+      "title": "Unauthenticated PUT request to /api/v2.0/users crashes Harbor core",
+      "summary": "### Impact\r\n\r\nAn unauthenticated `PUT` request to `/api/v2.0/users` crashes the Harbor core process. Harbor's audit-log middleware recognises the `/api/v2.0/users` URL and builds an audit event for it. For a `PUT` that does not target a specific user ID, the event data stays empty, and the user audit resolver dereferences it without a check. The panic happens in a background goroutine without a `recover()`, so it terminates the whole process instead of failing one request. Core restarts, and the next such request crashes it again. A caller who repeats the request keeps the Harbor API, the UI and registry authentication down.\r\n\r\nNo credentials are needed. The audit middleware handles the request even when Harbor rejects it with `401`. `PUT /api/v2.0/users` is not a real endpoint, so blocking it does not break anything.\r\n\r\nThe middleware matches the full request URI, including the query string. A `PUT` to any core URL whose query string ends with `/api/v2.0/users`, for example `PUT /api/v2.0/projects?x=/api/v2.0/users`, crashes core the same way. A proxy rule that only checks the path does not stop it.\r\n\r\n### Am I affected?\r\n\r\nYou are affected if both of the following are true:\r\n\r\n- You run Harbor v2.13.0 to v2.13.6, v2.14.0 to v2.14.5, or v2.15.0 to v2.15.2. Releases before v2.13.0 do not have this audit resolver.\r\n- An untrusted client can send HTTP requests to Harbor.\r\n\r\nThe default configuration is affected. The only setting that prevents the crash is the one described under \"Until you can upgrade\".\r\n\r\n### What to do\r\n\r\n- **2.15:** fixed in v2.15.3. Upgrade to v2.15.3 or later.\r\n- **2.14 and 2.13:** no fixed release is available yet. A fix is prepared for the next 2.14 and 2.13 patch releases. After the upgrade, the resolver skips requests without event data, and a failure while building an audit event is logged instead of crashing core. Audit logging of real user changes works as before. No configuration change is needed.\r\n\r\n**Until you can upgrade,** use one of these:\r\n\r\n1. Disable the `update_user` audit event. In the UI, go to **Configuration > System Settings > Disable Audit Log Event Type** and select `update_user`. Through the API, add `update_user` to the comma-separated `disabled_audit_log_event_types` value with `PUT /api/v2.0/configurations`. Harbor then skips the audit resolver for these requests, and the crash cannot happen. The trade-off: user updates, password changes and system administrator grants are no longer written to the audit log. Remove `update_user` from the list again after the upgrade.\r\n2. At your reverse proxy, load balancer or WAF, reject `PUT` requests whose full request URI (path and query string) ends with `/api/v2.0/users`. No legitimate client sends such a request.\r\n\r\n### Check for misuse\r\n\r\nThis issue does not expose or change data. Signs of an attack are unexpected restarts of the core container or pod, with core logs that contain:\r\n\r\n```\r\npanic: interface conversion: interface {} is nil, not *model.CommonEvent\r\n```\r\n\r\nIn your reverse proxy access log, look for `PUT` requests whose URI ends with `/api/v2.0/users`, including after a `?`. These requests leave no entry in Harbor's audit log.",
+      "published_at": "2026-10-28T09:55:39.000Z",
+      "modified_at": "2026-10-28T10:04:08.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-754"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "2.13.0",
+              "last_affected": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "last_affected": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-x955-mxjx-g5cj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-x955-mxjx-g5cj",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-x955-mxjx-g5cj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:59c0b9a9054d321af27a527b0e949bb00c30122a49ddc72930f69ccd4cb2b640",
+      "note": null
+    },
+    {
+      "id": "GHSA-jw3v-7jvc-pfmx",
+      "aliases": [],
+      "title": "Webhook error responses can cause unbounded decompression in Jobservice",
+      "summary": "### Impact\n\nWhen a webhook receiver answered with an error status, jobservice read the entire response body into memory to put it in the execution log. There was no size limit, and the HTTP client transparently decompresses gzip responses, so a receiver could send a small compressed response that expands to many megabytes inside jobservice. In testing, a 16 KB gzip response grew to 16 MB and raised jobservice memory use by about 120 MB for a single delivery.\n\njobservice is shared by all projects and also runs replication, scanning, garbage collection and retention jobs. Repeated deliveries can drive it into high memory use or an out-of-memory restart, which delays or fails those jobs for every project.\n\n### Am I affected?\n\nYou are affected if both of the following are true:\n\n- You run Harbor v2.15.2, v2.14.4, v2.13.5 or any earlier version with webhooks.\n- Users who are not fully trusted can become project admin. The attacker has to point a webhook at a server they control, which requires the project admin role. With the default setting **Project Creation: Everyone** every registered user can create a project and is its admin.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter the upgrade, jobservice no longer reads the body of a failed webhook response. It discards at most 64 KiB so the connection can be reused, and the execution log records only the status code. Redirects from the receiver are also no longer followed; a 3xx answer is recorded as a failed delivery.\n\n**Until you can upgrade:**\n\n1. Set **Configuration > System Settings > Project Creation** to **Admin Only**, so untrusted users cannot become project admin.\n2. Set a memory limit on the jobservice container or pod, so a spike restarts jobservice instead of starving other components on the same host.",
+      "published_at": "2026-10-06T13:42:45.000Z",
+      "modified_at": "2026-10-06T13:42:45.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-jw3v-7jvc-pfmx",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jw3v-7jvc-pfmx",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-jw3v-7jvc-pfmx",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "GHSA-qj39-pjf2-wmrc",
+      "aliases": [],
+      "title": "Path traversal vulnerability in distribution endpoints",
+      "summary": "### Impact\n\nHarbor checked permissions on registry API requests (`/v2/`) against the raw request path, but served the request after `..` segments in the path were resolved. A crafted path could therefore pass the permission check for a repository the caller can access and then operate on a different repository.\n\n- **Anyone, without logging in**, can read image manifests from any project, including private ones, as long as the Harbor instance has at least one public project. Manifests contain image metadata and layer digests.\n- **Any user with push access to at least one project** can change and delete tags and manifests in any project.\n\nThe affected operations are `GET`, `HEAD`, `PUT` and `DELETE` on `/v2/<repository>/manifests/<reference>`.\n\n### Am I affected?\n\nYou are affected if you run Harbor before the fixed releases. Anonymous manifest reads require at least one public project. Changing or deleting content in other projects requires any account with push access to one project, which every user has under the default **Project Creation: Everyone** setting.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, `/v2/` requests whose path contains a `.` or `..` segment are rejected with HTTP 400. Docker, containerd, Podman and other OCI clients never send such paths, so normal use is not affected.\n\n**Until you can upgrade:**\n\n1. In the reverse proxy or ingress in front of Harbor, reject requests to `/v2/` whose path contains `/../` or `/./` segments, including percent-encoded forms (`%2e`, `%2E`).\n2. Set **Configuration > System Settings > Project Creation** to **Admin Only**, and review which users have push access.\n3. If you don't need public projects, make them private. This blocks the anonymous read path but not the write path.\n\n### Check for misuse\n\nSearch your reverse proxy, ingress or Harbor nginx access logs for `/v2/` requests containing `/../`, `/./` or `%2e`. Any such request is suspicious, because normal clients never send them.",
+      "published_at": "2026-10-06T13:42:41.000Z",
+      "modified_at": "2026-10-06T13:42:41.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-35"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-qj39-pjf2-wmrc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-qj39-pjf2-wmrc",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-qj39-pjf2-wmrc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:957da812603784e12553d8874dd29da2ab4cb940c2a0469e15b44ddb98e4d53d",
+      "note": null
+    },
+    {
+      "id": "GHSA-w5fq-xrhj-j7g2",
+      "aliases": [],
+      "title": "A system robot with user:update makes itself a system administrator",
+      "summary": "### Impact\n\nA system robot account with the **User: Update** permission could set or remove the system administrator flag on any Harbor user. The holder of that robot's token could make a user account they control a system administrator and take full control of Harbor, or remove administrator rights from the real administrators.\n\n### Am I affected?\n\nYou are affected if a system robot account exists with the **User: Update** permission and its token is held by someone or something you do not fully trust, for example a user provisioning or sync job. Only a system administrator can create such a robot.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, only system administrators can change a user's administrator flag. Robots with User: Update get HTTP 403 on that operation, both for granting and for removing the flag. Their other user-update operations are unchanged. If automation grants or removes administrator rights through a robot, it must use an administrator account instead.\n\n**Until you can upgrade:**\n\n1. Find system robots with User: Update (see below).\n2. Remove that permission if it is not needed, or rotate the robot's secret and restrict who holds it.\n\n### Check for misuse\n\nList users who currently have administrator rights and confirm each one is expected:\n\n```sql\nSELECT user_id, username, update_time FROM harbor_user WHERE sysadmin_flag = true;\n```\n\nList system robots with User: Update:\n\n```sql\nSELECT r.id, r.name\nFROM robot r\nJOIN role_permission rp ON rp.role_type = 'robotaccount' AND rp.role_id = r.id\nJOIN permission_policy pp ON pp.id = rp.permission_policy_id\nWHERE pp.resource = 'user' AND pp.action = 'update';\n```\n\n\n\n### Credits\n\nReported by **Mitchell Benjamin** via the `cncf-harbor-security` list.",
+      "published_at": "2026-10-06T13:42:36.000Z",
+      "modified_at": "2026-10-06T22:15:28.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.2,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-266",
+        "CWE-269"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-w5fq-xrhj-j7g2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-w5fq-xrhj-j7g2",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-w5fq-xrhj-j7g2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:957da812603784e12553d8874dd29da2ab4cb940c2a0469e15b44ddb98e4d53d",
+      "note": null
+    },
+    {
+      "id": "GHSA-xq2m-cj8w-56v5",
+      "aliases": [],
+      "title": "Robot \"cover all projects\" scope collapses into a global wildcard, conferring the deliberately-ungrantable robot:update - enabling cross-project robot takeover with owner lockout",
+      "summary": "### Impact\n\nA system robot account created with **Cover all projects** and a permission on the **Project** resource (read, update or delete) received that action on every resource inside every project, not only on the projects themselves.\n\nFor example, a robot granted only \"Project: Update\" for all projects could also update robot accounts, members, repositories and other resources in any project. This includes changing the permissions of project robot accounts and resetting their secrets, which takes over those robots and locks out their owners. A robot granted \"Project: Read\" could read resources it was not given access to, and \"Project: Delete\" allowed deleting resources inside any project.\n\n### Am I affected?\n\nYou are affected if a system robot account exists that has **Cover all projects** together with a permission on the **Project** resource, and its token is held by someone or something you do not fully trust, such as a CI system. Only a system administrator can create such a robot. Robots scoped to specific projects are not affected.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, a Project permission on a cover-all robot applies only to the projects themselves. Such robots lose access to repositories, artifacts, members, robot accounts and other resources inside projects that they had only through that permission. If a robot needs that access, grant the specific resources (for example Repository: Pull or Artifact: Delete) in its permissions.\n\n**Until you can upgrade:**\n\n1. Find cover-all system robots with Project permissions (see below).\n2. Remove the Project permissions from these robots if they don't need them, or rotate their secrets and restrict who holds them.\n\n### Check for misuse\n\nList system robots that have a Project permission with Cover all projects:\n\n```sql\nSELECT r.id, r.name, pp.action\nFROM robot r\nJOIN role_permission rp ON rp.role_type = 'robotaccount' AND rp.role_id = r.id\nJOIN permission_policy pp ON pp.id = rp.permission_policy_id\nWHERE pp.scope = '/project/*' AND pp.resource = 'project';\n```\n\nThen review project robot accounts for permissions, expiry dates or secrets that changed without explanation.",
+      "published_at": "2026-10-06T13:42:32.000Z",
+      "modified_at": "2026-10-06T13:42:33.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.2,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-269",
+        "CWE-732",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xq2m-cj8w-56v5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xq2m-cj8w-56v5",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xq2m-cj8w-56v5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:957da812603784e12553d8874dd29da2ab4cb940c2a0469e15b44ddb98e4d53d",
+      "note": null
+    },
+    {
+      "id": "GHSA-vwvv-675v-p6rr",
+      "aliases": [],
+      "title": "scanner_registration.access_cred is missing filter:\"false\", giving a project admin a blind oracle over the scanner credential",
+      "summary": "### Impact\n\nWhen a system administrator registers a scanner (for example Trivy) under **Interrogation Services**, Harbor stores the credential it sends to the scanner adapter (a Basic, Bearer or API key value). Harbor never returns this credential through the API, but list requests accepted it as a search filter in the `q` query parameter. By sending many filter queries and watching whether a scanner is returned, a caller could work out the stored credential one character at a time.\n\nThe filter is reachable from the project-level endpoint that lists scanners a project can use, which requires the **Project Admin** role (or a robot account granted scanner create on a project). With the default **Project Creation: Everyone**, any registered user can create a project and become its admin. Scanner registrations are global, so a project admin could recover the credential of a scanner that serves the whole Harbor instance.\n\nWith the scanner credential, an attacker who can reach the scanner adapter's API can submit requests to it directly as Harbor would. Registry contents and Harbor accounts are not exposed by this.\n\nThis advisory and GHSA-9c86-xf3m-pxvx describe the same issue.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- At least one scanner registration has authentication configured (any setting other than none).\n- Users who are not fully trusted can become project admin. With the default **Project Creation: Everyone**, every registered user can.\n- The credential can be recovered as plain text. On v2.13.x, and on v2.14.0 to v2.14.3 and v2.15.0 to v2.15.1, scanner credentials are stored in plain text. From v2.14.4 and v2.15.2, Harbor encrypts the credential when a scanner registration is created or updated, which makes the recovered value useless without Harbor's encryption key. Registrations saved before that upgrade and not edited since are still stored in plain text.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later. The credential can no longer be used as a filter. No configuration change is needed and scanning behaves as before.\n\nAfter upgrading, **rotate the scanner adapter credential** if untrusted users could create projects: set a new credential on the adapter and enter it in the scanner registration in Harbor. On v2.14.4 and later the new credential is stored encrypted.\n\n**Until you can upgrade:**\n\n1. Set **Configuration > System Settings > Project Creation** to **Admin Only**, so untrusted users cannot become project admin.\n2. On v2.14.4 or later, rotate the scanner credential (new value on the adapter and in the registration) so it is stored encrypted.\n3. Restrict network access to the scanner adapter so only Harbor jobservice and core can reach it.\n\n### Check for misuse\n\nSearch the access logs of your reverse proxy or ingress for requests to `/api/v2.0/projects/*/scanner/candidates` with a `q` parameter containing `access_cred`. Many such requests from one client indicate an extraction attempt.",
+      "published_at": "2026-10-06T13:42:28.000Z",
+      "modified_at": "2026-10-06T13:42:28.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-vwvv-675v-p6rr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-vwvv-675v-p6rr",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-vwvv-675v-p6rr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "GHSA-884q-mjcg-86x4",
+      "aliases": [],
+      "title": "Scanner bearer authorization request disables TLS verification and reads the full response body",
+      "summary": "### Impact\n\nWhen a scan job runs against a scanner that uses bearer authorization, jobservice requests a short-lived registry token from Harbor core (`<core_url>/service/token`) using the scan robot account's credentials. This one request skipped TLS certificate verification, and it read the token response without a size limit or timeout.\n\nIf core is reached over HTTPS (internal TLS enabled), an attacker who can intercept traffic between jobservice and core could present any certificate and capture the credentials of the temporary robot account Harbor creates for the scan. That robot can read the project being scanned until the scan finishes and Harbor deletes it. A malicious or broken token endpoint could also make jobservice read an arbitrarily large response into memory.\n\nNo Harbor user permission is involved. The attacker needs a network position between jobservice and core.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- Internal TLS is enabled, or `core_url` otherwise points to an HTTPS endpoint.\n- The traffic between jobservice and core passes through a network you do not fully trust (for example, components split across hosts or clusters without an encrypted overlay).\n\nIf jobservice and core talk over plain HTTP, TLS verification is not involved, and the credentials are already exposed to anyone who can read that traffic. In that case, enable internal TLS or keep the traffic on a trusted network.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, the token request verifies core's certificate using the same internal TLS configuration as other Harbor component calls, is limited to a 1 MiB response, and times out after 30 seconds. If scans start failing with certificate errors after the upgrade, the certificate presented at `core_url` is not trusted by jobservice: fix the internal TLS CA configuration. There is no option to turn verification off again.\n\n**Until you can upgrade:** keep traffic between jobservice and core on a trusted network, for example the same Kubernetes cluster with network policies that only allow jobservice to reach core.",
+      "published_at": "2026-10-06T13:42:24.000Z",
+      "modified_at": "2026-10-06T13:42:24.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.2,
+        "vector": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-884q-mjcg-86x4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-884q-mjcg-86x4",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-884q-mjcg-86x4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "GHSA-27f2-qg57-2gwg",
+      "aliases": [],
+      "title": "Immutable tag rule matcher only evaluates first repository/tag selector, allowing multi-selector rules to be bypassed",
+      "summary": "### Impact\n\nAn immutable tag rule can list more than one repository pattern or more than one tag pattern. Harbor only evaluated the first repository pattern and the first tag pattern of each rule and ignored the rest. Tags that should have been protected by the other patterns stayed mutable: they could be overwritten by a push or deleted.\n\nExploiting this needs normal project permissions: push permission to overwrite a tag (Developer, Maintainer, Project Admin, or a robot with push), or delete permission to delete it. It does not let anyone go beyond the permissions they already have; it only removes the protection the rule was meant to add.\n\n### Am I affected?\n\nYou are affected only if an immutable tag rule has more than one entry in its repository selectors or tag selectors. The Harbor web UI stores each rule with a single pattern (several values are combined as `{a,b}` in one pattern), so rules created in the UI are not affected. Rules created or edited through the API, Terraform or other automation can have several selectors.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, every selector of a rule is evaluated. Tags matched by the second and later selectors become immutable, so pushes that overwrite them or attempts to delete them are rejected from then on. Review affected rules before upgrading if your pipelines intentionally overwrite such tags.\n\n**Until you can upgrade:** split each affected rule into one rule per repository pattern and tag pattern, or combine the values into a single pattern such as `{redis,mysql}`.\n\n### Check for affected rules\n\nList immutable tag rules with more than one selector:\n\n```sql\nSELECT id, project_id, tag_filter\nFROM immutable_tag_rule\nWHERE json_array_length(tag_filter::json->'tag_selectors') > 1\n   OR json_array_length(tag_filter::json->'scope_selectors'->'repository') > 1;\n```\n\nFor these projects, check the audit log for pushes or deletions of tags that the rule was meant to protect.",
+      "published_at": "2026-10-06T13:42:20.000Z",
+      "modified_at": "2026-10-06T13:42:20.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-670"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-27f2-qg57-2gwg",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-27f2-qg57-2gwg",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-27f2-qg57-2gwg",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "GHSA-xvh7-74g6-29xw",
+      "aliases": [],
+      "title": "External auth-proxy identity named admin inherits Registry system-administrator authorization",
+      "summary": "### Impact\n\nThis affects deployments using the HTTP auth proxy (`auth_mode = http_auth`).\n\nWhen a client sends a request to the registry API (`/v2/`) with HTTP basic authentication using an auth-proxy token (username `tokenreview$<name>`), Harbor looks up the local Harbor user with the same username. If that local user is a Harbor system administrator, the request was treated as system administrator even when the auth proxy did not grant admin rights. The built-in local `admin` account always exists, so any identity that your identity provider authenticates with the username `admin` got system administrator access on the registry API.\n\nWith that access the caller can pull, push and delete images in every project, including private ones. The Harbor web UI and REST API (`/api/v2.0`) are not affected.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- Harbor runs with `auth_mode = http_auth`.\n- Your identity provider can authenticate a user whose username is `admin`, or matches any other Harbor user that has the system administrator flag set.\n\nDeployments using database, LDAP, UAA or OIDC authentication are not affected.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, in `http_auth` mode administrator rights on the registry API come only from the auth-proxy admin settings (`http_authproxy_admin_usernames` and `http_authproxy_admin_groups`). A user who was made administrator in the Harbor UI (local system administrator flag) no longer gets administrator access on `/v2/` requests through the auth proxy. If you rely on that, add those users or their groups to the auth-proxy admin settings.\n\n**Until you can upgrade:**\n\n1. Make sure your identity provider cannot issue tokens for the username `admin`, for example by reserving that name.\n2. Check which local Harbor users have the system administrator flag (see below). Make sure no other identity in your identity provider can use the same username, and grant admin rights through `http_authproxy_admin_usernames` or `http_authproxy_admin_groups` instead.\n\n### Check for misuse\n\nList local Harbor users with the system administrator flag:\n\n```sql\nSELECT user_id, username FROM harbor_user WHERE sysadmin_flag = true;\n```\n\nThen check whether your identity provider has accounts with any of these usernames, and review registry activity (pushes and deletes) by those usernames in the Harbor audit log.",
+      "published_at": "2026-10-06T13:42:16.000Z",
+      "modified_at": "2026-10-06T13:42:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-269",
+        "CWE-287",
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xvh7-74g6-29xw",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xvh7-74g6-29xw",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xvh7-74g6-29xw",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:957da812603784e12553d8874dd29da2ab4cb940c2a0469e15b44ddb98e4d53d",
+      "note": null
+    },
+    {
+      "id": "GHSA-3x7c-wf86-mjx6",
+      "aliases": [],
+      "title": "Security middleware continues after AuthMode lookup failure",
+      "summary": "### Impact\n\nWhen Harbor core could not read its configured authentication mode (for example during a database or configuration cache outage), the request security middleware logged a warning and kept processing the request without an authentication mode. Authorization should not continue in that state.\n\nNo exploit path is known. The OIDC and auth-proxy login methods are skipped when no mode is set, and password login reads the mode again and fails, so such requests end up unauthenticated rather than with extra privileges. An attacker cannot cause the lookup failure. This is a hardening fix that makes the middleware fail closed.\n\n### Am I affected?\n\nAll Harbor versions before the fixed releases are affected. There is nothing to configure or check.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, if core cannot read the authentication mode, requests are rejected with HTTP 500 (\"failed to determine authentication mode\") instead of continuing. Normal requests are unchanged. If you see this error, check core's connection to its database and Redis.\n\n**Until you can upgrade:** no action is needed beyond normal monitoring of core's database and Redis connectivity.",
+      "published_at": "2026-10-06T13:42:11.000Z",
+      "modified_at": "2026-10-06T13:42:12.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-3x7c-wf86-mjx6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-3x7c-wf86-mjx6",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-3x7c-wf86-mjx6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b7b35d4605c4d30b02bc0beeb376246aa5e839b5551044c36e78b3d1bc71f034",
+      "note": null
+    },
+    {
+      "id": "GHSA-xgp2-5vxg-rgh2",
+      "aliases": [],
+      "title": "SSRF and credential disclosure via attacker-controlled pagination Link header in the registry replication client",
+      "summary": "### Impact\n\nWhen Harbor replicates from a remote registry, it lists the remote projects, repositories, artifacts and tags page by page, following the `Link: <...>; rel=\"next\"` header the remote returns. Harbor did not check that the next-page URL stayed on the same registry. A crafted header (for example one starting with `@other-host`) could send the next listing request to a different host, and Harbor attached the stored credentials for the remote registry to that request.\n\nA remote registry that returns such headers can therefore:\n\n- make jobservice send GET requests to other hosts, including internal addresses and the cloud metadata endpoint `169.254.169.254`, and\n- have the registry credentials stored in Harbor sent to a host of its choosing.\n\nHarbor does not return the responses of these requests to users; at most an error ends up in the replication log, which only system administrators can read.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- You run Harbor v2.15.2, v2.14.4, v2.13.5 or any earlier version.\n- You have pull-based replication rules from a remote registry (Harbor, Distribution, or another registry type that pages through repository and tag lists).\n- That remote registry is not fully under your control, could be compromised, or is reached over plain `http` or without certificate verification so the responses can be tampered with in transit.\n\nOnly system administrators can add registry endpoints and replication rules. The attacker needs control over the responses of a registry that an administrator has already configured.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter the upgrade, a `next` link that points to a different scheme, host or port, or that contains a username, stops the listing with an error and the replication execution fails. A remote registry whose pagination links point to another hostname than the one configured in Harbor (for example behind a misconfigured load balancer) will need its endpoint URL in Harbor changed to that hostname.\n\n**Until you can upgrade:**\n\n1. Only replicate from registries you trust, and configure them with `https` and **Verify Remote Cert** enabled.\n2. Give the credentials stored for each remote registry the minimum permissions replication needs, and rotate them if you suspect a remote was compromised.\n3. Restrict outbound traffic from the jobservice container or pod to the registries you replicate with. Block `169.254.169.254` in all cases.",
+      "published_at": "2026-10-06T13:42:07.000Z",
+      "modified_at": "2026-10-06T13:42:07.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-522",
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xgp2-5vxg-rgh2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xgp2-5vxg-rgh2",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-xgp2-5vxg-rgh2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3ee44ffa8a54eebae179021d790ffe150dabd2038a12f08d07553573bd5f3acd",
+      "note": null
+    },
+    {
+      "id": "GHSA-wjpm-hv5w-gxr6",
+      "aliases": [],
+      "title": "Registry chunk upload reuses unvalidated Location headers",
+      "summary": "### Impact\n\nWhen Harbor pushes a blob to a remote registry, the remote answers the upload request with a `Location` header telling Harbor where to send the data. Harbor used that URL as given, without checking that it pointed back to the same registry. A remote registry could therefore direct the upload to any other host, including internal addresses and the cloud metadata endpoint `169.254.169.254`. Harbor sent the blob content to that host together with the `Authorization` header it uses for the remote registry.\n\nThis affects every blob push to a remote registry during push-based replication, with or without **Copy by chunk**. Harbor does not return the responses of these requests to users; at most an error ends up in the replication log, which only system administrators can read.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- You run Harbor v2.15.2, v2.14.4, v2.13.5 or any earlier version.\n- You have push-based replication rules to a remote registry.\n- That remote registry is not fully under your control, could be compromised, or is reached over plain `http` or without certificate verification so the responses can be tampered with in transit.\n\nOnly system administrators can add registry endpoints and replication rules. The attacker needs control over the responses of a destination registry that an administrator has already configured.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter the upgrade, an upload `Location` that points to a different scheme, host or port than the configured registry endpoint, or that contains a username, is rejected and the replication task fails. Relative locations, including those from registries running with `relativeurls` behind a path prefix, keep working. A destination registry that hands uploads off to a different hostname than the one configured in Harbor will need its endpoint URL in Harbor changed to that hostname.\n\n**Until you can upgrade:**\n\n1. Only replicate to registries you trust, and configure them with `https` and **Verify Remote Cert** enabled.\n2. Give the credentials stored for each remote registry the minimum permissions replication needs, and rotate them if you suspect a remote was compromised.\n3. Restrict outbound traffic from the jobservice container or pod to the registries you replicate with. Block `169.254.169.254` in all cases.",
+      "published_at": "2026-10-06T13:42:02.000Z",
+      "modified_at": "2026-10-06T13:42:03.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wjpm-hv5w-gxr6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wjpm-hv5w-gxr6",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wjpm-hv5w-gxr6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "GHSA-wrw5-gmvj-gf23",
+      "aliases": [],
+      "title": "Vulnerability & Content-Trust pull policies bypassable via attacker-controlled `User-Agent` header",
+      "summary": "### Impact\n\nTwo project policies are enforced when an image is pulled: **Prevent vulnerable images from running** and **Content trust** (only allow pulling signed images). Harbor skipped both checks when the puller had push permission on the project and the request's `User-Agent` header contained `cosign` or `notation`. The `User-Agent` header is set by the client, so any user or robot with push permission could pull images that the policies are meant to block, such as unsigned or vulnerable images, by changing one header.\n\nThe policies were not bypassed for users who only have pull permission.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- At least one project has **Prevent vulnerable images from running** or **Content trust** enabled.\n- You rely on these policies to stop images from being deployed, and some accounts that pull for deployment (users, CI systems, robot accounts) also have push permission on that project. Push permission is held by the Developer, Maintainer and Project Admin roles and by robot accounts granted push.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, the `User-Agent` no longer exempts any pull from either policy. Images that already carry a cosign or notation signature are still recognised as signed and pulled as before.\n\nOne workflow changes: in a project with **Content trust** enabled, cosign and notation need to read the image manifest before they can sign an image for the first time, and that read is now blocked because the image is not signed yet. If you sign images inside a project that already enforces content trust, set the environment variable `CONTENT_TRUST_LEGACY_SIGNER_PULL_ENABLED=true` on core. That restores the old behaviour for the content trust policy only, for clients with push permission whose `User-Agent` contains `cosign` or `notation`. It never affects the vulnerability policy. Only enable it if you trust everyone who has push permission in those projects.\n\n**Until you can upgrade:**\n\n1. Use separate accounts for pushing and for deployment pulls. Give deployment systems (Kubernetes image pull secrets, CD pipelines) robot accounts with pull permission only.\n2. Review which users and robots have push permission on projects that enforce these policies, and remove it where it is not needed.\n3. If you need a hard guarantee, enforce signature and vulnerability checks at deploy time as well, for example with an admission controller in your cluster.",
+      "published_at": "2026-10-06T13:41:58.000Z",
+      "modified_at": "2026-10-06T13:41:59.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-807"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wrw5-gmvj-gf23",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wrw5-gmvj-gf23",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wrw5-gmvj-gf23",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-111590",
+      "aliases": [
+        "GHSA-2phj-cp9f-qq6w"
+      ],
+      "title": "SSRF in Harbor webhook delivery allows ProjectAdmin to reach internal services",
+      "summary": "A wide range of Harbor versions allow SSRF via its webhook delivery component which does not properly validate web hook target addresses, allowing usage of private and link-local IP ranges. An authenticated attacker with ProjectAdmin permissions can configure a webhook policy pointing to a private internal address. When a project event fires, Harbor jobservice makes unauthenticated outbound HTTP POST requests to the target. If the target answers with an error status, the response body is written to the webhook execution log, which project members can read, potentially exposing cloud metadata or other network-restricted resources.",
+      "published_at": "2026-10-06T12:21:19.000Z",
+      "modified_at": "2026-10-26T14:58:10.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00213,
+        "percentile": 0.11651,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "1.7.0",
+              "fixed": "2.13.6"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.5"
+            },
+            {
+              "introduced": "2.15.0",
+              "fixed": "2.15.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-2phj-cp9f-qq6w",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-111590",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-111590",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-111590",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-111590",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-2phj-cp9f-qq6w",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-2phj-cp9f-qq6w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:17efe9597f916717d227ede03f7e77e9e62b8a1de2508598e3e7822bb3de92e6",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-92770",
+      "aliases": [],
+      "title": "Harbor through 2.15.2 Scanner Credential Disclosure via Query Parameter",
+      "summary": "Harbor through 2.15.2 fails to properly restrict the q query parameter filtering on scanner registration access credentials. Project administrators can exploit fuzzy filtering on the AccessCredential column to recover the scanner adapter secret one character at a time through response row counts.",
+      "published_at": "2026-09-16T20:32:31.968Z",
+      "modified_at": "2026-09-21T15:46:22.699Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00452,
+        "percentile": 0.39823,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "2.15.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/geo-chen/oss/blob/main/harbor.md",
+          "type": "report"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor/blob/v2.15.1/src/pkg/scan/dao/scanner/model.go#L51",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor/blob/v2.15.1/src/pkg/user/dao/user.go#L35-L42",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor",
+          "type": "web"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/harbor-through-2.15.2-scanner-credential-disclosure-via-query-parameter",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-92770",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-92770",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-92770",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-92770",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:488c7d6f1fc2d08893438adda9e0bc75dc47db389c7b792203bfdad631f698e6",
+      "note": null
+    },
+    {
+      "id": "GHSA-56j8-6qr5-cg75",
+      "aliases": [],
+      "title": "About CVE-2026-4404",
+      "summary": "Harbor maintainers would like to clarify that CVE-2026-4404 has not been reviewed or acknowledged by the Harbor maintainer team as a valid Harbor vulnerability.\r\nAt this time, the CVE entry is still in “Awaiting Analysis” status, and we believe its description and severity do not accurately reflect the actual Harbor security model and deployment requirements.\r\n\r\nThe harbor.yml.tmpl is a sample file. Users are required to provide their own harbor.yml file during installation, and this file is generated by the user themselves, making the issue unrelated to the Harbor software's installation defaults.\r\n\r\nIt is a fundamental and widely accepted security practice that users must install Harbor with their own custom password. This requirement is explicit and expected in production deployments, and it should not be classified as a product vulnerability.\r\n\r\nWe are actively contacting the relevant organizations and requesting rejection of this CVE.",
+      "published_at": "2026-04-07T10:15:56.000Z",
+      "modified_at": "2026-04-17T05:58:29.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "1.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-56j8-6qr5-cg75",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-56j8-6qr5-cg75",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-56j8-6qr5-cg75",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:484571fcfc63f889feb980bc2419918df5dddbd12d3097424fc8f71b372bbaba",
+      "note": null
+    },
+    {
+      "id": "GHSA-prh4-vhfh-24mj",
+      "aliases": [],
+      "title": "LDAP password and OIDC secret is not redacted in the audit log",
+      "summary": "### Impact\r\nHarbor write configuration payload to audit log when configuration change, the ldap_search_password and oidc_client_secret will be logged in the audit log without redacted\r\n\r\n### Patches\r\nHarbor v2.15.0, v2.14.3, v2.13.5\r\n\r\n### Workarounds\r\nDisable audit log configure event in Harbor Web Console: Go to Administration -> Configuration -> Enable Audit Log Event Type -> Uncheck \"Update Configuration\" and click \"Save\" Button.\r\n\r\n### References\r\nN/A",
+      "published_at": "2026-03-25T07:04:02.000Z",
+      "modified_at": "2026-03-26T22:25:27.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-312",
+        "CWE-532"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "2.13.0",
+              "fixed": "2.13.5"
+            },
+            {
+              "introduced": "2.14.0",
+              "fixed": "2.14.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-prh4-vhfh-24mj",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor/commit/85e756486fc19333c5c300d7ac273e1580dc9350",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-prh4-vhfh-24mj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-prh4-vhfh-24mj",
+          "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-prh4-vhfh-24mj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:99b26fe8faac4882d0e09ab13454a486b13bedfa522d264eeee79043161e0e09",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-4404",
+      "aliases": [
+        "GHSA-hj7x-hmf2-hc2p"
+      ],
+      "title": "Use of hard coded credentials in GoHarbor Harbor",
+      "summary": "Use of hard coded credentials in GoHarbor Harbor version 2.15.0 and below, allows attackers to use the default password and gain access to the web UI.",
+      "published_at": "2026-03-23T14:47:13.396Z",
+      "modified_at": "2026-03-25T20:10:57.000Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0051,
+        "percentile": 0.44072,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-798",
+        "CWE-1393"
+      ],
+      "affected": [
+        {
+          "product": "harbor",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "2.15.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://goharbor.io/docs/1.10/install-config/run-installer-script/#:~:text=If%20you%20did%20not%20change%20them%20in%20harbor.yml,%20the%20default%20administrator%20username%20and%20password%20are%20admin%20and%20Harbor12345",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor/issues/1937",
+          "type": "web"
+        },
+        {
+          "url": "https://cwe.mitre.org/data/definitions/1393.html",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/goharbor/harbor/pull/22751",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-hj7x-hmf2-hc2p",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-4404",
+          "type": "web"
+        },
+        {
+          "url": "https://www.kb.cert.org/vuls/id/577436",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-4404",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-4404",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-4404",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-4404",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-hj7x-hmf2-hc2p",
+          "url": "https://github.com/advisories/GHSA-hj7x-hmf2-hc2p",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ad561d875c0ecfccbc32e5b271154481bf54d3361cc73095f7a9963faa97ba07",
+      "note": null
+    }
+  ]
+}

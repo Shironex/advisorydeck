@@ -1,0 +1,49 @@
+{
+  "id": "GHSA-f27v-hgj3-g9xg",
+  "aliases": [],
+  "title": "Low-privileged S3 user can determine existence of other tenants' S3Tables buckets via a 403 vs 404 oracle",
+  "summary": "## Summary\n\nSeaweedFS routes requests signed with SigV4 service `s3tables` to the S3Tables management API, where the point-lookup handler `handleGetTableBucket` in `weed/s3api/s3tables/handler_bucket_get_list_delete.go` discloses whether a table bucket exists by returning distinguishable responses. An authenticated low-privileged S3 identity, holding ordinary S3 credentials and no S3Tables permission, receives HTTP 403 `AccessDenied` when it probes a table bucket that exists but is owned by another account, and HTTP 404 `NoSuchBucket` when the probed name does not exist. This response discrepancy is a cross-tenant existence oracle: by supplying candidate names one at a time, the low-privileged caller confirms the presence of administrator-owned or other-tenant table bucket names across the ownership boundary, without any read of contents.\n\n## Root Cause\n\nThe handler loads the target resource before it evaluates authorization, and then reports the two failure conditions with different, attacker-distinguishable results. The absence check runs first: a missing bucket produces `filer_pb.ErrNotFound` and a 404 response, emitted independently of any authorization decision. Only if the bucket exists does the handler evaluate `CheckPermissionWithContext`, and a denial there produces a 403 response. Because the two outcomes differ, the response itself reveals existence to a caller who is not authorized to know it.\n\nThe sibling read handlers in the same package enforce the opposite, existence-hiding convention: on an authorization denial they return 404 while internally recording access-denied, so a denied caller cannot distinguish \"present but forbidden\" from \"absent.\" `handleGetTableBucket` was omitted from that convention, so it leaks where the siblings do not.\n\n```text\nAffected component: S3Tables / Iceberg REST management API point-lookup handler\nPrimary function: github.com/seaweedfs/seaweedfs/weed/s3api/s3tables.(*S3TablesHandler).handleGetTableBucket\nSource: weed/s3api/s3tables/handler_bucket_get_list_delete.go\n  - absent bucket -> HTTP 404 NoSuchBucket (line 61-62), before any authorization\n  - present + denied -> HTTP 403 AccessDenied (line 76-78), terminal\nExistence-hiding convention observed in siblings (deny masked as 404):\n  - handleGetTable: weed/s3api/s3tables/handler_table.go:446-448 (404 NoSuchTable on deny)\n  - handleGetNamespace: weed/s3api/s3tables/handler_namespace.go:263-266 (404 NoSuchNamespace on deny)\n```\n\n## Impact\n\nAn authenticated attacker who holds only ordinary low-privileged S3 credentials on a filer that runs the S3 API with IAM enabled and at least two identities can determine the existence of table bucket names owned by other accounts, including an administrator. The demonstrated capability is confidentiality only, and limited to the existence of a name that the attacker supplies or guesses on each request; no bucket contents, metadata, ARNs beyond the supplied name, or policy are returned, and there is no integrity or availability impact. This is the same low-privileged-to-management boundary and threat model as the seed advisory, but the primitive here is weaker than the seed's bulk inventory listing: the attacker must probe candidate names individually rather than receive a full inventory. In shared or multi-tenant deployments this still discloses tenant naming and operational structure across the ownership boundary.\n\n## Proof of Concept\n\n`Requires a running SeaweedFS S3 endpoint with IAM enabled, an administrator-owned (or other-tenant) table bucket, and low-privileged attacker S3 credentials with no S3Tables permission. A boto3 s3tables client signs requests with SERVICE=s3tables, satisfying the route selector.`\n\n1. Configure the attacker's low-privileged credentials in the environment.\n2. Call `get_table_bucket` for a name known to exist and owned by another account; observe HTTP 403 `AccessDenied`.\n3. Call `get_table_bucket` for a name known not to exist; observe HTTP 404 `NoSuchBucket`.\n4. T...",
+  "published_at": "2026-11-09T19:50:52.000Z",
+  "modified_at": "2026-11-09T19:50:53.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-204"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.34"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f27v-hgj3-g9xg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f27v-hgj3-g9xg",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f27v-hgj3-g9xg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2cb648301c9d0b1f8ba76c8ef7ad920a3a4e05b954828e8c6247c7e89e4393e4",
+  "note": null
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-qp7j-c3q2-g739",
+  "repo": {
+    "cve_id": "CVE-2026-62317",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nLogto's email subaddressing blocklist feature (`blockSubaddressing: true`) builds a `RegExp` using unsanitized user input from the email domain field, enabling an unauthenticated attacker to trigger catastrophic backtracking (ReDoS) and block the Node.js event loop for the duration of the server process.\r\n\r\n## Vulnerability Details\r\n\r\n**File**: `packages/core/src/libraries/sign-in-experience/email-blocklist-policy.ts`\r\n**Lines**: 138-151\r\n**CWE**: CWE-1333 - Inefficient Regular Expression Complexity\r\n**CVSS**: 7.5 - CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H\r\n\r\n### Vulnerable Code\r\n\r\n```typescript\r\nconst domain = email.split('@')[1];  // user-controlled input\r\nif (blockSubaddressing) {\r\n  const subaddressingRegex = new RegExp(`^.*\\\\+.*@${domain}$`);  // unsanitized!\r\n  assertThat(!subaddressingRegex.test(email), ...);\r\n}\r\n```\r\n\r\nThe `domain` variable is extracted from attacker-controlled email input and interpolated directly into a `RegExp` constructor without escaping regex metacharacters.\r\n\r\n## Attack Scenario\r\n\r\n**Precondition**: `blockSubaddressing: true` is enabled in Sign-in Experience → Security → Email blocklist policy.\r\n\r\n**Steps**:\r\n1. Attacker starts an OIDC interaction (unauthenticated - any OIDC client)\r\n2. Sends: `POST /api/experience/verification/verification-code`\r\n   ```json\r\n   {\r\n     \"identifier\": {\r\n       \"type\": \"email\",\r\n       \"value\": \"user+test@(a+)+b@aaaaaaaaaaaaaaaaaaaaaaaaaaaa.x\"\r\n     },\r\n     \"interactionEvent\": \"Register\"\r\n   }\r\n   ```\r\n3. `email.split('@')[1]` = `\"(a+)+b\"` (second `@`-segment)\r\n4. Regex `/^.*\\+.*@(a+)+b$/` is constructed with catastrophic backtracking potential\r\n5. `.test(email)` blocks the Node.js event loop for >15 seconds\r\n\r\n**Why the email passes input validation**: `emailRegEx = /^\\S+@\\S+\\.\\S+$/` is very permissive and accepts emails with multiple `@` signs, parentheses, and `+` inside the domain label.\r\n\r\n## Impact\r\n\r\nNode.js uses a single event loop. Blocking it with catastrophic regex backtracking makes the entire Logto instance unresponsive - authentication, token issuance, SSO, and admin console all fail simultaneously. With repeated requests, the service becomes fully unavailable.\r\n\r\n## Verification\r\n\r\nDynamically confirmed on v1.40.1 in Docker lab (svhd/logto:1.40.1, Node.js v22.22.3):\r\n\r\n| Attack payload (trailing a-count) | Server response time |\r\n|----------------------------------|---------------------|\r\n| 20 a's | 63ms |\r\n| 25 a's | 612ms |\r\n| 27 a's | 2,717ms |\r\n| 28 a's | 5,399ms |\r\n| 30 a's | >15,000ms (timeout) |\r\n\r\n## Recommended Fix\r\n\r\nEscape regex metacharacters before interpolating user input:\r\n\r\n```typescript\r\n// packages/core/src/libraries/sign-in-experience/email-blocklist-policy.ts\r\nconst escapedDomain = domain.replaceAll(/[$()*+.?[\\\\\\]^{|}]/g, '\\\\$&');\r\nconst subaddressingRegex = new RegExp(`^.*\\\\+.*@${escapedDomain}$`);\r\n```\r\n\r\nOr use a string comparison instead of regex:\r\n```typescript\r\nconst localPart = email.split('@')[0]!;\r\nassertThat(\r\n  !localPart.includes('+'),\r\n  new RequestError({ code: 'session.email_blocklist.email_subaddressing_not_allowed', status: 422 })\r\n);\r\n```\r\n",
+    "ghsa_id": "GHSA-qp7j-c3q2-g739",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-qp7j-c3q2-g739",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qp7j-c3q2-g739"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-62317"
+      }
+    ],
+    "published_at": "2026-07-01T03:55:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "ReDoS via unescaped user input in email subaddressing regex (blockSubaddressing)",
+    "updated_at": "2026-07-13T21:53:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.41.0",
+        "vulnerable_version_range": "<= 1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

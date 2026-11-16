@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-77x8-73f4-5485",
+  "repo": {
+    "cve_id": "CVE-2026-73612",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nFile Browser's path rules can deny a descendant while leaving its parent allowed. Recursive copy, rename and delete authorize only the root of the operation and then process the whole subtree, so an authenticated non-administrator can copy or rename an allowed parent to read denied descendants at the new location, or delete the parent to destroy them. Reported against v2.63.2 and verified at v2.63.21.\r\n\r\n## Details\r\n\r\n`http/resource.go` checks the root of the operation only. `resourcePatchHandler` authorizes the two endpoints of a copy or rename:\r\n\r\n```go\r\n\tif !d.Check(src) || !d.Check(dst) {\r\n\t\treturn http.StatusForbidden, nil\r\n\t}\r\n```\r\n\r\nand `resourceDeleteHandler` resolves its target through `files.NewFileInfo`, whose checker validates that one path. The recursive work then runs with no checker at all:\r\n\r\n```go\r\n\tcase \"copy\":\r\n\t\t...\r\n\t\treturn fileutils.Copy(d.user.Fs, src, dst, d.settings.FileMode, d.settings.DirMode)\r\n```\r\n\r\n```go\r\n\t\terr = d.RunHook(func() error {\r\n\t\t\treturn d.user.Fs.RemoveAll(r.URL.Path)\r\n\t\t}, \"delete\", r.URL.Path, \"\", d.user)\r\n```\r\n\r\n`fileutils.CopyDir`, `fileutils.MoveFile` and `RemoveAll` walk the tree directly, so every descendant is copied, moved or removed regardless of the rules. Everywhere else the rules are applied per path: listings drop denied entries (`files.FileInfo.readListing`), direct access returns 403 (`files.NewFileInfo`), and the archive download walker checks each descendant (`getFiles` in `http/raw.go`).\r\n\r\n## PoC\r\n\r\nPreconditions:\r\n\r\n- The attacker is an authenticated non-administrator with the relevant file-operation permission on the parent directory.\r\n- A rule denies one or more descendants while leaving the parent allowed.\r\n- The destination of the copy or rename is allowed.\r\n\r\nSteps:\r\n\r\n1. Deny `/copy-src/secret`, `/rename-src/secret` and `/delete-src/secret`, leave the three parent directories accessible, and place a marker file in each denied directory.\r\n2. As the restricted user, request each denied descendant through the resource API. All three return `403`.\r\n3. `PATCH /api/resources/copy-src/?action=copy&destination=/dst` returns `200`, and the marker is readable at its new path.\r\n4. `PATCH /api/resources/rename-src/?action=rename&destination=/moved` returns `200`, and the marker is readable at its new path.\r\n5. `DELETE /api/resources/delete-src/` returns `204`, and the denied marker file no longer exists.\r\n\r\n## Impact\r\n\r\nAn authenticated user holding ordinary create, rename or delete permission can read, relocate or destroy files the rules deny them, defeating rule-based isolation for confidentiality and integrity alike.\r\n\r\n## Patches\r\n\r\nFixed in v2.63.22. Copy, rename and delete now walk the source tree - and the location that tree would land on - before mutating anything, and reject the whole operation with `403` if any path is denied. The walk consults the rules only: hiding dotfiles is a display preference, and must not stop a user from moving a directory that contains one.\r\n\r\n## Workarounds\r\n\r\nNone. Until you can upgrade, withhold create, rename and delete permission from users whose rules deny descendants of directories they may otherwise operate on.\r\n\r\n## References\r\n\r\n- Fix: https://github.com/filebrowser/filebrowser/commit/72faf6dd3c85628e332d3e567124b86708ce2695\r\n- Pull request: https://github.com/filebrowser/filebrowser/pull/6053\r\n",
+    "ghsa_id": "GHSA-77x8-73f4-5485",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-77x8-73f4-5485",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-77x8-73f4-5485"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73612"
+      }
+    ],
+    "published_at": "2026-07-27T15:33:22Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Recursive copy, rename and delete ignore rules denying descendants",
+    "updated_at": "2026-08-21T06:37:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "v2.63.22",
+        "vulnerable_version_range": "<= 2.63.21"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

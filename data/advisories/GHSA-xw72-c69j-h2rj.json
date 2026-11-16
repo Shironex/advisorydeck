@@ -1,0 +1,53 @@
+{
+  "id": "GHSA-xw72-c69j-h2rj",
+  "aliases": [],
+  "title": "Directus is vulnerable to denial of service through unauthenticated Argon2 hash utility endpoints",
+  "summary": "## Summary\r\n\r\nDirectus exposed the utility endpoints `POST /utils/hash/generate` and `POST /utils/hash/verify` to unauthenticated callers. The verify endpoint validated a caller-supplied Argon2 hash directly. Because Argon2 reads its cost parameters (memory, iterations, parallelism) from the encoded hash string, an unauthenticated attacker could supply a hash with very high cost parameters and force the server to perform an expensive verification for each request.\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker can trigger high-cost password-verification work with a small number of requests. Because each verification can be configured to allocate a large amount of memory and CPU, a low volume of concurrent requests can exhaust server resources. This shares the same compute path used by legitimate authentication, so login and other authentication flows are degraded or made unavailable.\r\n\r\nIn testing, 8 concurrent requests increased administrator login latency from roughly 0.5 seconds to 6.6-7.1 seconds (about 13-14x slower than baseline). Higher-cost parameters and greater concurrency can drive the host toward memory exhaustion and process failure.\r\n\r\n### Affected component\r\n\r\nThe `/utils/hash/generate` and `/utils/hash/verify` HTTP endpoints (and their GraphQL and SDK equivalents), which were reachable without authentication and did not enforce a limit on the Argon2 cost parameters accepted from the request.\r\n\r\n## Credits\r\n\r\nReported by @lalalala5678",
+  "published_at": "2026-08-05T16:27:16.000Z",
+  "modified_at": "2026-08-05T16:27:16.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306",
+    "CWE-400",
+    "CWE-405",
+    "CWE-770"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.1.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-xw72-c69j-h2rj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xw72-c69j-h2rj",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-xw72-c69j-h2rj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5e264bce8b2e07e48e889521dfea1ce18d4a43619cf8b3d072d3641616bbf1d6",
+  "note": null
+}

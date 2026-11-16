@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7395-6gh4-5q8p",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nAPI tokens created through the base-scoped creation endpoints never recorded the base they were issued for, and the token authentication strategy never compared a token's base against the base targeted by a request. Every API token was in effect an account-wide bearer credential.\n\n### Details\n\n`ApiToken.ts` persisted only the description, the token value and the owning user and SSO client on insert; the `base_id` field was declared on the model and selected back in listings, but was never written, so it was always null. The creation routes in `api-tokens.controller.ts` carry the base in the URL for both the v1 projects path and the v2 bases path, implying per-base issuance that no layer below the route implemented. `authtoken.strategy.ts` then resolved the token to its owning user and derived the caller's permissions fresh on every request from whatever role that user currently held on the base extracted from the request URL, without ever consulting the token's own scope. A token's reach was therefore a function of its owner's membership at request time rather than anything fixed when the token was issued.\n\n### Impact\n\nA token a user issued for one base - and handed to a third-party integration, a CI pipeline or an embedded client application on that understanding - was an account-wide credential that silently gained full record read, write and delete access on every other base its owner was later added to, with no re-issuance, no re-consent, and nothing in the token management interface indicating the wider reach. A single leaked token thus compromised the owner's current and future multi-base footprint. Exploitation requires only possession of an issued API token.\n\n### Credit\n\nThis issue was reported by [@komyunghan](https://github.com/komyunghan).\n",
+    "ghsa_id": "GHSA-7395-6gh4-5q8p",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-7395-6gh4-5q8p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7395-6gh4-5q8p"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:12Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Incorrect Authorization via Base-Scoped API Tokens",
+    "updated_at": "2026-10-27T10:06:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

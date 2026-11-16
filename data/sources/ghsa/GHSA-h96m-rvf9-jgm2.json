@@ -1,0 +1,80 @@
+{
+  "global": null,
+  "id": "GHSA-h96m-rvf9-jgm2",
+  "repo": {
+    "cve_id": "CVE-2025-14178",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "The following PHP code triggers a reliable heap buffer overflow:\r\n```php\r\n$arr = range(0, 2**29);\r\narray_merge($arr, $arr, $arr, $arr, $arr, $arr, $arr, $arr);\r\n```\r\n\r\nOr the general case:\r\n```php\r\n$power = 24; // You can choose this number 1 <= $power < 32\r\n$arr = range(0, 2**$power);\r\narray_merge(...array_fill(0, 2**(32-$power), $arr));\r\n```\r\n\r\nThis is because packed arrays in array_merge() have an optimization that requires precomputing the count of the elements, done using `count += zend_hash_num_elements(Z_ARRVAL_P(arg));`. However, this may overflow. Note that even if it didn't, it would cause a DoS because array_init() will trigger a bailout with too large counts.\r\n\r\nThe code provided is artificial, but I believe this can happen in the real world with for example large sets of JSON data that are then passed to array_merge(). The total count just has to exceed HT_MAX_SIZE to trigger the DoS or the 32-bit limit to trigger the buffer overflow.\r\n\r\n### Impact\r\n\r\nIf we were using a memory safe language we would \"just\" be limited to the DoS, but now we have heap corruption and all the joys of it.\r\nThis bug has been in PHP since PHP 7.1.\r\n\r\n### Workarounds\r\nPrevent a large number of inputs of long arrays to array_merge().\r\n\r\n### Security impact\r\n\r\nAs noted the example code is just a PoC exploit trigger.\r\n\r\nThe JSON file could be crafted and loaded via json_decode that results in a structure like: [array1, array2, array3, ...]. Then the code could use `array_merge(array1, array2, array3, ...)` from the JSON data. The arrays itself may be relatively small but if the sum of elements exceed the HT_MAX_SIZE bound, the buffer overflow is triggered.\r\n\r\nSomething like this:\r\n\r\n```php\r\n<?php\r\n$array = json_decode(file_get_contents('input.json')); // array of arrays\r\narray_merge(...$array);\r\n```",
+    "ghsa_id": "GHSA-h96m-rvf9-jgm2",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-h96m-rvf9-jgm2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h96m-rvf9-jgm2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-14178"
+      }
+    ],
+    "published_at": "2025-12-18T16:10:32Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Heap buffer overflow in array_merge()",
+    "updated_at": "2025-12-19T09:47:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.1.34",
+        "vulnerable_version_range": "< 8.1.34"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.2.30",
+        "vulnerable_version_range": "< 8.2.30"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.3.29",
+        "vulnerable_version_range": "< 8.3.29"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.4.16",
+        "vulnerable_version_range": "< 8.4.16"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.5.1",
+        "vulnerable_version_range": "< 8.5.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

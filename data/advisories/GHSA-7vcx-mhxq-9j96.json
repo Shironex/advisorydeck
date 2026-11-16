@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-7vcx-mhxq-9j96",
+  "aliases": [],
+  "title": "Denial of service via image-transform endpoint accepting unvalidated target dimensions",
+  "summary": "## Summary\r\n\r\nDenial of service on `GET /assets/<id>` in Directus. The transform-eligibility check in `AssetsService.getAsset`\r\nvalidates only the source image's stored dimensions against `ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION` (default `6000`). The\r\nuser-supplied target dimensions in the `width` and `height` query parameters are passed to Sharp's resize operation with\r\nno equivalent cap, so a tiny source image can be transformed into a very large raster, materialising a gigabyte-scale\r\nRGBA pixel buffer per request.\r\n\r\nOn deployments that have configured any of the four `directus_settings` branding-image fields (`project_logo`,\r\n`public_background`, `public_foreground`, `public_favicon`), the transform endpoint is reachable by an unauthenticated\r\nattacker, because those fields are exempt from the normal access check and their identifiers are disclosed by the\r\nunauthenticated `/server/info` endpoint. On other deployments, exploitation requires an authenticated account with\r\n`directus_files:read` on at least one image.\r\n\r\n## Details\r\n\r\nThe eligibility check compares the source image's stored width and height against `ASSETS_TRANSFORM_IMAGE_MAX_DIMENSION`\r\nand rejects transforms when either source axis exceeds the limit. No equivalent validation is applied to the requested\r\noutput dimensions before they reach Sharp, and `withoutEnlargement` is only honoured when the caller explicitly enables\r\nit. As a result, a request for output far larger than the source (for example, a 1x1 source rendered at 20000x20000) is\r\naccepted and allocates a multi-gigabyte pixel buffer before the per-transform timeout (default\r\n`ASSETS_TRANSFORM_TIMEOUT=7500ms`) fires.\r\n\r\n`HEAD` requests trigger the full transform while transferring no response body, so the server-side cost is unchanged\r\nwhile the attacker's bandwidth cost is effectively zero. The concurrent transform queue is bounded by\r\n`ASSETS_TRANSFORM_MAX_CONCURRENT` (default `25`), giving a theoretical worst-case allocation on the order of tens of\r\ngigabytes under sustained load; on under-provisioned hosts the Node process is OOM-killed well before that. There is no\r\nrate limiter on `/assets/*` in the default configuration (`RATE_LIMITER_ENABLED=false`).\r\n\r\n## Impact\r\n\r\nA remote attacker can issue small HTTP requests (including `HEAD`) that each cause the Directus process to allocate\r\ngigabyte-sized image buffers and saturate CPU cores, degrading or denying service for legitimate clients. On deployments\r\nwith branding images configured, the attack is unauthenticated; otherwise it requires an authenticated account with\r\n`directus_files:read`. In both cases the impact ceiling is the transform queue size multiplied by the per-transform\r\nbuffer size, which on typical hosts is sufficient to exhaust available memory.\r\n\r\n## Credits\r\n\r\nReported by @chndlrx",
+  "published_at": "2026-08-20T16:17:22.000Z",
+  "modified_at": "2026-08-20T16:17:22.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-400",
+    "CWE-405"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.2.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-7vcx-mhxq-9j96",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7vcx-mhxq-9j96",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-7vcx-mhxq-9j96",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6eb6345117e5a3be9c601aca38dac119a305356015036e8f59d73cadae2488aa",
+  "note": null
+}

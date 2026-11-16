@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-74r9-qxhc-fx53",
+  "repo": {
+    "cve_id": "CVE-2026-6104",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "description": "## Summary\r\n\r\nA global buffer over-read exists in `mbfl_name2encoding_ex()` (`ext/mbstring/libmbfl/mbfl/mbfl_encoding.c`, line 352), called from `mb_convert_encoding(...)` and other mbstring functions, when parsing encoding names with embedded NUL bytes.\r\n\r\n## Root Cause\r\n\r\nIn `mbfl_name2encoding_ex`, the MIME name search loop (line 352) uses:\r\n\r\n```c\r\nif (strncasecmp((*encoding)->mime_name, name, name_len) == 0 && (*encoding)->mime_name[name_len] == '\\0') {\r\n```\r\n\r\nWhen `name` contains an embedded NUL byte (e.g., `\"UTF-8\\x00AAAA...\"`), `strncasecmp` returns 0 after matching up to the NUL (since both strings have NUL at the same position). The subsequent check `(*encoding)->mime_name[name_len]` then reads at offset `name_len` (e.g., 22) from `mime_name`, which is only 6 bytes long (`\"UTF-8\\0\"`). This reads 16+ bytes past the end of the global string into adjacent global memory.\r\n\r\nThe same issue exists on lines 362 for encoding aliases.\r\n\r\n## Minimal Reproducer\r\n\r\n```php\r\n<?php\r\n$encoding = \"UTF-8\\x00AAAAAAAAAAAAAAAA\";\r\nmb_convert_encoding('foo', $encoding, $encoding)\r\n```\r\n\r\nRunning with ASan-instrumented PHP 8.4.20:\r\n\r\n```\r\n==552769==ERROR: AddressSanitizer: global-buffer-overflow on address 0x...\r\nREAD of size 1\r\n    #0 in mbfl_name2encoding_ex mbfl_encoding.c:352\r\n    #1 in php_mb_parse_encoding_list mbstring.c:350\r\n    #2 in zif_mb_convert_encoding mbstring.c:2865\r\n```\r\n\r\n## Attack Surface\r\n\r\n- Triggerable when a attacker-controlled encoding is passed to `mb_convert_encoding()` without sanitization\r\n- Also affected are `mb_detect_encoding()`, `mb_convert_variables()`, `mb_detect_order()`, as well as the `mbstring.detect_order` and `mbstring.http_output` INI settings.\r\n- Out-of-bounds read of global memory (CWE-125)\r\n- Information disclosure of adjacent global data; not directly exploitable for code execution\r\n\r\n## Environment\r\n\r\n- PHP 8.4.0+, `-fsanitize=address,undefined`",
+    "ghsa_id": "GHSA-74r9-qxhc-fx53",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-74r9-qxhc-fx53",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-74r9-qxhc-fx53"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-6104"
+      }
+    ],
+    "published_at": "2026-05-07T12:55:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Global buffer over-read in mb_convert_encoding() with attacker-supplied encoding",
+    "updated_at": "2026-05-07T12:55:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mbstring"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

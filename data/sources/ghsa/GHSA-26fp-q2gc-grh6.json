@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-26fp-q2gc-grh6",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\n\nThe job status polling endpoint in `jobs.controller.ts` was the only non-public job route that carried no `@Acl` decorator, so it was reachable with no credentials at all and served a background job's buffered status messages to whoever supplied the job id.\n\n### Details\n\nThe controller's guards authenticate nothing on their own: `MetaApiLimiterGuard` only governs rate limiting, and `GlobalGuard` assigns a default guest identity when no credential validates instead of rejecting the request. The actual authentication cut-off - the `isAuthorized` check in `extract-ids.middleware.ts` - lives inside the ACL interceptor, which is mounted only by the `@Acl` decorator, so a route without one has no authentication gate whatsoever.\n\nThe handler took the job id straight from the request body and used it as the key into the polling message buffer, read from a literal `root` cache namespace shared by every tenant. The job's recorded owner (`fk_user_id`) was never consulted, and no workspace or base scope entered the lookup, so the id alone was sufficient to read the stream.\n\n### Impact\n\nNo authentication is required, but the caller needs the job's id, an unguessable nanoid that the base's job list returns to every member of the base, including the Viewer role. With it, a caller could read that job's status updates and completion payload while the job ran and for about a minute after it ended. For a data-export job the payload carries the signed download URL of the exported file, which retrieves another user's exported data with no further authentication; for a duplication job it discloses the identifier of the new base. The impact is disclosure only.\n\n### Credit\n\nThis issue was reported by [@Humbertosp](https://github.com/Humbertosp). It was independently reported by [@skeletonsec](https://github.com/skeletonsec) and [@klydz](https://github.com/klydz) (Adem El Adeb and Walless Al Essa).\n",
+    "ghsa_id": "GHSA-26fp-q2gc-grh6",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-26fp-q2gc-grh6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-26fp-q2gc-grh6"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:23Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing Authorization on Job Status Polling Endpoint",
+    "updated_at": "2026-11-02T08:47:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

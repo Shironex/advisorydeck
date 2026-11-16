@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hqp5-j79g-vr89",
+  "repo": {
+    "cve_id": "CVE-2026-100413",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-321"
+    ],
+    "description": "### Summary\n\nThe SFTP Helm chart includes a hard-coded, unencrypted Ed25519 OpenSSH private key in `k8s/charts/seaweedfs/templates/sftp/sftp-secret.yaml`. Because the key is committed in the public repository, any server that presents it has a publicly known host identity.\n\nThe key is not used by every deployment that enables SFTP. The chart writes it to the chart-managed `*-sftp-secret`, while the SFTP host-key volume mounts a distinct `*-sftp-ssh-secret`. However, a narrower standalone configuration mounts `*-sftp-secret` at `/etc/sw`, causing the legacy `sshPrivateKey` setting to load and present the hard-coded key. An attacker who can redirect or intercept network traffic can then impersonate that SFTP endpoint to clients that trust the key.\n\n### Affected configuration\n\nA standalone Helm deployment is affected when all of the following are true:\n\n- `sftp.enabled` is `true`.\n- `sftp.enableAuth` is `true`, which mounts the user-configuration Secret at `/etc/sw`.\n- `sftp.existingConfigSecret` is unset, so the chart-managed `*-sftp-secret` is mounted.\n- `sftp.sshPrivateKey` retains the default `/etc/sw/seaweedfs_sftp_ssh_private_key` path.\n- The `config-ssh` volume is backed by a valid Secret, through `sftp.existingSshConfigSecret` or a pre-created default `*-sftp-ssh-secret`, allowing the pod to start.\n- The key folder does not contain another Ed25519 key loaded later, which would replace the hard-coded Ed25519 signer.\n\nThe following default paths are not affected:\n\n- Standalone SFTP with `sftp.enableAuth: false`: `*-sftp-secret` is not mounted, so the hard-coded key is not available at the configured path. A bare default deployment also references a `*-sftp-ssh-secret` that affected chart versions do not create, preventing the pod from starting.\n- All-in-one SFTP with default paths: the user-configuration Secret is mounted under `/etc/sw/sftp`, while the legacy key path is `/etc/sw/seaweedfs_sftp_ssh_private_key`, so the hard-coded key is not loaded. `allInOne.enabled` alone merely causes the Secret to be rendered; it does not enable the SFTP service.\n- Deployments using `sftp.existingConfigSecret`, clearing or changing `sftp.sshPrivateKey`, or supplying a replacement Ed25519 host key through `hostKeysFolder`.\n\n### Details\n\nAffected template field:\n\n`stringData.seaweedfs_sftp_ssh_private_key`\n\nThe bundled key fingerprint is:\n\n`SHA256:0afw5vH6NIGPGe3H+d9x8M3QoVZyGZZem58XuawSMj0`\n\nSFTP passwords in the same Secret are generated at installation time, but the host private key is a fixed literal shared by affected installations.\n\n### Proof of concept\n\n1. Create a Kubernetes Secret containing a valid non-Ed25519 SSH host key and select it with `sftp.existingSshConfigSecret`. This satisfies the required `/etc/sw/ssh` host-key volume without replacing the bundled Ed25519 signer.\n2. Deploy an affected chart with `sftp.enabled: true`, `sftp.enableAuth: true`, no `sftp.existingConfigSecret`, and the default `sftp.sshPrivateKey` value.\n3. Confirm that the SFTP pod is running, then query the live endpoint from a trusted network path:\n\n```sh\nssh-keyscan -p 2022 -t ed25519 <sftp-host> 2>/dev/null | ssh-keygen -lf - -E sha256\n```\n\nThe endpoint presents:\n\n```text\n256 SHA256:0afw5vH6NIGPGe3H+d9x8M3QoVZyGZZem58XuawSMj0 (ED25519)\n```\n\nAn attacker with network redirection or interception capability can operate a rogue SFTP endpoint using the published private key. Clients that pinned or accepted this key through trust on first use cannot distinguish the rogue endpoint by host-key validation.\n\n### Impact\n\nThis is CWE-321, Use of Hard-coded Cryptographic Key. Impact is limited to successfully running deployments that actually present the bundled key; the presence of the key in a rendered but unmounted Secret is not by itself a network vulnerability.\n\nFor password-authenticated sessions, a successful impersonation can expose SFTP credentials and data sent to the rogue endpoint. Public-key authentication signatures are bound to an SSH session and cannot simply be replayed to an upstream server, but the attacker can still impersonate the endpoint and accept data sent by the client.\n\n### Remediation\n\nGenerate a unique host key at installation time in the `*-sftp-ssh-secret` that the workloads actually mount, preserve that generated key across normal upgrades, and replace the previously bundled key when detected. The legacy `sshPrivateKey` default should be cleared so host keys are loaded from `hostKeysFolder`.\n\nOperators should check exposed SFTP endpoints for the fingerprint above. If it was served, rotate the host key. If password authentication was used and network interception was plausible, rotate the associated SFTP passwords as well.",
+    "ghsa_id": "GHSA-hqp5-j79g-vr89",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-hqp5-j79g-vr89",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hqp5-j79g-vr89"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-100413"
+      }
+    ],
+    "published_at": "2026-09-18T19:58:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Hard-coded SSH host key can be presented by certain standalone SFTP Helm deployments",
+    "updated_at": "2026-09-28T14:30:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": ">= 4.0.388, <= 4.40.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-35605",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "Hi,\n\nThe `Matches()` function in `rules/rules.go` uses `strings.HasPrefix()` without a trailing directory separator when matching paths against access rules. A rule for `/uploads` also matches `/uploads_backup/`, granting or denying access to unintended directories. Verified against v2.62.2 (commit 860c19d).\n\n## Details\n\nAt `rules/rules.go:29-35`:\n\n    func (r *Rule) Matches(path string) bool {\n        if r.Regex {\n            return r.Regexp.MatchString(path)\n        }\n        return strings.HasPrefix(path, r.Path)\n    }\n\nWhen a rule has `Path: \"/uploads\"`, any path starting with `/uploads` matches, including `/uploads_backup/secret.txt`. The regex variant at line 31 uses proper matching, but the non-regex path uses a prefix check without ensuring the match ends at a directory boundary.\n\nThe `Check()` function at `http/data.go:29-48` iterates all rules with last-match-wins semantics. No secondary validation exists beyond this prefix check.\n\n## PoC\n\nAdmin configures: allow rule `Path: \"/shared\"` for a restricted user.\n\nFilesystem contains:\n- `/shared/` (intended to be accessible)\n- `/shared_private/` (intended to be restricted)\n\nUser requests `/shared_private/secret.txt`:\n- `strings.HasPrefix(\"/shared_private/secret.txt\", \"/shared\")` returns true\n- Allow rule applies\n- Access granted to the unintended directory\n\n## Impact\n\nAuthenticated users can access files in sibling directories that share a common prefix with an allowed directory, bypassing the admin's intended access configuration.\n\n## Prior art\n\nPrior advisories GHSA-4mh3-h929-w968 (path-based access control bypass) and GHSA-9f3r-2vgw-m8xp (path traversal in copy/rename) addressed related access control issues. This HasPrefix prefix-collision is a distinct, unreported variant.\n\n## Suggested Fix\n\n    func (r *Rule) Matches(path string) bool {\n        if r.Regex {\n            return r.Regexp.MatchString(path)\n        }\n        prefix := r.Path\n        if prefix != \"/\" && !strings.HasSuffix(prefix, \"/\") {\n            prefix += \"/\"\n        }\n        return path == r.Path || strings.HasPrefix(path, prefix)\n    }\n\nKoda Reef\n\n---\n\n**Update:** Fix submitted as PR #5889.",
+    "ghsa_id": "GHSA-5q48-q4fm-g3m6",
+    "html_url": "https://github.com/advisories/GHSA-5q48-q4fm-g3m6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5q48-q4fm-g3m6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35605"
+      }
+    ],
+    "published_at": "2026-04-08T00:04:49Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-5q48-q4fm-g3m6",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-35605",
+      "https://github.com/filebrowser/filebrowser/pull/5889",
+      "https://github.com/advisories/GHSA-5q48-q4fm-g3m6"
+    ],
+    "severity": "medium",
+    "summary": "File Browser has an access rule bypass via HasPrefix without trailing separator in path matching",
+    "updated_at": "2026-04-08T00:04:50Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.63.1",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "< 2.63.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-5q48-q4fm-g3m6",
+  "repo": {
+    "cve_id": "CVE-2026-35605",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "Hi,\r\n\r\nThe `Matches()` function in `rules/rules.go` uses `strings.HasPrefix()` without a trailing directory separator when matching paths against access rules. A rule for `/uploads` also matches `/uploads_backup/`, granting or denying access to unintended directories. Verified against v2.62.2 (commit 860c19d).\r\n\r\n## Details\r\n\r\nAt `rules/rules.go:29-35`:\r\n\r\n    func (r *Rule) Matches(path string) bool {\r\n        if r.Regex {\r\n            return r.Regexp.MatchString(path)\r\n        }\r\n        return strings.HasPrefix(path, r.Path)\r\n    }\r\n\r\nWhen a rule has `Path: \"/uploads\"`, any path starting with `/uploads` matches, including `/uploads_backup/secret.txt`. The regex variant at line 31 uses proper matching, but the non-regex path uses a prefix check without ensuring the match ends at a directory boundary.\r\n\r\nThe `Check()` function at `http/data.go:29-48` iterates all rules with last-match-wins semantics. No secondary validation exists beyond this prefix check.\r\n\r\n## PoC\r\n\r\nAdmin configures: allow rule `Path: \"/shared\"` for a restricted user.\r\n\r\nFilesystem contains:\r\n- `/shared/` (intended to be accessible)\r\n- `/shared_private/` (intended to be restricted)\r\n\r\nUser requests `/shared_private/secret.txt`:\r\n- `strings.HasPrefix(\"/shared_private/secret.txt\", \"/shared\")` returns true\r\n- Allow rule applies\r\n- Access granted to the unintended directory\r\n\r\n## Impact\r\n\r\nAuthenticated users can access files in sibling directories that share a common prefix with an allowed directory, bypassing the admin's intended access configuration.\r\n\r\n## Prior art\r\n\r\nPrior advisories GHSA-4mh3-h929-w968 (path-based access control bypass) and GHSA-9f3r-2vgw-m8xp (path traversal in copy/rename) addressed related access control issues. This HasPrefix prefix-collision is a distinct, unreported variant.\r\n\r\n## Suggested Fix\r\n\r\n    func (r *Rule) Matches(path string) bool {\r\n        if r.Regex {\r\n            return r.Regexp.MatchString(path)\r\n        }\r\n        prefix := r.Path\r\n        if prefix != \"/\" && !strings.HasSuffix(prefix, \"/\") {\r\n            prefix += \"/\"\r\n        }\r\n        return path == r.Path || strings.HasPrefix(path, prefix)\r\n    }\r\n\r\nKoda Reef\r\n\r\n---\r\n\r\n**Update:** Fix submitted as PR #5889.",
+    "ghsa_id": "GHSA-5q48-q4fm-g3m6",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-5q48-q4fm-g3m6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5q48-q4fm-g3m6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35605"
+      }
+    ],
+    "published_at": "2026-04-04T20:31:18Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Access rule bypass via HasPrefix without trailing separator in path matching",
+    "updated_at": "2026-04-06T20:09:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.1",
+        "vulnerable_version_range": "<= 2.62.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

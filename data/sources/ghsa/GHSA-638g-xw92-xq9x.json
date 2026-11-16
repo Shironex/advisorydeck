@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-638g-xw92-xq9x",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\n\nThe table deletion confirmation dialog interpolated user-controlled column and table titles into an HTML string and rendered it through an `innerHTML` binding, so a title containing markup executed script for a user who confirmed the deletion of a table on an external data source.\n\n### Details\n\n`Delete.vue` built one dependency line per blocking link column by interpolating the column's title and the related table's title into a template string, joined the lines and rendered the result as a VNode created with `h('div', { innerHTML })`. The message was built only after the user confirmed the deletion, and only for tables on an external (non-meta) source that still had link columns pointing at them. Vue does not escape the content of an `innerHTML` binding, and the project's `v-dompurify-html` directive only covers template directives - it does not intercept programmatic `h()` calls - so the raw titles reached the DOM as markup. The older delete-confirm flow in `useTableNew.ts` composed the same message. Server-side, column titles are only trimmed and a table's display title is not sanitized at all, as `tables.service.ts` passes only `table_name` through DOMPurify, so any user able to create a LinkToAnotherRecord column could persist the payload.\n\n### Impact\n\nSame-origin script execution in the browser of a user who confirms the deletion of such a table, an action that requires the base Creator role or above and so typically falls to base owners and administrators. The payload runs in the NocoDB origin and can read the session token from browser storage under `localStorage[\"nocodb-gui-v2\"]`, letting an attacker act as the victim through the authenticated API and exfiltrate the data that victim can reach. Storing the payload requires an authenticated session with permission to create columns, that is a base Creator role.\n\n### Credit\n\nThis issue was reported by [@cy3erm](https://github.com/cy3erm).\n",
+    "ghsa_id": "GHSA-638g-xw92-xq9x",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-638g-xw92-xq9x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-638g-xw92-xq9x"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored Cross-Site Scripting via Table Deletion Dialog",
+    "updated_at": "2026-10-27T10:06:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

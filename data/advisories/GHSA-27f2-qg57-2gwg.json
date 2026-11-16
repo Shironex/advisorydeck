@@ -1,0 +1,58 @@
+{
+  "id": "GHSA-27f2-qg57-2gwg",
+  "aliases": [],
+  "title": "Immutable tag rule matcher only evaluates first repository/tag selector, allowing multi-selector rules to be bypassed",
+  "summary": "### Impact\n\nAn immutable tag rule can list more than one repository pattern or more than one tag pattern. Harbor only evaluated the first repository pattern and the first tag pattern of each rule and ignored the rest. Tags that should have been protected by the other patterns stayed mutable: they could be overwritten by a push or deleted.\n\nExploiting this needs normal project permissions: push permission to overwrite a tag (Developer, Maintainer, Project Admin, or a robot with push), or delete permission to delete it. It does not let anyone go beyond the permissions they already have; it only removes the protection the rule was meant to add.\n\n### Am I affected?\n\nYou are affected only if an immutable tag rule has more than one entry in its repository selectors or tag selectors. The Harbor web UI stores each rule with a single pattern (several values are combined as `{a,b}` in one pattern), so rules created in the UI are not affected. Rules created or edited through the API, Terraform or other automation can have several selectors.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, every selector of a rule is evaluated. Tags matched by the second and later selectors become immutable, so pushes that overwrite them or attempts to delete them are rejected from then on. Review affected rules before upgrading if your pipelines intentionally overwrite such tags.\n\n**Until you can upgrade:** split each affected rule into one rule per repository pattern and tag pattern, or combine the values into a single pattern such as `{redis,mysql}`.\n\n### Check for affected rules\n\nList immutable tag rules with more than one selector:\n\n```sql\nSELECT id, project_id, tag_filter\nFROM immutable_tag_rule\nWHERE json_array_length(tag_filter::json->'tag_selectors') > 1\n   OR json_array_length(tag_filter::json->'scope_selectors'->'repository') > 1;\n```\n\nFor these projects, check the audit log for pushes or deletions of tags that the rule was meant to protect.",
+  "published_at": "2026-10-06T13:42:20.000Z",
+  "modified_at": "2026-10-06T13:42:20.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-670"
+  ],
+  "affected": [
+    {
+      "product": "harbor",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.6"
+        },
+        {
+          "introduced": "2.14.0",
+          "fixed": "2.14.5"
+        },
+        {
+          "introduced": "2.15.0",
+          "fixed": "2.15.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-27f2-qg57-2gwg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-27f2-qg57-2gwg",
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-27f2-qg57-2gwg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+  "note": null
+}

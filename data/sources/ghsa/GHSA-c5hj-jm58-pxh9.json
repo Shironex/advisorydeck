@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-c5hj-jm58-pxh9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/pull/9855). The third-party token endpoints of the Account API now reject access tokens issued to third-party applications, as the other Account API routes already do.\n>\n> GHSA-mg64-x3xv-96rc and GHSA-cvjg-j6fr-vcjv reported the same issue and were consolidated here; their reporters are credited.\n\n---\n\n## Summary\r\n\r\nThird-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)\r\n\r\n## Affected code\r\n\r\n`packages/core/src/routes/account/third-party-tokens.ts`:118\r\n\r\nthird-party-tokens.ts (GET social, no first-party/step-up check):\r\nL112  async (ctx, next) => {\r\nL113    const { id: userId, scopes } = ctx.auth;\r\nL114    const { target } = ctx.guard.params;\r\nL118    assertThat(scopes.has(UserScope.Identities), 'auth.forbidden', 403);\r\nL120    const tokenSetSecret = await secretsQueries.findSocialTokenSetSecretByUserIdAndTarget(userId, target);\r\nL132    ctx.body = await getAccessToken(libraries, queries, tokenSetSecret);   // returns decrypted UPSTREAM token\r\n(no assertFirstPartyClient anywhere in this file)\r\n\r\ngetAccessToken returns the plaintext upstream token (third-party-tokens.ts:55-74):\r\nL55   const { access_token, refresh_token } = decryptTokens({ iv, encryptedDek, ciphertext, authTag });\r\nL72   if (!expiresAt || now < expiresAt) { return formatTokenResponse(access_token, metadata, now); }\r\n\r\nThe boundary these endpoints skip (assert-first-party-client.ts:19-23):\r\nL19  export const assertFirstPartyClient = async (queries, clientId?) => {\r\nL20    if (clientId !== undefined && (await isThirdPartyApplication(queries, clientId))) {\r\nL21      throw new RequestError({ code: 'auth.third_party_application_forbidden', status: 403 });\r\n\r\nAuth chain imposes no first-party restriction:\r\nkoa-oidc-auth.ts:91  assertThat(scopes.has('openid'), ...403);   // any app has openid\r\nkoa-account-center.ts:23  assertThat(accountCenter.enabled, 'account_center.not_enabled');  // tenant toggle only\r\n\r\nEvery sibling account route DOES call it, e.g. identities.ts:126,161,194 ; email-and-phone.ts:52,98,139,181 ; mfa-verifications.ts:109,280,424,468 ; sessions.ts:93 ; grants.ts:90 ; logto-config.ts:79 ; index.ts:104,167,192,275 - third-party-tokens.ts has zero occurrences.\r\n\r\nThe route's own test confirms the only gate is the scope (third-party-tokens.test.ts:86-95): a token with just {openid, identities} and no clientId 'passes the scope gate for GET social access-token' (proceeds to reading the stored secret).\r\n\r\n## Attacker model\r\n\r\nOperator of a third-party (non-first-party) OAuth application registered in the Logto tenant, which the victim end-user has signed into and consented the `identities` user scope to. The attacker holds only a normal opaque OIDC access token issued to that app (scopes `openid identities`). No admin, no Management API scope, no server access.\r\n\r\n## Details\r\n\r\nEvery account-mutating/identity endpoint on the userRouter enforces the triad `scopes.has(...)` + (often) `identityVerified` + `assertFirstPartyClient(queries, clientId)`. `assertFirstPartyClient` is the documented boundary that keeps third-party OAuth apps (which always carry `openid`) out of account-management data: its own docstring says enabling a claim scope like `email` for a third-party app only tells the app it may *read* that claim, not act on the account. The two GET handlers (and the PUT) in third-party-tokens.ts break this pattern: they gate ONLY on `scopes.has(UserScope.Identities)` and never call `assertFirstPartyClient`, nor do they require `identityVerified`. The handlers then decrypt and return the *upstream provider's* live access token (the Google/Microsoft/SSO IdP token Logto stored during social/SSO login, refreshing it via the connector if expired). The `identities` scope's semantic grant is 'your social and SSO identity details' (userinfo claims `identities`/`sso_identities`), not the live upstream bearer credential - so returning that token exceeds what the consent conveyed. koaOidcAuth (koa-oidc-auth.ts:91) only requires `openid`; koaAccountCenter (koa-account-center.ts:23) only requires the tenant toggle `enabled`; neither restricts to first-party clients. That the sibling GET `/api/account` profile read (index.ts:52-64) also omits the first-party check confirms third-party apps genuinely reach account GET routes - so these token GETs are reachable by them.\r\n\r\nNote: the same missing `assertFirstPartyClient` guard affects every handler in `packages/core/src/routes/account/third-party-tokens.ts` (both the GET handlers at lines 118 and 132 and the PUT variant), not just a single route - the guard is absent from the router registration, so it applies file-wide.\r\n\r\n## Proof of concept\r\n\r\n**Entrypoint:** `GET /api/account/identities/:target/access-token, GET /api/account/sso-identities/:connectorId/access-token, and the corresponding PUT /api/account/identities/:target/access-token variant (registered on the userRouter via accountRoutes; reachable with a third-party OAuth app's access token)`\r\n\r\n1. Tenant admin enables the `identities` user scope on the attacker's third-party app (routine for apps that want social identity info) and has a social/SSO connector with token storage enabled; the victim previously linked that identity, so Logto has an encrypted upstream token set for the user.\r\n2. Victim signs into the attacker's third-party app and consents to 'Your social and SSO identity details'.\r\n3. The app receives an opaque access token with scopes `openid identities`.\r\n4. Attacker calls `GET https://{tenant}.logto.app/api/account/identities/google/access-token` with `Authorization: Bearer <that token>` (or `/api/account/sso-identities/{connectorId}/access-token`).\r\n5. koaOidcAuth passes (openid present) -> koaAccountCenter passes (enabled) -> handler passes the `identities` scope gate -> NO first-party check, NO step-up check -> getAccessToken() decrypts the stored token set and returns the upstream provider access_token (refreshed if expired).\r\n6. Attacker now holds the victim's live Google/Microsoft/SSO access token and can call those provider APIs as the victim - a capability the `identities` consent never granted.\r\n\r\n## Impact\r\n\r\nA consented third-party application escalates a narrow 'read identity details' consent into possession of the user's live upstream IdP/social provider access tokens (with connector-side refresh), enabling impersonation of the victim at the external provider (reading mail/contacts/drive, calling downstream APIs, etc.). This is exactly the trust boundary assertFirstPartyClient exists to protect, and it is the only thing missing on these endpoints.\r\n\r\n## Verification notes\r\n\r\nCited line third-party-tokens.ts:118 (scope gate on GET social) is accurate, as are the getAccessToken decrypt/return lines and the assert-first-party-client.ts / koa-oidc-auth.ts / koa-account-center.ts citations. Nuance: the test at third-party-tokens.test.ts:86-95 uses a token with NO clientId, so it demonstrates the scope-only gate but does not itself prove a third-party clientId would slip through - the actual proof is the total absence of assertFirstPartyClient in the file combined with the middleware chain that never restricts to first-party. The PUT endpoint additionally requires a verified Social verification record whose identity target and userInfo.id match the current user, but still performs no first-party client check. The two GET endpoints have no step-up (identityVerified) requirement at all. Note the feature also requires the non-default connector 'store token' setting to be enabled for any token to exist to steal.",
+    "ghsa_id": "GHSA-c5hj-jm58-pxh9",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-c5hj-jm58-pxh9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c5hj-jm58-pxh9"
+      }
+    ],
+    "published_at": "2026-11-09T07:10:47Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Third-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)",
+    "updated_at": "2026-11-09T07:10:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": "<= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

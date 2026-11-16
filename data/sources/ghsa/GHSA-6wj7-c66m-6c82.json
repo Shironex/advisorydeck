@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6wj7-c66m-6c82",
+  "repo": {
+    "cve_id": "CVE-2026-55370",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-294"
+    ],
+    "description": "### Summary\r\n\r\nLogto's existing TOTP verification accepted a successfully used TOTP code again while the code remained inside the RFC 6238 acceptance window. The verifier used `otplib`'s stateless check against the configured `window = 1` and recorded `lastUsedAt` only after a successful verification, but it did not persist or compare the TOTP time-step counter that produced the accepted code.\r\n\r\nRFC 6238 section 5.2 requires verifiers to reject a second successful attempt for the same OTP. Without that one-use check, an attacker who has the victim's first factor and captures a live TOTP value can replay that value to satisfy MFA during the same acceptance window.\r\n\r\n### Affected paths\r\n\r\n- Experience API existing TOTP verification: `packages/core/src/routes/experience/classes/verifications/totp-verification.ts`\r\n- Legacy interaction TOTP MFA verification: `packages/core/src/routes/interaction/verifications/mfa-payload-verification.ts` and `packages/core/src/routes/interaction/mfa.ts`\r\n- Shared TOTP validator: `packages/core/src/libraries/verification-helpers/totp-validation.ts`\r\n\r\nTOTP enrollment and new-secret verification are not the primary issue. The replay risk is in verification of an already enrolled TOTP factor during sign-in/MFA.\r\n\r\n### Impact\r\n\r\nA captured TOTP value can be replayed before it expires from the configured acceptance window. This can allow MFA completion for a separate sign-in attempt when the attacker also has the victim's first factor, such as a password obtained through phishing, credential theft, or another compromise.\r\n\r\nThe vulnerability is classified as CWE-294, Authentication Bypass by Capture-replay. The score is CVSS 3.1 6.4 Medium: `CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N`.\r\n\r\n### Remediation\r\n\r\nThe fix stores and enforces the accepted TOTP time-step counter rather than relying on wall-clock `lastUsedAt`.\r\n\r\n- `getTotpTokenTimeStep()` uses `authenticator.checkDelta()` to identify the exact TOTP time step accepted by the RFC 6238 window.\r\n- TOTP MFA records now include `lastUsedTimeStep`.\r\n- Existing TOTP verification rejects any code whose matched time step is less than or equal to the stored `lastUsedTimeStep`.\r\n- Successful verification updates both `lastUsedAt` and `lastUsedTimeStep`.\r\n- The Experience TOTP verification audit payload no longer includes the raw submitted TOTP code.\r\n\r\nThis preserves normal use of the next authenticator code while preventing replay of a code that already succeeded.\r\n\r\n### References\r\n\r\n- RFC 6238 section 5.2: https://datatracker.ietf.org/doc/html/rfc6238#section-5.2\r\n- CWE-294: https://cwe.mitre.org/data/definitions/294.html",
+    "ghsa_id": "GHSA-6wj7-c66m-6c82",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-6wj7-c66m-6c82",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6wj7-c66m-6c82"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55370"
+      }
+    ],
+    "published_at": "2026-07-01T04:02:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "TOTP code can be replayed within the RFC 6238 acceptance window",
+    "updated_at": "2026-07-01T04:02:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.41.0",
+        "vulnerable_version_range": "<= 1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

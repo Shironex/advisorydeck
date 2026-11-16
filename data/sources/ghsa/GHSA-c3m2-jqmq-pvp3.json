@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-c3m2-jqmq-pvp3",
+  "repo": {
+    "cve_id": "CVE-2026-47201",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": " ### Summary\r\n \r\n authentik's SAML Source ACS endpoint is vulnerable to XML Signature Wrapping when validating upstream SAML responses. An attacker with any account at the upstream IdP can reuse a valid signed assertion to authenticate as another federated user.\r\n \r\n ### Patches\r\n \r\n authentik 2026.5.1, 2026.2.4 and 2025.12.6 fix this issue.\r\n \r\n ### Impact\r\n \r\n Affected: authentik deployments using a SAML Source for upstream SAML federation with signed assertions, or signed responses without signed assertions. Not affected: deployments that do not use SAML Source for upstream SAML federation.\r\n \r\n The SAML Source trusts that the verified XML signature belongs to the assertion or response that authentik later consumes. A crafted SAML response can make signature verification succeed against the attacker's original signed assertion while authentik reads identity data from a different forged assertion.\r\n \r\n An attacker first completes a legitimate login to the upstream IdP and captures the signed SAML response sent through their browser. They then submit a modified response to the ACS endpoint where the valid signature still verifies, but the consumed assertion contains a victim identifier or attacker-chosen attributes.\r\n \r\n The attacker can authenticate as a victim who has previously used the SAML Source, or as a local user matched by forged email or username when those matching modes are enabled.\r\n \r\n ### Workarounds\r\n \r\n Disable affected SAML Sources, or block access to their ACS endpoints.\r\n \r\n ### For more information\r\n \r\n If you have any questions or comments about this advisory:\r\n \r\n - Email us at [security@goauthentik.io](mailto:security@goauthentik.io)",
+    "ghsa_id": "GHSA-c3m2-jqmq-pvp3",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-c3m2-jqmq-pvp3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c3m2-jqmq-pvp3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47201"
+      }
+    ],
+    "published_at": "2026-05-28T14:00:23Z",
+    "references": [],
+    "severity": "high",
+    "summary": "XML Signature Wrapping in SAML Source ACS allows authentication as arbitrary federated user",
+    "updated_at": "2026-05-28T14:00:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.12.6",
+        "vulnerable_version_range": "<= 2025.12.5"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.4",
+        "vulnerable_version_range": "<= 2026.2.3"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.5.1",
+        "vulnerable_version_range": "<= 2026.5.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

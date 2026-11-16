@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-4p8w-qx5v-p6fc",
+  "aliases": [],
+  "title": "Safe-code uninitialized read (UB) in `surrealdb-parser`'s lookahead ring buffer via the public `Parse` API",
+  "summary": "### Summary\r\n\r\n`surrealdb-parser` (workspace crate `surrealdb/parser` in `surrealdb/surrealdb`) is the in-repo next-generation SurrealQL parser. Its lexer wrapper `PeekableLexer<'source, 4>` keeps lookahead tokens in `[MaybeUninit<Result<Token, LexError>>; 4]` with two `u8` cursors, and `Parser::peek1()`/`peek2()` expose one- and two-token lookahead through the public, safe `Parse` trait (`async fn parse(parser: &mut Parser<'_, '_>) -> ParseResult<Self>`). In `surrealdb/parser/src/peekable.rs:88-103` the loop that is meant to lex forward to the requested offset is inverted: the inclusive range `write..=read` is empty whenever the target is ahead of the buffered count, so any forward jump (`OFFSET > buffered`) skips lexing and then executes `self.peek[read as usize].assume_init()` on a slot that was never written. Because `Token` contains the fieldless enum `BaseTokenKind`, constructing `Result<Token, LexError>` from uninitialized bytes reads an uninitialized enum discriminant - undefined behavior. Miri confirms it at `surrealdb/parser/src/peekable.rs:103:17`: `constructing invalid value of type std::result::Result<surrealdb_token::Token, surrealdb_token::LexError>: at .<enum-tag>, encountered uninitialized memory, but expected an integer`. A second, deterministic consequence (no UB required) is that consumed ring slots are never cleared, so `peek1()` can return a stale, already-consumed token; the inlined integration test shows this under a plain `cargo test` (it returns the token at span `0..1` after the three-token input `\"a b c\"` has been fully consumed; the correct result is `None`). No `unsafe` is needed at the call site: any crate implementing the public, unsealed `Parse` trait receives a `&mut Parser` and can call `peek1()`/`peek2()` before peeking the current token (or skip an offset), then run `Parser::enter_parse::<P>(...)`.\r\n\r\n### Details\r\n\r\n**Verified snapshot.** `surrealdb 3.3.0-nightly`, git commit `18971ffba781a796c0ad3897bb4b82432c241e4c` (2026-09-04); file `surrealdb/parser/src/peekable.rs` (166 lines), package `surrealdb-parser` (`surrealdb/parser/Cargo.toml:2`), workspace member at `Cargo.toml:13`. The crate is workspace-internal: `publish.workspace = true` and the workspace sets `publish = false` (`Cargo.toml:35`), so it is not on crates.io; the workspace alias is declared at `Cargo.toml:60`. Upstream `surrealdb/surrealdb` `main` carries the identical `peek::<OFFSET>` body (verified 2026-09-21), so this is not a fork-local defect. We verified only this snapshot; please set the final affected/patched ranges when publishing.\r\n\r\n**Root cause.** `PeekableLexer` (`peekable.rs:8-13`) initialises every slot with `MaybeUninit::uninit()` (`:37`). `peek::<OFFSET>` (`:64-105`) handles `OFFSET == 0` by lexing when the buffer is empty; for `OFFSET > 0` it computes the target ring index and then tries to fill up to it:\r\n\r\n```rust\r\n// surrealdb/parser/src/peekable.rs:87-104 (as verified)\r\n} else {\r\n    let write = self.write & Self::MASK;\r\n    let read = self.read.wrapping_add(OFFSET) & Self::MASK;\r\n\r\n    let write = if write < read {\r\n        write + SIZE as u8\r\n    } else {\r\n        write\r\n    };\r\n\r\n    for _ in write..=read {\r\n        let x = self.lex_token()?;\r\n        self.peek[(self.write & Self::MASK) as usize] = MaybeUninit::new(x);\r\n        self.write = self.write.wrapping_add(1);\r\n    }\r\n\r\n    Some(unsafe { self.peek[read as usize].assume_init() })\r\n}\r\n```\r\n\r\nThe range adjustment is backwards. When the target is ahead of the write cursor in ring order (`write < read`), `write` is pushed past `read` by `SIZE`, so the inclusive range `write..=read` is empty; when the target is behind (`write > read`), the range is also empty; only `write == read` runs the body, lexing exactly one token. The only case that fills anything is therefore \"the requested offset is exactly the next unbuffered position\", i.e. the sequential `peek()` → `peek1()` → `peek2()` pattern used by the crate's own call sites. The intent was clear...",
+  "published_at": "2026-11-03T15:51:20.000Z",
+  "modified_at": "2026-11-03T15:51:20.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-457",
+    "CWE-843"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-4p8w-qx5v-p6fc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4p8w-qx5v-p6fc",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-4p8w-qx5v-p6fc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

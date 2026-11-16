@@ -1,0 +1,78 @@
+{
+  "global": null,
+  "id": "GHSA-24vh-q7rg-243w",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-441"
+    ],
+    "description": "### Summary\r\n\r\nThe workspace agent authentication endpoint `POST /api/v2/workspaceagents/google-instance-identity` validated Google Compute Engine (GCE) instance-identity JWTs without checking the token audience. As a result, a genuine, unexpired GCP identity token minted for a *different* relying party could be replayed against this endpoint and exchanged for the corresponding workspace agent's session token.\r\n\r\n### Impact\r\n\r\nDeployments running workspaces on Google Compute Engine with GCP instance identity authentication for agents are affected.\r\n\r\nAn attacker who obtains a valid GCE identity token from a workspace VM, for example from logs, a proxy, or a service that legitimately receives such tokens, can exchange it for that workspace agent's session token. The token must be unexpired, use `format=full`, and come from a VM that backs an agent on its workspace's latest build. The resulting agent token remains valid until the workspace's next build, well beyond the identity token's roughly one-hour lifetime.\r\n\r\nThis is a confused-deputy condition: the audience (`aud`) claim binds an identity token to its intended recipient, and the endpoint did not enforce it. Tokens cannot be forged, because the endpoint still verifies the Google signature and expiry. Impact is limited to a single agent's credential.\r\n\r\n### Patches\r\nThe `POST /api/v2/workspaceagents/google-instance-identity` endpoint now requires the GCP identity token's `aud` claim to equal `coder` and rejects tokens issued for any other audience with `401 Unauthorized`. The standard Coder agent already requests this audience, so existing agents continue to authenticate without changes. Custom clients that request a different audience must update to request `audience=coder`.\r\n\r\n[#29765](https://github.com/coder/coder/pull/29765)\r\n\r\nFixed in 2.38.0 and backported to `2.37.4`, `2.36.7`, `2.35.9`, `2.34.12`, and `2.29.21`. \r\n\r\n### Workarounds\r\n\r\nOnly deployments using GCP instance identity authentication for workspace agents are affected. If you cannot upgrade:\r\n\r\n- Switch affected templates to token authentication (`auth = \"token\"`), then restart workspaces to issue new agent tokens.\r\n- Do not log or forward GCE identity tokens from workspace VMs. Use `format=standard` tokens for third-party services, since they cannot be exchanged at this endpoint.\r\n\r\n### Credits\r\n\r\nWe'd like to thank a customer security team and @matte1782 for independently reporting and validating this issue.\r\n\r\n### References\r\nFix: [#29765](https://github.com/coder/coder/pull/29765)\r\n",
+    "ghsa_id": "GHSA-24vh-q7rg-243w",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-24vh-q7rg-243w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24vh-q7rg-243w"
+      }
+    ],
+    "published_at": "2026-10-13T09:57:07Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing audience validation on GCP instance-identity endpoint ",
+    "updated_at": "2026-10-13T09:57:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.4",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.4"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.7",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.7"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.35.9",
+        "vulnerable_version_range": ">= 2.35.0, < 2.35.9"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.12",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.12"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.21",
+        "vulnerable_version_range": "< 2.29.21"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jvx3-mjpw-r4gh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nFlowise exposes `GET /api/v1/upsert-history/:id` and `PATCH /api/v1/upsert-history` without any route-level permission checks. The backing service also performs no workspace or ownership validation. It reads history rows by attacker-supplied `chatflowid` and deletes history rows by attacker-supplied UUID array only.\r\n\r\nThis is not a harmless metadata leak. `UpsertHistory` stores parsed `result` data and `flowData` snapshots for document-store upsert operations. `flowData` is built from embedding, record manager, and vector store node configurations, including per-node `paramValues`. As a result, an authenticated low-privilege user or API key can retrieve or delete arbitrary document-store upsert history outside their permission scope, and the lack of workspace scoping makes cross-workspace access possible whenever a target `chatflowId` is known.\r\n\r\n### Details\r\nI reviewed the current Flowise HEAD:\r\n\r\n- Version: `3.1.1`\r\n- Commit: `2555f10c11fcf0115b5fc2ff3230976abe462623`\r\n- Verified date: `2026-04-07`\r\n\r\nRelevant code paths:\r\n\r\n- `packages/server/src/routes/upsert-history/index.ts`\r\n  - `router.get(['/', '/:id'], upsertHistoryController.getAllUpsertHistory)`\r\n  - `router.patch('/', upsertHistoryController.patchDeleteUpsertHistory)`\r\n  - neither route uses `checkPermission()` or `checkAnyPermission()`\r\n\r\n- `packages/server/src/services/upsert-history/index.ts`\r\n  - `getAllUpsertHistory()` queries `UpsertHistory` only by attacker-controlled `chatflowid` and date range\r\n  - it does not receive or enforce `workspaceId`\r\n  - `patchDeleteUpsertHistory()` deletes rows by raw attacker-controlled `ids`\r\n  - it does not verify workspace membership, ownership, or any permission\r\n\r\n- `packages/server/src/database/entities/UpsertHistory.ts`\r\n  - each history row stores `chatflowid`, `result`, and `flowData`\r\n\r\n- `packages/server/src/utils/index.ts`\r\n  - `saveUpsertFlowData()` copies non-empty non-template input values into `paramValues`\r\n  - for document loaders it replaces uploaded file blobs with filenames, but otherwise keeps direct configuration values\r\n\r\n- `packages/server/src/services/documentstore/index.ts`\r\n  - document-store upsert code persists `flowData` and `result` into `UpsertHistory`\r\n  - `flowData` is populated from embedding, record-manager, and vector-store node configs\r\n\r\n- `packages/server/src/routes/documentstore/index.ts`\r\n  - adjacent document-store routes are protected with `documentStores:view`, `documentStores:update`, `documentStores:delete`, and `documentStores:upsert-config`\r\n  - this makes the missing protection on `/upsert-history` a clear authorization mismatch rather than an intentional absence of RBAC\r\n\r\n- `packages/ui/src/routes/MainRoutes.jsx`\r\n  - document-store UI routes are also gated behind `RequireAuth permission={'documentStores:view'}`\r\n\r\n- `packages/ui/src/views/chatflows/ShareChatbot.jsx`\r\n  - public chatbot sharing exposes `chatflowId` directly in `/chatbot/<chatflowId>` links\r\n\r\n- `packages/ui/src/api/client.js`\r\n  - the official internal web client sends `x-request-from: internal`\r\n\r\n- `packages/server/src/index.ts`\r\n  - requests with `x-request-from: internal` are authenticated via JWT\r\n  - other non-whitelisted `/api/v1` routes are authenticated via API key\r\n\r\nThis means:\r\n\r\n1. The official permission model clearly treats document-store data as protected.\r\n2. `/upsert-history` is still reachable by any authenticated internal user session or API key.\r\n3. The service does not scope reads or deletes to the caller's workspace.\r\n4. If a target `chatflowId` is known, the caller can read or delete another workspace's upsert history.\r\n\r\n### Why cross-workspace access is practical\r\nThe service layer has no `workspaceId` filter at all, so the remaining practical question is target `chatflowId` discovery.\r\n\r\nFlowise itself exposes public chatbot links in the form `/chatbot/<chatflowId>`. A public/shared chatbot therefore discloses a valid global `chatflowId` to anyone who sees the link. Any authenticated Flowise user in another workspace, or any valid Flowise API key from another workspace, can then call `/api/v1/upsert-history/<chatflowId>` and receive the victim workspace's upsert history because the backend does not re-check workspace ownership.\r\n\r\nEven without public sharing, this issue should not depend on object ID secrecy for protection.\r\n\r\n### PoC\r\nPrerequisites:\r\n\r\n1. Victim workspace has a chatflow with document-store upsert history.\r\n2. Attacker has either:\r\n   - a normal authenticated Flowise user account, or\r\n   - any valid API key\r\n3. Attacker knows the victim `chatflowId`.\r\n   - one practical source is a public chatbot share link: `/chatbot/<victim_chatflow_id>`\r\n\r\nAttack steps:\r\n\r\n1. Obtain a victim `chatflowId`.\r\n\r\nExample public link:\r\n\r\n```text\r\nhttps://<FLOWISE_HOST>/chatbot/11111111-2222-3333-4444-555555555555\r\n```\r\n\r\n2. Read the victim upsert history as an authenticated user:\r\n\r\n```http\r\nGET /api/v1/upsert-history/11111111-2222-3333-4444-555555555555 HTTP/1.1\r\nHost: <FLOWISE_HOST>\r\nCookie: accessToken=<USER_SESSION>\r\nX-Request-From: internal\r\n```\r\n\r\nAlternative with an API key:\r\n\r\n```http\r\nGET /api/v1/upsert-history/11111111-2222-3333-4444-555555555555 HTTP/1.1\r\nHost: <FLOWISE_HOST>\r\nAuthorization: Bearer <ANY_VALID_FLOWISE_API_KEY>\r\n```\r\n\r\nExpected result:\r\n\r\n- the response returns one or more upsert history rows for the victim chatflow\r\n- each row includes parsed `result`\r\n- each row includes parsed `flowData` with node labels, categories, ids, and `paramValues`\r\n\r\n3. Delete arbitrary history rows returned in step 2:\r\n\r\n```http\r\nPATCH /api/v1/upsert-history HTTP/1.1\r\nHost: <FLOWISE_HOST>\r\nContent-Type: application/json\r\nCookie: accessToken=<USER_SESSION>\r\nX-Request-From: internal\r\n\r\n{\r\n  \"ids\": [\"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\"]\r\n}\r\n```\r\n\r\nExpected result:\r\n\r\n- the specified history rows are deleted without any workspace or permission validation\r\n\r\n### Impact\r\nThis is a broken access control issue with both confidentiality and integrity impact.\r\n\r\nAn attacker can:\r\n\r\n- read document-store upsert history for arbitrary chatflows\r\n- cross workspace boundaries if a foreign `chatflowId` is known\r\n- retrieve `flowData` snapshots containing document-store pipeline configuration values and filenames recorded in `paramValues`\r\n- retrieve `result` summaries for victim upsert operations\r\n- delete arbitrary history rows, destroying audit and troubleshooting data\r\n\r\nThe confidentiality impact is significant because the affected data is not limited to counters or timestamps. The history detail path intentionally stores and returns structured configuration snapshots for embedding, record manager, vector store, and loader stages.\r\n",
+    "ghsa_id": "GHSA-jvx3-mjpw-r4gh",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-jvx3-mjpw-r4gh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jvx3-mjpw-r4gh"
+      }
+    ],
+    "published_at": "2026-09-10T14:19:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Missing authorization on Flowise upsert-history endpoints allows authenticated users and API keys to read and delete arbitrary document-store upsert history across workspaces",
+    "updated_at": "2026-09-10T14:19:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 3.1.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

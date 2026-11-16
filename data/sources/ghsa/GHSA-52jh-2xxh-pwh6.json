@@ -1,0 +1,114 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-29785",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-476"
+    ],
+    "description": "### Background\n\nNATS.io is a high performance open source pub-sub distributed communication technology, built for the cloud, on-premise, IoT, and edge computing.\n\nWhen configured to accept leafnode connections (for a hub/spoke topology of multiple nats-servers), then the default configuration allows for negotiating compression; a malicious remote NATS server can trigger a server panic via that compression.\n\n### Problem Description\n\nIf the nats-server has the \"leafnode\" configuration enabled (not default), then anyone who can connect can crash the nats-server by triggering a panic. This happens pre-authentication and requires that compression be enabled (which it is, by default, when leafnodes are used).\n\nContext: a NATS server can form various clustering topologies, including local clusters, and superclusters of clusters, but leafnodes allow for separate administrative domains to link together with limited data communication; eg, a server in a moving vehicle might use a local leafnode for agents to connect to, and sync up to a central service as and when available. The leafnode configuration here is where the central server allows other NATS servers to connect into it, almost like regular NATS clients. Documentation examples typically use port 7422 for leafnode communications.\n\n### Affected Versions\n\nVersion 2, prior to v2.11.14 or v2.12.5\n\n### Workarounds\n\nDisable compression on the leafnode port:\n\n```\nleafnodes {\n  port: 7422\n  compression: off\n}\n```",
+    "ghsa_id": "GHSA-52jh-2xxh-pwh6",
+    "html_url": "https://github.com/advisories/GHSA-52jh-2xxh-pwh6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-52jh-2xxh-pwh6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29785"
+      }
+    ],
+    "published_at": "2026-03-24T21:29:06Z",
+    "references": [
+      "https://github.com/nats-io/nats-server/security/advisories/GHSA-52jh-2xxh-pwh6",
+      "https://github.com/nats-io/nats-server/commit/a1488de6f2ba6e666aef0f9cce0016f7f167d6a8",
+      "https://advisories.nats.io/CVE/secnote-2026-04.txt",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-29785",
+      "https://github.com/advisories/GHSA-52jh-2xxh-pwh6"
+    ],
+    "severity": "high",
+    "summary": "NATS Server panic via malicious compression on leafnode port",
+    "updated_at": "2026-03-27T22:09:23Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.11.14",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "vulnerable_version_range": "< 2.11.14"
+      },
+      {
+        "first_patched_version": "2.12.5",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "vulnerable_version_range": ">= 2.12.0-RC.1, < 2.12.5"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server"
+        },
+        "vulnerable_version_range": "> 0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-52jh-2xxh-pwh6",
+  "repo": {
+    "cve_id": "CVE-2026-29785",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Background\r\n\r\nNATS.io is a high performance open source pub-sub distributed communication technology, built for the cloud, on-premise, IoT, and edge computing.\r\n\r\nWhen configured to accept leafnode connections (for a hub/spoke topology of multiple nats-servers), then the default configuration allows for negotiating compression; a malicious remote NATS server can trigger a server panic via that compression.\r\n\r\n### Problem Description\r\n\r\nIf the nats-server has the \"leafnode\" configuration enabled (not default), then anyone who can connect can crash the nats-server by triggering a panic. This happens pre-authentication and requires that compression be enabled (which it is, by default, when leafnodes are used).\r\n\r\nContext: a NATS server can form various clustering topologies, including local clusters, and superclusters of clusters, but leafnodes allow for separate administrative domains to link together with limited data communication; eg, a server in a moving vehicle might use a local leafnode for agents to connect to, and sync up to a central service as and when available. The leafnode configuration here is where the central server allows other NATS servers to connect into it, almost like regular NATS clients. Documentation examples typically use port 7422 for leafnode communications.\r\n\r\n### Affected Versions\r\n\r\nVersion 2, prior to v2.11.14 or v2.12.5\r\n\r\n### Workarounds\r\n\r\nDisable compression on the leafnode port:\r\n\r\n```\r\nleafnodes {\r\n  port: 7422\r\n  compression: off\r\n}\r\n```\r\n\r\n### References\r\n\r\n * This document is canonically: <https://advisories.nats.io/CVE/secnote-2026-04.txt>\r\n * GHSA advisory: <https://github.com/nats-io/nats-server/security/advisories/GHSA-52jh-2xxh-pwh6>\r\n * MITRE CVE entry: <https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2026-29785>\r\n",
+    "ghsa_id": "GHSA-52jh-2xxh-pwh6",
+    "html_url": "https://github.com/nats-io/nats-server/security/advisories/GHSA-52jh-2xxh-pwh6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-52jh-2xxh-pwh6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29785"
+      }
+    ],
+    "published_at": "2026-03-24T20:48:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "leafnode pre-auth server panic DoS",
+    "updated_at": "2026-03-24T20:48:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "patched_versions": "2.12.5",
+        "vulnerable_version_range": "< 2.12.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nats-io/nats-server"
+}

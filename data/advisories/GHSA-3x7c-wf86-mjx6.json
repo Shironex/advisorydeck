@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-3x7c-wf86-mjx6",
+  "aliases": [],
+  "title": "Security middleware continues after AuthMode lookup failure",
+  "summary": "### Impact\n\nWhen Harbor core could not read its configured authentication mode (for example during a database or configuration cache outage), the request security middleware logged a warning and kept processing the request without an authentication mode. Authorization should not continue in that state.\n\nNo exploit path is known. The OIDC and auth-proxy login methods are skipped when no mode is set, and password login reads the mode again and fails, so such requests end up unauthenticated rather than with extra privileges. An attacker cannot cause the lookup failure. This is a hardening fix that makes the middleware fail closed.\n\n### Am I affected?\n\nAll Harbor versions before the fixed releases are affected. There is nothing to configure or check.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, if core cannot read the authentication mode, requests are rejected with HTTP 500 (\"failed to determine authentication mode\") instead of continuing. Normal requests are unchanged. If you see this error, check core's connection to its database and Redis.\n\n**Until you can upgrade:** no action is needed beyond normal monitoring of core's database and Redis connectivity.",
+  "published_at": "2026-10-06T13:42:11.000Z",
+  "modified_at": "2026-10-06T13:42:12.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "harbor",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.6"
+        },
+        {
+          "introduced": "2.14.0",
+          "fixed": "2.14.5"
+        },
+        {
+          "introduced": "2.15.0",
+          "fixed": "2.15.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-3x7c-wf86-mjx6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3x7c-wf86-mjx6",
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-3x7c-wf86-mjx6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b7b35d4605c4d30b02bc0beeb376246aa5e839b5551044c36e78b3d1bc71f034",
+  "note": null
+}
