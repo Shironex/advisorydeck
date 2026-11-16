@@ -62,7 +62,9 @@ const extra: CatalogEntry[] = [
     { type: 'ghsa-repo', repo: 'MariaDB/server' },
     { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'MariaDB', products: ['server'] },
   ]),
-  product('nextcloud', [{ type: 'ghsa-repo', repo: 'nextcloud/security-advisories' }]),
+  product('nextcloud', [
+    { type: 'ghsa-repo', repo: 'nextcloud/security-advisories', packages: ['Server'] },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -220,5 +222,46 @@ describe('lower bounds with a patched list (G3)', () => {
         patched_versions: 'TBD',
       }).ranges,
     ).toEqual([{ introduced: '32.0.0' }, { introduced: '33.0.0' }]);
+  });
+});
+
+describe('a ghsa-repo source that names its packages (G3)', () => {
+  const advisory = (id: string, packages?: [string, ...string[]]) => {
+    const raw = json<Record<string, unknown>[]>(join(here, 'ghsa/repo-nextcloud.json')).find(
+      (a) => a['ghsa_id'] === id,
+    );
+    if (raw === undefined) throw new Error(id);
+    const entry = product('nextcloud', [
+      {
+        type: 'ghsa-repo',
+        repo: 'nextcloud/security-advisories',
+        ...(packages === undefined ? {} : { packages }),
+      },
+    ]);
+    const only: Catalogue = { entries: [entry], index: buildSourceIndex([entry]).index };
+    const record: GhsaRecord = {
+      id,
+      repository: 'nextcloud/security-advisories',
+      repo: trimGhsa(raw),
+      global: null,
+    };
+    return ghsaFacts(record, only);
+  };
+
+  it('Nextcloud: only the named entries count, compared without case', () => {
+    // Server under both ecosystems (nextcloud and nextcloud enterprise), not the files_lock app.
+    expect(rangesOf(advisory('GHSA-22w9-gpgv-pcgc', ['server']), 'nextcloud')).toEqual([
+      { introduced: '34.0.0', fixed: '34.0.1' },
+      { introduced: '32.0.0', fixed: '32.0.6' },
+      { introduced: '33.0.0', fixed: '33.0.6' },
+    ]);
+    expect(rangesOf(advisory('GHSA-22w9-gpgv-pcgc', ['files_lock']), 'nextcloud')).toEqual([
+      { introduced: '32.0.0', fixed: '32.0.6' },
+      { introduced: '33.0.0', fixed: '33.0.6' },
+    ]);
+  });
+
+  it('an advisory naming none of the packages is not about the product', () => {
+    expect(advisory('GHSA-22w9-gpgv-pcgc', ['Richdocuments']).claims).toEqual([]);
   });
 });

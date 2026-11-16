@@ -468,7 +468,27 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
   const warnings: string[] = [];
   const claims: ProductClaim[] = [];
   const repoSlug = record.repository === null ? undefined : index.ghsaRepos.get(record.repository);
-  if (record.repo !== null && repoSlug !== undefined) {
+  const named =
+    record.repository === null ? undefined : index.ghsaRepoPackages.get(record.repository);
+  if (record.repo !== null && repoSlug !== undefined && named !== undefined) {
+    // The catalog names the entries that version this product; an advisory naming none of them
+    // is about something else the repository ships (an app, a plugin, an installer).
+    claims.push(
+      ...claimsFrom(
+        record.repo,
+        (v) => (named.has((v.package?.name ?? '').trim().toLowerCase()) ? repoSlug : undefined),
+        (slug) =>
+          rankOf(
+            catalogue,
+            slug,
+            (s) =>
+              (s as { type: string }).type === 'ghsa-repo' &&
+              (s as { repo: string }).repo === record.repository,
+          ),
+        warnings,
+      ),
+    );
+  } else if (record.repo !== null && repoSlug !== undefined) {
     // A repository advisory belongs to the repository's product. When some entries name the
     // product itself (no language ecosystem, for example "Docker Engine" or "redis-server") or a
     // package the catalog gives this product, only those count: the others version a library in
