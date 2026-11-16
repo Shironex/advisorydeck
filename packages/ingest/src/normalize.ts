@@ -5,7 +5,9 @@ import {
   branchOf,
   cleanVersion,
   compareSemverLike,
+  compactHyphenRange,
   dedupeRanges,
+  isRangeExpression,
   parseRangeExpression,
   perBranchUpperBounds,
   singlePatchedVersion,
@@ -143,7 +145,7 @@ export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
   for (const v of affected.versions ?? []) {
     if (v.status !== 'affected') continue;
     const raw = (v.version ?? '').trim();
-    if (/[<>=,]|\s-\s/.test(raw)) {
+    if (isRangeExpression(raw)) {
       const parsed = parseRangeExpression(raw);
       if (parsed === undefined) return undefined;
       ranges.push(...parsed);
@@ -328,7 +330,8 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
   // the range ends at the patched version: a version between the two is reported affected rather
   // than silently not affected. When the two cannot be ordered, or a bare version is later than
   // its patch, the versions are published as unknown.
-  const bare = /^v?[0-9][^\s<>=,]*$/.test(expression);
+  const bare =
+    /^v?[0-9][^\s<>=,]*$/.test(expression) && compactHyphenRange(expression) === undefined;
   const upper = only.fixed ?? only.last_affected ?? '';
   const order = compareSemverLike(patched, upper);
   if (bare) {

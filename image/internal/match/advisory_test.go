@@ -31,6 +31,8 @@ import (
 //   - n8n.json, keycloak.json, authentik.json, php.json: one upper bound per branch on
 //     separate entries (GHSA-c772-hjfp-gfc2, GHSA-95cx-vmr5-3cmr, GHSA-cxwx-9x59-28qm,
 //     GHSA-w8hw-w9fx-j79w), read as one range per branch.
+//   - mysql.json, mariadb.json: hyphen ranges without spaces (CVE-2026-101801 8.4.0-8.4.12,
+//     GHSA-m5gf-432r-g5jw 10.6.1-10.6.27), read as ranges rather than one prerelease.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`

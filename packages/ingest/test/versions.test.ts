@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cleanVersion,
+  compactHyphenRange,
   compareSemverLike,
   parseRangeExpression,
   perBranchUpperBounds,
@@ -54,6 +55,30 @@ describe('parseRangeExpression (real upstream strings)', () => {
     expect(parseRangeExpression('= 1.2.3')).toEqual([
       { introduced: '1.2.3', last_affected: '1.2.3' },
     ]);
+  });
+
+  it('reads a hyphen range written without spaces (Oracle, MariaDB)', () => {
+    expect(parseRangeExpression('8.4.0-8.4.12')).toEqual([
+      { introduced: '8.4.0', last_affected: '8.4.12' },
+    ]);
+    expect(parseRangeExpression('10.6.1-10.6.27, 13.0.1')).toEqual([
+      { introduced: '10.6.1', last_affected: '10.6.27' },
+      { introduced: '13.0.1', last_affected: '13.0.1' },
+    ]);
+    expect(parseRangeExpression('8.4.12-8.4.0')).toBeUndefined();
+  });
+
+  it('still reads prereleases and distro revisions as one version', () => {
+    expect(parseRangeExpression('1.2.0-rc.1')).toEqual([
+      { introduced: '1.2.0-rc.1', last_affected: '1.2.0-rc.1' },
+    ]);
+    expect(parseRangeExpression('< 4.0.0-beta.474')).toEqual([
+      { introduced: '0', fixed: '4.0.0-beta.474' },
+    ]);
+    expect(parseRangeExpression('<= 5.15.0-122.132')).toEqual([
+      { introduced: '0', last_affected: '5.15.0-122.132' },
+    ]);
+    expect(parseRangeExpression('>= 8.0-rc1')).toEqual([{ introduced: '8.0-rc1' }]);
   });
 
   it('refuses words that carry no range', () => {
@@ -137,5 +162,31 @@ describe('perBranchUpperBounds', () => {
         { introduced: '0', fixed: '16.4' },
       ]),
     ).toBeUndefined();
+  });
+});
+
+describe('compactHyphenRange', () => {
+  it('takes two versions with the same number of parts', () => {
+    expect(compactHyphenRange('26.7.0-26.7.1')).toEqual({
+      introduced: '26.7.0',
+      last_affected: '26.7.1',
+    });
+    expect(compactHyphenRange('v1.2-v1.4')).toEqual({ introduced: '1.2', last_affected: '1.4' });
+  });
+
+  it('leaves prereleases, distro revisions and single versions alone', () => {
+    for (const raw of [
+      '1.2.0-rc.1',
+      '4.0.0-beta.474',
+      '1.0.0-alpha.1',
+      '5.15.0-122.132',
+      '8.4.0',
+    ]) {
+      expect(compactHyphenRange(raw)).toBeUndefined();
+    }
+  });
+
+  it('marks a reversed range as unreadable', () => {
+    expect(compactHyphenRange('8.4.12-8.4.0')).toBeNull();
   });
 });

@@ -19,13 +19,40 @@ export function isBounded(range: VersionRange): boolean {
   return range.fixed !== undefined || range.last_affected !== undefined;
 }
 
+/** Two dotted numeric versions joined by a hyphen with no spaces (`8.4.0-8.4.12`). */
+const COMPACT_HYPHEN = /^v?(\d+(?:\.\d+)+)-v?(\d+(?:\.\d+)+)$/;
+
+/**
+ * Reads `8.4.0-8.4.12` (Oracle, MariaDB) as a range from the first to the last affected version.
+ * Both sides must have the same number of numeric parts, so a real prerelease (`1.2.0-rc.1`,
+ * `4.0.0-beta.474`) or a distro revision (`5.15.0-122.132`) is not taken for one. Undefined when
+ * the text has another shape; `null` when it has this shape but the first side is later than the
+ * second, which no reading can make sense of.
+ */
+export function compactHyphenRange(raw: string): VersionRange | null | undefined {
+  const match = COMPACT_HYPHEN.exec(raw.trim());
+  const from = match?.[1];
+  const to = match?.[2];
+  if (from === undefined || to === undefined) return undefined;
+  const a = from.split('.').map(Number);
+  const b = to.split('.').map(Number);
+  if (a.length !== b.length) return undefined;
+  const order = a.reduce((found, n, i) => found || Math.sign(n - (b[i] ?? 0)), 0);
+  return order > 0 ? null : { introduced: from, last_affected: to };
+}
+
+/** True when a CVE version field holds a range expression rather than one version. */
+export function isRangeExpression(raw: string): boolean {
+  return /[<>=,]|\s-\s/.test(raw) || compactHyphenRange(raw) !== undefined;
+}
+
 function upper(range: VersionRange, op: string, version: string): VersionRange {
   return op === '<' ? { ...range, fixed: version } : { ...range, last_affected: version };
 }
 
 /**
  * Parses a range expression as GHSA and some CVE records write it: `>= 3.0.0, < 3.3.6`,
- * `< 29.9.3`, `<= 25.0.18, 26.0.0 - 29.8.1`, `= 1.2.3`, `All`. A comma joins a lower bound to the
+ * `< 29.9.3`, `<= 25.0.18, 26.0.0 - 29.8.1`, `10.6.1-10.6.27`, `= 1.2.3`, `All`. A comma joins a lower bound to the
  * upper bound that follows it and otherwise separates ranges. `> X` is read as `>= X` (one version
  * too many rather than one too few). Returns undefined when any part cannot be read, so a caller
  * never publishes half a range.
@@ -45,6 +72,14 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
       if (open !== undefined) ranges.push(open);
       open = undefined;
       ranges.push({ introduced: from, last_affected: to });
+      continue;
+    }
+    const compact = compactHyphenRange(token);
+    if (compact === null) return undefined;
+    if (compact !== undefined) {
+      if (open !== undefined) ranges.push(open);
+      open = undefined;
+      ranges.push(compact);
       continue;
     }
     const match = /^(>=|<=|>|<|==|=)?\s*(\S+)$/.exec(token);
