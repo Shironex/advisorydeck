@@ -68,7 +68,7 @@ func (r *rig) engine(dry bool, out io.Writer) *Engine {
 	e := &Engine{
 		Cfg:     r.cfg,
 		Poll:    &poll.Client{HTTP: client, Base: r.cfg.Feed.URL, Log: log},
-		Matcher: matching.Stub{},
+		Matcher: matching.Library{},
 		Sender:  &notify.Sender{HTTP: client, Log: log, BaseBackoff: time.Millisecond, MaxBackoff: time.Millisecond},
 		Targets: []notify.Target{{ID: "discord:DISCORD_WEBHOOK_URL:ops", Type: "discord", Name: "ops", URLEnv: "DISCORD_WEBHOOK_URL", URL: r.hook.URL()}},
 		Log:     log,
@@ -275,7 +275,7 @@ func TestDryRun(t *testing.T) {
 		t.Fatal("dry run wrote state")
 	}
 	s := out.String()
-	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "instant: 0", "digest: 1", "CVE-2026-120154", "branch 17 is fixed in 17.12"} {
+	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "instant: 0", "digest: 1", "CVE-2026-120154", "branch 17 is affected before 17.12"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("dry run output lacks %q:\n%s", want, s)
 		}

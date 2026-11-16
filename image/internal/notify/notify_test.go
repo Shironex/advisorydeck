@@ -31,7 +31,7 @@ func fixtureItem(t *testing.T) Item {
 		t.Fatal(err)
 	}
 	a := p.Advisories[0]
-	return Item{Key: Key(a.ID, "postgresql"), Advisory: a, Product: p.Product, Declared: "17", Verdict: matching.Affected, Reason: "branch 17 is fixed in 17.12"}
+	return Item{Key: Key(a.ID, "postgresql"), Advisory: a, Product: p.Product, Declared: "17", Verdict: matching.Affected, Reason: "branch 17 is affected before 17.12", FixedIn: "17.12"}
 }
 
 // hostile makes an item with oversized, mention-laden text.
@@ -108,7 +108,7 @@ func TestDiscordContent(t *testing.T) {
 		t.Fatal(msgs, err)
 	}
 	s := string(msgs[0].Payload)
-	for _, want := range []string{"[MEDIUM] PostgreSQL 17", "17.12", "Not exposed on a default setup, assuming:", "docker compose pull", "reviewed by example-reviewer", "https://www.postgresql.org/support/security/CVE-2026-120154/"} {
+	for _, want := range []string{"[MEDIUM] PostgreSQL 17", "17.12 for your version (all fixes: 18.7, 17.12", "Not exposed on a default setup, assuming:", "docker compose pull", "reviewed by example-reviewer", "https://www.postgresql.org/support/security/CVE-2026-120154/"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("payload lacks %q", want)
 		}
@@ -169,7 +169,7 @@ func TestWebhookPayload(t *testing.T) {
 	if p["schema"] != WebhookSchema || p["kind"] != "digest" || p["sent_at"] != "2026-11-16T08:00:00Z" || len(items) != 2 {
 		t.Fatalf("payload = %v", p)
 	}
-	for _, key := range []string{"advisory_id", "aliases", "title", "summary", "url", "product", "product_name", "declared_version", "verdict", "reason", "urgent", "severity", "kev", "epss", "fixed_in", "published_at", "revision", "note"} {
+	for _, key := range []string{"advisory_id", "aliases", "title", "summary", "url", "product", "product_name", "declared_version", "verdict", "reason", "urgent", "severity", "kev", "epss", "fixed_in", "fix", "published_at", "revision", "note"} {
 		if _, ok := first[key]; !ok {
 			t.Errorf("item lacks %q", key)
 		}

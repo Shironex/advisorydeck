@@ -96,7 +96,7 @@ func discordEmbedFor(it Item, kind Kind) discordEmbed {
 		})
 	}
 	field("Your version", fmt.Sprintf("%s: %s", it.Declared, it.Reason), false)
-	field("Fixed in", strings.Join(fixedIn(it), ", "), true)
+	field("Fixed in", fixText(it), true)
 	field("Severity", severityText(a.Severity), true)
 	if kind == Instant {
 		field("Exploitation", exploitText(a), false)

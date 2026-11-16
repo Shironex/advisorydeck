@@ -52,7 +52,7 @@ func slackBlocksFor(it Item, kind Kind) []slackBlock {
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s*\n%s\n", title, slackEscape(defuse(truncate(a.Summary, descMax))))
 	fmt.Fprintf(&b, "*Your version:* %s: %s\n", slackEscape(it.Declared), slackEscape(it.Reason))
-	fmt.Fprintf(&b, "*Fixed in:* %s\n", slackEscape(strings.Join(fixedIn(it), ", ")))
+	fmt.Fprintf(&b, "*Fixed in:* %s\n", slackEscape(fixText(it)))
 	fmt.Fprintf(&b, "*Severity:* %s\n", slackEscape(severityText(a.Severity)))
 	if kind == Instant {
 		fmt.Fprintf(&b, "*Exploitation:* %s\n", slackEscape(exploitText(a)))

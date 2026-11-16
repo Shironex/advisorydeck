@@ -96,7 +96,7 @@ func TestOnceDryRun(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
-	if !strings.Contains(stdout, "instant: 1") || !strings.Contains(stdout, "17.4 is affected, fixed in 17.12") {
+	if !strings.Contains(stdout, "instant: 1") || !strings.Contains(stdout, "17.4 is affected; fixed in 17.12") {
 		t.Fatalf("stdout = %s", stdout)
 	}
 	if len(h.hook.Bodies()) != 0 {

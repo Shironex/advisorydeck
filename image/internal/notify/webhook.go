@@ -39,6 +39,7 @@ type WebhookItem struct {
 	KEV             bool          `json:"kev"`
 	EPSS            *feed.EPSS    `json:"epss"`
 	FixedIn         []string      `json:"fixed_in"`
+	Fix             string        `json:"fix"`
 	PublishedAt     time.Time     `json:"published_at"`
 	Revision        string        `json:"revision"`
 	Note            *feed.Note    `json:"note"`
@@ -69,6 +70,7 @@ func (Webhook) Render(items []Item, kind Kind, now time.Time) ([]Message, error)
 			KEV:             a.KEV.Listed,
 			EPSS:            a.EPSS,
 			FixedIn:         fixedIn(it),
+			Fix:             it.FixedIn,
 			PublishedAt:     a.PublishedAt,
 			Revision:        a.Revision,
 			Note:            a.Note,
