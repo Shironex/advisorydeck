@@ -74,6 +74,24 @@ describe('repository data', () => {
     ).toBe(true);
   });
 
+  it('requires a KEV check behind every advisory in data/, not in fixtures', () => {
+    const copy = copyRepo();
+    cpSync(join(copy, 'fixtures/data/advisories'), join(copy, 'data/advisories'), {
+      recursive: true,
+    });
+    cpSync(join(copy, 'fixtures/notes'), join(copy, 'notes'), { recursive: true });
+    const path = join(copy, 'data/advisories/CVE-2026-120154.json');
+    writeFileSync(path, readFileSync(path, 'utf8').replace('"checked": true', '"checked": false'));
+    const fixturePath = join(copy, advisoryPath);
+    writeFileSync(
+      fixturePath,
+      readFileSync(fixturePath, 'utf8').replace('"checked": true', '"checked": false'),
+    );
+    const issues = checkRepository(copy).issues;
+    expect(issues.map((i) => i.file)).toContain('data/advisories/CVE-2026-120154.json');
+    expect(issues.map((i) => i.file)).not.toContain(advisoryPath);
+  });
+
   it('notices a feed note that drifted from its note file', () => {
     const copy = copyRepo();
     const path = join(copy, 'fixtures/notes/CVE-2026-120154.md');
@@ -95,6 +113,15 @@ describe('schema rules', () => {
       },
     ];
     expect(validateAgainst('advisory', broken)).not.toEqual([]);
+  });
+
+  it('accepts an advisory without kev.checked (older producers) but never listed and unchecked', () => {
+    const older = structuredClone(advisory);
+    older['kev'] = { listed: false, added_at: null };
+    expect(validateAgainst('advisory', older)).toEqual([]);
+    const contradictory = structuredClone(advisory);
+    contradictory['kev'] = { listed: true, added_at: '2026-11-15', checked: false };
+    expect(validateAgainst('advisory', contradictory)).not.toEqual([]);
   });
 
   it('accepts unknown ranges as an empty list', () => {
