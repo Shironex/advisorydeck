@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: python
+name: Python
+category: runtimes
+homepage: https://www.python.org
+description: Python runtime (CPython), the python images Python apps run on.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: python
+images:
+  - ref: docker.io/library/python
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:(?:a|b|rc)[0-9]+)?)(?:-(?:slim|alpine[0-9.]*|trixie|bookworm|bullseye|windowsservercore(?:-ltsc[0-9]+)?|nanoserver(?:-ltsc[0-9]+)?))?(?:-(?:trixie|bookworm|bullseye))?$"
+    note: 3.13-slim is the 3.13 line and maps to its endoflife.date branch. Prereleases are written the PEP 440 way (3.16.0a2) and compare before the release. The 3-rc tags carry no version.
+sources:
+  - type: cve-cna
+    assigner: PSF
+    products: [CPython]
+    note: The Python Software Foundation is its own CNA; pip and other PSF projects use other product names.
+  - type: vendor-page
+    url: https://www.python.org/dev/security/
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records use versionType python; prereleases (3.15.0a1) are read as semver prereleases.
+  - Many records say 0 lessThan 3.16.0 while the fix is only on the main branch; every released line is then affected with no fix to pull until the backports ship and the record is updated.

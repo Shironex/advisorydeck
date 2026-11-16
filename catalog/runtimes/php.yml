@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: php
+name: PHP
+category: runtimes
+homepage: https://www.php.net
+description: PHP runtime, the php images (cli, fpm, apache) that PHP apps run on.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: php
+images:
+  - ref: docker.io/library/php
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:cli|fpm|apache|zts))?(?:-(?:alpine[0-9.]*|trixie|bookworm|bullseye))?$"
+    note: 8.4-fpm is the 8.4 line and maps to its endoflife.date branch. Release candidate tags (8.4.28RC1, 8.4-rc) are not read.
+sources:
+  - type: cve-cna
+    assigner: php
+    products: [PHP]
+    note: The PHP Group is its own CNA.
+  - type: ghsa-repo
+    repo: php/php-src
+  - type: vendor-page
+    url: https://www.php.net/ChangeLog-8.php
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - CVE records start each line with a wildcard (8.2.* lessThan 8.2.35); ingest reads it as the line's first release (8.2.0).
+  - Repository advisories name the extension (ext-soap, ext-standard, PHP-FPM) or php-src and list one upper bound per line as separate entries (<8.2.34, <8.3.35, <8.4.26); ingest reads them as one range per line. The extension versions are PHP versions.

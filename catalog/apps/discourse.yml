@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: discourse
+name: Discourse
+category: apps
+homepage: https://www.discourse.org
+description: Community forum and discussion platform.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: discourse
+images:
+  - ref: docker.io/discourse/discourse
+    tag_pattern: "^(?<version>[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-latest(?:\\.[0-9]+)?)?)$"
+    note: Most installs use the discourse_docker launcher, which builds its own image; the version is on the admin dashboard. latest and esr carry no version.
+sources:
+  - type: ghsa-repo
+    repo: discourse/discourse
+    packages: [Discourse, '']
+    note: Entries for plugins (discourse-ai, chat) are not read.
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: discourse
+    products: [discourse]
+    note: Plugins are filed under their own product names (discourse-doc-categories) with commit ranges and are not this product.
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Versions are year.month.patch; builds of the latest channel are prereleases of the next month (2026.11.0-latest.1), the stable and ESR lines are plain releases (2026.10.1, 2026.1.5).
+  - Repository advisories list one entry per line, starting with an entry from 0 patched in the latest build.

@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: rocket-chat
+name: Rocket.Chat
+category: apps
+homepage: https://www.rocket.chat
+description: Team chat and omnichannel communication platform.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: rocket-chat
+images:
+  - ref: docker.io/library/rocket.chat
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})$"
+    note: latest carries no version.
+  - ref: registry.rocket.chat/rocketchat/rocket.chat
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})$"
+sources:
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: RocketChat
+    products: [Rocket.Chat]
+    note: Listed first because the CVE records give one bounded range per supported line.
+  - type: ghsa-repo
+    repo: RocketChat/Rocket.Chat
+  - type: cve-cna
+    assigner: hackerone
+    vendor: Rocket.Chat
+    products: [Rocket.Chat]
+  - type: cve-cna
+    assigner: VulnCheck
+    vendor: RocketChat
+    products: [Rocket.Chat]
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories list one upper bound per supported line in one range, newest first (<8.8.0, <8.7.2, <8.6.2), next to a patched list; the first bound runs from 0 and skips the patched rest of every listed line.
+  - hackerone records write one range from 0 per supported line (0 lessThan 8.8.0, 0 lessThan 8.7.1); ingest reads them as one range per line.

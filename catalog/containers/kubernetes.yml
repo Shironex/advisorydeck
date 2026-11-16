@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: kubernetes
+name: Kubernetes
+category: containers
+homepage: https://kubernetes.io
+description: Container orchestration (the core components such as kube-apiserver and kubelet).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: kubernetes
+images:
+  - ref: registry.k8s.io/kube-apiserver
+    tag_pattern: "^v(?<version>[0-9]+\\.[0-9]+\\.[0-9]+(?:-(?:alpha|beta|rc)\\.[0-9]+)?)$"
+    note: The control plane images share the Kubernetes version; most clusters report it with kubectl version.
+sources:
+  - type: cve-cna
+    assigner: kubernetes
+    products: [Kubernetes, kubelet, kube-apiserver]
+    note: The Kubernetes CNA also files ingress-nginx, the CSI drivers and client libraries under their own product names; they are not this product.
+  - type: vendor-page
+    url: https://kubernetes.io/docs/reference/issues-security/official-cve-feed/
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one entry per supported minor line with lessThanOrEqual as the last affected release (v1.34.0 lessThanOrEqual v1.34.11); the leading v is dropped.
+  - Distributions (k3s, RKE2, managed clusters) carry their own version suffixes and patch schedules.

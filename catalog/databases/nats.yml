@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: nats
+name: NATS Server
+category: databases
+homepage: https://nats.io
+description: Messaging system and streaming server (nats-server, JetStream).
+version_scheme: semver
+branches:
+  source: none
+images:
+  - ref: docker.io/library/nats
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:alpine[0-9.]*|scratch|linux|nanoserver(?:-ltsc[0-9]+)?|windowsservercore(?:-ltsc[0-9]+)?))?$"
+    note: Variant tags without a number (alpine, scratch, nanoserver) carry no version.
+sources:
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/nats-io/nats-server/v2
+    note: Listed first because the reviewed global advisories list the fix per supported line where some repository advisories name only the newest.
+  - type: ghsa-repo
+    repo: nats-io/nats-server
+    packages:
+      - github.com/nats-io/nats-server/v2
+      - github.com/nats-io/nats-server
+      - nats-io/nats-server
+      - nats-server
+      - nats
+    note: Entries for nkeys and nats-streaming-server are other projects with their own versions and are not read.
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: nats-io
+    products: [nats-server]
+match:
+  strategy: package-ranges
+curated: false
+data_notes:
+  - Advisories name the Go module github.com/nats-io/nats-server/v2, whose versions are the release versions; some name the module without /v2 or just nats-server with the same versions.
+  - Several bounds in one range list one supported line each (<= 2.14.9, <= 2.15.2) next to a patched list.
+  - About half of the repository advisories have no CVE id.
+  - Not listed on endoflife.date.
