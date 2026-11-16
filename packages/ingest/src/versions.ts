@@ -1,7 +1,11 @@
 import type { VersionRange } from '@advisorydeck/contract';
 
-/** Same rule as defs.schema.json#/$defs/version. */
-const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+:~_-]*$/;
+/**
+ * defs.schema.json#/$defs/version, narrowed to start with a digit: every scheme ingest reads
+ * versions for starts with one, and a word in a version field is a placeholder (Metabase's
+ * x.58.0 for "0.58.0 or 1.58.0", NGINX Plus R36), never something a consumer can compare.
+ */
+const VERSION = /^[0-9][0-9A-Za-z.+:~_-]*$/;
 
 /** Words upstream records use for "every version" or "not known yet". */
 const ANY = new Set(['*', 'all', 'any', 'n/a', 'unspecified', 'unknown']);
@@ -9,7 +13,7 @@ const NONE = new Set(['', 'none', 'tbd', 'n/a', 'unknown', 'unspecified', '-']);
 
 /**
  * Trims a version and drops a leading v (v3.7.18 becomes 3.7.18); undefined when it is not a
- * version. Java release suffixes become semver: a dotted milestone or release candidate is a
+ * version or does not start with a digit. Java release suffixes become semver: a dotted milestone or release candidate is a
  * prerelease (Tomcat 9.0.0.M1 is 9.0.0-M1) and .RELEASE is the release itself (Spring
  * 5.2.25.RELEASE is 5.2.25).
  */

@@ -1,0 +1,104 @@
+[
+  {
+    "ghsa_id": "GHSA-r495-55cx-fjh7",
+    "cve_id": null,
+    "url": "https://api.github.com/repos/metabase/metabase/security-advisories/GHSA-r495-55cx-fjh7",
+    "html_url": "https://github.com/metabase/metabase/security/advisories/GHSA-r495-55cx-fjh7",
+    "summary": "Multiple vulnerabilities across query validation, permissions, and network exposure",
+    "description": "## Overview\r\n\r\nAs a part of our effort to harden Metabase’s security, we proactively identified and fixed several issues and bugs. Please upgrade your Metabase instance as soon as possible.\r\n\r\n## Remediation\r\nUpgrade to a patch corresponding to your Metabase major version as soon as possible. \r\n\r\n## Versions with the fix\r\n#### v63.10\r\nOSS: [jar](https://downloads.metabase.com/v0.63.10/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.63.10)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.63.10/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.63.10)\r\n\r\n#### v62.13\r\nOSS: [jar](https://downloads.metabase.com/v0.62.13/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.62.13)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.62.13/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.62.13)\r\n\r\n#### v61.15\r\nOSS: [jar](https://downloads.metabase.com/v0.61.15/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.61.15)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.61.15/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.61.15)\r\n\r\n#### v60.21\r\nOSS: [jar](https://downloads.metabase.com/v0.60.21/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.60.21)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.60.21/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.60.21)\r\n\r\n#### v59.25\r\nOSS: [jar](https://downloads.metabase.com/v0.59.25/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.59.25)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.59.25/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.59.25)\r\n\r\n#### v58.28\r\nOSS: [jar](https://downloads.metabase.com/v0.58.28/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase/tags?name=v0.58.28)\r\nEE: [jar](https://downloads.metabase.com/enterprise/v1.58.28/metabase.jar) | [docker](https://hub.docker.com/r/metabase/metabase-enterprise/tags?name=v1.58.28)\r\n\r\n## Improvements\r\n\r\n### 1. Stricter validation of query inputs (SQL-injection hardening)\r\n\r\nThe largest group of fixes tightens how Metabase validates the pieces of a query that a user can influence. In several places, a crafted value could reach the database as raw SQL rather than being treated as data. We added strict validation across all of these paths so that user-supplied values can no longer be interpolated into the SQL we send to the database.\r\n\r\nThis covers query parameters and filters, \"cast\" options, stored metric/segment definitions, custom column types, and the code that creates schemas on BigQuery and SQL Server. It also covers database-specific edge cases (e.g., ClickHouse identifier escaping, BigQuery identifier quoting, and Postgres enum type and full-text-search handling). \r\n\r\nWe reviewed the query-compilation code across all supported warehouses and closed the remaining places where a value carried by a saved question could reach the database as raw text: date/time arithmetic, regular-expression, percentile, timezone-conversion, and type-cast arguments.\r\n\r\n### 2. HoneySQL dependency update\r\n\r\nSeparately from our own code, we updated the SQL-generation library Metabase depends on (HoneySQL) to a release that patches a recently published vulnerability in that library (CVE-2026-61620).\r\n\r\n### 3. More complete permission checks on referenced content\r\n\r\nCards, dashboards, actions, and transforms can reference other content, such as other cards, fields, tables, actions, and databases. These references had permission checks, but in a few places the checks were incomplete or uneven across object types, and we made them thorough and consistent.\r\n\r\nWhen one saved question's query is built on another, we previously verified access only through the first couple of levels of nesting, so a more deeply nested reference could slip past. We now check access to every referenced question, however deeply nested. \r\n\r\nOn dashboards, a card could be added without confirming that the editor could read it, and a few endpoints would then surface that card with the dashboard's permissions rather than the viewer's. That read check is now applied when the card is added. \r\n\r\nAnd the older action type (known as actions v1) carried no permission checks of its own, so an action could be attached to a dashboard and run with the dashboard's permissions. Attaching an action is now also behind the appropriate permission check.\r\n\r\nTogether, these changes ensure a user can't use a saved object to indirectly reach data or a database they don't otherwise have access to.\r\n\r\n### 4. Login and password reset rate limiting\r\n\r\nWe closed a gap where varying a request header could reset the per-client rate limits that throttle repeated login and password-reset attempts, weakening brute-force protection. Those limits can no longer be bypassed that way.\r\n\r\n### 5. Reverting to an earlier version of an entity now rechecks permissions\r\n\r\nMetabase keeps version history for cards and dashboards, and we found that reverting an entity to an older version could restore sensitive settings or references without revalidating them. For example, a revert could restore an embedding configuration, a public-sharing link, a data source, or a collection location that the user shouldn't be able to set today. \r\n\r\nReverts now recheck these the same way a normal edit does.\r\n\r\n### 6. Data sandboxing and connection impersonation integrity\r\n\r\nSandboxing (row- and column-level rules) and connection impersonation restrict what data a user can see. We closed two kinds of gaps.\r\n\r\nFirst, a specially crafted request could cause those restrictions to be skipped. That is no longer possible, including in the interaction between sandboxing and Metabase's model caching/persistence feature.\r\n\r\nSecond, the questions that define a sandbox could be edited or deleted by a user with only ordinary permissions on them, so in the worst case a user could weaken the rule constraining their own access and effectively elevate their own permissions. Editing queries behind sandboxing questions, and deleting those questions, are now restricted to administrators.\r\n\r\n### 7. Tighter API request validation\r\n\r\nPreviously, many API endpoints accepted loosely structured request bodies and acted on fields they didn't expect. We now apply strict schema verification in two places: at the API boundary, where each endpoint accepts only the fields it is meant to, and at the query-compilation layer, where query fragments are turned into SQL. \r\n\r\n### 8. Network exposure fixes\r\n\r\nWe disabled a legacy “HTTP action” execution path that could make the server issue requests to internal addresses on the caller's behalf. We changed database SSH tunnels to bind strictly to the local loopback interface, so a tunnel is never reachable from the rest of the network. We blocked a route by which an unauthenticated request could influence the instance's configured site URL.\r\n\r\n### 9. Access control on administrative and settings management\r\n\r\nWe tightened a few operations to require the right privilege level. \r\n\r\nMaking a question publicly shareable previously required only write access to its collection, while the same action for dashboards was already admin-only. Publishing a public link for a question is now admin-only as well. \r\n\r\nA database's health-check endpoint was reachable by any logged-in user and is now restricted to admins. We also narrowed the scope of what a Settings Manager can change, and a deactivated administrator no longer silently regains admin rights on their next single sign-on login.\r\n\r\n### 10. Stricter result row count and download limits\r\n\r\nMetabase caps how many rows a query returns, and how many rows can be exported/downloaded. We closed a gap where a client could raise or remove those limits by overriding them in the request. These limits are now enforced on the server side.",
+    "severity": "critical",
+    "identifiers": [
+      {
+        "value": "GHSA-r495-55cx-fjh7",
+        "type": "GHSA"
+      }
+    ],
+    "published_at": "2026-08-11T19:19:08Z",
+    "updated_at": "2026-08-11T19:19:08Z",
+    "withdrawn_at": null,
+    "closed_at": null,
+    "created_at": null,
+    "state": "published",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.58.0, < x.58.28",
+        "patched_versions": "x.58.28",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.59.0, < x.59.25",
+        "patched_versions": "x.59.25",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.60.0, < x.60.21",
+        "patched_versions": "x.60.21",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.61.0, < x.61.15",
+        "patched_versions": "x.61.15",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.62.0, < x.62.13",
+        "patched_versions": "x.62.13",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": ">= x.63.0, < x.63.10",
+        "patched_versions": "x.63.10",
+        "vulnerable_functions": []
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "metabase"
+        },
+        "vulnerable_version_range": "< x.58.28",
+        "patched_versions": "x.58.28",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss": {
+      "vector_string": null,
+      "score": null
+    },
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": null,
+        "score": null
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [],
+    "cwe_ids": []
+  }
+]

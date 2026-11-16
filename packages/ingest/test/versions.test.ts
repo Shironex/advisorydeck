@@ -27,6 +27,9 @@ describe('cleanVersion', () => {
 
   it('rejects text that is not a version', () => {
     expect(cleanVersion('< 1.0')).toBeUndefined();
+    expect(cleanVersion('x.58.0')).toBeUndefined();
+    expect(cleanVersion('R36')).toBeUndefined();
+    expect(cleanVersion('All')).toBeUndefined();
     expect(cleanVersion('')).toBeUndefined();
   });
 });
