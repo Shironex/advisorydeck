@@ -427,6 +427,9 @@ export function exceptPatchedLines(ranges: readonly VersionRange[]): VersionRang
     const end = endOf(b) ?? '';
     const line = branchOf(end);
     if (line === undefined) continue;
+    // A fix that is the first release of a line (2.39.0 < 2.40.0, Portainer) ends the line
+    // before it with no patched releases to skip.
+    if (b.fixed !== undefined && /^v?\d+\.\d+\.0$/.test(b.fixed.replace(/\+.*$/, ''))) continue;
     const next = `${line.major}.${line.minor + 1}.0`;
     const out: VersionRange[] = [];
     for (const a of pieces) {
@@ -436,7 +439,8 @@ export function exceptPatchedLines(ranges: readonly VersionRange[]): VersionRang
       }
       const aEnd = endOf(a);
       const startsBefore =
-        a.introduced === '0' || (compareIgnoringBuild(a.introduced, end) ?? 1) <= 0;
+        a.introduced === '0' ||
+        (compareIgnoringBuild(a.introduced, end) ?? 1) < (b.fixed !== undefined ? 0 : 1);
       // The wide range must reach past the narrow range's line.
       const pastLine =
         aEnd === undefined ||
@@ -463,7 +467,11 @@ export function exceptPatchedLines(ranges: readonly VersionRange[]): VersionRang
     }
     pieces = out;
   }
-  return dedupeRanges(pieces);
+  return dedupeRanges(
+    pieces.filter(
+      (r) => r.fixed === undefined || (compareIgnoringBuild(r.introduced, r.fixed) ?? -1) < 0,
+    ),
+  );
 }
 
 /** Major and minor of a dotted numeric version (8.2.2 gives 8 and 2), or undefined. */
