@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: valkey
+name: Valkey
+category: databases
+homepage: https://valkey.io
+description: In-memory key-value data store, the Linux Foundation fork of Redis.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: valkey
+images:
+  - ref: docker.io/valkey/valkey
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)(?:-(?:alpine|trixie|bookworm)[0-9.]*)?$"
+    note: unstable and the -rc branch tags (9.2-rc) carry no release version.
+sources:
+  - type: ghsa-repo
+    repo: valkey-io/valkey
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: valkey-io
+    products: [valkey]
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories name the package valkey-server with an empty, other, valkey or valkey-io ecosystem.
+  - Most write one expression with the last affected release of each branch, newest first (<= 9.1.1, <= 9.0.5, <= 8.1.9, <= 8.0.10); ingest sorts them and reads one range per branch. Some write one upper bound on the newest branch with a patched version per branch (<= 9.0.2 patched 9.0.3, 8.1.6, 8.0.7, 7.2.12), read per patched branch.
+  - The CVE records filed by GitHub give one bounded range per branch.
