@@ -8,6 +8,7 @@ import {
   type CatalogEntry,
   type Manifest,
   type ProductFeed,
+  type Upstream,
 } from '@advisorydeck/contract';
 import type { BranchRecord } from './records.ts';
 import { dataLayout, writeIfChanged } from './store.ts';
@@ -31,6 +32,15 @@ function readJson(path: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/** The catalog's upstream status in schema key order, so the published bytes never depend on YAML order. */
+function upstreamOf(upstream: Upstream): Upstream {
+  return {
+    status: upstream.status,
+    ...(upstream.since === undefined ? {} : { since: upstream.since }),
+    ...(upstream.note === undefined ? {} : { note: upstream.note }),
+  };
 }
 
 /** Newest published first, then by id, so the order never depends on upstream order. */
@@ -107,6 +117,7 @@ export function writeOutputs(options: {
         category: product.category,
         homepage: product.homepage,
         version_scheme: product.version_scheme,
+        ...(product.upstream === undefined ? {} : { upstream: upstreamOf(product.upstream) }),
         branches: options.branches(product.slug).map((b) => ({
           name: b.name,
           eol: b.eol,
