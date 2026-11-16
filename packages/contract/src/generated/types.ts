@@ -104,7 +104,8 @@ export interface Product {
     | 'monitoring'
     | 'storage'
     | 'devtools'
-    | 'apps';
+    | 'apps'
+    | 'frameworks';
   homepage: string;
   description?: string;
   /**
@@ -431,7 +432,7 @@ export interface ProductFeed {
     slug: string;
     name: string;
     /**
-     * Catalog category. databases (databases, caches, queues and search engines), proxies (web servers, reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines such as dockerd and containerd, runc, orchestration and container tooling), runtimes (language runtimes that app containers run on), auth (identity, single sign-on and secrets), monitoring (metrics, logs, dashboards and uptime checks), storage (files, photos, media, backups, object storage and image registries), devtools (git hosting, CI and remote development environments), apps (applications deployed from templates: CMS, chat, automation, AI front ends).
+     * Catalog category. databases (databases, caches, queues and search engines), proxies (web servers, reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines such as dockerd and containerd, runc, orchestration and container tooling), runtimes (language runtimes that app containers run on), auth (identity, single sign-on and secrets), monitoring (metrics, logs, dashboards and uptime checks), storage (files, photos, media, backups, object storage and image registries), devtools (git hosting, CI and remote development environments), apps (applications deployed from templates: CMS, chat, automation, AI front ends), frameworks (web frameworks that self-hosted apps are built with, versioned by the package in the app's lockfile).
      */
     category:
       | 'databases'
@@ -444,7 +445,8 @@ export interface ProductFeed {
       | 'monitoring'
       | 'storage'
       | 'devtools'
-      | 'apps';
+      | 'apps'
+      | 'frameworks';
     homepage: string;
     /**
      * How versions of a product compare. semver: semantic versions, prereleases included. semver4: semver with an optional fourth numeric part for vendor backports (Nextcloud Enterprise 31.0.14.7); a missing fourth part is 0, so 31.0.14 < 31.0.14.7 < 31.0.15. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
