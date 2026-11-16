@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-5w68-77r2-r64c",
+  "aliases": [],
+  "title": "Complete authentication bypass in the `digestAuth` middleware",
+  "summary": "## Summary\n\nThere is a critical severity vulnerability in Traefik's `digestAuth` middleware. The middleware's secret provider returned an empty string for a username absent from the configured user list, instead of signalling that no such user exists, and the pinned digest library accepted that empty string as the user's `HA1`. Every other input to the digest computation is either chosen by the client or handed to it in the `401` challenge, so the expected response digest becomes fully computable and any unauthenticated remote client can pass the check with an arbitrary username and no password, on any route protected by `digestAuth` - including the dashboard and API when they are protected this way. The fix updates the `github.com/containous/go-http-auth` fork so that an unknown user is rejected rather than given an empty secret. Every v1, v2 and v3 release shipping the middleware is affected; the v1 line, the v2 minors below v2.11 and the v3 minors below v3.7 are no longer maintained and will not receive a patch of their own, so users running them should upgrade to a maintained, patched release.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.55\n- https://github.com/traefik/traefik/releases/tag/v3.7.11\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n### Summary\r\n\r\nThe `digestAuth` middleware can be bypassed by any unauthenticated remote client, with no password and no valid username, in two requests.\r\n\r\nTraefik's digest secret provider returns the **empty string** for a username that is not in the middleware's user list, instead of signalling \"no such user\". The pinned digest library treats that empty string as the user's `HA1` and proceeds with the normal cryptographic check. Because every other input to the digest computation (`nonce`, `nc`, `cnonce`, `qop`, method, URI) is either attacker-chosen or handed to the attacker in the `401` challenge, the expected response digest becomes fully computable: `MD5(\"\" + \":\" + nonce + \":\" + nc + \":\" + cnonce + \":auth:\" + MD5(method + \":\" + uri))`. The comparison succeeds, and the middleware forwards the request with the attacker's chosen username.\r\n\r\nAny route protected by `digestAuth` - including the Traefik dashboard and API when they are protected this way - is effectively unprotected. The strength of the configured users' passwords is irrelevant, because the attack does not target a configured user. Confirmed on `master` and present, with identical code, in every v2 and v3 release that ships the `digestAuth` middleware.\r\n\r\n### Details\r\n\r\nThree pieces combine.\r\n\r\n**1. Unknown user yields an empty secret rather than a failure** - `pkg/middlewares/auth/digest_auth.go:112-118`:\r\n\r\n```go\r\nfunc (d *digestAuth) secretDigest(user, realm string) string {\r\n\tif secret, ok := d.users[user+\":\"+realm]; ok {\r\n\t\treturn secret\r\n\t}\r\n\r\n\treturn \"\"   // unknown user -> empty HA1, indistinguishable from a real secret\r\n}\r\n```\r\n\r\nThis function is installed as the library's `SecretProvider` at `pkg/middlewares/auth/digest_auth.go:51`:\r\n\r\n```go\r\nda.auth = goauth.NewDigestAuthenticator(realm, da.secretDigest)\r\n```\r\n\r\n**2. The library never checks that the secret is non-empty.** The pinned dependency is `github.com/abbot/go-http-auth`, replaced in `go.mod:426` with `github.com/containous/go-http-auth v0.4.1-0.20200324110947-a37a7636d23e`. In its `digest.go`, `CheckAuth` does (lines 191-200):\r\n\r\n```go\r\nHA1 := da.Secrets(auth[\"username\"], da.Realm)      // \"\" for an unknown user\r\nif da.PlainTextSecrets {                           // false, see below\r\n\tHA1 = H(auth[\"username\"] + \":\" + da.Realm + \":\" + HA1)\r\n}\r\nHA2 := H(r.Method + \":\" + auth[\"uri\"])\r\nKD := H(strings.Join([]string{HA1, auth[\"nonce\"], auth[\"nc\"], auth[\"cnonce\"], auth[\"qop\"], HA2}, \":\"))\r\n\r\nif subtle.ConstantTimeCompare([]byte(KD), []byte(auth[\"response\"])) != 1 {\r\n\tretur...",
+  "published_at": "2026-08-21T09:45:51.000Z",
+  "modified_at": "2026-08-21T09:45:51.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287",
+    "CWE-303"
+  ],
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.11.55"
+        },
+        {
+          "introduced": "3.0.0",
+          "fixed": "3.7.11"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-5w68-77r2-r64c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-5w68-77r2-r64c",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-5w68-77r2-r64c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:88b9e58d116340cc30883d8b3c87127274586a1233aee0ca1d3518e7f8f3c5c6",
+  "note": null
+}

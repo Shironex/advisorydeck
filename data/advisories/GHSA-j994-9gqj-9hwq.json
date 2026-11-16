@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-j994-9gqj-9hwq",
+  "aliases": [],
+  "title": "Same-host Ingress TLS option conflict disables client-certificate authentication",
+  "summary": "## Summary\n\nThere is a high severity vulnerability in Traefik's Kubernetes Ingress NGINX provider. The TLS option generated for an Ingress carrying the `nginx.ingress.kubernetes.io/auth-tls-secret` annotation was named after the Ingress namespace and name, so two Ingress objects sharing the same host, the same client CA secret and the same client-authentication mode produced two distinct TLS options for that host name. Traefik treats that as a TLS options conflict and falls back to the entry point's default TLS configuration, which does not request a client certificate, so a route configured with `nginx.ingress.kubernetes.io/auth-tls-verify-client: \"on\"` becomes reachable without one. The generated option name is now derived from the client CA secret and the client-authentication mode alone, so Ingresses expressing the same mTLS policy resolve to a single TLS option. Only the v3.7 line is affected: the Ingress NGINX provider's client-authentication handling was introduced in v3.7.0, and neither Traefik v2 nor the v3 lines up to v3.6 carry it.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.11\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n## Summary\r\n\r\nTraefik v3.7.9's Kubernetes Ingress NGINX provider can assign different TLS\r\noption names to two Ingress objects that use the same host, the same\r\n`auth-tls-secret`, and the same client-authentication mode. When those routers\r\nshare an SNI/host, Traefik treats the TLS option selection as ambiguous and\r\nfalls back to the entrypoint's default TLS configuration.\r\n\r\nThe default TLS configuration does not require a client certificate. As a\r\nresult, a route configured with\r\n`nginx.ingress.kubernetes.io/auth-tls-verify-client: \"on\"` can become reachable\r\nwithout a client certificate when another Ingress for the same host introduces\r\nthe TLS-option conflict.\r\n\r\nThis behavior was reproduced end to end with the official `traefik:v3.7.9`\r\nimage and the Kubernetes Ingress NGINX provider.\r\n\r\n## Affected configuration\r\n\r\nThe issue requires at least two HTTPS Ingress objects for the same host. Both\r\nobjects use the same client CA and client-authentication mode, but have\r\ndifferent Ingress names. The relevant parts of the two objects are:\r\n\r\n```yaml\r\napiVersion: networking.k8s.io/v1\r\nkind: Ingress\r\nmetadata:\r\n  name: protected-ingress\r\n  namespace: mtls-conflict-lab\r\n  annotations:\r\n    nginx.ingress.kubernetes.io/auth-tls-secret: \"mtls-conflict-lab/client-ca\"\r\n    nginx.ingress.kubernetes.io/auth-tls-verify-client: \"on\"\r\nspec:\r\n  ingressClassName: nginx\r\n  tls:\r\n    - hosts:\r\n        - mtls.example.test\r\n      secretName: server-tls\r\n  rules:\r\n    - host: mtls.example.test\r\n      http:\r\n        paths:\r\n          - path: /protected\r\n            pathType: Prefix\r\n            backend:\r\n              service:\r\n                name: backend\r\n                port:\r\n                  name: http\r\n---\r\napiVersion: networking.k8s.io/v1\r\nkind: Ingress\r\nmetadata:\r\n  name: same-host-second-ingress\r\n  namespace: mtls-conflict-lab\r\n  annotations:\r\n    nginx.ingress.kubernetes.io/auth-tls-secret: \"mtls-conflict-lab/client-ca\"\r\n    nginx.ingress.kubernetes.io/auth-tls-verify-client: \"on\"\r\nspec:\r\n  ingressClassName: nginx\r\n  tls:\r\n    - hosts:\r\n        - mtls.example.test\r\n      secretName: server-tls\r\n  rules:\r\n    - host: mtls.example.test\r\n      http:\r\n        paths:\r\n          - path: /second\r\n            pathType: Prefix\r\n            backend:\r\n              service:\r\n                name: backend\r\n                port:\r\n                  name: http\r\n```\r\n\r\nThe two generated TLS option names observed in the Traefik configuration were:\r\n\r\n```text\r\nmtls-conflict-lab-protected-ingress-mtls-conflict-lab-client-ca\r\nmtls-conflict-lab-same-host-second-ingress-mtls-conflict-lab-client-ca\r\n```\r\n\r\nThese are generated TLS option identifiers,...",
+  "published_at": "2026-08-21T09:45:53.000Z",
+  "modified_at": "2026-08-21T09:45:53.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287",
+    "CWE-295"
+  ],
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "3.7.0",
+          "fixed": "3.7.11"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-j994-9gqj-9hwq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-j994-9gqj-9hwq",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-j994-9gqj-9hwq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:89d081269acd043a7930a25dede99f1df29587c2db10dcc628b787cfbf494aec",
+  "note": null
+}

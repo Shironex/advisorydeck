@@ -1,0 +1,57 @@
+{
+  "id": "GHSA-rh7m-2m44-x32f",
+  "aliases": [],
+  "title": "Traefik: Kubernetes Ingress and Service annotations allow cross-namespace references to Middlewares, ServersTransports, and TLSOptions",
+  "summary": "## Summary\n\nThere is a medium severity vulnerability in Traefik's Kubernetes Ingress provider that allows an actor with permission to create or update `Ingress` or `Service` resources in one namespace to reference `Middleware`, `ServersTransport`, and `TLSOption` resources from other namespaces through annotations. Unlike the Kubernetes CRD provider, which rejects such references when `allowCrossNamespace` is disabled, the annotation path performs no namespace validation, partially bypassing namespace-based tenant isolation. In multi-tenant clusters, this can expose another tenant's secrets, such as credentials injected by a `Headers` middleware or a client certificate configured in a `ServersTransport`. The fix introduces the `crossProviderNamespaces` option on the Kubernetes providers, which must be explicitly set to restrict which namespaces are allowed to use cross-provider references; when it is left unset, all namespaces remain allowed.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.46\n- https://github.com/traefik/traefik/releases/tag/v3.6.17\n- https://github.com/traefik/traefik/releases/tag/v3.7.1\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n# Traefik: Missing Cross-Namespace Validation When Using K8s Annotations\n\n## Brief Summary\n\nTraefik in Kubernetes (K8s) allows cross-namespace access to Traefik resources when using Annotations on Ingress and Service resources.\n\n## Table of Content\n\n- [Traefik: Missing Cross-Namespace Validation When Using K8s Annotations](#traefik-missing-cross-namespace-validation-when-using-k8s-annotations)\n  - [Brief Summary](#brief-summary)\n  - [Table of Content](#table-of-content)\n  - [Description](#description)\n  - [Affected Version](#affected-version)\n  - [Source Code References](#source-code-references)\n  - [Prerequisites](#prerequisites)\n  - [Impact](#impact)\n  - [Security Researcher / Reporter](#security-researcher--reporter)\n  - [Proof of Concept](#proof-of-concept)\n    - [Middleware Proof Of Concept](#middleware-proof-of-concept)\n      - [Step 1: Preparation](#step-1-preparation)\n      - [Step 2: Create Victim's Resources](#step-2-create-victims-resources)\n      - [Step 3: Create Attacker Resources](#step-3-create-attacker-resources)\n      - [Step 4: Attacker steals API Token](#step-4-attacker-steals-api-token)\n    - [ServersTransport Proof Of Concept](#serverstransport-proof-of-concept)\n      - [Step 1: Create Victim and Attacker Namespaces](#step-1-create-victim-and-attacker-namespaces)\n      - [Step 2: Create Victim Resources](#step-2-create-victim-resources)\n      - [Step 3: Create Attacker Resources](#step-3-create-attacker-resources-1)\n      - [Step 3: Attacker steals Client Certificate to authenticate against protected resource living in the victim's own namespace](#step-3-attacker-steals-client-certificate-to-authenticate-against-protected-resource-living-in-the-victims-own-namespace)\n  - [Recommendation](#recommendation)\n  - [Appendix](#appendix)\n    - [Resources](#resources)\n      - [PoC router.middlewares / victim.yaml](#poc-routermiddlewares--victimyaml)\n      - [PoC router.middlewares / attacker.yaml](#poc-routermiddlewares--attackeryaml)\n      - [PoC service.serverstransport / victim.yaml](#poc-serviceserverstransport--victimyaml)\n      - [PoC service.serverstransport / attacker.yaml](#poc-serviceserverstransport--attackeryaml)\n      - [PoC router.middlewares intern-demo-access-victims-pod-wo-auth.txt](#poc-routermiddlewares-intern-demo-access-victims-pod-wo-authtxt)\n      - [PoC router.middlewares intern-demo-access-victims-pod-with-auth.txt](#poc-routermiddlewares-intern-demo-access-victims-pod-with-authtxt)\n    - [Test Setup](#test-setup)\n\n## Description\n\nWhen using the Ingress and Service Annotations, it is possible to reference Middlewares, ServersTransports, and TLSOptions from foreign...",
+  "published_at": "2026-10-05T12:05:46.000Z",
+  "modified_at": "2026-10-05T12:05:46.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.4,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:L/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.11.46"
+        },
+        {
+          "introduced": "3.0.0",
+          "fixed": "3.6.17"
+        },
+        {
+          "introduced": "3.7.0",
+          "fixed": "3.7.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-rh7m-2m44-x32f",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rh7m-2m44-x32f",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-rh7m-2m44-x32f",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5c042e04597ca8d9ba89bd819418feec2a1681ca58d7abc8ba4a72b70f6cd0fc",
+  "note": null
+}

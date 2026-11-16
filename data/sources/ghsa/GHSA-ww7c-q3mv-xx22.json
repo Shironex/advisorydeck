@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-ww7c-q3mv-xx22",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-567"
+    ],
+    "description": "## Summary\n\nThere is a high severity vulnerability in Traefik's experimental FastProxy (`experimental.fastProxy`). Once a backend answers a protocol upgrade (`101 Switching Protocols`, e.g. WebSocket), the connection pool keeps reading from the backend connection while the tunnel copier reads from the same buffered reader, with no synchronization between them. An unauthenticated client that repeatedly opens upgraded connections and aborts them can corrupt the reader's internal state and trigger an unrecovered panic that terminates the whole Traefik process, causing a denial of service.\n\nOnly deployments that enable `experimental.fastProxy` are affected. Traefik v2 is not affected, as FastProxy was introduced in v3.2. Traefik v3.2 to v3.6 are affected and no longer maintained, so they will not receive a patch: users on those versions should upgrade to a patched v3.7 release.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.15\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).",
+    "ghsa_id": "GHSA-ww7c-q3mv-xx22",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-ww7c-q3mv-xx22",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ww7c-q3mv-xx22"
+      }
+    ],
+    "published_at": "2026-10-16T08:00:59Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Data race on the shared bufio.Reader after an HTTP/1 upgrade in FastProxy panics the whole process",
+    "updated_at": "2026-10-16T08:00:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.15",
+        "vulnerable_version_range": ">= v3.2.0, <= v3.7.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

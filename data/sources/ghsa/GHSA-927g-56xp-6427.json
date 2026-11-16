@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-927g-56xp-6427",
+  "repo": {
+    "cve_id": "CVE-2025-59955",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-201",
+      "CWE-212",
+      "CWE-214"
+    ],
+    "description": "## Summary\r\n\r\nAn **information disclosure vulnerability** in the `/api/v1/teams/{team_id}/members` and `/api/v1/teams/current/members` API endpoints allows authenticated team members to access a highly sensitive `email_change_code` from other users on the same team. This code is intended for a single-use email change verification and should be kept secret. Its exposure could enable a malicious actor to perform an unauthorized email address change on behalf of the victim.\r\n\r\n## Details\r\n\r\nThe vulnerability lies in the API's response data for the team member list. The controller retrieves a list of users without properly redacting sensitive information before serialization. Specifically, the `email_change_code` field from the `users` table is included in the JSON response for all team members.\r\n\r\nThis issue is present in the `getMembers` method of the `TeamController`, which is responsible for fetching and returning team members. The Eloquent query returns the full `User` model, including the sensitive `email_change_code` column, which is then exposed via the API.\r\n\r\nThe relevant code is located at:\r\n\r\n* https://github.com/coollabsio/coolify/blob/v4.x/app/Http/Controllers/Api/TeamController.php#L266\r\n* https://github.com/coollabsio/coolify/blob/v4.x/app/Http/Controllers/Api/TeamController.php#L181\r\n\r\nThe current implementation in this method and its associated routes (`/api/v1/teams/{team_id}/members` and `/api/v1/teams/current/members`) fails to sanitize the user data, leading to the data leak.\r\n\r\n## PoC\r\n\r\n1. **Prerequisites:** You must have an authenticated account that is a member of a team with at least one other user. The other user **must have initiated an email address change** to generate an `email_change_code`.\r\n2. **Steps:**\r\n   * Log in to a Coolify instance as a team member.\r\n   * Identify the team ID you are a part of.\r\n   * Using a tool like cURL or Postman, make a GET request to the team members API endpoint. Replace `<team_id>` and `<your_api_token>` with your specific values.\r\n\r\n```bash\r\n$ curl -X GET 'https://your-coolify-instance.com/api/v1/teams/<team_id>/members' \r\n-H 'Accept: application/json' \r\n-H 'Authorization: Bearer <your_api_token>'\r\n```\r\n\r\n3. **Expected Output:** The API should only return basic user information like `id`, `name`, and `email`.\r\n4. **Actual Output (Vulnerable):** The JSON response will include an `email_change_code` for each user who has a pending email address change, allowing you to view and copy the code.\r\n```json\r\n[\r\n  {\r\n    \"id\": 0,\r\n    \"name\": \"Root User\",\r\n    \"email\": \"test@example.com\",\r\n    \"email_change_code\": \"510818\", // <--- The leaked code\r\n    \"email_change_code_expires_at\": \"2025-09-17T16:18:01.000000Z\",\r\n    \"email_verified_at\": \"2025-09-16T18:39:26.000000Z\",\r\n    \"force_password_reset\": false,\r\n    \"marketing_emails\": true,\r\n    \"pending_email\": \"admin@example.com\",\r\n    \"two_factor_confirmed_at\": null,\r\n    \"created_at\": \"2025-09-16T18:39:26.000000Z\",\r\n    \"updated_at\": \"2025-09-17T16:08:01.000000Z\"\r\n  },\r\n  {\r\n    \"id\": 3,\r\n    \"name\": \"test08\",\r\n    \"email\": \"test08@example.com\",\r\n    \"email_change_code\": null,\r\n    \"email_change_code_expires_at\": null,\r\n    \"email_verified_at\": \"2025-09-17T15:08:22.000000Z\",\r\n    \"force_password_reset\": false,\r\n    \"marketing_emails\": true,\r\n    \"pending_email\": null,\r\n    \"two_factor_confirmed_at\": null,\r\n    \"created_at\": \"2025-09-17T15:08:11.000000Z\",\r\n    \"updated_at\": \"2025-09-17T15:54:32.000000Z\"\r\n  }\r\n]\r\n```\r\n\r\n## Impact\r\n\r\nThis is an **Information Disclosure** vulnerability. It impacts all Coolify users who are part of a team. A malicious user on the same team can exploit this to obtain the `email_change_code` of another team member.\r\n\r\nWith the stolen code, the attacker can:\r\n* **Hijack the email change process:** Complete the victim's pending email change request, transferring their account's email address to a new, attacker-controlled email.\r\n* **Gain unauthorized access:** By changing the email, the attacker may be able to gain further control over the victim's account, potentially resetting the password and accessing the victim's private projects and data within Coolify.\r\n\r\nThe vulnerability compromises the privacy and security of team members by exposing a crucial piece of private information that is fundamental to the account recovery and security.",
+    "ghsa_id": "GHSA-927g-56xp-6427",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-927g-56xp-6427",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-927g-56xp-6427"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-59955"
+      }
+    ],
+    "published_at": "2026-01-03T15:16:17Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Sensitive information `email_change_code` leaked in `/api/v1/teams/{team_id | current}/members` API endpoint",
+    "updated_at": "2026-01-08T19:04:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.429",
+        "vulnerable_version_range": "v4.0.0-beta.428"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-725v-f5gh-22q9",
+  "repo": {
+    "cve_id": "CVE-2026-57498",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nCoolify's API controllers consistently validate server ownership with `Server::whereTeamId($teamId)` before any operation. However, multiple Livewire web UI components accept `server_id` and `destination_uuid` from URL query parameters without any team ownership validation, allowing cross-team resource deployment.\r\n\r\n### Finding 1: Cross-Team Resource Deployment via Unscoped Destination/Server Lookup\r\n\r\n**CVSS: CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H (8.5)**\r\n\r\n**Safe wrapper** - Used consistently in API controllers:\r\n```php\r\n$server = Server::whereTeamId($teamId)->whereUuid($serverUuid)->first();\r\n```\r\n\r\nAlso correctly scoped in `ResourceOperations.php` (clone operation):\r\n```php\r\n$new_destination = StandaloneDocker::whereHas('server', fn($q) => $q->where('team_id', currentTeam()->id))->find($destination_id);\r\n```\r\n\r\n**Missing team check** - `app/Livewire/Project/Resource/Create.php` lines 82-89:\r\n```php\r\n$destination = StandaloneDocker::whereUuid($destination_uuid)->first(); // NO team check\r\n$service_payload = [\r\n    'server_id' => (int) $server_id, // from query param - NO team check\r\n    'destination_id' => $destination->id,\r\n];\r\n$service = Service::create($service_payload);\r\n```\r\n\r\nSame pattern in 6+ more Livewire components (DockerCompose.php, DockerImage.php, GithubPrivateRepository.php, etc.) and all `create_standalone_*` helper functions.\r\n\r\nThe `project_uuid` and `environment_uuid` ARE validated against `currentTeam()` (line 24), but `server_id` and `destination_uuid` are NOT.\r\n\r\n**PoC:**\r\n```\r\nGET /project/{attacker_project}/{attacker_env}/new?type=one-click-service-wordpress&server_id=VICTIM_SERVER_ID&destination=VICTIM_DESTINATION_UUID\r\n```\r\n\r\n### Finding 2: Unscoped Server Lookup in Boarding Flow\r\n\r\n**CVSS: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:L/A:L (6.5)**\r\n\r\nSame file, line 121 correctly uses `Server::ownedByCurrentTeam()`. But line 124:\r\n```php\r\n$this->createdServer = Server::find($this->selectedExistingServer);\r\n// selectedExistingServer is integer from #[Url] - directly from URL\r\n```\r\n\r\nThen `validateServer()` calls `instant_remote_process(['ls /'], $this->createdServer, true)` - SSH command on unscoped server. Server IDs are auto-increment integers.\r\n\r\n### Impact\r\n\r\n- Cross-team container deployment to another team's server\r\n- Remote command execution on unscoped server via boarding flow\r\n- API is correctly protected - Livewire web UI only\r\n\r\n### Remediation\r\n\r\n```php\r\n// Replace all occurrences of:\r\nStandaloneDocker::whereUuid($destination_uuid)->first();\r\n// With:\r\nStandaloneDocker::whereHas('server', fn($q) => $q->where('team_id', currentTeam()->id))->where('uuid', $destination_uuid)->first();\r\n\r\n// Boarding flow:\r\nServer::ownedByCurrentTeam()->find($this->selectedExistingServer);\r\n```",
+    "ghsa_id": "GHSA-725v-f5gh-22q9",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-725v-f5gh-22q9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-725v-f5gh-22q9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-57498"
+      }
+    ],
+    "published_at": "2026-06-28T12:31:47Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Cross-Team IDOR: Livewire Components Accept Unscoped server_id and destination_uuid - Deploy to Other Teams' Servers",
+    "updated_at": "2026-06-29T16:22:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.474",
+        "vulnerable_version_range": "< v4.0.0-beta.474"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

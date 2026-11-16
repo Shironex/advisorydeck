@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5cg9-38qj-8mc3",
+  "repo": {
+    "cve_id": "CVE-2025-59157",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "Git Repository RCE in Coolify\r\n\r\n**Affected Product:** Coolify  \r\n**Tested Version:** v4.0.0-beta.420.6  \r\n**Likely Affected:** Previous versions are also likely vulnerable  \r\n**Fixed in:** v4.0.0-beta.420.7  \r\n\r\n---\r\n\r\n## Summary\r\n\r\nI report a new critical vulnerability in Coolify (tested on **v4.0.0-beta.420.6**).  \r\nThis issue is **distinct** from the previously disclosed Project Name command injection (GHSA-ccp8-v65g-m526, Jan 2025).  \r\n\r\nThe **Git Repository field** during project creation is vulnerable to **command injection**.  \r\nUser input is not properly sanitized, allowing attackers to inject arbitrary shell commands that execute on the **underlying server** during the deployment workflow.  A regular member user can exploit this vulnerability.\r\n\r\n---\r\n\r\n## Proof of Concept (PoC)\r\n\r\n**Payload (Git Repository field):**\r\n\r\n````git@github.com:fake/repo.git; cat /etc/passwd #````\r\n\r\nResult:\r\nWhen deploying the project with this payload, the injected command (cat /etc/passwd) is executed on the server during the Git step. This confirms arbitrary command execution outside of the Coolify container.\r\n\r\n## Impact\r\n\r\nThis vulnerability poses a severe security risk, as it allows attackers to:\r\n\r\n- Execute arbitrary commands on the **victim's server**, resulting in **full system compromise**.  \r\n- Read, create, modify, or delete **sensitive system files**.  \r\n- Escalate privileges depending on the context of execution.  \r\n\r\n---\r\n\r\n## Security Boundary Crossed\r\n\r\n- From: **Low-privileged Coolify member**  \r\n- To: **Root command execution on the operating system**  \r\n\r\n---\r\n\r\n## Timeline\r\n\r\n- **2025-08-26:** Maintainer released fix in **v4.0.0-beta.420.7**.  \r\n\r\n---\r\n\r\n## Credit\r\n\r\nDiscovered by **Eyodav**  \r\n",
+    "ghsa_id": "GHSA-5cg9-38qj-8mc3",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-5cg9-38qj-8mc3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5cg9-38qj-8mc3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-59157"
+      }
+    ],
+    "published_at": "2026-01-03T15:16:53Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Git Repository RCE in Coolify",
+    "updated_at": "2026-01-03T15:16:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "v4.0.0-beta.420.7  ",
+        "vulnerable_version_range": "v4.0.0-beta.420.6 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

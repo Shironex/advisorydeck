@@ -1,0 +1,67 @@
+{
+  "global": null,
+  "id": "GHSA-vp62-88p7-qqf5",
+  "repo": {
+    "cve_id": "CVE-2026-41568",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:C/C:N/I:L/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-367",
+      "CWE-61"
+    ],
+    "description": "## Summary\r\n\r\nA race condition during `docker cp` mount setup allows a malicious container to create empty files or directories at arbitrary absolute paths on the host filesystem.\r\n\r\nThis advisory covers the race during mountpoint creation. The related race during the subsequent mount syscall is tracked in GHSA-rg2x-37c3-w2rh\r\n\r\n## Details\r\n\r\nWhen copying files into a container, the daemon sets up a temporary filesystem view by bind-mounting volumes into a private mount namespace. During this setup, the mount destination path is first resolved within the container's root filesystem using `GetResourcePath`, and then used to create the mountpoint (file or directory) if it does not already exist via `createIfNotExists`.\r\n\r\nBetween path resolution and mountpoint creation, a process running inside the container can swap a path component for a symlink pointing to an arbitrary location on the host. Because `createIfNotExists` operates on the already-resolved absolute path using standard `os.MkdirAll` and `os.OpenFile` - which follow symlinks in intermediate path components - the symlink is followed and the file or directory is created outside the container root filesystem, as root.\r\n\r\n## Impact\r\n\r\nA malicious container can create empty files or directories at arbitrary absolute paths on the host filesystem, running as root. This enables persistent denial of service - for example:\r\n\r\n- Converting `/etc/docker/daemon.json` into a directory prevents the daemon from restarting\r\n- Creating `/etc/nologin` prevents user logins\r\n- Overwriting critical system paths with empty files can break host services\r\n\r\nThe container does not gain read or write access to existing host files - only the ability to create new empty files or directories at chosen paths.\r\n\r\n### Conditions for exploitation\r\n\r\n- A container must be running with a process that can rapidly create and swap symlinks at a volume mount destination path.\r\n- An operator must initiate a `docker cp` into that container, or call the `PUT /containers/{id}/archive` or `HEAD /containers/{id}/archive` API endpoints.\r\n\r\n### Not affected\r\n\r\n- Containers that do not have volume mounts are not affected, as the race occurs during volume bind-mount setup.\r\n\r\n## Patches\r\n\r\nMountpoint creation is now scoped to the container root using `os.Root` (Go 1.24+), which refuses to follow symlinks that escape the opened root directory. All filesystem operations in `createIfNotExists` (`MkdirAll`, `OpenFile`) are performed through the `os.Root` handle, so even if a symlink swap occurs after path resolution, the creation stays confined to the container root.\r\n\r\n## Workarounds\r\n\r\n- Only run containers from trusted images.\r\n- Avoid using `docker cp` with untrusted running containers.\r\n- Use authorization plugins to restrict access to the archive API endpoints (`PUT /containers/{id}/archive`, `HEAD /containers/{id}/archive`).\r\n",
+    "ghsa_id": "GHSA-vp62-88p7-qqf5",
+    "html_url": "https://github.com/moby/moby/security/advisories/GHSA-vp62-88p7-qqf5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vp62-88p7-qqf5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41568"
+      }
+    ],
+    "published_at": "2026-05-18T17:17:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Race condition in docker cp allows creation of arbitrary empty files on the host via symlink swap",
+    "updated_at": "2026-05-18T17:17:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Docker Engine"
+        },
+        "patched_versions": "29.5.1",
+        "vulnerable_version_range": "< 29.5.1"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/docker/docker/daemon"
+        },
+        "patched_versions": "None",
+        "vulnerable_version_range": "<= v28.5.2"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/moby/moby/v2/daemon"
+        },
+        "patched_versions": "v2.0.0-beta.14",
+        "vulnerable_version_range": "< v2.0.0-beta.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "moby/moby"
+}

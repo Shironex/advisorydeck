@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-pxq6-2prw-chj9",
+  "repo": {
+    "cve_id": "CVE-2026-33997",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nA security vulnerability has been detected that allows [plugins](https://docs.docker.com/engine/extend/legacy_plugins/) privilege validation to be bypassed during `docker plugin install`. Due to an error in the daemon's privilege comparison logic, the daemon may incorrectly accept a privilege set that differs from the one approved by the user.\r\n\r\nPlugins that request exactly one privilege are also affected, because no comparison is performed at all.\r\n\r\n## Impact\r\n\r\n**If you don't use plugins, you are not affected**\r\n\r\nWhen a user installs a plugin, the daemon computes the privileges required by the plugin's configuration and compares them with the privileges approved during installation. A malicious plugin can exploit this bug so that the daemon accepts privileges that differ from what the user intended to approve.\r\n\r\nAnyone who depends on the plugin installation approval flow as a meaningful security boundary is potentially impacted.\r\n\r\nDepending on the privilege set involved, this may include highly sensitive plugin permissions such as broad device access.\r\n\r\n**For consideration: exploitation still requires a user to install a malicious plugin, and Docker plugins are relatively uncommon. Docker Desktop also does not support plugins.**\r\n\r\n## Workarounds\r\n\r\nIf unable to update immediately:\r\n- Do not install plugins from untrusted sources\r\n- Carefully review all privileges requested during `docker plugin install`\r\n- Restrict access to the Docker daemon to trusted parties, following the principle of least privilege\r\n- Avoid relying on plugin privilege approval as the only control boundary for sensitive environments\r\n\r\n## Credits\r\n\r\n- Reported by Cody (c@wormhole.guru, PGP 0x9FA5B73E)",
+    "ghsa_id": "GHSA-pxq6-2prw-chj9",
+    "html_url": "https://github.com/moby/moby/security/advisories/GHSA-pxq6-2prw-chj9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pxq6-2prw-chj9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33997"
+      }
+    ],
+    "published_at": "2026-03-25T17:46:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Off-by-one error in plugin privilege validation",
+    "updated_at": "2026-03-30T11:39:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Docker Engine"
+        },
+        "patched_versions": "29.3.1",
+        "vulnerable_version_range": "< 29.3.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "moby/moby"
+}

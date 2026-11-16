@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-6jhp-7446-hf7f",
+  "repo": {
+    "cve_id": "CVE-2026-115538",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:L"
+      }
+    },
+    "cwe_ids": [
+      "CWE-693"
+    ],
+    "description": "On Swarm hosts which use firewalld, Moby's iptables rules may be flushed when firewalld reloads its ruleset. Moby listens for firewalld reload events over D-Bus and reinstalls its rules. However, the overlay driver does not hook into this infrastructure. Encrypted overlay-network traffic is sent in cleartext and spoofing protections for received cleartext overlay traffic are removed until some lifecycle event triggers the overlay driver to re-apply the rules.\r\n\r\nThe `overlay` network driver is a core feature of Swarm Mode, providing isolated virtual LANs that allow communication between containers and services across the cluster. The driver encapsulates link-layer (Ethernet) frames in [VXLAN](https://en.wikipedia.org/wiki/Virtual_Extensible_LAN) UDP datagrams tagged with a VXLAN Network ID (VNI) that identifies the overlay network. The overlay network driver also supports an optional, off-by-default encrypted mode, which protects VXLAN datagrams that traverse an untrusted network between nodes using the [IPsec Encapsulating Security Payload](https://en.wikipedia.org/wiki/IPsec#Encapsulating_Security_Payload) protocol in [Transport mode](https://en.wikipedia.org/wiki/IPsec#Transport_mode).\r\n\r\nEncryption on an encrypted overlay network depends on [iptables](https://www.netfilter.org/projects/iptables/index.html) rules which `dockerd` installs on each node when the network's first local endpoint is set up:\r\n\r\n* A rule in the `mangle` table's `OUTPUT` chain marks outgoing VXLAN datagrams with the network's VNI. The kernel's IPsec policy applies only to marked datagrams; unmarked datagrams are sent in cleartext.\r\n* A rule at the top of the `filter` table's `INPUT` chain discards incoming VXLAN datagrams with the network's VNI that were not received over IPsec.\r\n* In releases which include the fix for [CVE-2026-92542](https://github.com/moby/moby/security/advisories/GHSA-6m9p-4h64-m6vh) (Docker Engine 29.8.2 and later, and 25.0.19 and later), a rule in the `mangle` table's `OUTPUT` chain clears the mark from datagrams which a local process has marked for encryption itself.\r\n\r\nWhen [firewalld](https://firewalld.org/) is running, `dockerd` installs its iptables rules through firewalld's D-Bus interface. It restores its rules when firewalld signals that it has reloaded or started. The overlay driver does not handle these signals, and does not restore its encryption rules after firewalld deletes them.\r\n\r\n### Affected configurations\r\n\r\nA node is affected when all of the following apply:\r\n\r\n* The node is part of a Swarm and has at least one task or container attached to an encrypted overlay network.\r\n* firewalld is running, and its configuration is one in which firewalld deletes other applications' iptables rules:\r\n  * firewalld is configured with `FirewallBackend=iptables`, in any version; or\r\n  * firewalld is configured with `FirewallBackend=nftables` (the default), and either:\r\n    * the installed firewalld does not include upstream commit [b7faa74](https://github.com/firewalld/firewalld/commit/b7faa74db15e2d1ebd9fdfcdc7579874d3a2fa87) (\"avoid iptables flush if using nftables backend\"). The commit is included in firewalld 2.0.0 and later, and was backported to `firewalld-1.2.5-1.el9` (RHEL 9) and `firewalld-0.9.11-9.el8` (RHEL 8). Affected builds include those shipped with Debian 12 (1.3.3) and Ubuntu 22.04 (1.1.1); or\r\n    * firewalld has any direct configuration of its own: direct rules or chains (`firewall-cmd --direct --add-rule`, `--add-chain`, or `direct.xml`), or tracked passthrough rules (`firewall-cmd --direct --add-passthrough`). Such configuration makes every firewalld version delete other applications' iptables rules.\r\n\r\n  Whether a node is affected does not depend on the `FlushAllOnReload` setting.\r\n\r\nOn an affected node, the encryption rules are deleted by any of the following events:\r\n\r\n* `firewall-cmd --reload` or `firewall-cmd --complete-reload`, including those run by configuration-management tools;\r\n* stopping firewalld with `CleanupOnExit=yes` (the default);\r\n* starting firewalld, including when firewalld is restarted, for example during a package upgrade, or when firewalld is started after `dockerd`.\r\n\r\n### Impact\r\n\r\nAfter one of the events above, until the encryption rules are restored, an affected node:\r\n\r\n* sends the VXLAN datagrams of each encrypted overlay network with a local endpoint in cleartext, exposing the traffic of containers on that network to observers on the network path between nodes;\r\n* accepts cleartext VXLAN datagrams tagged with the VNI of an encrypted overlay network, allowing an attacker who can send UDP datagrams to the node's VXLAN port (by default, UDP port 4789) to inject arbitrary Ethernet frames into the network, as described in [CVE-2023-28840](https://github.com/moby/moby/security/advisories/GHSA-232p-vwff-86mp);\r\n* in releases which include the fix for [CVE-2026-92542](https://github.com/moby/moby/security/advisories/GHSA-6m9p-4h64-m6vh), allows a process in the node's host network namespace with `CAP_NET_RAW` to have datagrams which it sends to the VXLAN port encrypted using the node's IPsec security associations.\r\n\r\n`dockerd` does not log the loss of the rules. Traffic between two affected nodes continues to flow in cleartext. A node which still has its encryption rules discards the cleartext datagrams it receives from an affected node, and traffic from the affected node to that node fails. Those datagrams have still crossed the network in cleartext. The condition persists until the encrypted network's last local endpoint is removed and another is added, or until `dockerd` is restarted. Each further firewalld event repeats it.\r\n\r\n### Patches\r\n_Has the problem been patched? What versions should users upgrade to?_\r\n\r\n### Workarounds\r\n* Configure firewalld to leave other applications' iptables rules in place: use `FirewallBackend=nftables` with a firewalld build that includes commit b7faa74 (firewalld 2.0.0 or later, or the RHEL backports listed above), and remove any firewalld direct configuration.\r\n* Restart `dockerd` after every firewalld reload, stop, or start. This reprograms the encryption rules, but also restarts the node's Swarm tasks.\r\n* Close the VXLAN port (by default, UDP port 4789) to incoming traffic at the Internet boundary (see [GHSA-vwm3-crmr-xfxw](https://github.com/moby/moby/security/advisories/GHSA-vwm3-crmr-xfxw)). This prevents injection from outside the boundary, but does not protect the confidentiality of traffic between nodes.\r\n\r\n### References\r\n_Are there any links users can visit to find out more?_\r\n",
+    "ghsa_id": "GHSA-6jhp-7446-hf7f",
+    "html_url": "https://github.com/moby/moby/security/advisories/GHSA-6jhp-7446-hf7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6jhp-7446-hf7f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-115538"
+      }
+    ],
+    "published_at": "2026-11-10T19:49:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "iptables rules for overlay-network encryption are not reinstalled after a firewalld reload",
+    "updated_at": "2026-11-10T19:49:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "Docker Engine"
+        },
+        "patched_versions": "29.9.3",
+        "vulnerable_version_range": "< 29.9.3"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": " github.com/moby/moby/v2"
+        },
+        "patched_versions": "v2.0.0-beta.29",
+        "vulnerable_version_range": "<=v2.0.0-beta.28"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "moby/moby"
+}

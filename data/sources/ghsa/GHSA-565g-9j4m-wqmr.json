@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-565g-9j4m-wqmr",
+  "repo": {
+    "cve_id": "CVE-2026-34044",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Report metadata\r\n- Product: Coolify (self-hosted PaaS)\r\n- Discovery date: 2026-03-04\r\n- Reporter: Xyptonize\r\n- Severity: High\r\n- CWE-639: Authorization Bypass Through User-Controlled Key\r\n\r\n### Suggested GHSA title\r\nCross-tenant log access via UUID-based IDOR in Livewire logs component\r\n\r\n### Affected code\r\n- `app/Livewire/Project/Shared/Logs.php`\r\n- `app/Livewire/Project/Shared/GetLogs.php`\r\n- `routes/web.php` logs routes\r\n\r\n### Root cause\r\n`Logs::mount()` fetches resources by UUID without team ownership scoping in some paths:\r\n```php\r\n$this->resource = Application::where('uuid', $this->parameters['application_uuid'])->firstOrFail();\r\n```\r\nThen it retrieves remote logs from the resolved server.\r\n\r\n### PoC / reproduction\r\nPrerequisite: attacker knows a victim application UUID.\r\n\r\n1. Log in as attacker account in a different team.\r\n2. Request:\r\n   ```text\r\n   /project/<any-project-uuid>/environment/<any-env-uuid>/application/<victim-application-uuid>/logs\r\n   ```\r\n3. Observe logs are rendered for victim resource if reachable.\r\n\r\n### Impact\r\n- Cross-tenant data disclosure (logs often contain secrets/tokens)\r\n- Lateral movement opportunities\r\n\r\n### Recommended fix\r\n1. Replace direct UUID queries with team-scoped queries (`ownedByCurrentTeam()` equivalents).\r\n2. Validate route tuple consistency (`project_uuid`, `environment_uuid`, `resource_uuid`).\r\n3. Add access-control tests for cross-team UUID access.\r\n\r\n---\r\n\r\n",
+    "ghsa_id": "GHSA-565g-9j4m-wqmr",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-565g-9j4m-wqmr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-565g-9j4m-wqmr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34044"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:21Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-team IDOR in logs component (resource lookup not team-scoped)",
+    "updated_at": "2026-07-02T16:39:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.466",
+        "vulnerable_version_range": "< 4.0.0-beta.466"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

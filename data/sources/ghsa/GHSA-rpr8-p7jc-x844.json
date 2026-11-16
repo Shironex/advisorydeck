@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rpr8-p7jc-x844",
+  "repo": {
+    "cve_id": "CVE-2026-34034",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Report metadata\r\n- Product: Coolify (self-hosted PaaS)\r\n- Discovery date: 2026-03-04\r\n- Reporter: Xyptonize \r\n- Severity: Critical\r\n- CWE-78: OS Command Injection\r\n\r\n### Suggested GHSA title\r\nCommand injection through Sentinel token/environment handling leads to server RCE\r\n\r\n\r\n### Affected code\r\n- `app/Actions/Server/StartSentinel.php`\r\n- `app/Traits/HasMetrics.php`\r\n- `app/Livewire/Server/Sentinel.php`\r\n- `app/Models/ServerSetting.php`\r\n\r\n### Root cause\r\nUser-controlled `sentinel_token` is interpolated into shell command contexts in two places:\r\n1. Docker `-e` command generation for sentinel startup\r\n2. `sh -c 'curl -H \"Authorization: Bearer ...\" ...'` metrics request\r\n\r\nToken validation is only `required|string`, and updating token auto-restarts Sentinel.\r\n\r\n### PoC payload\r\n```text\r\nabc\" ; id >/tmp/coolify_poc_sentinel ; echo \"\r\n```\r\n\r\n### Reproduction steps\r\n1. Log in with access to server Sentinel settings.\r\n2. Set Sentinel token to:\r\n   ```text\r\n   abc\" ; id >/tmp/coolify_poc_sentinel ; echo \"\r\n   ```\r\n3. Save settings.\r\n4. Sentinel restart is triggered automatically.\r\n5. Verify on target server:\r\n   ```bash\r\n   cat /tmp/coolify_poc_sentinel\r\n   ```\r\n6. Expected result: injected command executed on host.\r\n\r\n### Impact\r\n- Host RCE\r\n- Compromise of monitoring/control plane workflows\r\n\r\n### Recommended fix\r\n1. Treat token strictly as data; never interpolate into shell strings.\r\n2. Use argument-safe process invocation.\r\n3. Enforce strict token format and maximum length.\r\n4. Add tests with quote/metacharacter payloads.\r\n\r\n---\r\n\r\n",
+    "ghsa_id": "GHSA-rpr8-p7jc-x844",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-rpr8-p7jc-x844",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rpr8-p7jc-x844"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34034"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:26Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Host RCE via Sentinel token injection",
+    "updated_at": "2026-07-02T16:39:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.466",
+        "vulnerable_version_range": "< 4.0.0-beta.466"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

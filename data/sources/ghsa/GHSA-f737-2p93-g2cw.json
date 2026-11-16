@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-f737-2p93-g2cw",
+  "repo": {
+    "cve_id": "CVE-2025-64425",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nAn attacker can initiate a password reset for a victim, and modify the host header of the request to a malicious value. The victim will receive a password reset email, with a link to the malicious host. If the victim clicks this link, their reset token is sent to the attacker's server, allowing the attacker to use it to change the victim's password and takeover their account.\r\n\r\n### PoC\r\n1. Start intercepting with a proxy tool like Burp Suite\r\n2. Start the password reset flow for the email address of a victim\r\n3. Intercept the request and change the host header, for example from `65.21.3.91:8000` to `65.21.3.91.evil.com:8000` (note that you as the attacker should control the domain (evil.com in this case).\r\n4. Forward the request and as a victim, click the link in the received email\r\n5. As the attacker, check your logs and find the victim's password reset link\r\n6. In the reset link, change the injected domain back to the original domain and continue the password reset flow\r\n\r\nUnfortunately our video PoC is too large to upload, so we have uploaded it to our Google drive:\r\nhttps://drive.google.com/file/d/1I5sJHcpetJbKlwVS2usAD7qmgH37Y4rw/view?usp=drive_link\r\n\r\n### Impact\r\nAccount takeover\r\n",
+    "ghsa_id": "GHSA-f737-2p93-g2cw",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-f737-2p93-g2cw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f737-2p93-g2cw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64425"
+      }
+    ],
+    "published_at": "2026-01-03T15:16:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Host header injection in forgot password",
+    "updated_at": "2026-01-08T19:05:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "v4.0.0-beta.436",
+        "vulnerable_version_range": "< v4.0.0-beta.435"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

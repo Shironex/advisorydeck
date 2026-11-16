@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-x86f-5xw2-fm2r",
+  "repo": {
+    "cve_id": "CVE-2026-41567",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.2,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nWhen a user uploads a compressed archive into a container, a malicious image can execute arbitrary code with daemon (host root) privileges.\r\n\r\n## Details\r\n\r\nWhen handling `PUT /containers/{id}/archive` requests with compressed archives, the daemon decompresses them using external system binaries. Due to incorrect ordering of operations, these binaries are resolved from the container's filesystem rather than the host's. A container image that includes a trojanized decompression binary can achieve code execution as the daemon process whenever a compressed archive is uploaded to that container.\r\n\r\nThe executed binary runs with the daemon's full privileges, including host root UID and unrestricted capabilities.\r\n\r\n## Impact\r\n\r\nArbitrary code execution as host root, crossing the container-to-host trust boundary.\r\n\r\n### Conditions for exploitation\r\n\r\n- A user must run a container from a malicious image that contains a trojanized decompression binary.\r\n- The user must then upload a compressed archive (xz or gzip) into that container, either by piping a compressed archive via `docker cp -` or by calling the `PUT /containers/{id}/archive` API directly with compressed content.\r\n\r\n### Not affected\r\n\r\nStandard `docker cp` usage is **not** affected, because the CLI sends uncompressed tar by default:\r\n\r\n```\r\ndocker cp ./file.txt mycontainer:/file.txt\r\n```\r\n\r\nThis can only be exploited when explicitly passing a xz or gzip-compressed archive to `docker cp` or the `PUT /containers/{id}/archive` API, for example:\r\n\r\n```\r\ncat archive.tar.xz | docker cp - mycontainer:/dir\r\n```\r\n\r\nDecompression formats using pure Go implementations (bzip2, zstd, and gzip when the container image does not contain an `unpigz` binary) are also not affected.\r\n\r\n## Workarounds\r\n\r\n- Only run containers from trusted images.\r\n- Use authorization plugins to limit access to the `PUT /containers/{id}/archive` endpoint.\r\n- Avoid piping compressed archives into containers created from untrusted images.\r\n",
+    "ghsa_id": "GHSA-x86f-5xw2-fm2r",
+    "html_url": "https://github.com/moby/moby/security/advisories/GHSA-x86f-5xw2-fm2r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x86f-5xw2-fm2r"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41567"
+      }
+    ],
+    "published_at": "2026-05-18T17:16:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "`PUT /containers/{id}/archive` executes container binary on the host",
+    "updated_at": "2026-05-18T17:16:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/moby/moby/v2/daemon"
+        },
+        "patched_versions": "v2.0.0-beta.14",
+        "vulnerable_version_range": "< v2.0.0-beta.14"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/docker/docker/daemon"
+        },
+        "patched_versions": "none",
+        "vulnerable_version_range": "<= v28.5.2"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Docker Engine"
+        },
+        "patched_versions": "29.5.1",
+        "vulnerable_version_range": "< 29.5.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "moby/moby"
+}

