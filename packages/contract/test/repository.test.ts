@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -17,7 +17,7 @@ let scratch: string | undefined;
 /** A throwaway copy of the data folders, to mutate. */
 function copyRepo(): string {
   scratch = mkdtempSync(join(tmpdir(), 'advisorydeck-'));
-  for (const dir of ['catalog', 'schemas', 'fixtures', 'notes']) {
+  for (const dir of ['catalog', 'schemas', 'fixtures', 'notes', 'corrections']) {
     cpSync(join(root, dir), join(scratch, dir), { recursive: true });
   }
   return scratch;
@@ -32,7 +32,8 @@ describe('repository data', () => {
   it('has no problems', () => {
     const report = checkRepository();
     expect(report.issues).toEqual([]);
-    expect(report.counts.products).toBe(77);
+    expect(report.counts.products).toBe(80);
+    expect(report.counts.corrections).toBe(5);
   });
 
   it('notices a product file that no longer matches its manifest etag', () => {
@@ -130,6 +131,72 @@ describe('repository data', () => {
     expect(messages).toContain('upstream.since 2999-01-01 is in the future');
   });
 
+  it('checks each correction file against its folder and the catalog', () => {
+    const copy = copyRepo();
+    cpSync(
+      join(copy, 'corrections/keycloak/GHSA-f8m4-v488-rmrm.yml'),
+      join(copy, 'corrections/beszel/GHSA-f8m4-v488-rmrm.yml'),
+    );
+    cpSync(join(copy, 'corrections/keycloak'), join(copy, 'corrections/nope'), {
+      recursive: true,
+    });
+    const path = join(copy, 'corrections/nope/GHSA-f8m4-v488-rmrm.yml');
+    writeFileSync(path, readFileSync(path, 'utf8').replace('product: keycloak', 'product: nope'));
+    const messages = checkRepository(copy).issues.map((issue) => issue.message);
+    expect(messages).toContain('product keycloak must equal the folder name');
+    expect(messages).toContain('product nope is not in the catalog');
+  });
+
+  it('requires every correction listed in data/ to match its file in corrections/', () => {
+    const copy = copyRepo();
+    cpSync(join(copy, 'fixtures/data/advisories'), join(copy, 'data/advisories'), {
+      recursive: true,
+    });
+    cpSync(join(copy, 'fixtures/notes'), join(copy, 'notes'), { recursive: true });
+    const path = join(copy, 'data/advisories/CVE-2026-120154.json');
+    const advisory = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const ranges = [{ introduced: '18', fixed: '18.2' }];
+    advisory['affected'] = [{ product: 'postgresql', ranges }];
+    advisory['corrections'] = [
+      {
+        product: 'postgresql',
+        advisory: 'CVE-2026-120154',
+        reason: 'The record names the wrong branch for the fix.',
+        evidence: ['https://www.postgresql.org/support/security/'],
+        corrected_at: '2026-11-16',
+        upstream_ranges: [],
+      },
+    ];
+    writeFileSync(path, JSON.stringify(advisory, null, 2));
+    expect(checkRepository(copy).issues).toContainEqual({
+      file: 'data/advisories/CVE-2026-120154.json',
+      message: 'lists a correction but corrections/postgresql/CVE-2026-120154.yml does not exist',
+    });
+
+    const file = [
+      'advisory: CVE-2026-120154',
+      'product: postgresql',
+      'reason: The record names the wrong branch for the fix.',
+      'evidence: [https://www.postgresql.org/support/security/]',
+      'corrected_at: 2026-11-16',
+      'upstream_ranges: []',
+      'ranges:',
+      '  - introduced: "18"',
+      '    fixed: "18.2"',
+      '',
+    ].join('\n');
+    const correctionPath = join(copy, 'corrections/postgresql/CVE-2026-120154.yml');
+    mkdirSync(join(copy, 'corrections/postgresql'));
+    writeFileSync(correctionPath, file);
+    expect(checkRepository(copy).issues).toEqual([]);
+
+    writeFileSync(correctionPath, file.replace('fixed: "18.2"', 'fixed: "18.3"'));
+    expect(checkRepository(copy).issues).toContainEqual({
+      file: 'data/advisories/CVE-2026-120154.json',
+      message: 'correction of postgresql does not match corrections/postgresql/CVE-2026-120154.yml',
+    });
+  });
+
   it('notices a feed note that drifted from its note file', () => {
     const copy = copyRepo();
     const path = join(copy, 'fixtures/notes/CVE-2026-120154.md');
@@ -189,6 +256,25 @@ describe('schema rules', () => {
     const broken = structuredClone(advisory);
     (broken['note'] as Record<string, unknown>)['status'] = 'draft';
     expect(validateAgainst('advisory', broken)).not.toEqual([]);
+  });
+
+  it('requires a reason, evidence and at least one corrected range on a correction', () => {
+    const correction = {
+      advisory: 'GHSA-f8m4-v488-rmrm',
+      product: 'keycloak',
+      reason: 'The bound is a typo for the patched version 26.7.1.',
+      evidence: ['https://github.com/keycloak/keycloak/releases/tag/26.7.1'],
+      corrected_at: '2026-11-16',
+      upstream_ranges: [],
+      ranges: [{ introduced: '26.7.0', fixed: '26.7.1' }],
+    };
+    expect(validateAgainst('correction', correction)).toEqual([]);
+    expect(validateAgainst('correction', { ...correction, reason: 'typo' })).not.toEqual([]);
+    expect(validateAgainst('correction', { ...correction, evidence: [] })).not.toEqual([]);
+    expect(
+      validateAgainst('correction', { ...correction, evidence: ['http://example.com'] }),
+    ).not.toEqual([]);
+    expect(validateAgainst('correction', { ...correction, ranges: [] })).not.toEqual([]);
   });
 
   const note = {
