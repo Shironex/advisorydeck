@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { basename, join } from 'node:path';
 import { loadCatalog } from './catalog.ts';
+import { loadCorrections, type CorrectionEntry } from './corrections.ts';
 import { listFiles, parseYaml, relativePath } from './files.ts';
 import type { Advisory, ImageConfig, Manifest, Product, ProductFeed } from './generated/types.ts';
 import { imageConfigProblems } from './image-config.ts';
@@ -13,7 +14,13 @@ import { type DocumentSchema, validateAgainst } from './schemas.ts';
 
 export interface RepositoryReport {
   issues: Issue[];
-  counts: { products: number; notes: number; fixtures: number; published: number };
+  counts: {
+    products: number;
+    notes: number;
+    corrections: number;
+    fixtures: number;
+    published: number;
+  };
 }
 
 /** sha256 etag of exact file bytes, as the manifest records it. */
@@ -44,6 +51,14 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
       if (!slugs.has(slug)) {
         issues.push({ file, message: `product ${slug} is not in the catalog` });
       }
+    }
+  }
+
+  const corrections = loadCorrections(root);
+  issues.push(...corrections.issues);
+  for (const { file, correction } of corrections.corrections) {
+    if (!slugs.has(correction.product)) {
+      issues.push({ file, message: `product ${correction.product} is not in the catalog` });
     }
   }
 
@@ -88,6 +103,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
         issues,
         true,
         products,
+        corrections.corrections,
       )
     : 0;
 
@@ -96,6 +112,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
     counts: {
       products: catalog.entries.length,
       notes: notes.notes.length,
+      corrections: corrections.corrections.length,
       fixtures: fixtureCount,
       published,
     },
@@ -108,7 +125,9 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
  * file with its exact etag and count; product files must hold the same advisories. With
  * requireKevCheck (the ingest output), every advisory must have been looked up in CISA KEV, so a
  * published listed: false always means "checked, not listed". With catalogProducts, each product
- * file must carry its catalog entry's upstream status. Returns the number of files read.
+ * file must carry its catalog entry's upstream status. With corrections, every correction an
+ * advisory lists must come from a file in corrections/ and its ranges must be the published ones.
+ * Returns the number of files read.
  */
 function checkPublished(
   root: string,
@@ -118,6 +137,7 @@ function checkPublished(
   issues: Issue[],
   requireKevCheck: boolean,
   catalogProducts?: ReadonlyMap<string, Product>,
+  corrections?: readonly CorrectionEntry[],
 ): number {
   let fixtureCount = 0;
   const load = (path: string, schema: DocumentSchema): unknown => {
@@ -152,6 +172,9 @@ function checkPublished(
       if (!slugs.has(product)) {
         issues.push({ file, message: `product ${product} is not in the catalog` });
       }
+    }
+    if (corrections !== undefined) {
+      issues.push(...correctionProblems(file, advisory, corrections));
     }
     const notePath = join(notesDir, `${advisory.id}.md`);
     const entry = existsSync(notePath) ? readNote(notePath, root) : undefined;
@@ -224,4 +247,37 @@ function checkPublished(
     }
   }
   return fixtureCount;
+}
+
+/** A published correction must match its file in corrections/: same reason, evidence, date and ranges. */
+function correctionProblems(
+  file: string,
+  advisory: Advisory,
+  corrections: readonly CorrectionEntry[],
+): Issue[] {
+  const problems: Issue[] = [];
+  for (const applied of advisory.corrections ?? []) {
+    const entry = corrections.find(
+      ({ correction }) =>
+        correction.product === applied.product && correction.advisory === applied.advisory,
+    );
+    const source = `corrections/${applied.product}/${applied.advisory}.yml`;
+    if (entry === undefined) {
+      problems.push({ file, message: `lists a correction but ${source} does not exist` });
+      continue;
+    }
+    const { correction } = entry;
+    const ids = [advisory.id, ...advisory.aliases];
+    const ranges = advisory.affected.find((a) => a.product === applied.product)?.ranges;
+    if (
+      !ids.includes(correction.advisory) ||
+      applied.reason !== correction.reason.trim() ||
+      !isDeepStrictEqual(applied.evidence, correction.evidence) ||
+      applied.corrected_at !== correction.corrected_at ||
+      !isDeepStrictEqual(ranges, correction.ranges)
+    ) {
+      problems.push({ file, message: `correction of ${applied.product} does not match ${source}` });
+    }
+  }
+  return problems;
 }

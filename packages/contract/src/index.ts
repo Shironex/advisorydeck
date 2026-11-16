@@ -17,6 +17,7 @@ export {
   type SchemaName,
 } from './schemas.ts';
 export { loadCatalog, versionFromTag, type Catalog, type CatalogEntry } from './catalog.ts';
+export { loadCorrections, type CorrectionEntry } from './corrections.ts';
 export { loadNotes, readNote, splitNote, toFeedNote, type NoteEntry } from './notes.ts';
 export {
   durationSeconds,

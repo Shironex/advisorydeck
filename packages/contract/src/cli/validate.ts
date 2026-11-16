@@ -6,8 +6,8 @@ const report = checkRepository();
 for (const issue of report.issues) {
   console.error(formatIssue(issue));
 }
-const { products, notes, fixtures, published } = report.counts;
-const summary = `${products} products, ${notes} notes, ${fixtures} fixtures, ${published} data files`;
+const { products, notes, corrections, fixtures, published } = report.counts;
+const summary = `${products} products, ${notes} notes, ${corrections} corrections, ${fixtures} fixtures, ${published} data files`;
 if (report.issues.length > 0) {
   console.error(`validate: ${report.issues.length} problem(s) (${summary})`);
   process.exitCode = 1;
