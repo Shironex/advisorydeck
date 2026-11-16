@@ -92,6 +92,44 @@ describe('repository data', () => {
     expect(issues.map((i) => i.file)).not.toContain(advisoryPath);
   });
 
+  it('requires the upstream status of the catalog in every product file in data/', () => {
+    const copy = copyRepo();
+    cpSync(join(copy, 'fixtures/data/advisories'), join(copy, 'data/advisories'), {
+      recursive: true,
+    });
+    cpSync(join(copy, 'fixtures/api/v1'), join(copy, 'data/api/v1'), { recursive: true });
+    cpSync(join(copy, 'fixtures/notes'), join(copy, 'notes'), { recursive: true });
+    const catalogPath = join(copy, 'catalog/databases/postgresql.yml');
+    writeFileSync(
+      catalogPath,
+      readFileSync(catalogPath, 'utf8').replace(
+        'curated: true',
+        'upstream:\n  status: archived\n  since: 2026-01-01\ncurated: true',
+      ),
+    );
+    const issues = checkRepository(copy).issues;
+    expect(issues).toContainEqual({
+      file: 'data/api/v1/products/postgresql.json',
+      message: 'product.upstream does not match the catalog entry',
+    });
+    // Fixtures are hand-made examples and do not follow the catalog.
+    expect(issues.map((i) => i.file)).not.toContain(feedPath);
+  });
+
+  it('refuses an upstream date in the future', () => {
+    const copy = copyRepo();
+    const catalogPath = join(copy, 'catalog/databases/redis.yml');
+    writeFileSync(
+      catalogPath,
+      readFileSync(catalogPath, 'utf8').replace(
+        'curated: true',
+        'upstream:\n  status: archived\n  since: 2999-01-01\ncurated: true',
+      ),
+    );
+    const messages = checkRepository(copy).issues.map((issue) => issue.message);
+    expect(messages).toContain('upstream.since 2999-01-01 is in the future');
+  });
+
   it('notices a feed note that drifted from its note file', () => {
     const copy = copyRepo();
     const path = join(copy, 'fixtures/notes/CVE-2026-120154.md');
@@ -103,6 +141,23 @@ describe('repository data', () => {
 
 describe('schema rules', () => {
   const advisory = readJson(advisoryPath);
+
+  it('accepts an archived upstream on a product feed and rejects unknown statuses', () => {
+    const feed = readJson(feedPath);
+    const product = feed['product'] as Record<string, unknown>;
+    const archived = {
+      ...feed,
+      product: {
+        ...product,
+        upstream: { status: 'archived', since: '2026-07-01', note: 'Archived on GitHub.' },
+      },
+    };
+    expect(validateAgainst('product-feed', archived)).toEqual([]);
+    const wrong = { ...feed, product: { ...product, upstream: { status: 'paused' } } };
+    expect(validateAgainst('product-feed', wrong)).not.toEqual([]);
+    const noStatus = { ...feed, product: { ...product, upstream: { since: '2026-07-01' } } };
+    expect(validateAgainst('product-feed', noStatus)).not.toEqual([]);
+  });
 
   it('rejects a range with both fixed and last_affected', () => {
     const broken = structuredClone(advisory);

@@ -92,7 +92,18 @@ export interface Product {
   /**
    * Must equal the folder the file sits in.
    */
-  category: 'databases' | 'proxies' | 'os' | 'paas' | 'containers' | 'runtimes';
+  category:
+    | 'databases'
+    | 'proxies'
+    | 'os'
+    | 'paas'
+    | 'containers'
+    | 'runtimes'
+    | 'auth'
+    | 'monitoring'
+    | 'storage'
+    | 'devtools'
+    | 'apps';
   homepage: string;
   description?: string;
   /**
@@ -116,6 +127,7 @@ export interface Product {
      */
     strategy: 'vendor-ranges' | 'package-ranges' | 'distro-notice' | 'release-only';
   };
+  upstream?: Upstream;
   /**
    * True when reviewed self-hoster notes are written for this product.
    */
@@ -218,6 +230,23 @@ export interface VendorFeedSource {
   type: 'vendor-feed';
   url: string;
   format: 'rss' | 'atom';
+  note?: string;
+}
+/**
+ * Set only when the upstream project no longer ships fixes (archived on its forge, retired by its vendor). Consumers show it next to every advisory and summary for the product, so a user knows to plan a move instead of waiting for a fix.
+ */
+export interface Upstream {
+  /**
+   * archived: the upstream repository or project is archived or retired and no further releases are expected.
+   */
+  status: 'archived';
+  /**
+   * When upstream archived or retired the project.
+   */
+  since?: string;
+  /**
+   * One or two plain sentences for the user: what happened and where to look (a maintained fork, the vendor's notice).
+   */
   note?: string;
 }
 /**
@@ -372,14 +401,26 @@ export interface ProductFeed {
     slug: string;
     name: string;
     /**
-     * Catalog category. databases, proxies (reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines and tooling), runtimes (language runtimes).
+     * Catalog category. databases (databases, caches, queues and search engines), proxies (reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines such as dockerd and containerd, runc, and container tooling), runtimes (language runtimes), auth (identity, single sign-on and secrets), monitoring (metrics, logs, dashboards and uptime checks), storage (files, photos, media and backups), devtools (git hosting and CI), apps (applications deployed from templates: CMS, chat, AI front ends).
      */
-    category: 'databases' | 'proxies' | 'os' | 'paas' | 'containers' | 'runtimes';
+    category:
+      | 'databases'
+      | 'proxies'
+      | 'os'
+      | 'paas'
+      | 'containers'
+      | 'runtimes'
+      | 'auth'
+      | 'monitoring'
+      | 'storage'
+      | 'devtools'
+      | 'apps';
     homepage: string;
     /**
      * How versions of a product compare. semver: semantic versions, prereleases included. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
      */
     version_scheme: 'semver' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
+    upstream?: Upstream;
     /**
      * Release branches known for the product (from endoflife.date), newest first. Empty when the catalog has no branch source.
      */

@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { basename, join } from 'node:path';
 import { loadCatalog } from './catalog.ts';
 import { listFiles, parseYaml, relativePath } from './files.ts';
-import type { Advisory, ImageConfig, Manifest, ProductFeed } from './generated/types.ts';
+import type { Advisory, ImageConfig, Manifest, Product, ProductFeed } from './generated/types.ts';
 import { imageConfigProblems } from './image-config.ts';
 import type { Issue } from './issues.ts';
 import { feedLayout, repoLayout, repoRoot } from './layout.ts';
@@ -34,7 +34,8 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
   const issues: Issue[] = [];
   const catalog = loadCatalog(root);
   issues.push(...catalog.issues);
-  const slugs = new Set(catalog.entries.map((entry) => entry.product.slug));
+  const products = new Map(catalog.entries.map((entry) => [entry.product.slug, entry.product]));
+  const slugs = new Set(products.keys());
 
   const notes = loadNotes(root);
   issues.push(...notes.issues);
@@ -86,6 +87,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
         slugs,
         issues,
         true,
+        products,
       )
     : 0;
 
@@ -105,7 +107,8 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
  * must name catalog products and carry the reviewed note; the manifest must list every product
  * file with its exact etag and count; product files must hold the same advisories. With
  * requireKevCheck (the ingest output), every advisory must have been looked up in CISA KEV, so a
- * published listed: false always means "checked, not listed". Returns the number of files read.
+ * published listed: false always means "checked, not listed". With catalogProducts, each product
+ * file must carry its catalog entry's upstream status. Returns the number of files read.
  */
 function checkPublished(
   root: string,
@@ -114,6 +117,7 @@ function checkPublished(
   slugs: ReadonlySet<string>,
   issues: Issue[],
   requireKevCheck: boolean,
+  catalogProducts?: ReadonlyMap<string, Product>,
 ): number {
   let fixtureCount = 0;
   const load = (path: string, schema: DocumentSchema): unknown => {
@@ -178,6 +182,10 @@ function checkPublished(
     const slug = basename(path, '.json');
     if (feed.product.slug !== slug) {
       issues.push({ file, message: `product.slug ${feed.product.slug} must equal the file name` });
+    }
+    const product = catalogProducts?.get(slug);
+    if (product !== undefined && !isDeepStrictEqual(feed.product.upstream, product.upstream)) {
+      issues.push({ file, message: 'product.upstream does not match the catalog entry' });
     }
     const entry = manifest?.products[slug];
     if (entry === undefined) {
