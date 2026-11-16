@@ -25,6 +25,12 @@ import (
 //     GHSA-8ghh-qpmp-7826 (>= 7.0.0, TBD) and GHSA-4789-qfc9-5f9q (one fix per branch).
 //   - docker-engine.json: moby/moby GHSA-6jhp-7446-hf7f (CVE-2026-115538, < 29.9.3) and
 //     GHSA-v23v-6jw2-98fq (CVE-2024-41110, docker-ce last affected list with 19.03.15).
+//
+// Products the catalog does not hold yet carry the record shapes ingest learned to read:
+//
+//   - n8n.json, keycloak.json, authentik.json, php.json: one upper bound per branch on
+//     separate entries (GHSA-c772-hjfp-gfc2, GHSA-95cx-vmr5-3cmr, GHSA-cxwx-9x59-28qm,
+//     GHSA-w8hw-w9fx-j79w), read as one range per branch.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`

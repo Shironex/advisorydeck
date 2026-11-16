@@ -137,6 +137,49 @@ export function compareSemverLike(a: string, b: string): number | undefined {
   return 0;
 }
 
+/**
+ * Several ranges that each start at 0 and end at a bound on its own branch (`< 1.123.96`,
+ * `< 2.47.6`, `< 2.48.3`, `< 3.2.2`, written as separate entries) list one fix per branch. Read
+ * together they would cover every patched release below the highest bound, so they are sorted and
+ * each later range starts where the previous bound's line ends: on the next minor within one
+ * major (`2.48.0` after `2.47.6`), on the next major across majors (`2.0.0` after `1.123.96`,
+ * `3.0.0` after `2.48.3`). An unlisted line between two listed ones of a major (Keycloak 26.5)
+ * and a whole unlisted major (Node.js 23) stay affected up to the next listed fix, the stricter
+ * reading for an end of life line that never got the patch; minors after the last listed line of
+ * a major are later releases of it, which carry the fix. When a bound is the first release or a
+ * prerelease of the line the range starts on, the start is that release's lowest prerelease
+ * (`8.8.0-0`), so release candidates stay covered. Undefined when the shape does not fit: fewer than two ranges, a lower
+ * bound other than 0, an open range, two bounds on one branch or a bound that is not semver-like.
+ */
+export function perBranchUpperBounds(ranges: readonly VersionRange[]): VersionRange[] | undefined {
+  if (ranges.length < 2 || !ranges.every((r) => r.introduced === '0' && isBounded(r))) {
+    return undefined;
+  }
+  const upperOf = (r: VersionRange) => r.fixed ?? r.last_affected ?? '';
+  const branches = new Set<string>();
+  for (const range of ranges) {
+    const branch = branchOf(upperOf(range));
+    if (branch === undefined || compareSemverLike(upperOf(range), upperOf(range)) === undefined) {
+      return undefined;
+    }
+    branches.add(`${branch.major}.${branch.minor}`);
+  }
+  if (branches.size !== ranges.length) return undefined;
+  const sorted = [...ranges].sort((a, b) => compareSemverLike(upperOf(a), upperOf(b)) ?? 0);
+  return sorted.map((range, i) => {
+    const previous = i === 0 ? undefined : branchOf(upperOf(sorted[i - 1] ?? range));
+    const current = branchOf(upperOf(range));
+    if (previous === undefined || current === undefined) return range;
+    const start =
+      previous.major === current.major
+        ? `${previous.major}.${previous.minor + 1}.0`
+        : `${previous.major + 1}.0.0`;
+    const order = compareSemverLike(start, upperOf(range)) ?? 0;
+    const empty = range.fixed !== undefined ? order >= 0 : order > 0;
+    return { ...range, introduced: empty ? `${start}-0` : start };
+  });
+}
+
 /** Major and minor of a dotted numeric version (8.2.2 gives 8 and 2), or undefined. */
 export function branchOf(version: string): { major: number; minor: number } | undefined {
   const match = /^(\d+)\.(\d+)/.exec(version);
