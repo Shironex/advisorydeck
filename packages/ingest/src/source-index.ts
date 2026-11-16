@@ -16,6 +16,8 @@ export interface SourceIndex {
   cna: Map<string, CnaRule[]>;
   /** owner/name of a GitHub repository with security advisories, to slug. */
   ghsaRepos: Map<string, string>;
+  /** owner/name to the package names (lowercase, trimmed) whose entries count, when the source names them. */
+  ghsaRepoPackages: Map<string, Set<string>>;
   /** GHSA ecosystem:package to slug. */
   ghsaPackages: Map<string, string>;
   /** OSV ecosystem:package to slug. */
@@ -41,6 +43,7 @@ export function buildSourceIndex(entries: readonly CatalogEntry[]): {
   const index: SourceIndex = {
     cna: new Map(),
     ghsaRepos: new Map(),
+    ghsaRepoPackages: new Map(),
     ghsaPackages: new Map(),
     osvPackages: new Map(),
     vendorUrls: [],
@@ -74,6 +77,12 @@ export function buildSourceIndex(entries: readonly CatalogEntry[]): {
         }
         case 'ghsa-repo':
           claim(index.ghsaRepos, source.repo, slug, file, issues);
+          if (source.packages !== undefined) {
+            index.ghsaRepoPackages.set(
+              source.repo,
+              new Set(source.packages.map((name) => name.trim().toLowerCase())),
+            );
+          }
           break;
         case 'ghsa-package':
           claim(index.ghsaPackages, `${source.ecosystem}:${source.package}`, slug, file, issues);
