@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: dotnet
+name: .NET
+category: runtimes
+homepage: https://dotnet.microsoft.com
+description: .NET and ASP.NET Core runtimes, the aspnet and runtime images .NET apps run on.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: dotnet
+images:
+  - ref: mcr.microsoft.com/dotnet/aspnet
+    tag_pattern: "^(?<version>[0-9]+(?:\\.0\\.[0-9]+)?)(?:\\.0)?(?:-(?:alpine|noble|jammy|resolute|bookworm|trixie|azurelinux|cbl-mariner|nanoserver|windowsservercore)[a-z0-9.-]*)?$"
+    note: The minor is always 0, so 8.0 and 8.0-alpine read as the 8 line, the branch name endoflife.date uses. Preview and rc tags are not read.
+  - ref: mcr.microsoft.com/dotnet/runtime
+    tag_pattern: "^(?<version>[0-9]+(?:\\.0\\.[0-9]+)?)(?:\\.0)?(?:-(?:alpine|noble|jammy|resolute|bookworm|trixie|azurelinux|cbl-mariner|nanoserver|windowsservercore)[a-z0-9.-]*)?$"
+sources:
+  - type: cve-cna
+    assigner: microsoft
+    products:
+      - .NET 8.0 runtime
+      - .NET 9.0 runtime
+      - .NET 10.0 runtime
+      - .NET 11.0 runtime
+      - .NET 8.0
+      - .NET 9.0
+      - .NET 10.0
+      - .NET 11.0
+      - ASP.NET Core 8.0
+      - ASP.NET Core 9.0
+      - ASP.NET Core 10.0
+      - ASP.NET Core 11.0
+    note: Microsoft names one product per major and kind; a new major needs its names added here. The "installed on Windows/Linux/Mac OS" products carry SDK versions (11.0.100) and the .NET Framework is another product; neither is read.
+  - type: vendor-page
+    url: https://github.com/dotnet/announcements/issues?q=label%3ASecurity
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one range per major in runtime versions (8.0.0 lessThan 8.0.32, or the line written 8.0); ASP.NET Core runtimes share the .NET runtime version.
+  - The SDK image (mcr.microsoft.com/dotnet/sdk) is tagged with SDK versions (8.0.415) and is not listed; apps run on the aspnet or runtime images.
+  - Some records list SDK versions under the runtime products (CVE-2026-96237, CVE-2026-96238, CVE-2026-96957 list 10.0.113 or 10.0.402 for runtime 10.0.13); corrections/dotnet holds their hand corrections from the release notes.
