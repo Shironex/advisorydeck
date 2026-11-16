@@ -19,6 +19,7 @@ No accounts and no telemetry.
 | `catalog/`          | One YAML file per product                                                                                                                                          |
 | `schemas/v1/`       | JSON Schemas: the contract between all parts                                                                                                                       |
 | `notes/`            | Curated self-hoster notes (CC-BY-4.0)                                                                                                                              |
+| `corrections/`      | Reviewed hand corrections of upstream advisories whose ranges are wrong (CC-BY-4.0), see [corrections/README.md](corrections/README.md)                            |
 | `fixtures/`         | Hand-made example data that every part tests against                                                                                                               |
 | `packages/contract` | TypeScript types, validators and loaders for the contract                                                                                                          |
 | `packages/ingest`   | Advisory collection (in progress)                                                                                                                                  |
@@ -43,4 +44,4 @@ Best effort and no warranty. A note here never replaces the vendor's advisory: a
 
 ## License
 
-Code: [MIT](LICENSE). Curated notes in `notes/`: [CC-BY-4.0](notes/LICENSE). Advisory data keeps the terms of its source; each advisory links its sources.
+Code: [MIT](LICENSE). Curated notes in `notes/` and hand corrections in `corrections/`: [CC-BY-4.0](notes/LICENSE). Advisory data keeps the terms of its source; each advisory links its sources.

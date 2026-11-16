@@ -15,7 +15,7 @@ pnpm ingest --anonymous           # no GITHUB_TOKEN: run even when the run could
 
 Set `GITHUB_TOKEN` (for example `GITHUB_TOKEN=$(gh auth token) pnpm ingest`). The catalog makes one GitHub request per repository source and one per ecosystem for all `ghsa-package` sources together, plus a few release listings, and a query without a stored cursor (a new product, `--backfill`) can take several pages. Without a token GitHub allows 60 API requests an hour and caps each query at 5 pages, so before it starts ingest counts the worst case for the current catalog and cursors, reads the remaining anonymous budget from `GET /rate_limit` (which does not count against it) and refuses with exit code 2 when the run could exceed it. `--anonymous` runs anyway: a query cut off by the limit keeps its cursor and is finished on a later run. With a token the limit is 5000 (1000 for the Actions `github.token`). The token is only ever sent to `api.github.com`. A rate limit that resets within a minute is waited out; a longer one stops that source, keeps its cursor and still writes a consistent feed from what is stored (the run exits 1).
 
-The hourly Site run uses the workflow's `github.token`. With 77 products it makes about 62 API requests an hour (55 repository queries, 5 ecosystem queries, the cvelistV5 release listing and the schedule keep-alive), far below the 1000 an hour that token allows; a new product adds one request (a repository source) or nothing (a package in an ecosystem already queried).
+The hourly Site run uses the workflow's `github.token`. With 80 products it makes about 65 API requests an hour (57 repository queries, 6 ecosystem queries, the cvelistV5 release listing and the schedule keep-alive), far below the 1000 an hour that token allows; a new product adds one request (a repository source) or nothing (a package in an ecosystem already queried).
 
 ## Sources
 
@@ -86,3 +86,12 @@ Each of these judgement calls on a real record is listed in `data/quality.json`,
 - `revision` hashes severity level, ranges, `kev.listed`, the EPSS signal (only whether the percentile is 0.95 or above) and the note, so filling or refreshing a score does not repost anything.
 - `sources` adds a `kev`, `epss` or `nvd` record for each CVE id the enrichment used.
 - `note` is the reviewed note in `notes/<id>.md`, if any (`toFeedNote`).
+- `corrections` lists the hand corrections applied to the advisory (see below).
+
+## Hand corrections
+
+Some upstream records carry a typo that no reading can undo: a Keycloak repository advisory writes `< 26.37.1` next to the patched version `26.7.1`, Microsoft lists SDK versions (`10.0.113`) under the .NET runtime products. Read as written, they mark current releases affected. A reviewed file in `corrections/<product>/<advisory-id>.yml` ([corrections/README.md](../corrections/README.md), `schemas/v1/correction.schema.json`) gives the right ranges with a reason, evidence links and a date.
+
+- Corrections are applied last, after every advisory is built (`applyCorrections`): the file's advisory id is looked up among the ids and aliases of the feed, the product's ranges are replaced, the correction is listed under the advisory's `corrections` with what upstream said (`upstream_ranges`), and the `revision` is recomputed so images notify again with the corrected ranges.
+- A correction whose advisory is no longer in the feed (withdrawn, or older than the published floor) warns in the run log. One whose advisory no longer names the product, or whose upstream reading now equals the corrected ranges, warns in the run log and in `data/quality.json` and changes nothing. One whose upstream reading changed to something else since `upstream_ranges` is still applied and warns for a recheck. A second file correcting the same advisory and product under another id is skipped with a warning.
+- `pnpm validate` checks the files (schema, folder, file name, catalog product) and that each correction published in `data/` matches its file.

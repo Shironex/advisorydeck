@@ -7,6 +7,7 @@ Advisorydeck is a static pipeline. There is no server and no database: scheduled
 ```
  catalog/<category>/<slug>.yml      upstream sources
  notes/<advisory-id>.md             (cvelistV5, GHSA, OSV, KEV, EPSS, vendor feeds)
+ corrections/<slug>/<id>.yml
             |                                |
             +---------------+----------------+
                             v
@@ -32,7 +33,7 @@ Advisorydeck is a static pipeline. There is no server and no database: scheduled
 
 1. **Catalog** (`catalog/`): one YAML file per product, validated against `schemas/v1/product.schema.json`. It says how versions compare (`version_scheme`), where branches come from (`branches`), which images exist (`images`) and where advisories are found (`sources`, most trusted first).
 2. **Ingest** (`packages/ingest`): reads upstream bulk data, keeps the records that belong to a catalog product, clusters aliases (CVE, GHSA, USN ...) into one advisory, extracts per-product ranges, enriches with KEV and EPSS, attaches reviewed notes, and writes `data/advisories/<id>.json` (`schemas/v1/advisory.schema.json`) plus the feed in `data/api/v1/`. How it works: [ingest.md](ingest.md). "Matching" in ingest means deciding which product an upstream record belongs to; the lookup tables for that come from the catalog (`buildSourceIndex`).
-3. **Notes** (`notes/`): curated Markdown files, CC-BY-4.0. Only `status: reviewed` notes are copied into advisories (`toFeedNote` in `packages/contract`).
+3. **Notes** (`notes/`): curated Markdown files, CC-BY-4.0. Only `status: reviewed` notes are copied into advisories (`toFeedNote` in `packages/contract`). **Corrections** (`corrections/`): reviewed YAML files that replace the ranges of one product in an advisory whose upstream record has a typo; ingest applies them last and lists them under the advisory's `corrections` ([corrections/README.md](../corrections/README.md)).
 4. **Site** (`apps/site`): builds HTML pages and publishes the feed that ingest wrote in `data/api/v1/` as `api/v1/manifest.json` and one `api/v1/products/<slug>.json` per product, unchanged (the manifest etags are hashes of those exact bytes). The feed format is in [feed-contract.md](feed-contract.md).
 5. **Image** (`image/`): a Go binary in a small container. It reads its config (`schemas/v1/image-config.schema.json`), polls the manifest, downloads only products whose etag changed, compares the user's versions against the ranges and posts to Discord, Slack or a generic webhook. It never needs the Docker socket, and it only downloads public files, so the feed host never learns what anyone runs.
 
@@ -56,6 +57,7 @@ Every part talks to the others through files described by a schema in `schemas/v
 | ------------- | ------------------------------ | ---------------------------------- | -------------- | ------------------------------- |
 | Catalog entry | humans (PRs)                   | ingest, site, image (tag patterns) | `product`      | `catalog/*` (real data)         |
 | Curated note  | humans (PRs)                   | ingest, site                       | `curated-note` | `fixtures/notes/`               |
+| Correction    | humans (PRs)                   | ingest                             | `correction`   | `corrections/*` (real data)     |
 | Advisory      | ingest                         | site                               | `advisory`     | `fixtures/data/advisories/`     |
 | Manifest      | ingest (site publishes)        | image                              | `manifest`     | `fixtures/api/v1/manifest.json` |
 | Product feed  | ingest (site publishes)        | image                              | `product-feed` | `fixtures/api/v1/products/`     |
@@ -73,6 +75,7 @@ How the two languages stay on the same contract:
 | `catalog/<category>/<slug>.yml` | YAML                 | Slug equals the file name, category equals the folder        |
 | `schemas/v1/*.schema.json`      | JSON Schema 2020-12  | `$id` under `raw.githubusercontent.com/.../schemas/v1/`      |
 | `notes/<advisory-id>.md`        | Markdown             | Own license (CC-BY-4.0)                                      |
+| `corrections/<slug>/<id>.yml`   | YAML                 | Own license (CC-BY-4.0), folder is the product slug          |
 | `data/`                         | JSON                 | Written by ingest: advisories, the v1 feed, source records   |
 | `fixtures/`                     | JSON, YAML, Markdown | Hand-made, see [fixtures/README.md](../fixtures/README.md)   |
 | `packages/contract`             | TypeScript           | Shared by ingest and site; consumed as source, no build step |
