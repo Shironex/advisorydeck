@@ -1,0 +1,63 @@
+{
+  "id": "GHSA-3526-xvv4-q9mr",
+  "aliases": [],
+  "title": "RabbitMQ administrator RCE through reflected Erlang distribution authentication",
+  "summary": "## Summary\r\n\r\nThis advisory describes a complex attack that requires administrative access\r\nto the HTTP API and a number of other variables to hold true.\r\n\r\nA RabbitMQ management user with the `administrator` tag can escalate from\r\nbroker administration to arbitrary BEAM function execution without knowing the\r\nErlang distribution cookie and without local operating-system access.\r\n\r\nThe chain combines three behaviors:\r\n\r\n1. Administrator-accessible global-parameter names are converted into new\r\n   Erlang atoms. This lets the attacker intern two node names such as\r\n   `evil@attacker` and `oracle@attacker`.\r\n2. `DELETE /api/reset/:node` accepts any existing node atom and performs\r\n   `rabbit:is_running(Node)` before checking whether the node is a cluster\r\n   member. Two concurrent requests initiate two outbound Erlang distribution\r\n   handshakes to attacker-controlled nodes.\r\n3. OTP 27's legacy cookie digest is bound to the cookie and challenge but not\r\n   the peer identity, connection direction, or complete transcript. The digest\r\n   produced on one outbound connection can authenticate the other.\r\n\r\nAfter authentication, the attacker can send a registered distribution message\r\nto `rex` and choose the module, function, and argument list.\r\n\r\nThe proof is intentionally non-destructive: it invokes only\r\n`erlang:md5(Nonce)` and verifies the returned digest.\r\n\r\nThis is an authenticated administrator RCE.\r\n\r\n## Preconditions\r\n\r\n- Valid management credentials with the `administrator` tag.\r\n- The RabbitMQ management plugin and reset/global-parameter routes are\r\n  reachable.\r\n- The broker resolves an attacker-controlled hostname used in Erlang node\r\n  names.\r\n- Broker egress can reach attacker-controlled TCP 4369 (EPMD).\r\n- Broker egress can reach two attacker-controlled distribution ports returned\r\n  by EPMD.\r\n- Plain OTP 27 distribution, or another transport configuration that accepts\r\n  the attacker endpoints, is in use.\r\n- Both outbound handshakes use the same RabbitMQ cookie.\r\n\r\nThe attacker does not need:\r\n\r\n- The Erlang cookie value.\r\n- Local shell or filesystem access.\r\n- Existing cluster membership.\r\n- Plugin or code-path write access.\r\n- Access to RabbitMQ's data directory.\r\n\r\n## Workarounds\r\n\r\nOne of:\r\n\r\n * Block traffic to the rarely used `DELETE /api/reset/{node}` HTTP APi endpoint\r\n * Restrict port `4369` (epmd) and `25672` (used by RabbitMQ nodes, the value is the default) access only to the hosts that run RabbitMQ cluster members\r\n * Disable the `rabbitmq_management` plugin and use [Prometheus and Grafana](https://www.rabbitmq.com/docs/prometheus) plus CLI tools for monitoring\r\n\r\n## Root cause\r\n\r\n### 1. Global-parameter names create node atoms\r\n\r\nThe management global-parameter route passes its raw path name into:\r\n\r\n```erlang\r\n%% deps/rabbit/src/rabbit_runtime_parameters.erl\r\nset_global(Name, Term, ActingUser) ->\r\n    NameAsAtom = rabbit_data_coercion:to_atom(Name),\r\n    ...\r\n```\r\n\r\n`binary_to_atom/2` is ultimately used, so requests for:\r\n\r\n```text\r\nPUT /api/global-parameters/evil@attacker\r\nPUT /api/global-parameters/oracle@attacker\r\n```\r\n\r\ncreate atoms usable as Erlang node identities.\r\n\r\n### 2. Reset performs RPC before membership validation\r\n\r\nThe reset resource converts the route value with\r\n`binary_to_existing_atom/2`, then calls `rabbit:is_running(Node)` during\r\nresource lookup.\r\n\r\nFor a nonlocal node, `rabbit:is_running/1` executes:\r\n\r\n```erlang\r\nrpc:call(Node, rabbit, is_running, [])\r\n```\r\n\r\nNo cluster-membership check occurs before this network operation. The final\r\nHTTP response can be 404; the outbound EPMD lookup and distribution connection\r\nhave already occurred.\r\n\r\nRelevant source at the verified commit:\r\n\r\n- `deps/rabbitmq_management/src/rabbit_mgmt_wm_global_parameter.erl:48-76`\r\n- `deps/rabbit/src/rabbit_runtime_parameters.erl:95-112`\r\n- `deps/rabbitmq_management/src/rabbit_mgmt_wm_reset.erl:24-56`\r\n- `deps/rabbit/src/rabbit.erl:862-875`\r\n\r\n### 3. Cookie challenge responses are reflectable\r\n\r\nFor the l...",
+  "published_at": "2026-08-18T03:16:36.000Z",
+  "modified_at": "2026-08-18T03:16:36.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.9,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:H/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "3.13.0",
+          "fixed": "3.13.19"
+        },
+        {
+          "introduced": "4.0.0",
+          "fixed": "4.0.24"
+        },
+        {
+          "introduced": "4.1.0",
+          "fixed": "4.1.15"
+        },
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.10"
+        },
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-3526-xvv4-q9mr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3526-xvv4-q9mr",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-3526-xvv4-q9mr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:dd8cc24551ef8ff94260f18bc510e7a8d88d8fabe6df82ae9df84877148d900e",
+  "note": null
+}

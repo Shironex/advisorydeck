@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-9cxp-636w-4997",
+  "repo": {
+    "cve_id": "CVE-2026-109285",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# Knowledge base collaborators keep read and delete access to removed files via stale file metadata\r\n\r\n## Summary\r\nA user who has been granted access to a shared knowledge base keeps access to a file after the owner removes that file from the knowledge base. With a read grant they can still download the file, and with a write grant they can delete it for everyone, including from other private knowledge bases of the owner that they cannot open. The file access check trusted a knowledge base reference cached on the file record and never confirmed that the file is still attached to that knowledge base.\r\n\r\n## Preconditions\r\n- Default configuration. No setting needs to be changed.\r\n- The attacker is an ordinary user who holds a read grant (to read) or a write grant (to delete) on a knowledge base owned by the victim.\r\n- The file was last processed into that shared knowledge base. If it was processed into another knowledge base afterwards, the cached reference points elsewhere and the issue does not occur.\r\n- The owner removes the file from the shared knowledge base in a way that keeps the file on the instance: the knowledge base sync cleanup when the file is still attached to another knowledge base, or, up to 0.11.0, resetting the knowledge base.\r\n- The attacker knows the file id, which they could see while the file was still shared with them.\r\n\r\n## Impact\r\nAfter the file has been removed from the shared knowledge base, the former collaborator can still download its content and, with a write grant, delete it. Deletion removes the file from every knowledge base that still references it, including the owner's private ones that the attacker never had access to. Exploitation depends on the owner's own actions (processing order and how the file was removed), so an attacker cannot force it. Files that were never shared through a knowledge base, and knowledge bases the attacker was never granted, are not affected.\r\n\r\n## Fix\r\nFixed in PR #29937. Knowledge base access to a file is now derived only from the file's current knowledge base associations, and the cached reference on the file record is no longer consulted. Upgrading is sufficient.\r\n\r\n## Root cause\r\n- Component: `has_access_to_file` in `backend/open_webui/utils/access_control/files.py` (in `backend/open_webui/routers/files.py` before 0.8.6), used by the file content, update, rename and delete endpoints.\r\n- Affected setup: every build from 0.6.0 to 0.11.3.\r\n\r\nWhen a file is processed into a knowledge base, the id of that knowledge base is stored in the file's metadata. The access check granted access to anyone with the matching permission on the knowledge base named there, but it never checked that the file was still attached to it. Removing a file from a knowledge base does not clear that value, so the old knowledge base's grants kept applying to the file after it had been removed.\r\n\r\n## Proof of concept\r\n1. As the owner, create private knowledge bases B and A and upload a text file containing a unique marker.\r\n2. Add the file to B and let it process, then add it to A and let it process.\r\n3. Grant the attacker read and write on A with `POST /api/v1/knowledge/{A}/access/update`.\r\n4. As the owner, remove the file from A with `POST /api/v1/knowledge/{A}/sync/cleanup` and `{\"file_ids\":[\"FILE_ID\"],\"dir_ids\":[]}`. The file remains in B, and the attacker cannot open B.\r\n5. As the attacker, `GET /api/v1/files/FILE_ID/content` returns 200 with the marker.\r\n6. As the attacker, `DELETE /api/v1/files/FILE_ID` returns 200, and the file is removed from B.\r\n7. Control: with processing order A then B, both requests return 404.\r\n\r\nThe reporter reproduced this over HTTP on a running instance. It was independently reproduced on 0.11.3 (sync cleanup) and on 0.6.0 and 0.11.0 (knowledge base reset) against the real routers, with the users, knowledge bases, grants and the cached processing reference seeded directly into the database. On 0.11.4 both requests return 404.\r\n\r\n## Credits\r\n@torjan0 reported the issue and the proof of concept.",
+    "ghsa_id": "GHSA-9cxp-636w-4997",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-9cxp-636w-4997",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9cxp-636w-4997"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109285"
+      }
+    ],
+    "published_at": "2026-09-27T19:25:50Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Knowledge base collaborators keep read and delete access to removed files via stale file metadata",
+    "updated_at": "2026-10-28T20:46:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.6.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

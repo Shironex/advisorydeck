@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-9889-w3j8-rm22",
+  "aliases": [],
+  "title": "Systemic Cross-Organization IDOR via Shared Permission Helpers, Affecting Credentials, Domains, File Mounts, and Database Passwords",
+  "summary": "## Summary\r\n\r\nDokploy is multi-tenant: any authenticated user can self-service create additional organizations via `organization.create`, and Dokploy Cloud specifically runs many unrelated paying customers on the same shared instance. The shared authorization helpers that most routers rely on for access control (`checkServicePermissionAndAccess`, `checkProjectAccess`, `checkEnvironmentAccess` in `packages/server/src/services/permission.ts`) skip their per-resource membership check entirely for `owner` and `admin` roles, and none of them verify that the resource being referenced actually belongs to the caller's currently active organization at all. For non-owner/admin members this is incidentally safe, because the membership arrays they check are only ever populated with resources from the member's own organization. For owner and admin, the default and most privileged role every organization has, nothing stops them from referencing a resource ID that belongs to a completely different, unrelated organization on the same instance.\r\n\r\nThis is the same bug class Dokploy already disclosed once as GHSA-f8wj-5c4w-frhg (\"Cross-Organization IDOR: Multiple tRPC endpoints missing activeOrganizationId validation\"), but that disclosure patched a specific list of individual endpoints by adding a direct, one-off organization check in each handler. It did not fix the shared helper functions themselves, so every other router built on top of them remains exposed by the same underlying mechanism. This report demonstrates the gap is still live and current, across four independent routers spanning four different resource classes, with a live reproduction on each.\r\n\r\n## Root Cause\r\n\r\n```js\r\n// packages/server/src/services/permission.ts\r\nexport const checkServicePermissionAndAccess = async (ctx, serviceId, permissions) => {\r\n  const organizationId = ctx.session.activeOrganizationId;\r\n  const memberRecord = await findMemberByUserId(ctx.user.id, organizationId);\r\n  await checkPermission(ctx, permissions);\r\n  if (memberRecord.role !== \"owner\" && memberRecord.role !== \"admin\") {\r\n    if (!memberRecord.accessedServices.includes(serviceId)) {\r\n      throw new TRPCError({ code: \"UNAUTHORIZED\", message: \"You don't have access to this service\" });\r\n    }\r\n  }\r\n  // no check at all here for owner/admin, and no check anywhere that\r\n  // serviceId actually belongs to organizationId\r\n};\r\n```\r\n\r\n`checkProjectAccess` and `checkEnvironmentAccess` follow the identical shape. Many routers resolve a resource by its own ID first (for example `findMountById`, `findSecurityById`, `findDomainById`), derive a `serviceId`/`projectId`/`environmentId` from the loaded record, and then call one of these helpers as their only gate. Since owner and admin skip the membership check unconditionally, and nothing downstream re-verifies organization ownership, an owner or admin of any organization can operate on any resource on the instance simply by knowing or guessing its ID.\r\n\r\nThe fix pattern already exists elsewhere in the same codebase, for example in `mount.ts`'s own `listByServiceId` procedure and in `postgres.ts`'s `one` and `remove` procedures:\r\n\r\n```js\r\nconst organizationId = await getServiceOrganizationId(serviceId, serviceType);\r\nif (organizationId === null || organizationId !== ctx.session.activeOrganizationId) {\r\n  throw new TRPCError({ code: \"UNAUTHORIZED\", message: \"...\" });\r\n}\r\n```\r\n\r\nIt is simply not applied consistently. Several sibling procedures in the very same files, and across many other routers, skip it.\r\n\r\n## Proof of Concept\r\n\r\nAll four reproductions follow the same shape: create a resource as Alice (owner) in her default organization, self-service create a brand-new, completely unrelated second organization also as Alice (`organization.create`, available to any authenticated owner/admin, no invite needed), switch the active session to the new organization via `POST /api/auth/organization/set-active`, then attempt to read and modify the first organization'...",
+  "published_at": "2026-11-12T08:15:52.000Z",
+  "modified_at": "2026-11-12T08:15:52.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-668",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-9889-w3j8-rm22",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9889-w3j8-rm22",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-9889-w3j8-rm22",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

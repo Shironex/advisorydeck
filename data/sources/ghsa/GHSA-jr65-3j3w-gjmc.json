@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-jr65-3j3w-gjmc",
+  "repo": {
+    "cve_id": "CVE-2026-24840",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-798"
+    ],
+    "description": "### Summary\r\nA hardcoded credential in the provided installation script (located at https://dokploy.com/install.sh, line 154) uses a hardcoded password when creating the database container. This means that nearly all Dokploy installations use the same database credentials and could be compromised.\r\n\r\n### Details\r\nIf an attacker gains access to the internal dokploy-network via code execution/SSRF on the web app or a vulnerable application (all apps with domains connected are in this network), they could connect to the database using the credentials found and manipulate information. A solution to this would be using a random password that's generated on run using `openssl` and kept in an environment variable.\r\n\r\n### PoC\r\n- User installs Dokploy via installation script.\r\n- Attacker gains access to database using the hardcoded credentials found in the installation script. \r\n- Attacker can then access sensitive information.\r\n\r\n### Impact\r\nAnyone who has installed Dokploy using this script in it's current version is affected.",
+    "ghsa_id": "GHSA-jr65-3j3w-gjmc",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jr65-3j3w-gjmc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jr65-3j3w-gjmc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24840"
+      }
+    ],
+    "published_at": "2026-01-27T20:27:46Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Use of hardcoded credentials in installation script could result in database access",
+    "updated_at": "2026-01-27T22:46:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "dokploy"
+        },
+        "patched_versions": ">= 0.26.6",
+        "vulnerable_version_range": "=< v0.25.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

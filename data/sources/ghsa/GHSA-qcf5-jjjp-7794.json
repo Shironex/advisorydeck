@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qcf5-jjjp-7794",
+  "repo": {
+    "cve_id": "CVE-2026-72882",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated user who can create or update `file` mounts for a service can inject shell metacharacters into `filePath`, causing Dokploy to execute attacker-controlled commands on the configured remote managed server over SSH. In the default deployment model, this yields direct remote host RCE from the web interface.\r\n\r\n### Details\r\nThe issue is in the file-mount update/create flow.\r\n\r\nRelevant code paths:\r\n- [mount router](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/apps/dokploy/server/api/routers/mount.ts)\r\n- [mount service](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/packages/server/src/services/mount.ts)\r\n- [file creation helper](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/packages/server/src/utils/docker/utils.ts)\r\n- [remote exec helper](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/packages/server/src/utils/process/execAsync.ts)\r\n\r\nThe vulnerable flow is:\r\n\r\n1. `POST /api/trpc/mounts.update` reaches `mountRouter.update(...)` in [mount.ts](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/apps/dokploy/server/api/routers/mount.ts).\r\n2. The router calls `updateMount(...)`, which calls `updateFileMount(...)` for `type === \"file\"` in [mount.ts](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/packages/server/src/services/mount.ts).\r\n3. `updateFileMount(...)` builds:\r\n   ```ts\r\n   const fullPath = path.join(basePath, mount.filePath);\r\n   const command = `echo \"${encodedContent}\" | base64 -d > ${fullPath}`;\r\n   ```\r\n4. If the service is assigned to a remote server, Dokploy calls:\r\n   ```ts\r\n   await execAsyncRemote(serverId, command);\r\n   ```\r\n5. `execAsyncRemote(...)` in [execAsync.ts](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/packages/server/src/utils/process/execAsync.ts) uses `ssh2.Client().exec(command, ...)`, so the attacker-controlled shell string runs directly on the remote host.\r\n\r\nThere are two root causes:\r\n- `filePath` is attacker-controlled and not canonicalized or restricted to a safe basename.\r\n- The resulting shell command interpolates `fullPath` without shell escaping.\r\n\r\nThis is effectively a blind command injection over HTTP, because command output is not returned in the HTTP response, but exploitation is easily verifiable through file-system side effects or out-of-band callbacks.\r\n\r\n### PoC\r\nTested on Dokploy `v0.28.8`.\r\n\r\nPrerequisites:\r\n- A normal authenticated user account.\r\n- Access to a project/service where the user can manage volumes.\r\n- The target application must be assigned to a remote managed server configured in Dokploy.\r\n\r\nReproduction steps:\r\n\r\n1. Log in to Dokploy.\r\n2. Open an application that is deployed on a remote managed server.\r\n3. Go to `Advanced -> Volumes`.\r\n4. Create a `file` mount with:\r\n   - `Mount Type`: `FILE`\r\n   - `Mount Path`: `/tmp/poc.txt`\r\n   - `File Path`: `poc; touch /tmp/dokploy_rce_marker_http; #`\r\n   - `Content`: `seed`\r\n5. Save the mount.\r\n6. Edit the same mount and change only the content, then click `Update`.\r\n\r\nObserved result:\r\n- Dokploy sends:\r\n  ```http\r\n  POST /api/trpc/mounts.update?batch=1\r\n  ```\r\n  with a body equivalent to:\r\n  ```json\r\n  {\r\n    \"0\": {\r\n      \"json\": {\r\n        \"content\": \"seed2\",\r\n        \"mountPath\": \"/tmp/poc.txt\",\r\n        \"type\": \"file\",\r\n        \"filePath\": \"poc; touch /tmp/dokploy_rce_marker_http; #\",\r\n        \"mountId\": \"<mount-id>\"\r\n      }\r\n    }\r\n  }\r\n  ```\r\n- The remote server executes the injected command.\r\n- A marker file appears on the remote host at `/tmp/dokploy_rce_marker_http`.\r\n\r\nSafe lab verification used during testing:\r\n- Remote managed server target: `audit-ssh-target:2222`\r\n- Stronger payload:\r\n  - `filePath = poc; touch /audit-marker/case2_remote_host_rce; #`\r\n- After clicking `Update`, the marker appeared at:\r\n  - [case2_remote_host_rce](/home/lenovo/bot_workspaces/github_dokploy/dokploy-0.28.8/.audit-data/remote-host/case2_remote_host_rce)\r\n\r\nCaptured HTTP trigger request:\r\n- `POST /api/trpc/mounts.update?batch=1`\r\n- The response returns the updated mount object, but not command output.\r\n\r\nScreenshot evidence:\r\n<img width=\"914\" height=\"324\" alt=\"case2-rce\" src=\"https://github.com/user-attachments/assets/bf159409-4a59-4f53-8a34-49283d6ef2ec\" />\r\n\r\n\r\n### Impact\r\nThis is an authenticated remote code execution vulnerability.\r\n\r\nImpacted parties:\r\n- Any Dokploy instance using remote managed servers.\r\n- Any organization where a low-privileged authenticated user can create or update mounts on an accessible service.\r\n\r\nSecurity impact:\r\n- Direct command execution on the remote managed host over SSH.\r\n- Arbitrary file write and delete on the remote managed host.\r\n- Potential full host compromise, secret theft, persistence, and service destruction.\r\n\r\nBecause the vulnerable command executes on the remote deployment host, the impact extends beyond Dokploy itself.\r\n\r\n### Remediations\r\n- Do not pass attacker-controlled paths into shell commands.\r\n- Replace shell-string execution with safe file APIs or argument-safe process execution.\r\n- Treat `filePath` as a filename/path component, not as raw shell text.\r\n- Canonicalize and validate the resolved path, and enforce that it stays within the intended application `files/` directory.\r\n- Reject dangerous characters in `filePath`, or better, require a strict allowlist.\r\n- Avoid `ssh exec(\"...shell string...\")` for file writes; use SFTP or a non-shell remote file write mechanism.\r\n- Apply the same fixes to create, update, and delete flows.",
+    "ghsa_id": "GHSA-qcf5-jjjp-7794",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qcf5-jjjp-7794",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qcf5-jjjp-7794"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72882"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:59Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated blind command injection via file mounts leads to direct remote host RCE on managed servers",
+    "updated_at": "2026-08-10T19:24:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.28.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

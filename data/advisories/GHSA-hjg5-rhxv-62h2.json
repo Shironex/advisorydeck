@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-hjg5-rhxv-62h2",
+  "aliases": [],
+  "title": "Saving the git source of an application or compose does not check access to the git provider: a member can point their service at another user's unshared GitHub/GitLab/Gitea/Bitbucket provider or SSH key and clone private repositories with it",
+  "summary": "### Summary\n\nThe endpoints that save the git source of an application (`application.saveGithubProvider`, `saveGitlabProvider`, `saveBitbucketProvider`, `saveGiteaProvider`, `saveGitProvider`, and `application.update`) and of a compose service (`compose.update`) only call `checkServicePermissionAndAccess(..., { service: [\"create\"] })`. They then write the posted `githubId`, `gitlabId`, `bitbucketId`, `giteaId` or `customGitSSHKeyId` straight into the row. Nothing checks that the caller may use that provider, that it belongs to the caller's organization, or that it is shared. The provider routers (`github.one`, `getGithubRepositories`, `getGithubBranches`, ...) do call `assertGitProviderAccess`, and `application.one` / `compose.one` call `canEditDeployGitSource` (added in PR #4570) but only to return a `hasGitProviderAccess = false` flag for the UI. At deploy time the clone helpers load the provider by id with no organization or ownership check and clone with its token, app credentials or private key. A member who may edit a service can therefore switch it to a provider that was not shared with them and deploy any repository that this provider's credentials can read. With the `static` build type the cloned files are served by the app's own nginx, so the member can read them.\n\n### Details\n\nDokploy `canary`, `1048bcb113` (2026-11-09, the current HEAD; the cited files `application.ts`, `compose.ts`, `git-provider.ts`, `utils/providers/github.ts` and `services/application.ts` are identical upstream on 2026-11-11). Paths are under the repository root. Line numbers are for this commit.\r\n\r\n**Save endpoints without a provider check** (`apps/dokploy/server/api/routers/application.ts`)\r\n- `:543-567` `saveGithubProvider`: `checkServicePermissionAndAccess(ctx, input.applicationId, { service: [\"create\"] })`, then `updateApplication(..., { githubId: input.githubId, owner, repository, branch, ... })`.\r\n- `:569-594` `saveGitlabProvider` (`gitlabId`), `:596-620` `saveBitbucketProvider` (`bitbucketId`), `:622-646` `saveGiteaProvider` (`giteaId`), `:669-692` `saveGitProvider` (`customGitSSHKeyId`): the same two steps.\r\n- `:760-784` `update` (`apiUpdateApplication`): the schema is `createSchema.partial().omit({ serverId, environmentId })` (`packages/server/src/db/schema/application.ts:549-554`), so `githubId`, `gitlabId`, `giteaId`, `bitbucketId`, `customGitSSHKeyId`, `registryId` and `sourceType` can all be posted. Only `buildServerId` gets an extra check (`:766-773`). `...rest` goes to `updateApplication`.\r\n- `apps/dokploy/server/api/routers/compose.ts:200-212` `update` (`apiUpdateCompose`, `packages/server/src/db/schema/compose.ts:274-281`, same `omit` of `serverId` and `environmentId` only): `updateCompose(input.composeId, input)` writes `githubId`, `gitlabId`, `bitbucketId`, `giteaId`, `customGitSSHKeyId` and `sourceType`. The compose UI uses this endpoint for all of its git providers (for example `save-github-provider-compose.tsx:151-156`).\r\n- `packages/server/src/services/application.ts:147-160` `updateApplication` and `services/compose.ts:212-226` `updateCompose` set whatever they get.\r\n- `checkServicePermissionAndAccess` (`packages/server/src/services/permission.ts:349-367`) only proves that the service is in the caller's organization, that the caller holds `service: create`, and that non-owner/admin members have the service in `accessedServices`. It says nothing about the provider.\r\n\r\n**How a provider id relates to its owner and organization**\r\n- `applications.githubId` / `gitlabId` / `giteaId` / `bitbucketId` reference `github.githubId` etc. (`db/schema/application.ts:212-223`), and each of those rows has `gitProviderId` -> `git_provider` with `organizationId`, `userId` and `sharedWithOrganization` (`db/schema/git-provider.ts:19-38`). The save endpoints only need the foreign key to exist.\r\n- Because only existence is needed, an id from another organization is also accepted by the save endpoints, and `findGithubById` and the other `fin...",
+  "published_at": "2026-11-12T08:14:51.000Z",
+  "modified_at": "2026-11-12T08:14:51.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-hjg5-rhxv-62h2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-hjg5-rhxv-62h2",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-hjg5-rhxv-62h2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

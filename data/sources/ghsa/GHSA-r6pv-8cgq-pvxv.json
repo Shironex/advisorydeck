@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-r6pv-8cgq-pvxv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "\r\n## Summary\r\n\r\nEvery procedure in `networkRouter` is a plain `protectedProcedure` with no permission check (`routers/network.ts`). Any authenticated user, including members with zero docker-related permissions, can create, inspect, recreate, import and delete docker networks.\r\n\r\nVerified live: a member account with no permissions called `network.create` and a docker network was created on the server.\r\n\r\n## Details\r\n\r\nAll of these are `protectedProcedure` only:\r\n\r\n- `network.all`, `network.networksToSync`, `network.one`, `network.inspect` - read/list\r\n- `network.create`, `network.import`, `network.recreate`, `network.resync` - create/modify\r\n- `network.remove` - delete\r\n\r\nMembers have no `docker` permission at all (`access-control.ts:179` - `docker: []`), yet all of the above succeed.\r\n\r\n`one`, `inspect`, `recreate`, `resync` and `remove` do check `network.organizationId === activeOrganizationId`, so they are limited to the caller's org. `create` and `import` accept an optional `serverId` that is never validated against the org (`network.ts:52-66, 76-98`), and `createNetwork` stores it verbatim then calls `getRemoteDocker(serverId)` (`services/network.ts:289,321`). Within the org this is trivially exploitable since `network.all` returns every serverId to any member. Pointing at another organization's server requires knowing its id (not guessable, but obtainable through other data leaks); the lack of an ownership check is verifiable by targeting a server in an organization the caller controls.\r\n\r\nImpact inside the org: a member can delete `dokploy-network` or any service network, which cuts connectivity for every app on it (instance-wide denial of service), or create networks with attacker-chosen driver/IPAM options.\r\n\r\n## Steps to reproduce\r\n\r\nTested on a self-hosted install (v0.30.6).\r\n\r\nAs a member with no permissions:\r\n\r\n```\r\nPOST /api/trpc/network.create?batch=1\r\n{\"0\":{\"json\":{\"name\":\"pwned-net\"}}}\r\n```\r\n\r\n`docker network ls` on the host shows `pwned-net` (verified: the member's call created the network on the host). `network.all` also returns the full network list to the member, and `network.remove` with the id deletes it again. All calls succeed for a member with no docker permissions.\r\n",
+    "ghsa_id": "GHSA-r6pv-8cgq-pvxv",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-r6pv-8cgq-pvxv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r6pv-8cgq-pvxv"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Missing authorization on all network.* endpoints (Member -> create/delete docker networks on org servers, cross-org access via serverId)",
+    "updated_at": "2026-11-12T08:15:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

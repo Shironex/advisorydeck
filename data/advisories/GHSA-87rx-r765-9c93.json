@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-87rx-r765-9c93",
+  "aliases": [],
+  "title": "Path traversal in `appName` on the `/listen-docker-stats-monitoring` WebSocket lets a low-privileged member create arbitrary directories and write files as root on the Docker host",
+  "summary": "### Summary\r\n\r\nThe WebSocket endpoint `/listen-docker-stats-monitoring` accepts an `appName` query parameter that is never validated or normalized. It is interpolated directly into a filesystem path that is then passed to `mkdir(..., { recursive: true })` and `writeFile(...)`.\r\n\r\nCombined with a missing runtime validation on `appType` and a broken authorization-to-object binding, a low-privileged organization **member** can create directories and write files **as root on the Docker host**, outside the intended `MONITORING_PATH` - including into the directory Traefik watches for dynamic configuration.\r\n\r\nThe primary defect is a **path traversal (CWE-22)**&#8203;; the authorization weakness on this endpoint is reported here as a secondary issue, not as the main claim.\r\n\r\n### Details\r\n\r\n#### Root cause 1 - `appName` is interpolated into a filesystem path without validation\r\n\r\n```ts\r\n// packages/server/src/monitoring/utils.ts:16-23\r\nexport const recordAdvancedStats = async (stats: Container, appName: string) => {\r\n    const { MONITORING_PATH } = paths();\r\n    const path = `${MONITORING_PATH}/${appName}`;\r\n    await promises.mkdir(path, { recursive: true });\r\n```\r\n\r\nThere is no `path.resolve()` containment check, no character whitelist, and no rejection of `..` anywhere between the query parameter and the sink.\r\n\r\n#### Root cause 2 - `appType` has no runtime validation, which removes the only implicit constraint on `appName`\r\n\r\n```ts\r\n// apps/dokploy/server/wss/docker-stats.ts:92-95, 130-141\r\nconst appType = (url.searchParams.get(\"appType\") || \"application\") as\r\n    | \"application\" | \"stack\" | \"docker-compose\";\r\n\r\nconst filter = {\r\n    status: [\"running\"],\r\n    ...(appType === \"application\"   && { label: [`com.docker.swarm.service.name=${appName}`] }),\r\n    ...(appType === \"stack\"         && { label: [`com.docker.swarm.task.name=${appName}`] }),\r\n    ...(appType === \"docker-compose\" && { name: [appName] }),\r\n};\r\n```\r\n\r\n`as` is a compile-time assertion only - it does not exist at runtime. Passing any value outside those three literals (for example `appType=bogus`) makes **every** branch false, so the Docker filter degrades to `{\"status\":[\"running\"]}`, which matches **every running container on the host**.\r\n\r\nThat degradation is what makes the first root cause fully exploitable: the code only proceeds when a container matches, so with a legitimate `appType` the value of `appName` is implicitly constrained to something that matches a real container name. With a bogus `appType` that constraint disappears and `appName` becomes a completely free-form string.\r\n\r\n(`appName=..` alone, with the *legal* `appType=docker-compose`, already traverses one level - Docker's `name` filter matches by substring/regex, so `..` matches some container. The `appType` degradation is what makes traversal arbitrary and depth-independent.)\r\n\r\n#### Root cause 3 - the authorization object is not bound to the operated object\r\n\r\nThe endpoint authorizes on `serviceId` but operates on `appName`/`containerId`, and these are independent query parameters:\r\n\r\n```ts\r\ncanAccessDockerOverWss(user, session, null, serviceId)\r\n```\r\n\r\n`serverId` is hard-coded to `null`, which skips the cross-organization ownership check, and `serviceId` is only checked with `accessedServices.includes(...)`. There is no `appName -> service -> organization` reverse lookup anywhere in the codebase (verified by full-repository search). A member can therefore supply a service they legitimately hold while pointing `appName` at a container - or at the host itself - that they have no rights to.\r\n\r\n#### Why the write lands on the host\r\n\r\nThe official installation bind-mounts the host's `/etc/dokploy` into the container (`install.sh:315`) and the container runs as `root`. Any path that escapes `MONITORING_PATH` (`/etc/dokploy/monitoring`) therefore lands on the **host filesystem**, not inside the container.\r\n\r\n#### Affected versions\r\n\r\n- Confirmed reproducible on **0.30.6** (`dokploy/dokploy:latest`,...",
+  "published_at": "2026-11-12T08:15:32.000Z",
+  "modified_at": "2026-11-12T08:15:32.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:H/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-87rx-r765-9c93",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-87rx-r765-9c93",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-87rx-r765-9c93",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

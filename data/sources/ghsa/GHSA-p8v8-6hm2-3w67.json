@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-p8v8-6hm2-3w67",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-532"
+    ],
+    "description": "### Summary\r\nA sensitive credential exposure vulnerability exists in Dokploy's build notification system. When a build fails (in certain conditions), the application sends a notification to configured Discord webhooks. If a repository is cloned via HTTPS authentication, the Discord webhook payload includes the raw Git remote URL containing the short-lived GitHub App Installation Token (`ghs_`) in plain text. This allows any user or integration with access to the Discord channel or webhook logs to intercept the token and gain unauthorized access to the underlying GitHub repository.\r\n\r\n### Details\r\nDuring the application build process, Dokploy constructs a payload to transmit to an external Discord webhook URL. When logging or summarizing the build status, the application extracts the full Git remote repository URL.\r\n\r\nWhen utilizing GitHub App authentication or automated deployment flows, this URL is constructed using the format:\r\n`https://oauth2:ghs_..._@github.com/owner/repo.git`\r\n\r\nThe vulnerability stems from a lack of sanitization before sending this string to the external API endpoint (Discord in this case). The application fails to mask or strip the basic authentication fields (oauth2:ghs_...) from the repository URL string inside the notification generator logic, leaking sensitive, active session tokens outside the secure Dokploy server environment.\r\n\r\n### PoC\r\nTo reproduce the credential leak:\r\n1. Deploy an application on Dokploy using a private GitHub repository connected via GitHub App\r\n2. Configure a Discord Webhook inside the project or application settings to receive notifications for build events.\r\n3. Trigger a manual deploy or a webhook-based build (ensure it fails to trigger that specific notification payload).\r\n4. Check the resulting message received in the Discord channel. Inspect the payload data/embed details containing the \"Error Message\"\r\n5. The URL will expose the token in plain text:\r\n```\r\nCommand execution failed: Command failed:\r\n(set -e;set -e;\r\nrm -rf /etc/dokploy/applications/.../code;\r\nmkdir -p /etc/dokploy/applications/.../code;\r\necho \"Cloning Repo github.com/Spikerko/....git to /etc/dokploy/applications/.../code: ✅\";\r\ngit clone --branch main --depth 1  https://oauth2:ghs_{...TOKEN...}@github.com/Spikerko/....git /etc/dokploy/applications/.../code --progress;\r\necho \"Applying 1 patch(es)...\";\r\nfile=\"/etc/dokploy/applications/.../code/src/index.js\"\r\ndir=\"$(dirname \"$file\")\"\r\nmkdir -p \"$dir\"\r\necho \"{...some random string of characters i do not understand the purpose of...}\r\n```\r\n\r\n### Impact\r\n- **Vulnerability Type:** CWE-532 (Insertion of Sensitive Information into Log File / External Payload)\r\n- **Who is impacted:** All Dokploy users who deploy private GitHub repositories via HTTPS tokens and have enabled external Discord webhook notifications. Dokploy users who deploy private GitHub repositories via HTTPS tokens and have enabled external Discord webhook notifications.\r\n- **Severity:** Medium-High. While `ghs_` tokens are short-lived (typically expiring within 1 hour), they grant appropriate access for the duration of their validity. If the Discord channel is public, shared, or indexed by third-party bots, the repository's intellectual property and source code are entirely compromised during that window.\r\n\r\nI did not look at Dokploy's implementation of webhooks, but this might affect other webhook types, not just the Discord one specifically.",
+    "ghsa_id": "GHSA-p8v8-6hm2-3w67",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-p8v8-6hm2-3w67",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p8v8-6hm2-3w67"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:26Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Sensitive Credential Leakage: GitHub Authentication Token (`ghs_`) Exposed in Discord Webhook Payloads",
+    "updated_at": "2026-11-12T08:17:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.0",
+        "vulnerable_version_range": "< 0.31.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

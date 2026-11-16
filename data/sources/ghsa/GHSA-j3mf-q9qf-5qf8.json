@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-j3mf-q9qf-5qf8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-863"
+    ],
+    "description": "## Summary\n\nPortainer lets non-administrator users deploy Docker Compose stacks to an environment, and when the per-environment setting `Hide bind mounts for non-administrators` is enabled, the stack validator `IsValidStackFile` rejects bind mounts declared in top-level `volumes` and each service's `volumes`. It never inspected a service's `volumes_from` field, which tells the Compose engine to attach every mount of an existing container - including that container's host bind mounts - to the new service. Any authenticated user with the Standard user role and stack-management access to a Docker standalone environment can exploit this.\n\nPortainer operates a [shared-responsibility security model](https://docs.portainer.io/advanced/security): administrators decide how permissive each environment's security settings are, and Portainer is responsible for enforcing those settings as configured. Although the setting is labelled Hide, enabling `Hide bind mounts for non-administrators` also makes Portainer reject bind mounts from non-administrators on the server, and Portainer's Docker API proxy already refuses a non-empty `VolumesFrom` on container creation from those users. This issue is on Portainer's side of that line: the Compose stack validator, the only check on the stack deployment path, did not apply the same rule. Environments where an administrator has disabled the setting already permit non-administrators to use bind mounts and gain no additional exposure from this issue.\n\nThe attack needs a container on the same environment that already carries a host bind mount. In practice one is always present: the documented way to run the Portainer Server and the Portainer Agent mounts the Docker socket into their own containers, and administrators routinely run containers that mount configuration directories, log paths, or the socket. A service that inherits the Docker socket has full control of the host Docker daemon; a service that inherits the Portainer Server's data directory can read Portainer's database.\n\nSwarm stacks are not affected: the Swarm deployment path converts the Compose file to a Swarm service specification, which has no equivalent of `volumes_from`. The fix nonetheless rejects the field for both stack types.\n\n## Severity\n\n**Critical**\n\nThe vulnerability is reachable over the network through Portainer's stack API with low attack complexity. It requires only the privileges of a Standard user who has been granted access to a Docker environment - the lowest role that can deploy a stack, and the role the `Hide bind mounts for non-administrators` setting applies to - with no user interaction. It depends on a container with a host bind mount existing on the environment, which the documented Server and Agent deployments provide by default, so no special attack requirements are scored. Confidentiality, integrity and availability impact on the vulnerable system are high: the attacker reaches the Portainer data directory and the Docker socket. The impact propagates to subsequent systems: with the Docker socket the attacker controls the Docker host and every container, image and volume on it, and any credentials recovered from the host reach the systems they authenticate to.\n\n## Affected Versions\n\nThe gap has existed since the stack bind-mount restriction was introduced; the validator inspects top-level and per-service `volumes` but never inspected `volumes_from`.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The shared validator is invoked by both editions' deployment paths.\n\nFixes are included in the following releases:\n\n| Branch       | First vulnerable | Fixed in                                |\n|--------------|------------------|-----------------------------------------|\n| 2.39.x (LTS) | 2.39.0           | **No patch release; upgrade to 2.45.3** |\n| 2.45.x (LTS) | 2.45.0           | **2.45.3**                              |\n\nPortainer 2.39.x does not receive a patch release for this issue; users on 2.39.x should upgrade to 2.45.3. Portainer 2.40.x through 2.44.x are also affected and do not receive a dedicated patch release, as those STS lines have reached end of life; users on them should upgrade to 2.45.3.\n\nPortainer releases prior to 2.39.0 are end-of-life and will not receive a fix. Users on EOL versions should upgrade to a supported LTS branch.\n\n## Workarounds\n\nAdministrators on 2.39.x, or on any version who cannot immediately upgrade, can reduce exposure by:\n\n- **Hide the use of Stacks for non-administrators.** In each Docker environment's settings, enable `Hide the use of Stacks for non-administrators`. Portainer then refuses stack creation and management from non-administrator users on the server side, which blocks this vector. It removes self-service stack deployment for those users; users with the environment administrator role can still deploy stacks.\n- **Limit standard-user environment access.** Grant Docker environment access only to users already trusted with host-level data, since the bind-mount setting does not block this route on unpatched versions.\n- **Audit existing stacks for `volumes_from`.** Review deployed Compose stacks owned by non-administrators for services declaring `volumes_from`, and treat the mounts of any referenced container - in particular the Docker socket and Portainer's data directory - as potentially exposed.\n\nNone of these replace the fix.\n\n## Affected Code\n\nThe restriction is enforced in `IsValidStackFile` (`api/stacks/stackutils/validation.go`). When `Hide bind mounts for non-administrators` is enabled, the per-service loop rejects bind mounts in `volumes` and then checks privileged mode, host PID, devices, sysctls, security-opt and capabilities - but never looks at `volumes_from`:\n\n```\n// api/stacks/stackutils/validation.go - IsValidStackFile\nfor _, service := range composeConfig.Services {\n    if !config.SecuritySettings.AllowBindMountsForRegularUsers {\n        for _, volume := range service.Volumes {\n            if docker.IsBindMount(docker.MountDescriptor{Type: volume.Type}) {\n                return errors.New(\"bind-mount disabled for non administrator users\")\n            }\n        }\n    }\n    // privileged, pid=host, devices, sysctls, security-opt, capabilities checked here\n    // service.VolumesFrom is never inspected\n}\n```\n\nThe Compose engine passes `volumes_from` straight into the container's host configuration and does not restrict which container may be named, so the restriction had to be applied in Portainer's validator. The fix adds a check at the top of the same block: when `Hide bind mounts for non-administrators` is enabled, any service with a non-empty `volumes_from` is rejected with the existing bind-mount error, matching the rule Portainer's Docker API proxy already applies to container creation. Administrators are unaffected. Both editions use the same shared validator, and the 2.45 release carries the same change as `develop`.\n\n## Impact\n\n- **Disclosure of Portainer's own data.** Inheriting the Portainer Server container's data directory exposes Portainer's database, including stored credentials and signing material.\n- **Full control of the host Docker daemon.** Inheriting a container's Docker socket mount yields daemon control, and from there a privileged container mounting the host root filesystem gives root on the host.\n- **Compromise of managed workloads.** Daemon control exposes every other container, image, volume and secret on that environment.\n- **Onward reach via recovered credentials.** Host keys, cloud credentials and kubeconfigs read from the host authenticate to the systems they belong to, extending the breach beyond the Portainer host.\n\n## Timeline\n\n- 2026-08-27: Gap identified by an internal fix-completeness review of the bind-mount restriction.\n- 2026-09-04: Reported via GitHub Security Advisory by **qingxp9**.\n- 2026-09-07: Report triaged and accepted.\n- 2026-10-12: Fix merged to `develop`.\n- 2026-10-12: Backport merged to `release/2.45`.\n- 2026-10-22: 2.45.3 released with fix.\n- 2026-10-22: Advisory published.\n\n## Credit\n\n- **qingxp9** - reported the `volumes_from` bypass of the stack bind-mount restriction with a verified reproduction against released builds, confirming the exposure in the 2.45.0 release. The same gap had been identified by Portainer's internal fix-completeness review shortly before the report was received.\n",
+    "ghsa_id": "GHSA-j3mf-q9qf-5qf8",
+    "html_url": "https://github.com/portainer/portainer/security/advisories/GHSA-j3mf-q9qf-5qf8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j3mf-q9qf-5qf8"
+      }
+    ],
+    "published_at": "2026-10-22T17:38:08Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Non-administrator inherits host bind mounts via Compose volumes_from in stack deployment",
+    "updated_at": "2026-10-22T17:38:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.39.0, <= 2.39.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.45.3",
+        "vulnerable_version_range": ">= 2.40.0, <= 2.45.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "portainer/portainer"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-fm9p-wmpw-gxjh",
+  "repo": {
+    "cve_id": "CVE-2026-45790",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269"
+    ],
+    "description": "### Summary\r\n\r\nAny user with `member:create` permission (including all admin-role members by default) can create an invitation with `role: \"owner\"`, granting the invited account full owner privileges upon acceptance. The server does not validate that the inviter's role is sufficient to delegate the target role. Once the invitation is accepted, the new owner cannot be demoted, resulting in a permanent organization takeover.\r\n\r\n### Details\r\n\r\nThe `organization.inviteMember` tRPC procedure (`apps/dokploy/server/api/routers/organization.ts:250-353`) is gated by `withPermission(\"member\", \"create\")`, which controls the ability to invite but does not restrict the `role` value in the request body. The input schema accepts any of `owner`, `admin`, or `member` (or a valid custom role string), and the invitation row is persisted with the attacker-chosen role at line 321.\r\n\r\nWhen the invitee accepts via `authClient.organization.acceptInvitation`, better-auth's organization plugin reads the stored `invitation.role` and inserts a `member` row with that role. The `updateMemberRole` handler (line 431) explicitly prevents any changes to or from the `owner` role, meaning the legitimate owner cannot demote the attacker-created owner.\r\n\r\nA related issue exists in `user.createUserWithCredentials` (`packages/server/src/services/user.ts:399-484`), which allows an admin/owner on self-hosted instances to create a user with an arbitrary role string (including `owner`) without going through the invitation flow or requiring email verification.\r\n\r\n### PoC\r\n\r\n**Prerequisites:** A Dokploy instance with an admin-level account (or any custom role with `member:create` permission).\r\n\r\n**Step 1 - Create owner-level invitation from an admin session:**\r\n\r\n```\r\nPOST /api/trpc/organization.inviteMember?batch=1 HTTP/1.1\r\nHost: <target>\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<ADMIN_SESSION>\r\n\r\n{\"0\":{\"json\":{\"email\":\"attacker@evil.tld\",\"role\":\"owner\"}}}\r\n```\r\n\r\nResponse (HTTP 200):\r\n\r\n```json\r\n{\r\n  \"result\": {\r\n    \"data\": {\r\n      \"json\": {\r\n        \"id\": \"<invitation_id>\",\r\n        \"organizationId\": \"<org_id>\",\r\n        \"email\": \"attacker@evil.tld\",\r\n        \"role\": \"owner\",\r\n        \"status\": \"pending\",\r\n        \"expiresAt\": \"2026-05-14T14:17:01.612Z\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n\r\n**Step 2 - Register and accept the invitation:**\r\n\r\nNavigate to `/invitation?token=<invitation_id>`, register an account with the matching email, and accept the invitation. The attacker is now an `owner` member of the organization.\r\n\r\n**Step 3 - Verify permanence:**\r\n\r\nThe legitimate owner cannot demote the attacker via `updateMemberRole` - the handler rejects any role change involving `owner`.\r\n\r\n### Impact\r\n\r\nAny admin-level user (or any user granted `member:create` via a custom role) can escalate to full organization owner. This grants unrestricted access to all organization resources, the ability to remove other members (including the original owner's admin access), and control over organization settings and deletion. The escalation is permanent and cannot be reversed through the application's role management interface.",
+    "ghsa_id": "GHSA-fm9p-wmpw-gxjh",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fm9p-wmpw-gxjh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fm9p-wmpw-gxjh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45790"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Invitation Role Escalation Allows Organization Takeover",
+    "updated_at": "2026-07-21T23:25:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

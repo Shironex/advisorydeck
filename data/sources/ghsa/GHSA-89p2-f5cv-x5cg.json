@@ -1,0 +1,82 @@
+{
+  "global": null,
+  "id": "GHSA-89p2-f5cv-x5cg",
+  "repo": {
+    "cve_id": "CVE-2026-66071",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Source references\n\n`deps/rabbitmq_auth_backend_oauth2/src/rabbit_auth_backend_oauth2.erl:479` · Atom Table Exhaustion\n\n## Impact\n\nIn deployments where users can influence the scopes included in their IdP-issued JWT (e.g. self-service OAuth2 client registration, or scope-passthrough IdPs), each unique rabbitmq.tag:<value> scope creates a permanent atom on the broker. Accumulated over many tokens this exhausts the atom table.\n\n## Description\n\nextract_scopes/1 parses scopes of the form <prefix>.tag:<tag> and calls rabbit_data_coercion:to_atom(<tag>) to convert to a tag atom. The token signature is verified first, so the attacker cannot forge scopes - but in IdP configurations where scope content is user-influenced, each login with a novel tag value leaks one atom.\n\n## Exploit scenario\n\nIdP allows clients to request arbitrary scopes. Attacker scripts token requests with scope=rabbitmq.tag:x000001, ...x000002, etc., logging in to the broker with each. After ~1M distinct tags the VM aborts.\n\n## Preconditions\n\n- rabbitmq_auth_backend_oauth2 enabled\n- IdP permits attacker-influenced scope values in signed tokens (deployment-dependent)\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N` (6.0, Moderate). Fixed in `3.13.15`, `4.0.22`, `4.1.11`, `4.2.6`, `4.3.1`.",
+    "ghsa_id": "GHSA-89p2-f5cv-x5cg",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-89p2-f5cv-x5cg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-89p2-f5cv-x5cg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-66071"
+      }
+    ],
+    "published_at": "2026-07-09T09:21:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Atom exhaustion: OAuth2 JWT tag: scope values",
+    "updated_at": "2026-07-29T15:00:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "3.13.15",
+        "vulnerable_version_range": ">= 3.13.0, < 3.13.15"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.22",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.22"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.11",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.11"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.6",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.6"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.1",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-c9mf-h82r-8p4j",
+  "repo": {
+    "cve_id": "CVE-2026-77439",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\nTwo related broken access control vulnerabilities in album member management allow any album Editor to:\r\n\r\n1. **Privilege escalation** - promote themselves (or any member) to the Owner role via `PATCH /api/albums/:albumId/user/:userId` with `{\"role\": \"owner\"}`\r\n2. **Owner removal** - delete any Owner-role member from an album (when ≥2 owners exist) via `DELETE /api/albums/:albumId/user/:ownerId`\r\n\r\nCombined, these allow a complete album takeover: an editor can remove other owners, then promote themselves to Owner, gaining full control over an album they were only invited to edit.\r\n\r\n---\r\n\r\n## Vulnerability 1 - Editor → Owner Privilege Escalation\r\n\r\n**File**: `server/src/services/album.service.ts:343`\r\n**CWE**: CWE-269 (Improper Privilege Management)\r\n\r\n```typescript\r\nasync updateUser(auth: AuthDto, id: string, userId: string, dto: UpdateAlbumUserDto): Promise<void> {\r\n  await this.requireAccess({ auth, permission: Permission.AlbumShare, ids: [id] });\r\n  await this.albumUserRepository.update({ albumId: id, userId }, { role: dto.role });\r\n  // ← no guard against dto.role === AlbumUserRole.Owner\r\n}\r\n```\r\n\r\n`Permission.AlbumShare` is satisfied by the Editor role. The DTO schema (`album.dto.ts:87`) accepts `owner` as a valid role value. The `addUsers` endpoint at line 294 correctly blocks this with `if (role === AlbumUserRole.Owner) throw new BadRequestException(...)`, but `updateUser` has no equivalent guard.\r\n\r\n**Proof of Concept**:\r\n```http\r\nPATCH /api/albums/<albumId>/user/<attackerUserId>\r\nAuthorization: Bearer <editor_jwt>\r\nContent-Type: application/json\r\n\r\n{\"role\": \"owner\"}\r\n```\r\nResponse: `200 OK` - attacker is now an album Owner.\r\n\r\n---\r\n\r\n## Vulnerability 2 - Editor Can Remove Owner-Role Members\r\n\r\n**File**: `server/src/services/album.service.ts:316-341`\r\n**CWE**: CWE-639 (Authorization Bypass Through User-Controlled Key)\r\n\r\n```typescript\r\nasync removeUser(auth: AuthDto, id: string, userId: string | 'me'): Promise<void> {\r\n  // Only guards against removing the LAST owner, not against Editors targeting Owners\r\n  if (\r\n    exists.role === AlbumUserRole.Owner &&\r\n    album.albumUsers.filter(({ role }) => role === AlbumUserRole.Owner).length === 1\r\n  ) {\r\n    throw new BadRequestException('Cannot remove the last album owner');\r\n  }\r\n\r\n  if (auth.user.id !== userId) {\r\n    await this.requireAccess({ auth, permission: Permission.AlbumShare, ids: [id] });\r\n    // ← Editor passes, no check on the role of the user being removed\r\n  }\r\n\r\n  await this.albumUserRepository.delete({ albumId: id, userId });\r\n}\r\n```\r\n\r\n**Proof of Concept** (album with Owner-A, Owner-B, Attacker=Editor):\r\n```http\r\nDELETE /api/albums/<albumId>/user/<ownerB_userId>\r\nAuthorization: Bearer <editor_jwt>\r\n```\r\nResponse: `200 OK` - Owner-B removed from album.\r\n\r\n---\r\n\r\n## Combined Attack Chain\r\n\r\n1. Album has Owner-A, Owner-B, and Attacker (Editor)\r\n2. Attacker calls `DELETE /api/albums/:id/user/:ownerB` → removes Owner-B\r\n3. Attacker calls `PATCH /api/albums/:id/user/:self {\"role\":\"owner\"}` → becomes Owner\r\n4. Attacker now co-owns album with Owner-A, can delete album or remove Owner-A\r\n\r\n---\r\n\r\n## Impact\r\n\r\n- Any album editor can take full administrative control of any shared album\r\n- Editors can lock out the original album owners\r\n- Album deletion possible (permanent loss of album organization)\r\n- Affects any multi-user Immich instance where album sharing is used\r\n\r\n---\r\n\r\n## Fix\r\n\r\n**For `updateUser`** - add the same guard already present in `addUsers`:\r\n```typescript\r\nif (dto.role === AlbumUserRole.Owner) {\r\n  throw new BadRequestException('Cannot set role to owner');\r\n}\r\n```\r\nAlso restrict the DTO schema: `role: z.enum([AlbumUserRole.Editor, AlbumUserRole.Viewer])`\r\n\r\n**For `removeUser`** - add role check before the access check:\r\n```typescript\r\nif (auth.user.id !== userId && exists.role === AlbumUserRole.Owner) {\r\n  await this.requireAccess({ auth, permission: Permission.AlbumDelete, ids: [id] });\r\n}\r\n```\r\n\r\n ## Affected Version\r\n\r\n  Commit `d4808fd` - current `main` as of 2026-05-19",
+    "ghsa_id": "GHSA-c9mf-h82r-8p4j",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9mf-h82r-8p4j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c9mf-h82r-8p4j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-77439"
+      }
+    ],
+    "published_at": "2026-10-19T14:16:09Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Album Editor can escalate to Owner role and remove Owner-role members via unguarded API endpoints",
+    "updated_at": "2026-10-19T14:16:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "immich"
+        },
+        "patched_versions": "v3.0.3",
+        "vulnerable_version_range": "<= 3.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

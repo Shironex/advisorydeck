@@ -1,0 +1,66 @@
+{
+  "global": null,
+  "id": "GHSA-jvp4-q659-95mj",
+  "repo": {
+    "cve_id": "CVE-2026-44883",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-598"
+    ],
+    "description": "## Summary\r\nPortainer's authentication middleware accepts JWT bearer tokens passed as the `?token=<JWT>` URL query parameter on any authenticated API endpoint, in addition to the standard `Authorization: Bearer` header. URLs are recorded in reverse-proxy access logs, browser history, and HTTP `Referer` headers on outbound navigation, so any JWT passed this way can be harvested by anyone with access to those logs or by an external site the user subsequently visits. A leaked token grants the full privileges of the user it was issued to, until the token expires (default 8 hours, configurable).\r\n\r\nThe `?token=` parameter was used by Portainer's browser-based container attach, exec, and pod shell features, so any user with exec or attach rights on a container was exposed - not only administrators.\r\n\r\n## Severity\r\n**High**\r\n\r\nAttack complexity is High because exploitation depends on the attacker obtaining a leaked token from a log, referer, or shared URL. Once obtained, a leaked token grants the privileges of the user it was issued to; for administrator tokens this compromises confidentiality, integrity, and availability of Portainer itself and of every Docker/Kubernetes environment it manages - container exec and stack deployment make host-level compromise reachable, so subsequent-system impact is also High.\r\n\r\n## Affected Versions\r\nQuery-parameter token acceptance has existed since JWT authentication was introduced in Portainer.\r\n\r\nFixes are included in the following releases:\r\n\r\n| Branch              | First vulnerable | Fixed in   |\r\n|---------------------|------------------|------------|\r\n| 2.33.x (LTS)        | 2.33.0           | **2.33.8** |\r\n| 2.39.x (LTS)        | 2.39.0           | **2.39.2** |\r\n| 2.40.x (STS)        | all prior        | **2.41.0** |\r\n\r\nPortainer releases prior to 2.33.0 are end-of-life and will not receive a fix. Users on EOL versions should upgrade to a supported LTS branch.\r\n\r\n## Workarounds\r\nAdministrators who cannot immediately upgrade can reduce exposure by:\r\n\r\n- **Stripping `?token=` at the reverse proxy.** A rewrite rule in nginx, Traefik, or equivalent that removes the `token` query parameter before the request reaches Portainer blocks the query-parameter auth path entirely. Container exec and interactive shells rely on the query-parameter token for WebSocket upgrade and will stop working until the patched release is deployed.\r\n- **Auditing existing logs.** Search reverse-proxy access logs and application logs for `?token=` or `&token=` occurrences and treat any captured JWT as compromised. Resetting the affected user's password invalidates their sessions; reducing the JWT session timeout in Portainer settings shortens the exposure window for tokens already issued.\r\n- **Administrator hygiene.** Do not share Portainer URLs that contain `?token=` in chat, email, or tickets, and avoid navigating to external sites from within the Portainer UI on unpatched instances - the `Referer` header will carry the token.\r\n\r\nNone of these replace the fix.\r\n\r\n## Affected Code\r\nPre-fix, `extractBearerToken` in `api/http/security/bouncer.go` read the JWT from the `token` query parameter before falling back to the `Authorization` header. The `query.Del(\"token\")` call scrubs the parameter from `r.URL.RawQuery` on the way through Portainer, but by that point the original URL has already been recorded by any upstream reverse proxy, access logger, or browser.\r\n\r\n```go\r\nfunc extractBearerToken(r *http.Request) (string, bool) {\r\n    query := r.URL.Query()\r\n    token := query.Get(\"token\")\r\n    if token != \"\" {\r\n        query.Del(\"token\")\r\n        r.URL.RawQuery = query.Encode()\r\n        return token, true\r\n    }\r\n\r\n    tokens, ok := r.Header[jwtTokenHeader]\r\n    if !ok || len(tokens) == 0 {\r\n        return \"\", false\r\n    }\r\n    // ...\r\n}\r\n```\r\n\r\nThe fix removes the query-parameter path entirely. Authenticated requests now carry the JWT via the `Authorization` header for API clients, or via the `portainer_api_key` HttpOnly cookie for the browser UI - cookies are sent automatically on same-origin WebSocket upgrade requests, so the browser-based container attach, exec, and pod shell features continue to work without exposing the token in the URL. The WebSocket handlers that previously documented `?token=` as a required query parameter have been updated to match.\r\n\r\n## Impact\r\n- **Token leakage to infrastructure.** Intermediate systems that observe the request URL - reverse proxies, load balancers, access logs, WAFs, and corporate network monitoring - capture the full JWT in plaintext.\r\n- **Token leakage via the browser.** URLs containing `?token=` are recorded in browser history and forwarded in the `Referer` header on any outbound navigation from the Portainer UI.\r\n- **Account takeover.** Anyone with access to a leaked JWT acts as the authenticated user for the remainder of the token's validity, without needing the password. If the leaked token belongs to an administrator, the attacker gains full API access including user management, container exec, and stack deployment.\r\n- **Reach beyond Portainer.** Container exec with an administrator JWT reaches the host filesystem of managed environments and can be used to execute commands on those hosts.\r\n\r\n## Timeline\r\n- 2026-03-06: Reported via GitHub Security Advisory by **scanpwn**.\r\n- 2026-04-14: Fix merged to `develop`.\r\n- 2026-04-29: 2.41.0 released.\r\n- 2026-05-07: 2.39.2-LTS and 2.33.8-LTS released.\r\n\r\n## Credit\r\n- **scanpwn** - identified and reported the query-parameter JWT acceptance and the resulting token-leakage vectors.",
+    "ghsa_id": "GHSA-jvp4-q659-95mj",
+    "html_url": "https://github.com/portainer/portainer/security/advisories/GHSA-jvp4-q659-95mj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jvp4-q659-95mj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44883"
+      }
+    ],
+    "published_at": "2026-05-10T19:53:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "JWT accepted in URL query leaks tokens to logs and referers",
+    "updated_at": "2026-05-10T19:53:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.33.8",
+        "vulnerable_version_range": ">= 2.33.0, < 2.33.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.39.2",
+        "vulnerable_version_range": ">= 2.39.0, < 2.39.2"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.41.0",
+        "vulnerable_version_range": ">= 2.40.0, < 2.41.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "portainer/portainer"
+}

@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-cg8g-x23v-5fw8",
+  "repo": {
+    "cve_id": "CVE-2026-72867",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-602",
+      "CWE-78"
+    ],
+    "description": "## Summary\r\nThe branch-validation fix shipped for GHSA-3frc-cfh9-ch2c (commit fef2de1ec) is incomplete. Server-side branch validation (VALID_BRANCH_REGEX) was added only to the application provider schemas and to the compose UI's client-side zod schemas. The compose server-side schema (packages/server/src/db/schema/compose.ts) still uses plain z.string() for branch/customGitBranch/gitlabBranch/bitbucketBranch/giteaBranch. A low-privileged authenticated user bypasses the browser-side validation via a direct tRPC compose.update call, persists a malicious branch, and triggers compose.deploy to reach the unchanged shell sink git clone --branch ${branch} (utils/providers/git.ts:81 and equivalents), achieving OS command execution as root on the host.\r\n\r\n## Details\r\n- Fix diff (git show fef2de1ec) modified application.ts + index.ts + new git-branch-validation.ts server-side, but for compose only modified client .tsx files; compose.ts was never touched.\r\n- compose.ts: createInsertSchema does not override the branch fields -> z.string(); apiUpdateCompose = createSchema.partial() keeps them regex-free.\r\n- application.ts: branchField (regex) applied only in apiSaveGithub/Gitlab/Bitbucket/Gitea/GitProvider.\r\n- Reachability: tRPC compose.update (apiUpdateCompose, no regex) -> updateCompose() persists raw branch -> compose.deploy (apiDeployCompose, no branch re-validation) -> queue -> deployCompose() -> cloneGitRepository() -> git.ts:81 git clone --branch ${customGitBranch} -> execAsync = util.promisify(exec) -> /bin/sh -c.\r\n- Sink shared by all 5 providers: git.ts:81, github.ts:170, gitlab.ts:155, bitbucket.ts:128, gitea.ts:180.\r\n\r\n## PoC\r\n1. POST tRPC compose.update with customGitBranch = \"main$(id>/tmp/pwned)\" (passes apiUpdateCompose z.string()).\r\n2. POST tRPC compose.deploy with the composeId.\r\n3. deployCompose builds and runs git clone --branch main$(id>/tmp/pwned) via /bin/sh -c; the injected command executes on the host.\r\n\r\nLocally verified: (a) a Node harness reproducing the exact git.ts command builder + util.promisify(exec) mechanic executed an injected $(touch ...) subshell (PWNED file created) before git clone ran; (b) a zod test confirmed every injection payload is ACCEPTED by the compose z.string() validator but BLOCKED by the application regex.\r\n\r\n## Impact\r\nAuthenticated RCE on the Dokploy host. The official install runs the container as root (no USER directive in Dockerfile) with /var/run/docker.sock mounted, so this is host-root-equivalent. A low-privileged member authorized only to configure/deploy a compose service escalates to arbitrary host command execution. This is an incomplete fix of GHSA-3frc-cfh9-ch2c.\r\n\r\n## Remediation\r\nAdd VALID_BRANCH_REGEX server-side in compose.ts for all branch fields (mirror branchField in application.ts), and replace the raw git clone --branch ${branch} interpolation in all five provider clone builders with execFile/array-arg execution or shEscape().",
+    "ghsa_id": "GHSA-cg8g-x23v-5fw8",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-cg8g-x23v-5fw8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cg8g-x23v-5fw8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72867"
+      }
+    ],
+    "published_at": "2026-07-21T23:22:53Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Incomplete fix of GHSA-3frc-cfh9-ch2c: Command Injection via Unvalidated Branch Fields in Compose Deployment Pipeline (server-side regex missing in compose.ts)",
+    "updated_at": "2026-08-10T18:35:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "dokploy (dokploy/dokploy)"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": " = >= 0.29.3, <= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-jf74-f69g-hcj9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-552"
+    ],
+    "description": "### Summary\r\n\r\nWhen neither `XDG_DATA_HOME` nor `HOME` is set, `caddy.AppDataDir()` returns `./caddy`, so certificates, private keys and the local CA keys live under the working directory. `caddy file-server` and any `file_server` rooted at `.` serve them to anonymous clients when started from that directory.\r\n\r\n### Details\r\n\r\n`AppDataDir()` (`storage.go`) falls back to the relative path `./caddy` when no home directory can be found (some containers, systemd units without a home, CI runners). `caddy file-server` serves the working directory by default (`--root` defaults to the current directory), and so does a `file_server` whose root is `.`. FrankenPHP's `php-server` command has the same default root.\r\n\r\nFix: `FileServer.Provision` adds the absolute form of the data directory to `Hide` when `AppDataDir()` is relative. This covers the Caddyfile, JSON configs and the `file-server` command, the same way the Caddyfile is already hidden. Patch: public PR from `dunglas:fileserver-hide-relative-data-dir`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-JBWWW7FF.\r\n\r\n### Proof of concept\r\n\r\n```console\r\n$ cd /srv/site && env -u HOME -u XDG_DATA_HOME caddy file-server --domain localhost\r\n$ curl -k https://localhost/caddy/certificates/local/localhost/localhost.key\r\n-----BEGIN EC PRIVATE KEY-----\r\n```\r\n\r\nThe same happens with this Caddyfile, run from `/srv/site` without `HOME`:\r\n\r\n```caddyfile\r\nlocalhost {\r\n\troot .\r\n\tfile_server\r\n}\r\n```\r\n\r\n### Impact\r\n\r\nAnonymous clients download TLS private keys and the local CA's root and intermediate keys, which lets them impersonate the site or mint certificates trusted by clients that installed the local CA. Only deployments without `HOME` and `XDG_DATA_HOME` that serve their working directory are affected.",
+    "ghsa_id": "GHSA-jf74-f69g-hcj9",
+    "html_url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-jf74-f69g-hcj9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jf74-f69g-hcj9"
+      }
+    ],
+    "published_at": "2026-11-04T01:00:18Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "file_server exposes private keys when the data directory falls back to ./caddy",
+    "updated_at": "2026-11-04T01:01:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/caddyserver/caddy/v2"
+        },
+        "patched_versions": "2.11.8",
+        "vulnerable_version_range": "<= 2.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "caddyserver/caddy"
+}

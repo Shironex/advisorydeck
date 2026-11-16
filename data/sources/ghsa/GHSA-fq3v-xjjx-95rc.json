@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44568",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Vulnerability Details\n\n**CWE-79**: Cross-site Scripting (XSS)\n\nThe `AccountPending.svelte` component renders the admin-configured \"Pending User Overlay Content\" using `marked.parse()` inside `{@html}` with an incorrect DOMPurify application order:\n\n### Vulnerable Code\n\n**`src/lib/components/layout/Overlay/AccountPending.svelte` (lines 43-48)**:\n\n```svelte\n{@html marked.parse(\n    DOMPurify.sanitize(\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>')\n    )\n)}\n```\n\nDOMPurify is applied to the raw Markdown input **before** `marked.parse()` processes it. This is the wrong order. DOMPurify sanitizes the Markdown text (which contains no HTML tags), then `marked.parse()` converts Markdown link syntax into HTML `<a>` tags with `javascript:` href, and the result is rendered with `{@html}` unsanitized.\n\nThe correct pattern (used elsewhere in the codebase, e.g., `NotebookView.svelte:77`) is:\n```javascript\nDOMPurify.sanitize(marked.parse(src))  // sanitize AFTER markdown parsing\n```\n\n## Steps to Reproduce\n\n### Prerequisites\n- Open WebUI v0.8.10\n- Admin account\n- A second user account with \"pending\" role\n\n### Steps\n\n1. Log in as admin and navigate to **Admin Settings** → **Settings** → **General**.\n\n2. Set **Default User Role** to `pending`.\n\n3. In the **Pending User Overlay Content** field, enter:\n```\n# Account Pending\n\nYour account is under review.\n\n[Contact Support](javascript:alert(document.domain))\n```\n\n4. Save the settings.\n\n5. In a separate browser (or incognito window), create a new account or log in as a pending user.\n\n6. The pending overlay is displayed. Click the \"Contact Support\" link.\n\n7. A JavaScript alert dialog appears showing `localhost` (the document domain), confirming XSS execution.\n\n### Verified Output\n\nThe `alert(document.domain)` executes successfully, displaying \"localhost\" in a JavaScript dialog box.\n\n## Impact\n\nAn admin can inject arbitrary JavaScript into the Pending User Overlay Content that executes in the browser context of any pending user who views the overlay page. This could be used to:\n\n- **Session hijacking**: Steal pending users' JWT tokens from cookies/localStorage\n- **Credential theft**: Replace the pending overlay with a fake login form\n- **Phishing**: Redirect pending users to malicious sites\n\nWhile this requires admin privileges to set the overlay content, it enables an admin to attack pending users (who have not yet been granted full access). In multi-admin deployments, a compromised admin account could use this to escalate attacks.\n\n## Proposed Fix\n\nApply DOMPurify **after** `marked.parse()`, not before:\n\n```svelte\n<!-- Before (vulnerable): -->\n{@html marked.parse(\n    DOMPurify.sanitize(\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>')\n    )\n)}\n\n<!-- After (fixed): -->\n{@html DOMPurify.sanitize(\n    marked.parse(\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>'),\n        { async: false }\n    )\n)}\n```\n<img width=\"1510\" height=\"1093\" alt=\"2026-03-23_03-07\" src=\"https://github.com/user-attachments/assets/bcc94dd6-4f06-472b-9979-9759458c76b3\" />",
+    "ghsa_id": "GHSA-fq3v-xjjx-95rc",
+    "html_url": "https://github.com/advisories/GHSA-fq3v-xjjx-95rc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fq3v-xjjx-95rc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44568"
+      }
+    ],
+    "published_at": "2026-05-08T22:21:33Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-fq3v-xjjx-95rc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44568",
+      "https://github.com/advisories/GHSA-fq3v-xjjx-95rc"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI has Stored XSS in Pending User Overlay via Incorrect DOMPurify Application Order",
+    "updated_at": "2026-05-15T23:53:45Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-fq3v-xjjx-95rc",
+  "repo": {
+    "cve_id": "CVE-2026-44568",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Vulnerability Details\r\n\r\n**CWE-79**: Cross-site Scripting (XSS)\r\n\r\nThe `AccountPending.svelte` component renders the admin-configured \"Pending User Overlay Content\" using `marked.parse()` inside `{@html}` with an incorrect DOMPurify application order:\r\n\r\n### Vulnerable Code\r\n\r\n**`src/lib/components/layout/Overlay/AccountPending.svelte` (lines 43-48)**:\r\n\r\n```svelte\r\n{@html marked.parse(\r\n    DOMPurify.sanitize(\r\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>')\r\n    )\r\n)}\r\n```\r\n\r\nDOMPurify is applied to the raw Markdown input **before** `marked.parse()` processes it. This is the wrong order. DOMPurify sanitizes the Markdown text (which contains no HTML tags), then `marked.parse()` converts Markdown link syntax into HTML `<a>` tags with `javascript:` href, and the result is rendered with `{@html}` unsanitized.\r\n\r\nThe correct pattern (used elsewhere in the codebase, e.g., `NotebookView.svelte:77`) is:\r\n```javascript\r\nDOMPurify.sanitize(marked.parse(src))  // sanitize AFTER markdown parsing\r\n```\r\n\r\n## Steps to Reproduce\r\n\r\n### Prerequisites\r\n- Open WebUI v0.8.10\r\n- Admin account\r\n- A second user account with \"pending\" role\r\n\r\n### Steps\r\n\r\n1. Log in as admin and navigate to **Admin Settings** → **Settings** → **General**.\r\n\r\n2. Set **Default User Role** to `pending`.\r\n\r\n3. In the **Pending User Overlay Content** field, enter:\r\n```\r\n# Account Pending\r\n\r\nYour account is under review.\r\n\r\n[Contact Support](javascript:alert(document.domain))\r\n```\r\n\r\n4. Save the settings.\r\n\r\n5. In a separate browser (or incognito window), create a new account or log in as a pending user.\r\n\r\n6. The pending overlay is displayed. Click the \"Contact Support\" link.\r\n\r\n7. A JavaScript alert dialog appears showing `localhost` (the document domain), confirming XSS execution.\r\n\r\n### Verified Output\r\n\r\nThe `alert(document.domain)` executes successfully, displaying \"localhost\" in a JavaScript dialog box.\r\n\r\n## Impact\r\n\r\nAn admin can inject arbitrary JavaScript into the Pending User Overlay Content that executes in the browser context of any pending user who views the overlay page. This could be used to:\r\n\r\n- **Session hijacking**: Steal pending users' JWT tokens from cookies/localStorage\r\n- **Credential theft**: Replace the pending overlay with a fake login form\r\n- **Phishing**: Redirect pending users to malicious sites\r\n\r\nWhile this requires admin privileges to set the overlay content, it enables an admin to attack pending users (who have not yet been granted full access). In multi-admin deployments, a compromised admin account could use this to escalate attacks.\r\n\r\nCVSS v3.1: **4.8 Medium** (AV:N/AC:L/PR:H/UI:R/S:C/C:L/I:L/A:N)\r\n\r\n## Proposed Fix\r\n\r\nApply DOMPurify **after** `marked.parse()`, not before:\r\n\r\n```svelte\r\n<!-- Before (vulnerable): -->\r\n{@html marked.parse(\r\n    DOMPurify.sanitize(\r\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>')\r\n    )\r\n)}\r\n\r\n<!-- After (fixed): -->\r\n{@html DOMPurify.sanitize(\r\n    marked.parse(\r\n        ($config?.ui?.pending_user_overlay_content ?? '').replace(/\\n/g, '<br>'),\r\n        { async: false }\r\n    )\r\n)}\r\n```\r\n<img width=\"1510\" height=\"1093\" alt=\"2026-03-23_03-07\" src=\"https://github.com/user-attachments/assets/bcc94dd6-4f06-472b-9979-9759458c76b3\" />\r\n",
+    "ghsa_id": "GHSA-fq3v-xjjx-95rc",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-fq3v-xjjx-95rc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fq3v-xjjx-95rc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44568"
+      }
+    ],
+    "published_at": "2026-05-05T18:41:18Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored XSS in Pending User Overlay via Incorrect DOMPurify Application Order",
+    "updated_at": "2026-05-07T15:25:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.0",
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

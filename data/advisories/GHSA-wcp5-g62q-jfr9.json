@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wcp5-g62q-jfr9",
+  "aliases": [],
+  "title": "Path Traversal & RCE via unzipDrop and Schedules",
+  "summary": "## Information\r\n- **Project:** Dokploy\r\n- **Version:** v0.29.4\r\n- **Severity:** Critical (9.1)\r\n- **Vulnerability Type:** Path Traversal (CWE-22) / RCE\r\n\r\n## Description\r\nThe `unzipDrop` utility, used for \"Drop\" deployments, attempts to prevent path traversal but uses a flawed validation mechanism. The `readValidDirectory` function uses a weak regular expression that allows `.` and `/` characters. Furthermore, it validates that the resolved path starts with the base directory `/etc/dokploy`, but it does not restrict the path to the specific application's deployment directory. This allows an attacker to write files anywhere within `/etc/dokploy`, including sensitive locations like the schedules directory.\r\n\r\n## Code Analysis\r\nIn [packages/server/src/wss/utils.ts](file:///home/veronica/bot/audit/dokploy-audit/dokploy/packages/server/src/wss/utils.ts):\r\n```typescript\r\nexport const readValidDirectory = (directory: string, serverId?: string | null) => {\r\n    if (!/^[\\w/. :-]{1,500}$/.test(directory)) {\r\n        return false;\r\n    }\r\n    const { BASE_PATH } = paths(!!serverId); // /etc/dokploy\r\n    const resolvedBase = path.resolve(BASE_PATH);\r\n    const resolvedDir = path.resolve(directory);\r\n    return (resolvedDir === resolvedBase || resolvedDir.startsWith(resolvedBase + path.sep));\r\n};\r\n```\r\nIn [packages/server/src/utils/builders/drop.ts](file:///home/veronica/bot/audit/dokploy-audit/dokploy/packages/server/src/utils/builders/drop.ts):\r\n```typescript\r\nconst fullPath = path.join(outputPath, filePath).replace(/\\\\/g, \"/\");\r\nif (!readValidDirectory(fullPath, application.serverId)) { ... }\r\n```\r\nIf `filePath` in the ZIP file is `../../../schedules/target-app/script.sh`, `path.join` resolves it to `/etc/dokploy/schedules/target-app/script.sh`. Since this path starts with `/etc/dokploy/`, it passes the check.\r\n\r\n## Proof of Concept\r\n1. Prepare a ZIP file containing a malicious script at the path `../../../schedules/[existing-app-name]/script.sh`.\r\n2. Perform a \"Drop\" deployment using this ZIP file.\r\n3. The server extracts the ZIP and overwrites the schedule script for the target application.\r\n4. When the target application's schedule is next triggered, the malicious script executes on the host.\r\n\r\n## Impact\r\nRemote Code Execution. An attacker can overwrite system configurations, hijack other applications, or achieve persistent RCE by manipulating scheduled tasks.\r\n\r\n## Remediation\r\n1. **Specific Base Path**: Restrict `readValidDirectory` to the specific application's subdirectory (e.g., `/etc/dokploy/applications/[appName]`) rather than the global `/etc/dokploy`.\r\n2. **Strict Filename Validation**: Sanitize filenames within the ZIP archive to ensure they do not contain path traversal sequences like `..`.\r\n3. **Path Resolution**: Use `path.resolve` on the final path and ensure it remains within the intended `outputPath` using a strict prefix check.",
+  "published_at": "2026-11-12T08:17:31.000Z",
+  "modified_at": "2026-11-12T08:51:32.000Z",
+  "severity": {
+    "level": "critical",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wcp5-g62q-jfr9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wcp5-g62q-jfr9",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wcp5-g62q-jfr9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

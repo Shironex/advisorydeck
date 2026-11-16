@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-gqfh-jxvw-74rp",
+  "repo": {
+    "cve_id": "CVE-2026-109292",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "# Other users' session tokens disclosed via OAuth-mode connections, tool servers and terminals\r\n\r\n## Summary\r\nAn OpenAI-compatible connection, OpenAPI tool server or terminal server configured with the \"OAuth\" authentication mode sent the full browser cookie jar of the requesting user to its destination, including Open WebUI's own session cookie. The mode is documented to the administrator as forwarding only the user's OAuth access token. Every user whose request reached such a connection disclosed a live session credential to the destination, whether or not they were the administrator who configured it and whether or not an OAuth token was present.\r\n\r\n## Preconditions\r\nAn administrator has configured at least one OpenAI-compatible connection, OpenAPI tool server or terminal server with the \"OAuth\" authentication mode. Connections default to bearer authentication, so this mode is never active out of the box. No OAuth provider needs to be configured or return a token; the cookies were sent regardless. The destination only needs to observe the incoming Cookie header, which ordinary request logging does. Not affected: connections using the \"Session\" authentication mode, whose forwarding of session credentials is documented, and MCP tool servers, which never received cookies.\r\n\r\n## Impact\r\nThe operator of the destination receives the Open WebUI session cookie of every verified user whose request reaches it, including through routine calls such as the model list fetched on page load, with no action from the user beyond ordinary use. Replaying that cookie against the instance authenticates as that user for the lifetime of the token, which gives the destination full access to the account and administrative access where the user is an administrator. The destination is a server an administrator registered for OAuth authentication, a configuration that implied sending it only the OAuth access token.\r\n\r\n## Fix\r\nFixed in 0.11.4 by https://github.com/open-webui/open-webui/commit/f9f815c86220f809fad5ee1300c44f55dea74c79 (OpenAI-compatible connections), https://github.com/open-webui/open-webui/commit/b71744b17823f7a3a9a64cb363e79a7164ed5b23 (terminal servers) and https://github.com/open-webui/open-webui/commit/3cda47cdb449aac970426f0929c9e5f8bb8bd807 (tool servers and terminal tools). Forwarding the cookie jar is now a separate per-connection setting that is off by default, so the OAuth mode sends only the OAuth access token in the Authorization header. Upgrading resolves the issue with no configuration change.\r\n\r\n## Root cause\r\nAffected component: the outbound header and cookie builder for OpenAI-compatible connections, the builder for OpenAPI tool servers and terminal tools, and the terminal server proxy.\r\nAffected setup: any deployment with a connection, tool server or terminal server set to the \"OAuth\" authentication mode.\r\n\r\nWhen the OAuth mode was added, its branch copied the cookie line from the neighbouring \"Session\" branch unchanged, so the whole inbound cookie jar was attached to the outbound request before, and independently of, the OAuth token lookup. The forwarded cookies were never narrowed to what the mode is documented to send. Because each outbound call carries the requesting user's own cookies, the disclosed session belongs to whichever user triggered the call.\r\n\r\n## Proof of concept\r\nReproduced by the reporter against a running 0.11.2 instance. An OpenAI-compatible connection was registered with a request-capturing destination and the \"OAuth\" authentication mode. A model list request authenticated only by the session cookie triggered the outbound call. The destination received the full cookie jar, including the session cookie, and no OAuth token. Replaying the captured cookie against the instance returned an authenticated response as the affected account.\r\n\r\nConfirmed during triage by running the connection header builder from 0.11.3 and 0.11.4 with the same session cookies and no OAuth token: 0.11.3 attaches the session cookie to the outbound request, and 0.11.4 attaches no cookies.\r\n\r\n## Credits\r\n@gigioneggiando\r\n@brodmart",
+    "ghsa_id": "GHSA-gqfh-jxvw-74rp",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-gqfh-jxvw-74rp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gqfh-jxvw-74rp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109292"
+      }
+    ],
+    "published_at": "2026-09-27T19:55:15Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Other users' session tokens disclosed via OAuth-mode connections, tool servers and terminals",
+    "updated_at": "2026-10-28T20:43:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.6.27, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

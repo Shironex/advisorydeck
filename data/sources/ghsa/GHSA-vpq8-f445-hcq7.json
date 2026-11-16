@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-vpq8-f445-hcq7",
+  "repo": {
+    "cve_id": "CVE-2026-109286",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-346"
+    ],
+    "description": "# Any website can steal a signed-in user's session token via the community stats message handler\r\n\r\n## Summary\r\nThe sync stats modal registered a `window` message listener that processed `verify:chat` messages from any web origin without checking `event.origin`, and replied to `window.opener` with target origin `*`. The chat id from the message was inserted into an authenticated request URL without encoding. Any external website that a signed-in user visits can therefore make that user's browser fetch a chosen authenticated endpoint and hand the response, including the user's session token, back to the attacker. No attacker account and no administrator action are required.\r\n\r\n## Preconditions\r\n- Community sharing enabled (`ENABLE_COMMUNITY_SHARING`, default `True`), which is what mounts the sync stats modal and its message listener.\r\n- The victim is signed in to Open WebUI in the same browser and visits an attacker-controlled page that opens Open WebUI in a popup. Deployments with community sharing disabled are not affected.\r\n\r\n## Impact\r\nThe attacker page posts a `verify:chat` message carrying a path-traversal chat id such as `../../../auths/`. The listener passes it unencoded into `GET /api/v1/chats/stats/export/<id>`, which the browser normalises to `GET /api/v1/auths/` and sends with the victim's bearer token. The listener then posts the response back to the opener with target origin `*`, so the attacker origin receives the victim's identity and raw JWT. That token replays from any client with only an `Authorization` header, granting full API access as the victim: private chats and any authenticated action under the victim's role. The demonstrated victim held the ordinary `user` role.\r\n\r\n## Fix\r\nFixed in v0.11.4 by PR #29918. The listener now ignores any message whose `event.origin` is not one of the known community origins, replies only to that validated origin instead of `*`, and the chat id is passed through `encodeURIComponent` so it can no longer escape its URL path segment. Upgrading to 0.11.4 fully resolves the issue with no further configuration.\r\n\r\n## Root cause\r\n`src/lib/components/chat/Settings/SyncStatsModal.svelte` held a `verify:chat` message handler, and `exportSingleChatStats` in `src/lib/apis/chats/index.ts` built the request URL. The handler is mounted on every page whenever community sharing is enabled, so the listener was active even while the modal was hidden. The origin allowlist that already guarded the other community message handlers was absent here, and the chat id was concatenated into the path without encoding, so an attacker-chosen value could both be accepted from an untrusted origin and redirect the authenticated request to a different endpoint.\r\n\r\n## Proof of concept\r\nReproduced against the vulnerable and fixed code in a two-origin browser harness. From an attacker origin, opening the target and repeatedly posting `{ type: 'verify:chat', data: { id: '../../../auths/' } }` caused the target to issue `GET /api/v1/auths/` carrying the victim's bearer token and to post the response back to the attacker origin, which then received the victim's email and JWT. Against the fixed code the message is rejected on the origin check and no request is made.\r\n\r\n## Credits\r\n@zyakir13",
+    "ghsa_id": "GHSA-vpq8-f445-hcq7",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-vpq8-f445-hcq7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vpq8-f445-hcq7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109286"
+      }
+    ],
+    "published_at": "2026-09-27T19:47:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Any website can steal a signed-in user's session token via the community stats message handler",
+    "updated_at": "2026-10-28T20:46:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.7.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

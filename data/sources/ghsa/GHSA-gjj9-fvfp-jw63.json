@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-gjj9-fvfp-jw63",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "# \"Show metadata\" is not applied to POST /search/metadata, so shared links leak EXIF and GPS\n\n## Summary\n\nA shared album link created with \"Show metadata\" turned off still returns the full unredacted asset record\nfrom `POST /search/metadata`. One unauthenticated request with the link key yields GPS latitude and\nlongitude, reverse-geocoded city and country, camera make and model, capture time, the original filename,\nthe on-disk path and the owner UUID, for every asset in the album.\n\nThis is a response-sanitization gap, not an authorization bypass. Object scope is intact and I want to be\nclear about that up front.\n\nIntroduced in v3.0.2 by commit `655cd01d5` on 2026-07-08. Present in v3.0.3, v3.1.0 and main at `a9a99cff`.\nConfirmed on the released v3.1.0 image, `sourceCommit 8aa95c67`.\n\n## The invariant is yours, written as a test\n\n`e2e/src/specs/server/api/shared-link.e2e-spec.ts:280`\n\n```ts\nit('should not return metadata for album shared link without metadata', async () => {\n  ...\n  const asset = body.assets[0];\n  expect(asset).not.toHaveProperty('exifInfo');\n  expect(asset).not.toHaveProperty('fileCreatedAt');\n  expect(asset).not.toHaveProperty('originalFilename');\n  expect(asset).not.toHaveProperty('originalPath');\n});\n```\n\n`POST /search/metadata` with the same class of key returns all four. I am not asserting a preference here,\njust showing that an assertion you already wrote is violated on a different route.\n\nThe clamp is enforced in seven places server-side. Two push it down into the SQL projection at\n`asset.repository.ts:836` and `:930`, and `asset-media.service.ts:289` swaps the real filename for the asset\nUUID in a thumbnail's Content-Disposition. The project works hard at this. One sink was missed.\n\n## Where it is missed\n\n`server/src/services/asset.service.ts` applies three clamps for a share key:\n\n```ts\nif (auth.sharedLink && !auth.sharedLink.showExif) {\n  return mapAsset(asset, { stripMetadata: true, withStack: true, auth });\n}\nconst data = mapAsset(asset, { withStack: true, auth });\nif (auth.sharedLink) { delete data.owner; }\n```\n\n`server/src/services/search.service.ts:99` ends with none of them:\n\n```ts\nreturn this.mapResponse(items, hasNextPage ? (page + 1).toString() : null, { auth });\n```\n\n`mapAsset` never inspects `auth.sharedLink` on its own. `stripMetadata` is only ever set by the caller, and\n`grep -rn \"stripMetadata\" server/src/` finds exactly three call sites. `search.service.ts` is not one.\n\n## The commit that opened it\n\n`655cd01d5`, \"search metadata for album shared links\", is the commit that first let share keys reach this\nendpoint. It added the object-scope half and not the sanitization half:\n\n```diff\n-  @Authenticated({ permission: Permission.AssetRead })\n+  @Authenticated({ permission: Permission.AssetRead, sharedLink: true })\n\n   if (dto.albumIds && dto.albumIds.length > 0) {\n     await this.requireAccess({ auth, ids: dto.albumIds, permission: Permission.AlbumRead });\n+  } else if (auth.sharedLink) {\n+    throw new BadRequestException('Shared link access is only allowed in combination with an albumIds filter');\n   } else {\n```\n\nThe two e2e tests it shipped check the 400 and check that the allowed case returns the expected id. Neither\ncan observe the body's metadata, so nothing failed.\n\n## Proof\n\nA link with `showMetadata:false` and `allowDownload:false`. Five sinks redact exactly as intended. Then one\nunauthenticated POST with the same key returns latitude 48.8584, longitude 2.2945, city, camera make and\nmodel, `originalFileName`, the full `originalPath` under `/data/upload/<ownerUUID>/`, the checksum and\n`ownerId`.\n\nThe control that settles the degree of it: a second link on the same album with `showMetadata:true`.\n\n```\nownerId           identical=True\noriginalFileName  identical=True\nlat/lon on showMetadata=FALSE link: 48.8584 / 2.2945\nlat/lon on showMetadata=TRUE  link: 48.8584 / 2.2945\n```\n\nByte-identical bodies, zero differing fields. The toggle has no effect on this endpoint at all.\n\nNegative controls:\n\n- The other four sinks still redact on the very same key, so this is per-sink and not a broken link.\n- No key gives 401 \"Authentication required\", a bogus key gives 401 \"Invalid share key\".\n- A key with no `albumIds` is refused, and a key pointed at an album it does not cover is refused by the\n  `AlbumRead` check. Object scope holds. The endpoint is only mis-serializing rows it is legitimately\n  allowed to return.\n\n## Limits, stated up front\n\nALBUM-type links only. An INDIVIDUAL link cannot supply an `albumIds` that survives the access check. One\nalbum per key, no cross-album or cross-user reach. The attacker needs the album id, which one unauthenticated\n`GET /shared-links/me?key=` returns.\n\nNot long-standing. Before v3.0.2 this endpoint rejected share keys outright.\n\n## Same pattern, adjacent sinks\n\nLower confidence, included so a fix can be done properly rather than as separate claims.\n\n`timeline.service.ts:72` clears `withCoordinates` but leaves `dto.bbox` alone, so bucket queries still answer\n\"is this photo inside this box\". It adds no reach beyond the above, since a share key can only use the\ntimeline with an album id, which is exactly where search already returns exact coordinates.\n\n`/video/playback` checks only `Permission.AssetView` while `/original` demands `AssetDownload` and correctly\n404s, so with `allowDownload:false` a visitor can still obtain the unmodified original container of a\nnon-transcoded video. Narrower than a download bypass, since a transcode is served when one exists.\n\n## Suggested fix\n\n```ts\nreturn this.mapResponse(items, nextPage, { auth, stripMetadata: !!auth.sharedLink && !auth.sharedLink.showExif });\n```\n\nBetter still, sanitize shared-link responses centrally in `mapAsset` from `auth.sharedLink`, so the next\nendpoint that gains `sharedLink: true` inherits the clamp instead of having to remember it.\n\n## Severity\n\nCVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N, 6.9 Medium.\n\nConfidentiality is bounded to one album on one link, so not VC:H. If you weigh precise home coordinates as a\ndirect serious impact, VC:H gives 8.7, but that is your call and not something I want to assert.\n\nCWE-200, or CWE-213 Exposure Due to Incompatible Policies if you want the precise fit, since the policy is\nexpressed by `showMetadata` and honoured at every sink but this one.\n",
+    "ghsa_id": "GHSA-gjj9-fvfp-jw63",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-gjj9-fvfp-jw63",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gjj9-fvfp-jw63"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:04Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Shared link \"Show metadata\" is not applied to POST /search/metadata, leaking EXIF and GPS",
+    "updated_at": "2026-11-10T18:45:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

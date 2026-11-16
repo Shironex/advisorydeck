@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wc7v-rjjv-9g7g",
+  "aliases": [],
+  "title": "Removing a member leaves organization API keys active and preserves access",
+  "summary": "## Summary\r\n\r\nRemoving a member from an organization should terminate that member's organization-scoped API access as well as the interactive membership.\r\n\r\nOrganization-scoped API keys are attached to the global user and store their organization only as JSON metadata. Removing the user from an organization deletes the membership but neither revokes those keys nor invalidates them during authentication.\r\n\r\n`validateRequest()` verifies the key, reads its old `organizationId`, and queries the current membership. When no membership exists, it still creates an authenticated session with that former organization ID and a fallback `member` role. The cookie-session branch correctly clears the active organization in the same situation.\r\n\r\nThis gives a removed member persistent access to every authentication-only route. In the current release, that includes `settings.getWebServerSettings`, which exposes the stored SSH private key and monitoring token, and `/listen-deployment`, which can stream Dokploy's local SSH private key. The latter remains reachable with the stale key in the WebSocket `x-api-key` header and can yield host-root access where the generated key was authorized for root.\r\n\r\n## Details\r\n\r\nOrganization-scoped API keys are attached to the global user and store their organization only as JSON metadata. Removing the user from an organization deletes the membership but neither revokes those keys nor invalidates them during authentication.\r\n\r\n```ts\r\n\tgetWebServerSettings: protectedProcedure.query(async () => {\r\n\t\tif (IS_CLOUD) {\r\n\t\t\treturn null;\r\n\t\t}\r\n\t\tconst settings = await getWebServerSettings();\r\n\t\treturn settings;\r\n\t}),\r\n```\r\n\r\n## Steps to reproduce\r\n\r\n1. As an ordinary member, create an API key scoped to the active organization and save its plaintext value.\r\n2. As the organization owner, unlink that member through the normal **Remove member** operation.\r\n3. Confirm the user no longer appears in the organization.\r\n4. Use the old key.\r\n\r\n```bash\r\ncurl -H 'x-api-key: OLD_KEY' \\\r\n  'https://TARGET/api/trpc/settings.getWebServerSettings?input=%7B%22json%22%3Anull%7D'\r\n```\r\n\r\n5. The request is still authenticated. An independent proof is a WebSocket handshake with the same header.\r\n\r\n```bash\r\nwebsocat -H 'x-api-key: OLD_KEY' \\\r\n  'wss://TARGET/listen-deployment?logPath=/etc/dokploy/ssh/auto_generated-dokploy-local'\r\n```\r\n\r\n## Impact\r\n\r\nOffboarding does not terminate API access. A former member can retain control-plane access indefinitely and exploit authentication-only secret-disclosure paths. On affected self-hosted configurations, the retained access can lead to host-root SSH compromise.\r\n\r\n## Recommendation\r\n\r\nReject API-key authentication unless the key owner still has a membership in the metadata organization. Revoke every key scoped to an organization when that membership is removed, and make organization scope a real foreign-key relationship with cascading revocation.",
+  "published_at": "2026-11-12T08:15:19.000Z",
+  "modified_at": "2026-11-12T08:15:19.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.6,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-613"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wc7v-rjjv-9g7g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wc7v-rjjv-9g7g",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wc7v-rjjv-9g7g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

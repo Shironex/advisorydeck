@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-22qj-9936-gq2m",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-532"
+    ],
+    "description": "## Summary\n\nDokploy logs the complete remote deployment command when remote command execution fails. Environment variables are embedded directly into that command, so sensitive values are written unredacted to the Dokploy service container logs.\n\nThis was observed on July 17, 2026 during a raw Docker Swarm Stack deployment to a remote server. The remote command failed before deployment because the SSH user could not create `/etc/dokploy`. Dokploy then logged an `ExecError` object containing its complete `command` property. The command contained production authentication tokens, application signing secrets, API credentials, and provider credentials. No real credential values are included in this report.\n\n## Affected version\n\nDokploy v0.29.12, which was the latest release when observed.\n\n## Configuration\n\n- Dokploy running as a Docker Swarm service\n- Remote server connected over SSH\n- Application deployed as a raw Docker Stack\n- Environment variables configured through Dokploy\n\n## Steps to reproduce\n\n1. Add a remote server to Dokploy.\n2. Configure a raw Stack with `EXAMPLE_SECRET=confidential-value`.\n3. Cause the remote deployment command to exit non-zero. For example, use a remote SSH account that cannot create `/etc/dokploy/logs`.\n4. Start the deployment.\n5. Run `docker service logs dokploy`.\n6. Locate the resulting `ExecError`.\n\n## Actual behavior\n\nThe service log contains an entry structurally equivalent to:\n\n```text\nError [ExecError]: Remote command failed with exit code 1\n    at ignore-listed frames {\n  command: '\\n' +\n    'mkdir -p /etc/dokploy/logs/example;\\n' +\n    'env -i PATH=\"$PATH\" HOME=\"$HOME\" ' +\n    'EXAMPLE_SECRET=confidential-value ' +\n    'docker stack deploy ...',\n  stdout: '',\n  stderr: 'mkdir: cannot create directory ... Permission denied',\n  exitCode: 1,\n  serverId: '<redacted>'\n}\n```\n\nThe complete secret value is retained in the Dokploy container log. In the observed incident, the generated command contained multiple real production credentials.\n\n## Expected behavior\n\nDokploy must not write environment-variable values or other sensitive command contents to application logs.\n\n## Security impact\n\nAnyone able to read the Dokploy service logs, Docker JSON logs, or a downstream log collector can recover application credentials from failed deployments. The exposed credentials can belong to services outside Dokploy, including registries, databases, infrastructure providers, and third-party APIs. Secrets may remain in local and archived logs after deployment configuration is changed.\n\n## Suggested remediation\n\n1. Omit the complete remote command from the log-safe representation of execution errors.\n2. Keep command details separate from serialized/logged exception objects.\n3. Redact environment assignments before logging as defense in depth.\n4. Audit other local and remote command-execution error paths.\n5. Add tests proving sentinel secret values never appear in logs after deployment failures.\n6. Consider advising affected users to rotate credentials exposed by failed deployment logs.\n\n## Workaround\n\nRestrict access to Dokploy and Docker logs, avoid forwarding them to broadly accessible collectors, and rotate credentials following failed deployments.\n\n## Disclosure notes\n\nNo original logs or real credentials are attached. The affected operator has been advised to rotate exposed credentials.",
+    "ghsa_id": "GHSA-22qj-9936-gq2m",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-22qj-9936-gq2m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-22qj-9936-gq2m"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Remote deployment failures expose environment secrets in Dokploy container logs",
+    "updated_at": "2026-11-12T08:16:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.0",
+        "vulnerable_version_range": "< 0.31.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

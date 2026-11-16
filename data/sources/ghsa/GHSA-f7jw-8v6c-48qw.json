@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-f7jw-8v6c-48qw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:H/VA:L/SC:N/SI:L/SA:L"
+      }
+    },
+    "cwe_ids": [
+      "CWE-696",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nPortainer proxies requests from the web UI and API to the Kubernetes API server of a connected environment. When a namespace is deleted through this proxy, Portainer also removes the records it keeps about that namespace: the namespace's Portainer access policy, its registry bindings, and the stacks deployed into it. Portainer removed these records before forwarding the delete request to Kubernetes, and did not restore them when Kubernetes refused the request.\r\n\r\nAny authenticated user with access to a Kubernetes environment can send a namespace delete request for any namespace name, including names of namespaces owned by other users or by administrators, and names that do not exist. Kubernetes denies the request for users without delete rights on the namespace, but the Portainer records for that name have already been removed. The namespace and the workloads in it are not affected; only Portainer's management records are.\r\n\r\nNamespace names are not secret to environment members, because the default per-user Kubernetes role allows them to list namespaces, so the attack needs no prior knowledge beyond environment access.\r\n\r\n## Severity\r\n\r\n**High**\r\n\r\nThe attack is performed over the network with a single request, needs no special conditions and no user interaction. It requires an authenticated account with access to the target Kubernetes environment, which an administrator must grant. The vulnerable system suffers a high integrity impact, because policies and stack records belonging to other users and administrators can be destroyed for any namespace the attacker can name, and a low availability impact, because affected users lose Portainer-side management of their namespaces until the records are restored from backup or recreated. There is no confidentiality impact. Impact on the managed Kubernetes cluster is limited and low: when a namespace's access policy is removed, the Kubernetes role bindings Portainer maintained for the users named in it are removed on the next synchronisation, and workloads and data in the namespace are untouched.\r\n\r\n## Affected Versions\r\n\r\nThe vulnerable ordering is present in every supported release; it predates Portainer 2.39.0.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\r\n\r\n| Branch              | First vulnerable | Fixed in                                   |\r\n|---------------------|------------------|--------------------------------------------|\r\n| 2.39.x (LTS)        | 2.39.0           | Not fixed - upgrade to **2.45.2** or later |\r\n| 2.40.x-2.44.x (STS) | 2.40.0           | Out of support - upgrade to **2.45.2** or later |\r\n| 2.45.x (LTS)        | 2.45.0           | **2.45.2**                                 |\r\n\r\nUsers on the 2.39 LTS line or on end-of-life versions should upgrade to 2.45.2 or later.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediately upgrade can reduce exposure by:\r\n\r\n- **Limit Kubernetes environment access to trusted users.** Exploitation requires access to the environment, so removing it from users, teams or roles that do not need it removes the exposure for those accounts.\r\n- **Keep current backups.** A recent Portainer backup allows destroyed access policies, stack records and registry bindings to be restored.\r\n- **Review environment access after any unexpected loss of namespace access.** Users who suddenly lose access to a namespace, or stacks that disappear from Portainer, are an indicator that the records were removed.\r\n\r\nNone of these replace the fix.\r\n\r\n## Affected Code\r\n\r\nThe namespace delete handler in the Kubernetes proxy (`proxyNamespaceDeleteOperation`, in the proxy factory's `namespaces.go`) removed the Portainer records first and forwarded the request to Kubernetes last.\r\n\r\n```go\r\n// namespaces.go - proxyNamespaceDeleteOperation (before the fix)\r\nfunc (transport *baseTransport) proxyNamespaceDeleteOperation(request *http.Request, namespace string) (*http.Response, error) {\r\n\t// remove the namespace access policy from the portainer-config ConfigMap\r\n\t// remove the namespace from every registry's access bindings\r\n\t// delete every stack record in the namespace\r\n\t...\r\n\treturn transport.executeKubernetesRequest(request) // Kubernetes decides last\r\n}\r\n```\r\n\r\nThe fix forwards the request to Kubernetes first and removes the Portainer records only after Kubernetes accepts it, so a denied or failed delete leaves them intact. The same change applies in Community and Business Edition.\r\n\r\n## Impact\r\n\r\n- **Loss of namespace access policies.** Users and teams named in a destroyed policy lose their Portainer-side authority over the namespace.\r\n- **Loss of stack records.** Stack records for the named namespace, including administrator-owned ones, are removed with no built-in undo.\r\n- **Loss of registry bindings.** The association between a registry and the namespace is removed, so pods in the namespace lose the configured pull secret until an administrator re-attaches it.\r\n- **No change to cluster workloads.** The namespace, its workloads, ConfigMaps and Secrets are not modified.\r\n\r\n## Timeline\r\n\r\n- 2026-09-21: Reported via GitHub Security Advisory by **Pst-itsl1**.\r\n- 2026-10-06: Fix merged to `develop`.\r\n- 2026-10-06: Fix merged to `release/2.45`.\r\n- 2026-XX-XX: 2.45.2 released with fix.\r\n- 2026-XX-XX: Advisory published.\r\n\r\n## Credit\r\n\r\n- **Pst-itsl1** - Pongsathon Sirithanyakul, Warunyou Sunpachit and Khamolwan Hnunainam (IT SELECT LAB Co., Ltd.). Discovered and reported the issue, with a reproducer.\r\n",
+    "ghsa_id": "GHSA-f7jw-8v6c-48qw",
+    "html_url": "https://github.com/portainer/portainer/security/advisories/GHSA-f7jw-8v6c-48qw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f7jw-8v6c-48qw"
+      }
+    ],
+    "published_at": "2026-10-08T02:45:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Denied Kubernetes namespace deletion causes unauthorized deletion of Portainer access policies and stack records",
+    "updated_at": "2026-10-08T02:45:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.39.0, < 2.40.0"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.45.2",
+        "vulnerable_version_range": ">= 2.40.0, < 2.45.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "portainer/portainer"
+}

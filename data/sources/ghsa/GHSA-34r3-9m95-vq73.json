@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-87999",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\n\nOpen WebUI fetches user-supplied URLs on the server for RAG URL ingestion and web search, and screens the resolved addresses so internal destinations cannot be reached. That screen decided whether a destination was external by asking Python's standard library whether the address is globally routable. Several addresses reserved for internal use answer yes to that question, including 168.63.129.16, the Azure platform channel every Azure virtual machine can reach. Any authenticated user could therefore make the server issue requests to those addresses and read the responses back through the API.\n\n## Preconditions\n\n- The affected paths are the server-side URL fetches: RAG URL ingestion and web search. Both require an authenticated, verified account. No administrator role and no special workspace permission are needed.\n- `ENABLE_LOCAL_WEB_FETCH` must be at its default of `false`. Setting it to `true` disables the address screen by design, and internal destinations are reachable on purpose.\n- `WEB_FETCH_FILTER_LIST` is empty by default in affected versions, so no operator-supplied block entry covered these addresses unless one was added by hand.\n- For the Azure platform channel specifically, the Open WebUI host must run on Azure (virtual machine, AKS, Container Apps or equivalent). That address is reachable from every Azure virtual machine regardless of network security group rules. On a host that is not on Azure the address routes nowhere and nothing is reachable through it.\n\n## Impact\n\nAn authenticated user could direct the server to issue GET requests at addresses reserved for internal use and receive the response body back in the API response, which also lands in the RAG context. On Azure that includes the platform channel, an endpoint the operator never intended to expose to application users. The same gap applied to the IPv4-translated range and to deprecated IPv6 site-local space, which on a host that routes them would reach internal services the same way.\n\nWhat was observed is the reachability and the read-back. No specific credential or secret was retrieved from the Azure platform channel during this investigation, and this advisory does not claim one. Deployments not hosted on Azure are unaffected for the platform-channel address, and deployments running with local web fetch enabled were never protected by this screen in any version.\n\n## Fix\n\nFixed in https://github.com/open-webui/open-webui/pull/27823. Address screening no longer rests on the library's notion of a globally routable address alone: a default block list of reserved and internal-purpose ranges is applied to every resolved address, at URL validation and again at connection time on both HTTP transports, so it also covers redirect hops and DNS rebinding. Operators can extend the list through `WEB_FETCH_FILTER_LIST`, which is merged with the defaults and cannot remove them.\n\n## Root cause\n\n- `backend/open_webui/retrieval/web/utils.py`: the shared address screen used by every server-side fetch.\n- `POST /api/v1/retrieval/process/web`: RAG URL ingestion, returns the fetched body to the caller.\n- `POST /api/v1/retrieval/process/web/search`: web search, fetches each result.\n\nThe code ships in every build, so no optional component or feature flag limits which installations carry it.\n\nThe screen answered one question, whether an address is globally routable, and treated that answer as a proxy for whether the destination is external. Those are two different questions. The library classifies by IANA special-purpose registry membership, and the Azure platform channel is allocated out of ordinary public IPv4 space, so the library correctly reports it as global while in practice it is an internal endpoint of the host's own platform. Earlier hardening (GHSA-8x5v-cpv7-8jjp) extended the screen to unwrap IPv6 addresses that carry an IPv4 address inside them. That closed the encoded-address bypasses and left the underlying test unchanged, so an address that is public by registry and internal by convention still passed.\n\n## Proof of concept\n\nAs any verified user:\n\n```\nPOST /api/v1/retrieval/process/web\n{\"url\": \"http://168.63.129.16/?comp=versions\"}\n```\n\nOn an affected version the address passes validation, the request is issued, and the response body is returned in the `content` field of the API response.\n\nThe screening code of each released version was exercised directly:\n\n- 0.11.0: `168.63.129.16`, `::ffff:0:169.254.169.254` and `fec0::1` all pass validation.\n- 0.11.1: all three are rejected, along with every alternative spelling of the same address (IPv4-mapped, IPv4-compatible, IPv4-translated, 6to4 and both NAT64 prefixes) and the obfuscated decimal, octal and hexadecimal forms. Ordinary public addresses continue to pass.\n\nNo request was issued to a live Azure platform channel. The read-back property was confirmed from the ingestion endpoint, which returns the fetched body to the caller in its response.\n\n## Credits\n\n@NaorYaa reported that the Azure platform channel remained reachable after the previous hardening, and demonstrated the same gap for the IPv4-translated and IPv6 site-local ranges.",
+    "ghsa_id": "GHSA-34r3-9m95-vq73",
+    "html_url": "https://github.com/advisories/GHSA-34r3-9m95-vq73",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-34r3-9m95-vq73"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-87999"
+      }
+    ],
+    "published_at": "2026-09-10T15:09:36Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-34r3-9m95-vq73",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-87999",
+      "https://github.com/open-webui/open-webui/pull/27823",
+      "https://github.com/open-webui/open-webui/commit/e3e4bd87df6fc629e7e22081d980d55a7632b8b7",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.11.1",
+      "https://github.com/advisories/GHSA-34r3-9m95-vq73"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: Any authenticated user can reach the Azure platform channel via server-side web fetch",
+    "updated_at": "2026-09-10T15:09:37Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.11.1",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.11.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-34r3-9m95-vq73",
+  "repo": {
+    "cve_id": "CVE-2026-87999",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "# Any authenticated user can reach the Azure platform channel via server-side web fetch\r\n\r\n## Summary\r\n\r\nOpen WebUI fetches user-supplied URLs on the server for RAG URL ingestion and web search, and screens the resolved addresses so internal destinations cannot be reached. That screen decided whether a destination was external by asking Python's standard library whether the address is globally routable. Several addresses reserved for internal use answer yes to that question, including 168.63.129.16, the Azure platform channel every Azure virtual machine can reach. Any authenticated user could therefore make the server issue requests to those addresses and read the responses back through the API.\r\n\r\n## Preconditions\r\n\r\n- The affected paths are the server-side URL fetches: RAG URL ingestion and web search. Both require an authenticated, verified account. No administrator role and no special workspace permission are needed.\r\n- `ENABLE_LOCAL_WEB_FETCH` must be at its default of `false`. Setting it to `true` disables the address screen by design, and internal destinations are reachable on purpose.\r\n- `WEB_FETCH_FILTER_LIST` is empty by default in affected versions, so no operator-supplied block entry covered these addresses unless one was added by hand.\r\n- For the Azure platform channel specifically, the Open WebUI host must run on Azure (virtual machine, AKS, Container Apps or equivalent). That address is reachable from every Azure virtual machine regardless of network security group rules. On a host that is not on Azure the address routes nowhere and nothing is reachable through it.\r\n\r\n## Impact\r\n\r\nAn authenticated user could direct the server to issue GET requests at addresses reserved for internal use and receive the response body back in the API response, which also lands in the RAG context. On Azure that includes the platform channel, an endpoint the operator never intended to expose to application users. The same gap applied to the IPv4-translated range and to deprecated IPv6 site-local space, which on a host that routes them would reach internal services the same way.\r\n\r\nWhat was observed is the reachability and the read-back. No specific credential or secret was retrieved from the Azure platform channel during this investigation, and this advisory does not claim one. Deployments not hosted on Azure are unaffected for the platform-channel address, and deployments running with local web fetch enabled were never protected by this screen in any version.\r\n\r\n## Fix\r\n\r\nFixed in https://github.com/open-webui/open-webui/pull/27823. Address screening no longer rests on the library's notion of a globally routable address alone: a default block list of reserved and internal-purpose ranges is applied to every resolved address, at URL validation and again at connection time on both HTTP transports, so it also covers redirect hops and DNS rebinding. Operators can extend the list through `WEB_FETCH_FILTER_LIST`, which is merged with the defaults and cannot remove them.\r\n\r\n## Root cause\r\n\r\n- `backend/open_webui/retrieval/web/utils.py`: the shared address screen used by every server-side fetch.\r\n- `POST /api/v1/retrieval/process/web`: RAG URL ingestion, returns the fetched body to the caller.\r\n- `POST /api/v1/retrieval/process/web/search`: web search, fetches each result.\r\n\r\nThe code ships in every build, so no optional component or feature flag limits which installations carry it.\r\n\r\nThe screen answered one question, whether an address is globally routable, and treated that answer as a proxy for whether the destination is external. Those are two different questions. The library classifies by IANA special-purpose registry membership, and the Azure platform channel is allocated out of ordinary public IPv4 space, so the library correctly reports it as global while in practice it is an internal endpoint of the host's own platform. Earlier hardening (GHSA-8x5v-cpv7-8jjp) extended the screen to unwrap IPv6 addresses that carry an IPv4 address inside them. That closed the encoded-address bypasses and left the underlying test unchanged, so an address that is public by registry and internal by convention still passed.\r\n\r\n## Proof of concept\r\n\r\nAs any verified user:\r\n\r\n```\r\nPOST /api/v1/retrieval/process/web\r\n{\"url\": \"http://168.63.129.16/?comp=versions\"}\r\n```\r\n\r\nOn an affected version the address passes validation, the request is issued, and the response body is returned in the `content` field of the API response.\r\n\r\nThe screening code of each released version was exercised directly:\r\n\r\n- 0.11.0: `168.63.129.16`, `::ffff:0:169.254.169.254` and `fec0::1` all pass validation.\r\n- 0.11.1: all three are rejected, along with every alternative spelling of the same address (IPv4-mapped, IPv4-compatible, IPv4-translated, 6to4 and both NAT64 prefixes) and the obfuscated decimal, octal and hexadecimal forms. Ordinary public addresses continue to pass.\r\n\r\nNo request was issued to a live Azure platform channel. The read-back property was confirmed from the ingestion endpoint, which returns the fetched body to the caller in its response.\r\n\r\n## Credits\r\n\r\n@NaorYaa reported that the Azure platform channel remained reachable after the previous hardening, and demonstrated the same gap for the IPv4-translated and IPv6 site-local ranges.",
+    "ghsa_id": "GHSA-34r3-9m95-vq73",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-34r3-9m95-vq73",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-34r3-9m95-vq73"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-87999"
+      }
+    ],
+    "published_at": "2026-08-30T16:48:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Any authenticated user can reach the Azure platform channel via server-side web fetch",
+    "updated_at": "2026-09-09T21:32:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.1",
+        "vulnerable_version_range": "< 0.11.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

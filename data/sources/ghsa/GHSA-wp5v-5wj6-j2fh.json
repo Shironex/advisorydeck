@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-wp5v-5wj6-j2fh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-61"
+    ],
+    "description": "### Summary\r\nImmich's External Library import pipeline follows symbolic links without validating that the resolved file remains within the configured library root. As a result, an attacker with filesystem write access to a directory configured as an External Library can place a symbolic link pointing to an arbitrary file elsewhere on the host. During a library scan, Immich imports the symlink target as a normal asset and subsequently serves its contents through the standard asset download endpoint, allowing disclosure of files outside the configured library path that are readable by the Immich server process.\r\n\r\n### Details\r\nImmich allows administrators to configure one or more filesystem directories as External Libraries. During library scans, every discovered file is processed and imported as an asset.\r\n\r\nThe library path itself is validated when the External Library is created, but files discovered during subsequent scans are processed without resolving symbolic links or verifying that the resolved filesystem path remains within one of the configured import roots.\r\n\r\nIn server/src/services/library.service.ts, validateImportPath() validates only the configured import directory. Later, processEntity() normalizes each discovered path before calling storageRepository.stat():\r\n\r\nconst assetPath = path.normalize(filePath);\r\nconst stat = await this.storageRepository.stat(assetPath);\r\n\r\npath.normalize() only performs lexical path normalization and does not resolve symbolic links. Because the import pipeline never calls fs.realpath() (or performs an equivalent canonical path validation), symbolic links located inside the External Library are transparently followed. If a symbolic link points to a file outside the configured library, the referenced file is imported as a normal external asset and becomes accessible through Immich's authenticated asset download API.\r\n\r\n### PoC\r\nStep 1: Create a directory that will be used as an External Library and place a symbolic link inside it that points to a sensitive file located outside the library directory (e.g., ln -s /path/to/secret.txt /path/to/library/innocuous-photo.jpg). Configure this directory as an External Library by sending a POST /api/libraries request, then initiate a scan using POST /api/libraries/{libraryId}/scan.\r\n<img width=\"1550\" height=\"682\" alt=\"0\" src=\"https://github.com/user-attachments/assets/3cf8b715-6c5d-4917-9044-c098af391bb9\" />\r\n<img width=\"1550\" height=\"682\" alt=\"1\" src=\"https://github.com/user-attachments/assets/1de938a2-2e02-4be6-bf59-a4f688a3d1d2\" />\r\nStep 2: After the scan completes, retrieve the imported assets for the library (e.g., via POST /api/search/metadata with the libraryId) and observe that the symbolic link has been imported as a normal asset with an assigned assetId, despite its target residing outside the configured library path.\r\n<img width=\"1548\" height=\"832\" alt=\"2\" src=\"https://github.com/user-attachments/assets/fd6220a1-18e7-4440-913e-900990239e76\" />\r\nStep 3: Using a valid authenticated session, request the imported asset through GET /api/assets/{assetId}/original.Observe that the server returns the contents of the file referenced by the symbolic link (e.g., the contents of secret.txt) instead of restricting access to files within the configured External Library, demonstrating that the import pipeline follows symlinks without validating that their resolved paths remain inside the configured library root.\r\n<img width=\"1552\" height=\"388\" alt=\"3\" src=\"https://github.com/user-attachments/assets/1cec822c-8b26-47da-8772-8b7f15c7bbf1\" />\r\n\r\n### Impact\r\nAn attacker with filesystem write access to a directory configured as an External Library can cause Immich to disclose arbitrary files outside the configured library path that are readable by the Immich server process. The attacker does not require an Immich account or administrative privileges; only write access to the shared library directory is needed. This scenario is realistic for deployments that use shared NAS mounts, synchronized folders, or other multi-writer storage where multiple users or services can write to the library directory. By placing a symbolic link to a sensitive file, the attacker can cause that file to be imported as a normal asset and subsequently retrieved through Immich's authenticated asset download API.",
+    "ghsa_id": "GHSA-wp5v-5wj6-j2fh",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-wp5v-5wj6-j2fh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wp5v-5wj6-j2fh"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Arbitrary File Read via Symlink Following in External Library Import",
+    "updated_at": "2026-11-10T18:45:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

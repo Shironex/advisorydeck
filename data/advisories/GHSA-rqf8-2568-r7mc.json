@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-rqf8-2568-r7mc",
+  "aliases": [],
+  "title": "Manager-with-no-collections can enumerate org user/group → collection mappings (incomplete fix of GHSA-jjxg-p3v6-52ww)",
+  "summary": "### Summary\r\n\r\nGHSA-jjxg-p3v6-52ww / CVE-2026-33420 added a per-collection assignment filter to `get_org_collections_details` (and a `has_full_access()` short-circuit to `get_org_collections`) so that a Manager-role member with no collection assignments cannot enumerate the organization's user→collection mapping. The advisory text noted the fix is \"consistent with how `get_org_collections` behaves.\"\r\n\r\nTwo structurally-identical sibling handlers in the same file did NOT receive the equivalent guard. A Manager with `accessAll=false` and no collection assignments can still enumerate:\r\n\r\n- **BUG #1 - `get_members`** (`src/api/core/organizations.rs:936-963` in 1.36.0): `GET /api/organizations/<id>/users?includeCollections=true&includeGroups=true` returns the org-wide per-member collection assignments + per-member group memberships.\r\n- **BUG #2 - `get_groups_details`** (`src/api/core/organizations.rs:2445-2448` in 1.36.0): `GET /api/organizations/<id>/groups/details` returns each group's collection-permission mapping (group → collection ID + `readOnly` / `hidePasswords` / `manage` flags).\r\n\r\nTogether the pair lets the caller reconstruct the entire org-wide RBAC matrix (who → which collection, via direct grant or group inheritance) - exactly the information the parent CVE was assigned to protect.\r\n\r\nI'm reporting both as one advisory because they share root cause, remediation pattern, and threat actor.\r\n\r\n### Details\r\n\r\n**PATCHED reference - parent CVE pattern (`get_org_collections` line 386-401):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/collections\")]\r\nasync fn get_org_collections(org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    if org_id != headers.membership.org_uuid {\r\n        err!(\"Organization not found\", \"Organization id's do not match\");\r\n    }\r\n    if !headers.membership.has_full_access() {                                                          // ← the patch\r\n        err_code!(\"Resource not found.\", \"User does not have full access\", rocket::http::Status::NotFound.code);\r\n    }\r\n    ...\r\n}\r\n```\r\n\r\n**UNPATCHED in 1.36.0 - `get_members` (line 936-963):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/users?<data..>\")]\r\nasync fn get_members(data: GetOrgUserData, org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    if org_id != headers.membership.org_uuid {\r\n        err!(\"Organization not found\", \"Organization id's do not match\");\r\n    }\r\n    let mut users_json = Vec::new();\r\n    for u in Membership::find_by_org(&org_id, &conn).await {\r\n        users_json.push(\r\n            u.to_json_user_details(\r\n                data.include_collections.unwrap_or(false),\r\n                data.include_groups.unwrap_or(false),\r\n                &conn,\r\n            )\r\n            .await,\r\n        );\r\n    }\r\n    Ok(Json(json!({\"data\": users_json, \"object\": \"list\", \"continuationToken\": null})))\r\n}\r\n```\r\n\r\n`to_json_user_details(include_collections=true, include_groups=true, ...)` emits per-member collection + group assignments. No `has_full_access()` short-circuit.\r\n\r\n**UNPATCHED in 1.36.0 - `get_groups_details` (line 2445-2448):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/groups/details\", rank = 1)]\r\nasync fn get_groups_details(org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    get_groups_data(true, org_id, headers, conn).await\r\n}\r\n```\r\n\r\n`get_groups_data(true, ...)` serializes each group with its collection-permission mapping. Same `ManagerHeadersLoose` header, no `has_full_access()` short-circuit.\r\n\r\n**Bitwarden upstream divergence:** the equivalent endpoints in `bitwarden/server` are gated at Admin / Owner via `ManageUsersRequirement` (for `/users`) and `ManageUsersOrGroupsRequirement` (for `/groups/details`). Vaultwarden's `ManagerHeadersLoose` on both handlers is the divergence - Bitwarden does not consider Manager-with-no-collections sufficient privilege for org-wide RBAC enumeration.\r\n\r\n### PoC\r\n\r\nLab: `vaultwarden/server:l...",
+  "published_at": "2026-10-03T20:05:15.000Z",
+  "modified_at": "2026-10-03T20:05:15.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rqf8-2568-r7mc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rqf8-2568-r7mc",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rqf8-2568-r7mc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+  "note": null
+}

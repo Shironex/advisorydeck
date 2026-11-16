@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-f278-mgc7-46j3",
+  "aliases": [],
+  "title": "php_fastcgi authorization bypass via dot-segments in the request path",
+  "summary": "### Summary\r\nAn unauthenticated attacker can execute a PHP script that a Caddyfile access-control rule was protecting.\r\n\r\n> Disclosure note: This finding was identified and validated by Bynario AI, an automated pipeline. The technical claims and supporting evidence were manually reviewed before submission. The technical report was partly written using AI and re-written by me.\r\n\r\nCaddy's route matchers evaluate the `path.Clean()` cleaned request path, while the FastCGI transport derives `SCRIPT_FILENAME` from the raw path. The two therefore disagree about which file a request names: the access-control decision is made about one file, and a different file is executed.\r\n\r\n**If there is no index.php file**, `GET /admin.php/../../nope.php` or `/admin.php/..%2f..%2fnope.php` is judged by every matcher as a request for `/nope.php`. A `basic_auth` or `handle` gate on `/admin*`, `/admin.php`, or `/admin.php*` never fires while php-fpm is told to execute `/srv/admin.php`.\r\n\r\nNo access-control configuration prevents this. The matcher only ever sees a string the attacker chooses fresh on every request, so no path rule can cover it.\r\n\r\nWhere the attacker also controls a `.php` file on disk (e.g. an upload directory the operator deliberately excluded from PHP execution), this escalates from authorization bypass to remote code execution as the php-fpm user.\r\n\r\n### Details\r\n\r\n`php_fastcgi` expands to three routes (`caddy adapt` output abbreviated):\r\n\r\n``` json\r\nroute 1\r\n    { \"match\": [{\"file\": {\"try_files\": [\"{http.request.uri.path}/index.php\"]}, ...}],\r\n      \"handle\": [{\"handler\": \"static_response\", \"status_code\": 308}] }\r\n\r\nroute 2\r\n    { \"match\": [{\"file\": {\"try_files\": [\"{http.request.uri.path}\",\r\n                                        \"{http.request.uri.path}/index.php\",\r\n                                        \"index.php\"],\r\n                          \"try_policy\": \"first_exist_fallback\",\r\n                          \"split_path\": [\".php\"]}}],\r\n      \"handle\": [{\"handler\": \"rewrite\", \"uri\": \"{http.matchers.file.relative}\"}] }\r\n\r\nroute 3\r\n    { \"match\": [{\"path\": [\"*.php\"]}],\r\n      \"handle\": [{\"handler\": \"reverse_proxy\",\r\n                  \"transport\": {\"protocol\": \"fastcgi\", \"split_path\": [\".php\"]}}] }\r\n```\r\n**Caddy never rewrites `r.URL.Path` itself.** `CleanPath` is applied only to matcher-local copies for their own yes/no decisions (`matchers.go:436,487`, `urlpatternmatcher.go:118`). The rewrite in route 2 is therefore the *only* step in the entire chain that normalizes the path the transport will later read. But as said, that part never happens, so transport will receive the entire raw path.\r\n\r\n**Bug 1: the transport splits an un-normalized path**\r\n`modules/caddyhttp/reverseproxy/fastcgi/fastcgi.go:288`\r\n\r\n    fpath := r.URL.Path          // raw; contains \"..\" as sent by the client\r\n    ...\r\n    if splitPos := t.splitPos(fpath); splitPos > -1 {\r\n        docURI   = fpath[:splitPos]\r\n        pathInfo = fpath[splitPos:]\r\n        scriptName = strings.TrimSuffix(scriptName, pathInfo)\r\n    }\r\n    scriptFilename := caddyhttp.SanitizedPathJoin(root, scriptName)\r\n\r\n`splitPos` returns the index past the end of the *first* token, so for `/admin.php/../../nope.php` `scriptName` is `/admin.php` and pathInfo becomes `/../../nope.php`. Both get sanitized, but *after* the split happens. \r\nWhat php-fpm will end up executing is `SCRIPT_FILENAME = scriptFilename`, which is `/srv/admin.php`. \r\n\r\nMeanwhile the path matcher evaluates the cleaned path = `/nope.php`, so a basic_auth or handle gate on `/admin.php` or `/admin*` never matches, and never runs.\r\n\r\n**Bug 2: `first_exist_fallback` does not fall back.**\r\n`modules/caddyhttp/fileserver/matcher.go:440-461`\r\n\r\n    for i, pattern := range m.TryFiles {\r\n        candidates := makeCandidates(pattern)\r\n        for _, c := range candidates {\r\n            // Skip the IO if using fallback policy and it's the latest item\r\n            if i == maxI {\r\n                setPlaceholders(c, false)...",
+  "published_at": "2026-11-04T01:11:26.000Z",
+  "modified_at": "2026-11-04T01:11:27.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.9,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-436",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "caddy",
+      "ranges": [
+        {
+          "introduced": "2.4.6",
+          "fixed": "2.11.8"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f278-mgc7-46j3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f278-mgc7-46j3",
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f278-mgc7-46j3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:19764ec04b739d26959135bb8ba60d38219064e024907c7683bf5bcf752347b4",
+  "note": null
+}

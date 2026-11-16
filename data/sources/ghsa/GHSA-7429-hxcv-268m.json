@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-34222",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285"
+    ],
+    "description": "# Summary\n\n## Broken Access Control in Tool Valves\n\nOpen WebUI supports function calling through \"Tools\". Function calling allows an LLM to reliably connect to external tools and interact with external APIs. Exemplary use-cases include connecting to an internal knowledge base, retrieving emails from an exchange server, or retrieving order data from a shop backend.\n\nThese interactions often require the LLM to authenticate against backend services using API keys specifically created for a technical (Open WebUI) user.\n\nTo simplify configuration and secret handling, Open WebUI implements \"Valves\" and \"UserValves\" that allow users and administrators to input dynamic details like API keys or configuration options.\n\nValves have the following distinction:\n\n- **Valves:** Configurable by admins only.\n- **UserValves:** Configurable by any user.\n\nThe Tool Valves endpoint does not properly restrict read access to the valve. This allows a low privileged user to access all data contained within the valve. In the worst case, this gives a low privileged \"Member\" user access to sensitive Tool data, such as API keys for third-party systems.\n\n---\n\n# Details\n\n## 1) Broken Access Control in Tool Valves\n\nThe following steps can be performed to reproduce the vulnerability.\n\n**1.** An administrator creates an Open WebUI Tool with a configured Valve.\n\n<img width=\"1038\" height=\"597\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f79bdde9-18fa-49e4-a6c3-5077731f0815\" />\n\n**2.** The administrator configures the API key within the Tool Valve.\n\n<img width=\"1039\" height=\"446\" alt=\"image\" src=\"https://github.com/user-attachments/assets/d88d06b9-fc21-45e5-8142-d9f874601f87\" />\n\n**3.** A user with at least \"Member\" privileges logs into Open WebUI.\n\nThe following screenshot shows the user overview of the test instance:\n\n<img width=\"908\" height=\"354\" alt=\"image\" src=\"https://github.com/user-attachments/assets/40025151-418d-4912-8400-1e1a6e5cd4e4\" />\n\nThe following screenshot illustrates that the \"lowpriv\" user doesn't have access to the tool:\n\n<img width=\"815\" height=\"433\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ec06b07f-9735-4728-9dce-d97d721051b8\" />\n\n**4.** The \"lowpriv\" user uses their Authorization token to retrieve the API key from the Tool Valve.\n\nIn order to do so, the attacker needs to know the Tool ID. However, as this ID is always the same for imported tools, and the tool IDs are concatenated from the tool name, guessing tool IDs is trivial.\n\n<img width=\"754\" height=\"208\" alt=\"image\" src=\"https://github.com/user-attachments/assets/61c80cac-25c8-4730-8156-90869801389f\" />\n\nAs seen in the following code snippet, the vulnerability is present because the Tool Valves route does not check if the requesting user has administrative permissions (Line 515).\n\n[Source: `backend/open_webui/routers/tools.py` L513-L531](https://github.com/open-webui/open-webui/blob/2b26355002064228e9b671339f8f3fb9d1fafa73/backend/open_webui/routers/tools.py#L513-L531)\n\n---\n\n# PoC\n\nYou can find the detailed PoC steps in the [Details](#details) section.\n\nTo execute the exploit:\n\n1. Login as a verified user and copy the authorization token.\n2. Access the configured valve of any existing tool with the following request (please mind the placeholders):\n\n```http\nGET /api/v1/tools/id/<tool_id>/valves HTTP/1.1\nHost: <your_test_host>\nAuthorization: Bearer <authorization_token_from_step_1>\n```\n\n---\n\n# Impact\n\nThis information disclosure vulnerability allows low privileged users to access sensitive values stored in Tool Valves. Anyone using Open WebUI Tools with a configured Valve is affected. In the worst case, exploitation allows an attacker to access third-party systems within the context of the configured Open WebUI technical user.\n\n---\n\n# Additional Remarks\n\nAdditional remarks regarding the CVSS Vector String:\n\n| Component | Value | Rationale |\n|-----------|-------|-----------|\n| AC | L | Due to the requirement of a \"Member\" account |\n| C | H | Sensitive data, such as API Keys for backend systems, is disclosed |\n| S | C | Exploitation of this vulnerability grants access to third-party systems |\n\n---\n\n> **AI report transparency:** AI was used for refinement of this advisory text.",
+    "ghsa_id": "GHSA-7429-hxcv-268m",
+    "html_url": "https://github.com/advisories/GHSA-7429-hxcv-268m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7429-hxcv-268m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34222"
+      }
+    ],
+    "published_at": "2026-04-01T20:25:49Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-7429-hxcv-268m",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-34222",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.8.11",
+      "http://seclists.org/fulldisclosure/2026/Apr/4",
+      "https://github.com/advisories/GHSA-7429-hxcv-268m"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI has Broken Access Control in Tool Valves",
+    "updated_at": "2026-04-06T23:06:39Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.8.11",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.8.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-7429-hxcv-268m",
+  "repo": {
+    "cve_id": "CVE-2026-34222",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285"
+    ],
+    "description": "### Summary\r\n\r\n#### Broken Access Control in Tool Valves\r\n\r\nOpen WebUI supports function calling through \"Tools\". Function calling allows\r\nan LLM to reliably connect to external tools and interact with external APIs. \r\nExemplary use-cases include connecting to an internal knowledge base, \r\nretrieving emails from an exchange server, or retrieving order data from a \r\nshop backend.\r\n\r\nThese interactions often require the LLM to authenticate against backend \r\nservices using API keys specifically created for a technical (Open WebUI)\r\nuser.\r\n\r\nTo simplify configuration and secret handling, Open WebUI implements \r\n\"Valves\" and \"UserValves\" that allow users and administrators to input \r\ndynamic details like API keys or configuration options.\r\n\r\nValves have the following distinction:\r\n* Valves: Configurable by admins only.\r\n* UserValves: Configurable by any user.\r\n\r\nThe Tool Valves endpoint does not properly restrict read access to the \r\nvalve. This allows a low privileged user to access all data contained \r\nwithin the valve. In the worst case, this gives a low privileged \r\n\"Member\" user access to sensitive Tool data, such as API keys for \r\nthird-party systems.\r\n\r\n### Details\r\n\r\n1) Broken Access Control in Tool Valves\r\nThe following steps can be performed to reproduce the vulnerability.\r\n\r\n1. An administrator creates an Open WebUI Tool with a configured Valve.\r\n\r\n<img width=\"1038\" height=\"597\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f79bdde9-18fa-49e4-a6c3-5077731f0815\" />\r\n\r\n2. The administrator configures the API key within the Tool Valve.\r\n\r\n<img width=\"1039\" height=\"446\" alt=\"image\" src=\"https://github.com/user-attachments/assets/d88d06b9-fc21-45e5-8142-d9f874601f87\" />\r\n\r\n3. A user with at least \"Member\" privileges logs into Open WebUI.\r\n\r\nThe following screenshot shows the user overview of the test instance:\r\n\r\n<img width=\"908\" height=\"354\" alt=\"image\" src=\"https://github.com/user-attachments/assets/40025151-418d-4912-8400-1e1a6e5cd4e4\" />\r\n\r\nThe following screenshot illustrates that the \"lowpriv\" user \r\ndoesn't have access to the tool:\r\n<img width=\"815\" height=\"433\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ec06b07f-9735-4728-9dce-d97d721051b8\" />\r\n\r\n4. The \"lowpriv\" user uses their Authorization token to retrieve the \r\nAPI key from the Tool Valve. \r\n\r\nIn order to do so, the attacker needs to know the Tool ID. However, as \r\nthis ID is always the same for imported tools, and the tool IDs are  \r\nconcatenated from the tool name, guessing tool IDs is trivial.\r\n<img width=\"754\" height=\"208\" alt=\"image\" src=\"https://github.com/user-attachments/assets/61c80cac-25c8-4730-8156-90869801389f\" />\r\n\r\n\r\nAs seen in the following code snippet, the vulnerability is present because the Tool Valves route does not check if the requesting user  has administrative permissions (Line 515).\r\n\r\nhttps://github.com/open-webui/open-webui/blob/2b26355002064228e9b671339f8f3fb9d1fafa73/backend/open_webui/routers/tools.py#L513-L531\r\n\r\n\r\n### PoC\r\n\r\nYou can find the detailed PoC steps in the \"Details\" section.\r\n\r\nTo execute the exploit:\r\n1. Login as a verified user and copy the auhtorization token\r\n2. Access the configured valve of any existing tool with the following request (please mind the placeholders):\r\n\r\n```http\r\nGET /api/v1/tools/id/<tool_id>/valves HTTP/1.1\r\nHost: <your_test_host>\r\nAuthorization: Bearer <authorization_token_from_step_1>\r\n```\r\n\r\n### Impact\r\n\r\nThis information disclosure vulnerability allows low privileged users to access sensitive values stored in Tool Valves. \r\nAnyone using Open WebUI Tools with a configured Valve is affected. In the worst case, exploitation allows an attacker to access third-party systems within the context of the configured Open WebUI technical user.\r\n\r\n### Additional Remarks\r\n\r\nAdditional Remarks regarding the CVSS Vector String:\r\n\r\n```\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N\r\nAC:L - Due to the requirement of a \"Member\" account\r\nC:H - Sensitive data, such as API Keys for backend systems, is disclosed\r\nS:C - Exploitation of this vulnerability grants access to third-party systems\r\n```\r\n\r\nAI report transparency: \r\nAI was used for refinement of this advisory text.",
+    "ghsa_id": "GHSA-7429-hxcv-268m",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-7429-hxcv-268m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7429-hxcv-268m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34222"
+      }
+    ],
+    "published_at": "2026-03-31T23:58:42Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Broken Access Control in Open WebUI Tool Valves",
+    "updated_at": "2026-04-01T07:54:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "0.8.11",
+        "vulnerable_version_range": "<0.8.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

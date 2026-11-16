@@ -1,0 +1,104 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44550",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Mass Assignment via Pydantic extra='allow' Allows Creating Folders in Other Users' Accounts\n\n## Affected Component\n\nFolder creation endpoint and form model:\n- `backend/open_webui/models/folders.py` (lines 72-77, `FolderForm` with `extra='allow'`)\n- `backend/open_webui/models/folders.py` (lines 95-106, `insert_new_folder` dict construction)\n- `backend/open_webui/routers/folders.py` (line 119, `create_folder` endpoint)\n\n## Affected Versions\n\nCurrent main branch (commit `6fdd19bf1`) and likely all versions since `FolderForm` adopted `extra='allow'`.\n\n## Description\n\n`FolderForm` uses `model_config = ConfigDict(extra='allow')`, which permits arbitrary fields to pass through Pydantic validation and be included in `model_dump(exclude_unset=True)`. In `insert_new_folder`, the server-assigned `user_id` is placed at the start of the dict and then overwritten by the spread of form data:\n\n```python\n# models/folders.py:95-106\nfolder = FolderModel(\n    **{\n        'id': id,                                              # server\n        'user_id': user_id,                                    # server - overwritten below\n        **(form_data.model_dump(exclude_unset=True) or {}),    # user-controlled (extra='allow')\n        'parent_id': parent_id,\n        'created_at': int(time.time()),\n        'updated_at': int(time.time()),\n    }\n)\n```\n\nBecause `FolderModel` declares `user_id: str` as a real field (not just a form extra), any attacker-supplied `user_id` in the POST body is accepted by the model and persisted on the `Folder` row.\n\n## Attack Scenario\n\n1. Attacker discovers a victim's user ID. User UUIDs commonly leak via the user search endpoint (`GET /api/v1/users/search`, intentionally accessible to verified users for sharing UI), shared chat metadata, or channel member lists.\n2. Attacker sends:\n   ```\n   POST /api/v1/folders/\n   {\n     \"name\": \"Important: Click here\",\n     \"user_id\": \"<victim_user_id>\",\n     \"meta\": {\"icon\": \"warning\"},\n     \"data\": {...}\n   }\n   ```\n3. Pydantic accepts the extra `user_id` field (allowed by `extra='allow'`).\n4. `insert_new_folder` spreads the form data over the server-set `'user_id': user_id`, overwriting it with the attacker's value.\n5. The `Folder` row is persisted with `user_id = <victim_user_id>`.\n6. The victim sees the attacker-planted folder in their UI on next load because `GET /api/v1/folders/` filters by the viewer's own `user_id`.\n\nThe attacker can repeat this to plant multiple folders, use crafted `name` values for phishing (\"Click here to recover account\" / \"Security alert\"), and abuse the `meta` and `data` fields to add visual elements that further mimic legitimate content.\n\n## Impact\n\n- Unauthorized write into victim's folder tree\n- Phishing surface: attacker-controlled `name`, `meta`, and `data` render in the victim's UI in a trusted context\n- DoS / spam: attacker can flood a victim with arbitrary folders; victim must manually delete each one\n- Attacker cannot read the folder back - all read paths filter by the caller's own `user_id` - so confidentiality is preserved, but integrity and trust are compromised\n\n## Preconditions\n\n- Attacker must have an authenticated account with `features.folders` permission (default for all users)\n- Attacker must know or guess the victim's user UUID (obtainable through various non-sensitive endpoints)",
+    "ghsa_id": "GHSA-hr43-rjmr-7wmm",
+    "html_url": "https://github.com/advisories/GHSA-hr43-rjmr-7wmm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hr43-rjmr-7wmm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44550"
+      }
+    ],
+    "published_at": "2026-05-08T19:38:54Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-hr43-rjmr-7wmm",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44550",
+      "https://github.com/advisories/GHSA-hr43-rjmr-7wmm"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI's Mass Assignment via Pydantic extra='allow' Allows Creating Folders in Other Users' Accounts",
+    "updated_at": "2026-05-15T23:52:19Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hr43-rjmr-7wmm",
+  "repo": {
+    "cve_id": "CVE-2026-44550",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Mass Assignment via Pydantic extra='allow' Allows Creating Folders in Other Users' Accounts\r\n\r\n## Affected Component\r\n\r\nFolder creation endpoint and form model:\r\n- `backend/open_webui/models/folders.py` (lines 72-77, `FolderForm` with `extra='allow'`)\r\n- `backend/open_webui/models/folders.py` (lines 95-106, `insert_new_folder` dict construction)\r\n- `backend/open_webui/routers/folders.py` (line 119, `create_folder` endpoint)\r\n\r\n## Affected Versions\r\n\r\nCurrent main branch (commit `6fdd19bf1`) and likely all versions since `FolderForm` adopted `extra='allow'`.\r\n\r\n## Description\r\n\r\n`FolderForm` uses `model_config = ConfigDict(extra='allow')`, which permits arbitrary fields to pass through Pydantic validation and be included in `model_dump(exclude_unset=True)`. In `insert_new_folder`, the server-assigned `user_id` is placed at the start of the dict and then overwritten by the spread of form data:\r\n\r\n```python\r\n# models/folders.py:95-106\r\nfolder = FolderModel(\r\n    **{\r\n        'id': id,                                              # server\r\n        'user_id': user_id,                                    # server - overwritten below\r\n        **(form_data.model_dump(exclude_unset=True) or {}),    # user-controlled (extra='allow')\r\n        'parent_id': parent_id,\r\n        'created_at': int(time.time()),\r\n        'updated_at': int(time.time()),\r\n    }\r\n)\r\n```\r\n\r\nBecause `FolderModel` declares `user_id: str` as a real field (not just a form extra), any attacker-supplied `user_id` in the POST body is accepted by the model and persisted on the `Folder` row.\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker discovers a victim's user ID. User UUIDs commonly leak via the user search endpoint (`GET /api/v1/users/search`, intentionally accessible to verified users for sharing UI), shared chat metadata, or channel member lists.\r\n2. Attacker sends:\r\n   ```\r\n   POST /api/v1/folders/\r\n   {\r\n     \"name\": \"Important: Click here\",\r\n     \"user_id\": \"<victim_user_id>\",\r\n     \"meta\": {\"icon\": \"warning\"},\r\n     \"data\": {...}\r\n   }\r\n   ```\r\n3. Pydantic accepts the extra `user_id` field (allowed by `extra='allow'`).\r\n4. `insert_new_folder` spreads the form data over the server-set `'user_id': user_id`, overwriting it with the attacker's value.\r\n5. The `Folder` row is persisted with `user_id = <victim_user_id>`.\r\n6. The victim sees the attacker-planted folder in their UI on next load because `GET /api/v1/folders/` filters by the viewer's own `user_id`.\r\n\r\nThe attacker can repeat this to plant multiple folders, use crafted `name` values for phishing (\"Click here to recover account\" / \"Security alert\"), and abuse the `meta` and `data` fields to add visual elements that further mimic legitimate content.\r\n\r\n## Impact\r\n\r\n- Unauthorized write into victim's folder tree\r\n- Phishing surface: attacker-controlled `name`, `meta`, and `data` render in the victim's UI in a trusted context\r\n- DoS / spam: attacker can flood a victim with arbitrary folders; victim must manually delete each one\r\n- Attacker cannot read the folder back - all read paths filter by the caller's own `user_id` - so confidentiality is preserved, but integrity and trust are compromised\r\n\r\n## Preconditions\r\n\r\n- Attacker must have an authenticated account with `features.folders` permission (default for all users)\r\n- Attacker must know or guess the victim's user UUID (obtainable through various non-sensitive endpoints)",
+    "ghsa_id": "GHSA-hr43-rjmr-7wmm",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-hr43-rjmr-7wmm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hr43-rjmr-7wmm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44550"
+      }
+    ],
+    "published_at": "2026-05-05T11:18:11Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Mass Assignment via Pydantic extra='allow' Allows Creating Folders in Other Users' Accounts",
+    "updated_at": "2026-05-07T14:43:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-h52x-gwf8-4h58",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "The `project.update` endpoint lets the caller set `organizationId`. The permission check looks at the project's current organization, and only *after* that does the update write whatever fields were sent, including the new `organizationId`.\r\n\r\nSo anyone who can update a project can move it into any other organization. There is no approval step on the receiving side, and no transfer feature in the product that this would be part of. The field is simply writable because the update schema accepts every column on the `projects` table.\r\n\r\nI verified this on dokploy.com with two free accounts of my own: one API request moved a project from account A's organization into account B's organization. B was never asked. I moved it back afterwards.\r\n\r\n## Why it matters\r\n\r\nA project in Dokploy contains environments, services, environment variables (secrets), domains, mounts, and schedules. Whoever owns the project's organization can read all of it.\r\n\r\nWorse, the services keep their `serverId` after the move. When the new owner deploys or runs commands, they still execute on the **original organization's servers**, using that organization's stored SSH keys. So a stolen project means code execution on someone else's infrastructure.\r\n\r\nTwo realistic attack paths:\r\n\r\n- **Theft:** I get invited into a client's organization as a member with access to one project (a normal contractor setup). I re-point that project to my own organization. I now own it, including every secret and the ability to deploy to the client's servers.\r\n- **Injection:** I push one of my own projects into another organization whose ID I know. It just shows up in their dashboard.\r\n\r\nTwo details that make this worse than it looks:\r\n\r\n- **The victim can't undo it.** Once the project is in another org, the  original org's own `project.update` fails the permission check (the project's org no longer matches). Getting it back requires database access or asking the attacker.\r\n- **The audit log says \"update\".** It does not record that ownership moved. The project just disappears.\r\n\r\n## How to reproduce\r\n\r\n1. Account A: create a project. Note its `projectId` (it's in the URL).\r\n2. Account B: get your own organization ID from `GET /api/auth/organization/list`. Share it with A.\r\n3. Account A, in the browser console while active in org A:\r\n\r\n   ```js\r\n   fetch(\"/api/trpc/project.update?batch=1\", {\r\n     method: \"POST\",\r\n     credentials: \"include\",\r\n     headers: { \"content-type\": \"application/json\" },\r\n     body: JSON.stringify({ \"0\": { \"json\": {\r\n       \"projectId\": \"<P_ID>\",\r\n       \"organizationId\": \"<ORG_B_ID>\"\r\n     }}})\r\n   }).then(r => r.json()).then(console.log)\r\n   ```\r\n\r\n4. The project now belongs to B's organization. B sees it in the dashboard;\r\n   A no longer does.\r\n5. B can move it back the same way.\r\n",
+    "ghsa_id": "GHSA-h52x-gwf8-4h58",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-h52x-gwf8-4h58",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h52x-gwf8-4h58"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:44Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Cross-organization project takeover via `project.update`",
+    "updated_at": "2026-11-12T08:15:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

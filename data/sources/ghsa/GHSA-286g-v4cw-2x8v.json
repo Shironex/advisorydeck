@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-286g-v4cw-2x8v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1188",
+      "CWE-862"
+    ],
+    "description": "\r\n### Summary\r\n\r\n**This is not a new vulnerability and I am not claiming it as one.** GHSA-7r6p-v9gw-pwc8 already names `apps/dokploy/server/wss/listen-deployment.ts` in its \"Vulnerable handlers\" list. What is new is that the fix skipped that file, and it is still unauthorized at `v0.30.2` - four weeks after publication.\r\n\r\nAny authenticated organization member - with no role, no service grant and no docker permission - can open `/listen-deployment` and stream the contents of any file under `/etc/dokploy`, including the SSH private key Dokploy uses to reach the Docker host, Traefik certificate private keys, other applications' `.env` files and compose files. Recovering the host SSH key is host compromise.\r\n\r\nNote also that GHSA-7r6p-v9gw-pwc8 records its affected range as `<= 0.29.8`, which reads as \"fixed after 0.29.8\". For this handler that is not the case, so users reading that advisory would conclude they are patched when they are not.\r\n\r\n### Details\r\n\r\nCommit `68f5afae` (2026-07-19), *\"fix(security): authorize docker/terminal WebSocket handlers\"*, introduced `apps/dokploy/server/wss/authorize.ts` and applied it to exactly four handlers:\r\n\r\n```\r\napps/dokploy/__test__/wss/authorize.test.ts          | 80 ++++++++++\r\napps/dokploy/server/wss/authorize.ts                 | 69 ++++++++\r\napps/dokploy/server/wss/docker-container-logs.ts     |  6 ++\r\napps/dokploy/server/wss/docker-container-terminal.ts |  6 ++\r\napps/dokploy/server/wss/docker-stats.ts              |  6 ++\r\napps/dokploy/server/wss/terminal.ts                  |  6 ++\r\n```\r\n\r\n`listen-deployment.ts` is not among them, despite being registered on the adjacent line of `server.ts` (`:51` vs `:52`). It has received **zero commits since the advisory was published**:\r\n\r\n```\r\n$ git log --since=2026-07-19 -- apps/dokploy/server/wss/listen-deployment.ts\r\n(no output)\r\n```\r\n\r\nAt `v0.30.2`, grepping that file for `checkPermission|hasPermission|checkServiceAccess|canAccess|role|accessedServices` returns nothing. Its only check remains authentication:\r\n\r\n```ts\r\nconst { user, session } = await validateRequest(req);\r\n...\r\nif (!user || !session) { ws.close(); return; }\r\n```\r\n\r\nCompare the guarded sibling, `docker-container-logs.ts:79-82`:\r\n\r\n```ts\r\nif (!(await canAccessDockerOverWss(user, session, serverId, serviceId))) {\r\n  ws.close(4003, \"Not authorized\");\r\n  return;\r\n}\r\n```\r\n\r\nOn the local branch (no `serverId`) `listen-deployment` has not even an organization check. The remote branch does compare `server.organizationId !== session.activeOrganizationId`, so only the local path is fully unscoped.\r\n\r\n**What the one remaining check permits.** `readValidDirectory` (`packages/server/src/wss/utils.ts:39-55`) is well built - charset allowlist, `path.resolve` before comparison, `resolvedBase + path.sep` to defeat the sibling-prefix bug. It is **not** bypassable and this is not a traversal report. But it constrains the path only to `BASE_PATH`, and `paths()` (`packages/server/src/constants/index.ts:96-119`) places `SSH_PATH`, `CERTIFICATES_PATH`, `APPLICATIONS_PATH` and `COMPOSE_PATH` *under* that same base.\r\n\r\n`tail -n +1 -f <path>` prints the whole file before following, so the socket returns full contents. `spawn(\"tail\", [\"-n\",\"+1\",\"-f\", logPath])` uses an argv array with no shell - there is **no command injection here** and I claim none.\r\n\r\n**Suggested fix.** Apply the guard the other four handlers received. Since deployment logs belong to a service, the natural call is the service-scoped branch `canAccessDockerOverWss` already implements:\r\n\r\n```ts\r\nif (!(await canAccessDockerOverWss(user, session, serverId, serviceId))) {\r\n  ws.close(4003, \"Not authorized\");\r\n  return;\r\n}\r\n```\r\n\r\nThat needs a `serviceId` (or `applicationId`/`deploymentId`) parameter with the log path resolved from it server-side, rather than accepting a caller-supplied absolute path at all - which removes the file-scope problem entirely. More durably: authorization here is applied by enumerating handlers rather than at the socket-upgrade boundary, which is why this one was missed; a single upgrade-time gate would make the next handler secure by default.\r\n\r\n### PoC\r\n\r\n**On a self-hosted instance.** Invite a user as a plain `member` with no service access, capture their `better-auth.session_token`, then:\r\n\r\n```bash\r\nwebsocat \"ws://TARGET:3000/listen-deployment?logPath=%2Fetc%2Fdokploy%2Fssh%2Fauto_generated-dokploy-local\" \\\r\n  -H \"Cookie: better-auth.session_token=<MEMBER_COOKIE>\"\r\n# -> the SSH private key is streamed over the socket\r\n```\r\n\r\nAny path under `/etc/dokploy` works, e.g. `/etc/dokploy/traefik/dynamic/certificates/<name>.key`, `/etc/dokploy/applications/<app>/code/.env`, `/etc/dokploy/compose/<project>/docker-compose.yml`.\r\n\r\n**Confirmed directly against the handler.** I ran your real `setupDeploymentLogsWebSocketServer` and your real `readValidDirectory` with a real `ws` client over a real HTTP upgrade, against a clone at `v0.30.2`. Only `validateRequest` was stubbed - that is the whole point of the finding: the claim is that authentication is the only check performed. The simulated member carries no role, no service grant and no docker permission:\r\n\r\n```\r\n=== CONTROL 1: NOT authenticated ===\r\n  no session,  ssh key     closed (code 1005), no data\r\n\r\n=== CONTROL 2: authenticated, path OUTSIDE /etc/dokploy ===\r\n  member,      /etc/passwd closed (code 4000), no data\r\n\r\n=== CONTROL 3: authenticated, a genuine deployment log (intended use) ===\r\n  member,      app.log     STREAMED -> \"ordinary deployment log line\"\r\n\r\n=== EXPLOIT: same low-privilege member, host SSH private key ===\r\n  member,      SSH KEY     STREAMED -> \"-----BEGIN OPENSSH PRIVATE KEY-----\\nZT-CANARY-...\"\r\n```\r\n\r\nThe three controls are deliberate: **1** proves authentication is genuinely enforced, so the stub is not disabling the handler's logic; **2** proves `readValidDirectory` is real and firing; **3** proves intended use still works. Only the file path differs between control 3 and the exploit - nothing about the caller changes.\r\n\r\nA second run of the same validator confirms the scope: `/etc/dokploy/traefik/dynamic/certificates/cert.key`, `/etc/dokploy/applications/victim-app/code/.env` and `/etc/dokploy/compose/victim/docker-compose.yml` are all ALLOWED, while `/etc/passwd`, `/etc/dokploy/../etc/passwd` and `/etc/dokploy-evil/secrets` are correctly blocked.\r\n\r\n### Impact\r\n\r\nMissing authorization (CWE-862) on a WebSocket endpoint that reads arbitrary files from Dokploy's data directory.\r\n\r\nAny authenticated member of any organization on a self-hosted instance - including one deliberately granted no service permissions - can read:\r\n\r\n- `/etc/dokploy/ssh/auto_generated-dokploy-local` - the SSH key Dokploy uses to reach the Docker host. Recovering it is **host compromise**, which is why Scope is Changed.\r\n- per-server SSH private keys for every remote server the instance manages\r\n- Traefik TLS certificate private keys\r\n- other applications' source and `.env` files, and compose files\r\n\r\nThis is the same outcome GHSA-7r6p-v9gw-pwc8 already describes; it simply was not closed for this handler. The remote (`serverId`) branch does enforce organization ownership, so the fully unscoped path is the local one. Whether a given key file exists depends on the deployment - `setupLocalServerSSHKey` generates `auto_generated-dokploy-local` on first use of the host terminal.\r\n",
+    "ghsa_id": "GHSA-286g-v4cw-2x8v",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-286g-v4cw-2x8v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-286g-v4cw-2x8v"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Incomplete fix of GHSA-7r6p-v9gw-pwc8: listen-deployment.ts is named in that advisory but was never remediated - any authenticated member can stream host SSH private keys",
+    "updated_at": "2026-11-12T08:16:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-wr6r-59xg-4pj2",
+  "repo": {
+    "cve_id": "CVE-2026-32131",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nA vulnerability in Zitadel's Management API has been reported, which allowed authenticated users holding a valid low-privilege token (e.g., `project.read`, `project.grant.read`, or `project.app.read`) to retrieve management-plane information belonging to other organizations by specifying a different tenant’s `project_id`, `grant_id`, or `app_id`.\r\n\r\n### Impact\r\n\r\nZitadel provides the Management API to retrieve and manage resources within an organization, given the necessary permission for that organization.\r\n\r\nDue to a missing assertion of the retrieved resource, authenticated users with according permission for one organization, could gain information of resources of another organization. This includes disclosure of other tenants’ OIDC configuration data such as `clientId`, `redirectUris`, and `allowedOrigins`.\r\n\r\nFor an attacker to get access to another tenants information, they would need to know or enumerate the target's `project_id`, `grant_id`, `app_id` or `user_id` and be granted at least one of the following permissions:\r\n  * `project.read`\r\n  * `project.grant.read`\r\n  * `project.app.read`\r\n  * `user.read`\r\n\r\nThe following endpoints were affected:\r\n- `GetProjectByID`\r\n- `GetGrantedProjectByID`\r\n- `GetProjectGrantByID`\r\n- `GetAppByID`\r\n- `ListApps`\r\n- `ListHumanAuthFactors`\r\n- `ListHumanPasswordless`\r\n\r\n### Affected Versions\r\n\r\nSystems running one of the following versions are affected:\r\n- **4.x**: `4.0.0` through `4.12.1` (including RC versions)\r\n- **3.x**: `3.0.0` through `3.4.7` (including RC versions)\r\n- **2.x**: `2.0.0` through `2.71.19`\r\n\r\n### Patches\r\n\r\nThe vulnerability has been addressed in the latest releases. The patch resolves the issue by enforcing the retrieved resource to be part of the selected organization.\r\n\r\n- **4.x**: Upgrade to >=[4.12.2](https://github.com/zitadel/zitadel/releases/tag/v4.12.2)\r\n- **3.x**: Update to >=[3.4.8](https://github.com/zitadel/zitadel/releases/tag/v3.4.8)\r\n- **2.x**: Update to >=[3.4.8](https://github.com/zitadel/zitadel/releases/tag/v3.4.8)\r\n\r\n### Workarounds\r\n\r\nThe recommended solution is to upgrade to a patched version. If an upgrade is not possible and implementations no longer rely on the Management (V1 API), access to the API can be prevented through a reverse proxy or WAF rule.\r\n\r\n### Questions\r\n\r\nIf you have any questions or comments about this advisory, please email us at [security@zitadel.com](mailto:security@zitadel.com)\r\n\r\n### Credits\r\n\r\nThanks to [odgrso](https://github.com/odgrso) for reporting this vulnerability.",
+    "ghsa_id": "GHSA-wr6r-59xg-4pj2",
+    "html_url": "https://github.com/zitadel/zitadel/security/advisories/GHSA-wr6r-59xg-4pj2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wr6r-59xg-4pj2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32131"
+      }
+    ],
+    "published_at": "2026-03-11T09:08:57Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-Tenant Information Disclosure in Management API",
+    "updated_at": "2026-03-11T14:52:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "zitadel",
+          "name": "ZITADEL"
+        },
+        "patched_versions": "4.12.2",
+        "vulnerable_version_range": "4.0.0 - 4.12.1"
+      },
+      {
+        "package": {
+          "ecosystem": "zitadel",
+          "name": "ZITADEL"
+        },
+        "patched_versions": "3.4.8",
+        "vulnerable_version_range": "< 3.4.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "zitadel/zitadel"
+}

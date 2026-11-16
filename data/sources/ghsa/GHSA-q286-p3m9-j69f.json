@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-q286-p3m9-j69f",
+  "repo": {
+    "cve_id": "CVE-2026-67234",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Impact\n\nThe browser receives a `Set-Cookie` header whose name contains non-ASCII bytes. Most browsers reject or silently drop such headers, so the intended cookie (`strict_auth_mechanism` and `preferred_auth_mechanism`) is not cleared and persists with its previous value until its natural expiry. Any browser that does accept the malformed header stores a junk cookie under a name no other endpoint reads. Because the cookie the user meant to clear continues to be sent on subsequent requests, the user's stale auth-mechanism preference can persist past logout.\n\nBeyond the security flavour, this is a plain correctness bug: the endpoint silently failed to do what it advertises. The malformed header is also a protocol-conformance defect that some hardened reverse proxies may strip or treat as a sign of a malformed upstream response.\n\n## Description\n\n`get_auth_mechanism/1` clears the consumed auth-mechanism cookie. The cookie's name was being computed with `term_to_binary/1` on the matched atom (`strict_auth_mechanism` or `preferred_auth_mechanism`):\n\n```erlang\n%% Before\ncowboy_req:set_resp_cookie(term_to_binary(Type), <<\"\">>, Req, …)\n```\n\n`term_to_binary/1` produces an Erlang External Term Format binary (for example `<<131,100,0,21,\"strict_auth_mechanism\">>`), which contains non-ASCII bytes (`131`, `100`, `0`, `21`) and is not a valid `cookie-name` per RFC 6265 §4.1.1 (`cookie-name = token`, where `token` is `1*tchar` over a restricted ASCII set). The macros that actually define the cookies (`?MANAGEMENT_LOGIN_STRICT_AUTH_MECHANISM = <<\"strict_auth_mechanism\">>` and similar, in `rabbit_mgmt.hrl:17-20`) emit plain ASCII names on the set path.\n\n## Preconditions\n\nThis is not directly exploitable for code execution or data exfiltration. The security relevance is limited to weak session hygiene: a user's prior auth-mechanism preference (for example `oauth2:<resource-id>`) persists across logout and login cycles. In a kiosk and shared-browser scenario this could nudge the next user toward a different identity provider than they would otherwise have chosen.\n\n---\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N` (2.3, Low). Fixed in `4.2.8`, `4.3.2`.",
+    "ghsa_id": "GHSA-q286-p3m9-j69f",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-q286-p3m9-j69f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q286-p3m9-j69f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-67234"
+      }
+    ],
+    "published_at": "2026-07-09T09:22:12Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Non-RFC-conformant cookie name when clearing the auth-mechanism preference",
+    "updated_at": "2026-07-29T15:05:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.8",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.8"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.2",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

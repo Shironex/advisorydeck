@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-2w53-7ppr-3xpp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe backup endpoints check permissions only when the backup is attached to a service. A backup with `databaseType: \"web-server\"` has no service attached, so the checks are skipped and any member can create and run it.\r\n\r\nAlso, the `prefix` field is inserted into a shell command without escaping, so `$(command)` in the prefix executes.\r\n\r\n## Details\r\n\r\n`backup.create` is only `protectedProcedure` (`routers/backup.ts:83`). The permission check at `checkServicePermissionAndAccess` runs only when a service id (postgresId, mysqlId, etc.) is present. With `databaseType: \"web-server\"` there is none, so nothing is checked.\r\n\r\n`manualBackupWebServer` only requires the `backup:create` permission which members have (`backup.ts:459`).\r\n\r\nThe same `if (serviceId)` guard pattern repeats on `backup.one` (`:173`), `backup.update` (`:193`) and `backup.remove` (`:250`), so a member can also read, modify or delete backups that are not theirs. `backup.update` is notable: a member can edit an existing backup row (e.g. set `prefix` on someone else's scheduled backup) and wait for its own schedule to run the injected command, instead of creating anything.\r\n\r\n`restoreBackupWithLogs` has the same gap for web-server restores (`backup.ts:566`): it checks permissions only `if (input.databaseId)`, the schema accepts an empty string, and the web-server restore path never uses `databaseId`. The web-server restore deletes the entire Dokploy data directory and drops the `dokploy` database (`utils/restore/web-server.ts`), then writes the restored contents over the fresh install. So a member can wipe the instance, or restore a crafted backup to take it over (attacker-controlled database, admin credentials, app files). I did not test this part since it is destructive.\r\n\r\nThe exfiltration side: a web-server backup contains the database dump (SSH private keys for all managed servers, stored secrets) plus the whole `/etc/dokploy` filesystem, and the encryption keys too when `includeEncryptionKey` is set, a flag the caller controls (`utils/backups/web-server.ts:70-99`). `destinationId` is never checked against the caller's organization, so a member can send the backup to a destination they control and walk away with the whole instance.\r\n\r\nFor the command injection: `keepLatestNBackups` in `utils/backups/index.ts:142,147` interpolates the prefix into an rclone command with no quoting at all. In `runWebServerBackup` the prefix lands inside double quotes in the upload command (`utils/backups/web-server.ts:49,117`), where `$( )` still expands.\r\n\r\nRelation to GHSA-p2c7-8j28-c7gq: that advisory covered shell injection in the backup/restore pipeline for admin/owner users, including an unquoted `prefix` in the volume-backup pipeline. This report is different in two ways: the injection sink is `backup.prefix` in `keepLatestNBackups` (regular database backups), which is still unquoted in the current version, and more importantly the missing authorization means a member can trigger it, not just an admin.\r\n\r\n## Steps to reproduce\r\n\r\nTested on a self-hosted install and on dokploy.com.\r\n\r\nSelf-hosted, as a member:\r\n\r\n```\r\nbackup.create { databaseType:\"web-server\", enabled:true,\r\n  schedule:\"* * * * *\", destinationId:<any destination in the org>,\r\n  prefix:'x$(touch /tmp/pwned); #' }\r\n```\r\n\r\nThe scheduler runs it within a minute. `/tmp/pwned` appeared inside the dokploy container. The container has the docker socket, the database credentials and the SSH keys of all managed servers.\r\n\r\nOn dokploy.com (the web-server dump/restore path returns early when `IS_CLOUD`, but the injection still works through a normal database backup), as a member:\r\n\r\n```\r\nbackup.create { databaseType:\"postgres\", postgresId:<a postgres service on an attached server>,\r\n  keepLatestCount:1, destinationId:<any destination in the org>,\r\n  prefix:'x$(touch /tmp/pwned-cloud); #' }\r\n```\r\n\r\nthen `backup.manualBackupPostgres { backupId }`. The file was written to `/tmp` on the server through `execAsyncRemote`.\r\n\r\n## Suggested fix\r\n\r\n- Require owner/admin for `databaseType:\"web-server\"` backups on create, manual run and restore.\r\n- Check that `destinationId` belongs to the caller's organization.\r\n- Validate `prefix`/`serviceName` (e.g. `^[a-zA-Z0-9._/-]+$`) and use `quote()` on interpolations. Double quotes alone do not stop `$( )`.\r\n- Reject `..` in `backupFile` on restore.\r\n",
+    "ghsa_id": "GHSA-2w53-7ppr-3xpp",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-2w53-7ppr-3xpp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2w53-7ppr-3xpp"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:40Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Incomplete fix of GHSA-p2c7-8j28-c7gq + Missing Authorization in backup/restore (Member -> command execution on managed servers, instance exfiltration and takeover)",
+    "updated_at": "2026-11-12T08:15:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

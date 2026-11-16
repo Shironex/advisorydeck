@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-x4c7-fpcx-w9q6",
+  "aliases": [],
+  "title": "SAML Identity-Provider Confusion in ZITADEL Leads to Account Takeover",
+  "summary": "### Summary\r\n\r\nZITADEL’s SAML identity-provider **intent** callback (the endpoint used by **Login V2** and custom login UIs to complete an external SAML login) accepted an assertion signed by one configured SAML identity provider as proof of identity for a login started against a *different* SAML identity provider.\r\n\r\nOn an instance with two or more SAML identity providers, an attacker who can configure one SAML identity provider and controls its signing key could complete a login intent aimed at a second SAML identity provider and obtain an authenticated session as any user linked to that second provider, without any interaction from the victim. The callback selected the identity provider whose certificate verifies the assertion’s signature from the request URL, but resolved the local user account from the login intent, and never checked that the two identity providers were the same.\r\n\r\n### Impact\r\n\r\nAn attacker who can configure a SAML identity provider on the instance and controls that provider’s signing key can:\r\n\r\n- **Obtain an authenticated session as any user** linked to a *different* SAML identity provider on the same instance\r\n- **Impersonate that user** in every application that relies on the instance for authentication\r\n- Do so **without victim interaction**, and without ever completing a login at the victim’s identity provider\r\n\r\nThis affects instances that have **two or more SAML identity providers** configured, where at least one user is linked to one of them (normal once a user has signed in through that provider). The flaw is reachable through the identity-provider **intent** flow used by **Login V2** and by custom login UIs built on the session API.\r\n\r\nConfiguring an identity provider requires organization-administrator permission (`org.idp.write`). Registering the attacker’s provider is cheap: only identity-provider metadata containing a certificate whose private key the attacker holds is needed, and no running identity provider is required. On self-hosted deployments that ship with public organization registration enabled, an otherwise unauthenticated attacker can gain organization-administrator permission by registering an organization. On ZITADEL Cloud, public organization registration is disabled, so the attacker must already be an organization administrator on the instance.\r\n\r\nAccounts that authenticate only through non-SAML providers (OIDC, Google, GitHub, JWT) or through local credentials are **not** affected, because the confused flow requires a SAML-targeted login intent, so only users linked to a SAML identity provider are reachable. Instances with fewer than two SAML identity providers have nothing to confuse. The issue does **not** by itself grant administrative permissions; its impact is impersonation of, and session takeover for, the targeted user.\r\n\r\n**Scope note:** This affects the SAML identity-provider intent flow only. It is instance-wide and crosses organizations (an administrator of any one organization can target users in any other organization on the same instance), but it does **not** cross instances (all lookups are instance-scoped). **Login V1**’s external-login callback is not affected, because it selects the identity provider from the server-side login request rather than from the callback URL.\r\n\r\n### Affected Versions\r\n\r\nSystems running one of the following versions are affected:\r\n\r\n* **4.x:** `4.0.0` through `4.19.1` (including RC versions)\r\n* **3.x:** `3.0.0` through `3.4.15` (including RC versions)\r\n\r\n### Patches\r\n\r\nThe vulnerability has been addressed in the latest releases. The SAML assertion callback now verifies that the identity provider named in the callback URL is the same identity provider the login intent was started for, and rejects the callback when they differ. The same check is applied to the SAML single-logout callback.\r\n\r\n* **4.x**: Upgrade to $\\ge$ [4.19.2](https://github.com/zitadel/zitadel/releases/tag/v4.19.2)\r\n\r\nThe **3.x** release line reached end-of-lif...",
+  "published_at": "2026-09-28T07:11:49.000Z",
+  "modified_at": "2026-09-28T07:11:50.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287"
+  ],
+  "affected": [
+    {
+      "product": "zitadel",
+      "ranges": [
+        {
+          "introduced": "4.0.0",
+          "fixed": "4.19.2"
+        },
+        {
+          "introduced": "3.0.0",
+          "last_affected": "3.4.15"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/zitadel/zitadel/security/advisories/GHSA-x4c7-fpcx-w9q6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-x4c7-fpcx-w9q6",
+      "url": "https://github.com/zitadel/zitadel/security/advisories/GHSA-x4c7-fpcx-w9q6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d849b5125faf3cb17cca48950b144bdaa751d395bf71ff30d7cb466de143f633",
+  "note": null
+}

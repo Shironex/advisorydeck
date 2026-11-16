@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-x866-xp2g-cx8v",
+  "repo": {
+    "cve_id": "CVE-2026-44838",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:L/VI:L/VA:L/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "# RabbitMQ MQTT Topic Permission Authorization Bypass\r\n\r\n## Summary\r\n\r\nRabbitMQ's MQTT plugin allows for topic-level authorization using regular expressions with variable substitution. Administrators can create patterns such as `^{client_id}-sensors$` to restrict user access to topics that include their client ID. However, the `client_id` is provided by the user in the MQTT CONNECT packet and is inserted into the regex pattern without escaping special regex characters. This flaw enables an authenticated MQTT user to inject regex operators to bypass authorization.\r\n\r\nFor instance, a user with `client_id=\".*\"` can transform the pattern `^{client_id}-sensors$` into `^.*-sensors$`, which incorrectly matches any topic ending in `-sensors`.\r\n\r\n## Details\r\n\r\n### The Vulnerability\r\n\r\nAdministrators can configure topic permissions using regular expressions that include variables like `{client_id}`. The intended behavior is to substitute this variable with the client's ID, thus restricting their access to a specific set of topics. For example, a user with `client_id=\"device123\"` should only be able to access topics like `device123-sensors` and `device123-telemetry`.\r\n\r\nThe vulnerability exists because the `client_id` from the MQTT CONNECT packet is directly substituted into the regex pattern without escaping. This allows an attacker to inject regex metacharacters. For example, by providing a `client_id` of `.*`, the regex becomes overly permissive.\r\n\r\n## Impact\r\n\r\nThis vulnerability allows an authenticated MQTT user to bypass all topic authorization checks. This can lead to:\r\n\r\n*   **Unauthorized Data Access**: Attackers can subscribe to any topic and read sensitive data.\r\n*   **Unauthorized Actions**: Attackers can publish messages to restricted topics, potentially leading to unauthorized actions within the system.\r\n\r\n## Workarounds\r\n\r\nOne of:\r\n\r\n1. Disable the MQTT plugin\r\n2. Do not use/rely on variable expansion in topic authorization\r\n3. Switch to using separate users per client instead of topic authorization with extrapolated variables such as `client_id`",
+    "ghsa_id": "GHSA-x866-xp2g-cx8v",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-x866-xp2g-cx8v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x866-xp2g-cx8v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44838"
+      }
+    ],
+    "published_at": "2026-05-06T18:03:16Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "RabbitMQ MQTT Topic Permission Authorization Bypass",
+    "updated_at": "2026-06-25T22:32:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "RabbitMQ server"
+        },
+        "patched_versions": "4.2.4",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

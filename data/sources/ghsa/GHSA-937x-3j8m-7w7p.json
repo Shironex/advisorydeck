@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-937x-3j8m-7w7p",
+  "repo": {
+    "cve_id": "CVE-2026-43913",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nAn invited organization owner can purge the entire organization vault after reaching `Accepted` state, before any existing owner confirms them.\r\n\r\nThis is a server-side authorization bypass in the org-invite confirmation flow:\r\n\r\n1. accepting an invite moves the membership from `Invited` to `Accepted`\r\n2. confirmation is a separate step that later upgrades `Accepted` to `Confirmed`\r\n3. most privileged org routes correctly require `Confirmed`\r\n4. `POST /api/ciphers/purge?organizationId=<org_id>` does not; it only checks `member.atype == Owner`\r\n\r\nAs a result, a not-yet-confirmed owner can hard-delete every cipher and attachment in the organization.\r\n\r\n## Impact\r\n\r\nThis is a destructive authorization bypass on organization-wide ownership privileges.\r\n\r\nA user who is intentionally still pending confirmation can:\r\n\r\n- purge the entire organization vault\r\n- hard-delete all organization ciphers\r\n- delete all attachments linked to those ciphers\r\n- cause immediate organization-wide data loss before the invite is confirmed\r\n\r\nThis breaks the security boundary that the `Accepted -> Confirmed` step is supposed to enforce.\r\n\r\n## Exploit Scenario\r\n\r\nAssume:\r\n\r\n- attacker controls an email address invited as an `Owner` into `Org A`\r\n- attacker is not yet confirmed by an existing owner\r\n- attacker has a normal authenticated session on their own account\r\n\r\nSteps:\r\n\r\n1. Attacker accepts the org invite.\r\n   Result: membership becomes `Accepted`, not `Confirmed`.\r\n2. Before any owner confirms them, attacker calls:\r\n\r\n```http\r\nPOST /api/ciphers/purge?organizationId=<org_id>\r\nAuthorization: Bearer <attacker_access_token>\r\nContent-Type: application/json\r\n\r\n{\r\n  \"masterPasswordHash\": \"<attacker password hash>\",\r\n  \"otp\": null\r\n}\r\n```\r\n\r\nExpected behavior:\r\n\r\n- request should be rejected because org-wide destructive owner actions should require a `Confirmed` owner\r\n\r\nActual behavior:\r\n\r\n- server looks up the membership\r\n- server only checks `member.atype == Owner`\r\n- server deletes every cipher in the organization\r\n- each cipher delete also removes attachments, collection links, favorites, and related records\r\n\r\n## Root Cause\r\n\r\nInvite acceptance is intentionally separate from confirmation:\r\n\r\n- `accept_org_invite()` transitions `Invited -> Accepted`\r\n- `_confirm_invite()` transitions `Accepted -> Confirmed`\r\n\r\nPrivileged org guards reflect this design:\r\n\r\n- `OwnerHeaders` only accepts `is_confirmed_and_owner()`\r\n\r\nBut the org purge endpoint bypasses those guards entirely:\r\n\r\n- it uses plain `Headers`\r\n- it loads the membership with `Membership::find_by_user_and_org()`\r\n- it authorizes solely on `member.atype == MembershipType::Owner`\r\n- it never checks `member.status == Confirmed`\r\n\r\nThat means a pending owner receives full destructive owner power earlier than intended.\r\n\r\n## Code References\r\n\r\n- Invite acceptance sets `Accepted`:\r\n  - `src/api/core/mod.rs:263-279`\r\n- New-account setup also auto-runs invite acceptance:\r\n  - `src/api/core/accounts.rs:375-387`\r\n- Confirmation is a separate `Accepted -> Confirmed` step:\r\n  - `src/api/core/organizations.rs:1384-1397`\r\n- Owner-only guards require confirmed status:\r\n  - `src/auth.rs:682-689`\r\n  - `src/auth.rs:934-947`\r\n- Purge endpoint checks only owner type:\r\n  - `src/api/core/ciphers.rs:1645-1665`\r\n- Organization purge hard-deletes all ciphers:\r\n  - `src/db/models/cipher.rs:470-489`\r\n\r\n## Why This Is Security-Relevant\r\n\r\nThis is not just an edge-case workflow mismatch.\r\n\r\nThe codebase clearly distinguishes:\r\n\r\n- `Accepted`: invite acknowledged, still pending trust/confirmation\r\n- `Confirmed`: fully activated org role\r\n\r\nUsing `Headers` plus `member.atype == Owner` collapses that distinction for one of the most destructive org-wide operations in the product.\r\n\r\nIf confirmation is meant to be a real trust gate, this endpoint bypasses it.\r\n\r\n## Fix Recommendation\r\n\r\nMake org purge use the same confirmed-role model as the rest of privileged org APIs.\r\n\r\nConcrete options:\r\n\r\n- change the route to require `OwnerHeaders`\r\n- or explicitly reject when `member.status != MembershipStatus::Confirmed as i32`\r\n- audit other org-wide mutation endpoints that use `Membership::find_by_user_and_org()` plus direct type checks instead of the confirmed-role request guards",
+    "ghsa_id": "GHSA-937x-3j8m-7w7p",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-937x-3j8m-7w7p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-937x-3j8m-7w7p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-43913"
+      }
+    ],
+    "published_at": "2026-04-25T20:49:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unconfirmed Owner Can Purge Entire Organization Vault",
+    "updated_at": "2026-05-04T17:50:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.35.5",
+        "vulnerable_version_range": "<=1.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-64mc-4p6f-r7x9",
+  "aliases": [],
+  "title": "Revoked or unconfirmed organization Admin can read cipher audit logs",
+  "summary": "## Summary\r\n\r\n`GET /api/ciphers/<cipher_id>/events` returns an organization cipher's audit log to any\r\nauthenticated user whose membership row carries `atype` Owner or Admin, **regardless of\r\nmembership status**. A member who was invited but never confirmed, or who was confirmed and\r\nlater revoked, keeps indefinite read access to that cipher's access history: who viewed,\r\nedited, copied or autofilled the credential, when, from which IP and device type.\r\n\r\nThe two sibling event endpoints in the same file are guarded correctly. This one is not.\r\n\r\nRequires `ORG_EVENTS_ENABLED=true`, which is not the default.\r\n\r\n## Affected\r\n\r\n1.37.3 (current release) and `main` at commit `25dfedaf` (2026-09-09). Verified on both.\r\n\r\n## Root cause\r\n\r\n`src/api/core/events.rs` has three event endpoints. Two require `AdminHeaders`:\r\n\r\n```rust\r\n:34  async fn get_org_events(..., headers: AdminHeaders, ...)      // organization events\r\n:92  async fn get_user_events(..., headers: AdminHeaders, ...)     // per member events\r\n:66  async fn get_cipher_events(..., headers: Headers, ...)        // per cipher events\r\n```\r\n\r\n`AdminHeaders` resolves through `is_confirmed_and_admin()` at `src/auth.rs:725`:\r\n\r\n```rust\r\nfn is_confirmed_and_admin(&self) -> bool {\r\n    self.membership_status == MembershipStatus::Confirmed && self.membership_type >= MembershipType::Admin\r\n}\r\n```\r\n\r\n`get_cipher_events` instead takes the generic `Headers` guard, which only proves a valid user\r\nJWT, and hand rolls its own check via `Membership::user_has_ge_admin_access_to_cipher` at\r\n`src/db/models/organization.rs:1105`:\r\n\r\n```rust\r\nusers_organizations::table\r\n    .inner_join(ciphers::table.on(ciphers::uuid.eq(cipher_uuid)\r\n        .and(ciphers::organization_uuid.eq(users_organizations::org_uuid.nullable()))))\r\n    .filter(users_organizations::user_uuid.eq(user_uuid))\r\n    .filter(users_organizations::atype.eq_any(vec![MembershipType::Owner as i32,\r\n                                                   MembershipType::Admin as i32]))\r\n```\r\n\r\nThat reproduces the `membership_type >= Admin` half of `is_confirmed_and_admin` and drops the\r\n`membership_status == Confirmed` half.\r\n\r\nEvery other membership query in `organization.rs` states the invariant in its own name and\r\nenforces it: `find_confirmed_by_user`, `find_confirmed_by_user_and_org`, `find_confirmed_by_org`,\r\n`find_confirmed_and_manage_all_by_org`, `count_confirmed_by_org_and_type`,\r\n`find_by_user_and_policy`. The one function that deliberately omits it is named\r\n`find_any_state_by_user`. `user_has_ge_admin_access_to_cipher` omits it without saying so.\r\n\r\nUpstream Bitwarden gates the equivalent endpoint with the same check it uses for organization\r\nevents (`src/Api/Dirt/Controllers/EventsController.cs`, `AccessEventLogs`). The comment at\r\n`src/api/core/events.rs:32` cites that controller as the reference implementation.\r\n\r\n## Steps to Reproduce\r\n\r\n```\r\ndocker run -d --name vw-repro \\\r\n  -e ORG_EVENTS_ENABLED=true -e SIGNUPS_ALLOWED=true \\\r\n  -e I_REALLY_WANT_VOLATILE_STORAGE=true -e ROCKET_PORT=8080 \\\r\n  -p 127.0.0.1:8081:8080 vaultwarden/server:1.37.3\r\n```\r\n\r\n`repro.py` in the attached archive runs both variants end to end and prints a verdict. It needs\r\nonly the `cryptography` package.\r\n\r\n### Variant 1, never confirmed invitee\r\n\r\n1. Alice creates an organization and a cipher in it, then views it once.\r\n2. Alice invites Bob with `type: 1` (Admin). With SMTP disabled his membership is\r\n   `type=1, status=1` (Accepted). He has never been confirmed and holds no organization key.\r\n3. Bob requests the cipher itself: `GET /api/ciphers/<cipher_id>` returns **HTTP 400**.\r\n4. Bob requests its audit log: `GET /api/ciphers/<cipher_id>/events?start=...&end=...`\r\n   returns **HTTP 200 with the event list**.\r\n\r\nObserved:\r\n\r\n```\r\nBob membership: type=1 status=1  (Accepted, never confirmed, holds no org key)\r\nGET /api/ciphers/{id}          -> HTTP 400   (cipher itself denied)\r\nGET /api/ciphers/{id}/events   -> HTTP 200, 1 events\r\n```\r\n\r\n### Varian...",
+  "published_at": "2026-10-28T18:00:44.000Z",
+  "modified_at": "2026-10-28T18:00:44.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-64mc-4p6f-r7x9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-64mc-4p6f-r7x9",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-64mc-4p6f-r7x9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+  "note": null
+}

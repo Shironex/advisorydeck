@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-gfjp-5hc9-852r",
+  "repo": {
+    "cve_id": "CVE-2026-109295",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1333"
+    ],
+    "description": "# Any authenticated user can repeatedly stall a worker via file-search regex on the event loop\r\n\r\n## Summary\r\nThe built-in file search tools let a chat participant choose the pattern used to grep files. Since 0.11.0 each search has been capped at 2 seconds of matching time, but the matching itself still ran directly on the server's event loop. A crafted pattern that backtracks until the cap is hit therefore froze the whole worker for about 2 seconds on every call, and nothing stopped the calls from being repeated.\r\n\r\n## Preconditions\r\n- Default configuration. The knowledge builtin tool group is enabled by default, and with `ENABLE_KB_EXEC` at its default of `False` the model is offered `grep_knowledge_files`, which accepts a file id.\r\n- Any authenticated user, no elevated role and no workspace permission.\r\n- One file the attacker can read. `USER_PERMISSIONS_CHAT_FILE_UPLOAD` defaults to true and a user can always read their own upload.\r\n- A model willing to call the tool with the attacker's literal pattern. This is reliable in practice by instructing the model in your own chat, but not guaranteed on a given turn.\r\n- The chat file tool `grep_chat_files` is affected the same way, but it is only offered when a model's File Context capability has been turned off.\r\n- Deployments running with `UVICORN_WORKERS` at its default of 1 stall the whole instance; multi-worker deployments stall one worker per call.\r\n\r\n## Impact\r\nAvailability, against every other user of the affected worker. Each call held the event loop for the full 2 second budget, during which the worker handled no other request, and every further call from the same or another chat held it again. The same file searched with a literal pattern finished in a few milliseconds. There is no confidentiality or integrity effect, and no data is read or altered.\r\n\r\n## Fix\r\nFixed in 0.11.4. https://github.com/open-webui/open-webui/pull/29621 moved the built-in chat and knowledge file searches off the event loop into a worker thread, the knowledge filesystem search was moved off the event loop the same way, and pattern matching switched to the RE2 engine, which runs in linear time and cannot backtrack catastrophically. Upgrading is sufficient; there is nothing an operator has to configure.\r\n\r\n## Root cause\r\n- `backend/open_webui/tools/builtin.py`, `grep_knowledge_files` and `grep_chat_files`: called the synchronous file search directly from the async tool.\r\n- `backend/open_webui/tools/knowledge_fs.py`, `build_matcher`: compiled the caller's pattern with a backtracking engine under a 2 second timeout.\r\n- Affected builds: 0.11.0 through 0.11.3. Earlier versions had no time limit at all and are covered by GHSA-2f54-p244-32q6.\r\n\r\nThe fix for GHSA-2f54-p244-32q6 bounded how long one search could run, but a time limit on a synchronous call does not give the event loop back while the call is running. The search still executed on the loop thread, so for the whole budget the worker could not serve anyone else, and the budget reset on every tool call.\r\n\r\n## Proof of concept\r\nAgainst the tool code of 0.11.3 as an ordinary user:\r\n\r\n1. Upload a text file whose content is a single line of 28 `a` characters followed by `!`.\r\n2. In a chat, instruct the model to call `grep_knowledge_files` with the pattern `(a|a)+$` and that file's id.\r\n3. The tool returns `Search exceeded 2s, narrow the pattern` after about 2 seconds. A task scheduled every 50 ms on the same event loop does not run for 2.06 seconds while the search is in progress. Repeating the call repeats the stall.\r\n\r\nMeasured by running the real tool functions of each release with a concurrent 50 ms event-loop heartbeat (file lookup seeded directly with the file above):\r\n\r\n| version | tool | call time | longest heartbeat gap |\r\n| ------- | ---- | --------- | --------------------- |\r\n| 0.11.3 | grep_knowledge_files | 2.007s | 2.057s |\r\n| 0.11.3 | grep_chat_files | 2.009s | 2.059s |\r\n| 0.11.4 | grep_knowledge_files | 0.004s | 0.051s |\r\n| 0.11.4 | grep_chat_files | 0.005s | 0.051s |\r\n\r\n## Credits\r\n@yousif-IQ, for the finding.\r\n@tahahassan773, analysis.",
+    "ghsa_id": "GHSA-gfjp-5hc9-852r",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-gfjp-5hc9-852r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gfjp-5hc9-852r"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109295"
+      }
+    ],
+    "published_at": "2026-09-27T19:30:44Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Any authenticated user can repeatedly stall a worker via file-search regex on the event loop",
+    "updated_at": "2026-10-28T20:47:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

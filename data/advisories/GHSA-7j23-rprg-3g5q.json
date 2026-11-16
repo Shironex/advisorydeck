@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-7j23-rprg-3g5q",
+  "aliases": [],
+  "title": "Attacker-chosen OAuth `state` cookie allows forced account linking and takeover of any account (bypasses the CVE-2025-43856 fix)",
+  "summary": "## Summary\n\n`POST /api/oauth/authorize` needs no authentication and copies a caller-supplied `state` straight into the\n`immich_oauth_state` cookie on the response. `POST /api/oauth/link` then accepts that cookie as evidence that the\ncurrent session started the OAuth flow, but nothing ties the cookie to a session or a user.\n\nSo an attacker can pick the value of the CSRF token, get it planted in a victim's browser, and hand the victim a\ncallback URL carrying an authorization code for the attacker's own IdP identity. The victim's browser links that\nidentity onto the victim's immich account without asking. After that the attacker signs in with their own IdP\ncredentials and gets the victim's session.\n\nThe fix for GHSA-3832-6r8h-9cfm (CVE-2025-43856) was to validate `state`. It is validated, just not against\nanything the server chose.\n\nI ran the whole chain against a clean v3.1.0 instance on your official images, including a negative control and\ntwo controls covering the PKCE case. Transcripts below.\n\n## Why the parameters exist, and where it goes wrong\n\nThe mobile app generates `state` and a PKCE verifier on the device, sends only the challenge to `/authorize`\n(`mobile/lib/services/oauth.service.dart:14,23-24`), and passes `state` and `codeVerifier` back explicitly in the\ncallback body (`:34,44`). That flow is self-contained and fine. `OAuthCallbackSchema` already accepts both\n(`server/src/dtos/auth.dto.ts:105-111`).\n\nThe problem is that the server *also* writes those caller-supplied values into the responding browser as cookies,\nand the web flow trusts them. Mobile never needs the cookie; the browser is the only consumer, and the browser is\nexactly who an attacker can aim a `Set-Cookie` at.\n\n## Details\n\n`OAuthConfigSchema` takes `state` and `codeChallenge` as free client input:\n\n    // server/src/dtos/auth.dto.ts:113-118\n    const OAuthConfigSchema = z.object({\n      redirectUri: z.string()...,\n      state: z.string().optional()...,\n      codeChallenge: z.string().optional()...,\n    })\n\nThe route has no `@Authenticated()` (`server/src/controllers/oauth.controller.ts:39`), and the guard lets\nundecorated routes through:\n\n    // server/src/middleware/auth.guard.ts:90-92\n    const options = this.reflector.getAllAndOverride<AuthenticatedOptions | undefined>(MetadataKey.AuthRoute, targets);\n    if (!options) {\n      return true;\n    }\n\nThe caller's value beats the server's randomness, and supplying a challenge nulls the verifier:\n\n    // server/src/repositories/oauth.repository.ts:46-53\n    state ??= randomState();\n    let codeVerifier: string | null;\n    if (codeChallenge) {\n      codeVerifier = null;\n    } else {\n      codeVerifier = randomPKCECodeVerifier();\n      codeChallenge = await calculatePKCECodeChallenge(codeVerifier);\n    }\n\nBoth land in the browser at `server/src/controllers/oauth.controller.ts:50-59`, via\n`respondWithCookie` with `path: '/'`, `sameSite: 'lax'`, `httpOnly: true` and a 400-day `maxAge`\n(`server/src/utils/response.ts:8-12,28`). Express serialises a non-string cookie value as\n`'j:' + JSON.stringify(value)`, so a null verifier ships as the literal text `j:null`. That matters because\n`link()` rejects an empty verifier but is happy with a six-character constant:\n\n    // server/src/services/auth.service.ts:412-419\n    const expectedState = dto.state ?? this.getCookieOauthState(headers);\n    if (!expectedState?.length) {\n      throw new BadRequestException('OAuth state is missing');\n    }\n    const codeVerifier = dto.codeVerifier ?? this.getCookieCodeVerifier(headers);\n    if (!codeVerifier?.length) {\n      throw new BadRequestException('OAuth code verifier is missing');\n    }\n\nNeither cookie is checked against `auth.session.id` or `auth.user.id`. The only other gate is at\n`server/src/services/auth.service.ts:428-432`, which rejects the case where the attacker's `sub` already belongs\nto a different immich user. Whether the victim already has an `oauthId` is never considered, so an existing\nlegitimate link gets o...",
+  "published_at": "2026-11-10T18:45:04.000Z",
+  "modified_at": "2026-11-10T18:45:04.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-7j23-rprg-3g5q",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7j23-rprg-3g5q",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-7j23-rprg-3g5q",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:72ced50c9d88c73e5254a90ed5a5634066bfaa7064c026f51d02a1e6509ea2ab",
+  "note": null
+}

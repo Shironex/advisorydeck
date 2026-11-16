@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-jjxg-p3v6-52ww",
+  "repo": {
+    "cve_id": "CVE-2026-33420",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe `get_org_collections_details` endpoint (`GET /api/organizations/{org_id}/collections/details`) in `src/api/core/organizations.rs` is missing the `has_full_access()` authorization check that exists on the sibling `get_org_collections` endpoint. This allows any Manager-role user with `accessAll=False` and no collection assignments to retrieve the names, UUIDs, user-to-collection mappings, and group-to-collection mappings for **all** collections in the organization.\r\n\r\n## Affected Component\r\n\r\n- **File:** `src/api/core/organizations.rs`\r\n- **Function:** `get_org_collections_details` (line ~380)\r\n- **CWE:** CWE-862 (Missing Authorization)\r\n\r\n## Details\r\n\r\n`get_org_collections` correctly gates access:\r\n```rust\r\nif !headers.membership.has_full_access() {\r\n    err_code!(\"Resource not found.\", \"User does not have full access\", rocket::http::Status::NotFound.code);\r\n}\r\n```\r\n\r\n`get_org_collections_details` omits this check and instead only requires `ManagerHeadersLoose` (any Manager/Admin/Owner). It then calls `Collection::find_by_organization()`, returning all collections unconditionally. The per-collection `assigned` boolean is computed but not used to filter the response.\r\n\r\n## Impact\r\n\r\nA Manager with restricted collection access can:\r\n- Enumerate all collection names (potentially revealing sensitive organizational structure, e.g. \"Executive Passwords\", \"Financial Systems\")\r\n- Discover which users have access to which collections\r\n- Map group-to-collection assignments\r\n\r\nThis violates the principle of least privilege and can be used for reconnaissance prior to further attacks.\r\n\r\n## Remediation\r\n\r\nAdd the `has_full_access()` check to `get_org_collections_details`, or filter the returned collections to only those the Manager is assigned to - consistent with how `get_org_collections` behaves.",
+    "ghsa_id": "GHSA-jjxg-p3v6-52ww",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jjxg-p3v6-52ww",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jjxg-p3v6-52ww"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33420"
+      }
+    ],
+    "published_at": "2026-04-26T12:23:40Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing authorization check in /organizations/{org_id}/collections/details allows Manager-role users to enumerate all collections",
+    "updated_at": "2026-04-26T12:23:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.35.5",
+        "vulnerable_version_range": "1.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

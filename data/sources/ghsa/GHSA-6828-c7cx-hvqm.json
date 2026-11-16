@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-6828-c7cx-hvqm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Impact\r\nDELETE /Library/VirtualFolders and POST /Library/VirtualFolders/Name concatenate the caller-supplied library name onto the user-views root without validation, then pass the result to Directory.Delete(path, true) or Directory.Move. Because Path.Combine accepts a rooted second argument, the name escapes the library root either way:\r\n\r\n- name=.. → <data>/root, name=../.. → <data>\r\n- name=/var/lib/jellyfin/data → the root is discarded entirely\r\n\r\nThis lets an attacker recursively delete or relocate any directory the server process can write, including the data directory and jellyfin.db. Impact is permanent data loss and denial of service.\r\n\r\nBefore the startup wizard is completed, the FirstTimeSetupOrElevated policy grants anonymous access, so a freshly installed server reachable on the network can be destroyed without credentials. That is the primary risk. After setup, the endpoints require an administrator, who can already delete libraries - that variant is hardening only.\r\n\r\nPOST /Library/VirtualFolders (add) is not affected; it sanitizes the name through IFileSystem.GetValidFilename.\r\n\r\n### Patches\r\n_Has the problem been patched? What versions should users upgrade to?_\r\n\r\n### Workarounds\r\n- Complete the setup wizard immediately after installation, and keep a new server off untrusted networks until then - that is the unauthenticated window.\r\n- Block /Library/VirtualFolders at a reverse proxy until setup is complete.\r\n- Run the server as an unprivileged account limited to its own data and media directories.\r\n- Keep backups of the data directory.\r\n\r\n\r\n### References\r\n_Are there any links users can visit to find out more?_\r\n",
+    "ghsa_id": "GHSA-6828-c7cx-hvqm",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-6828-c7cx-hvqm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6828-c7cx-hvqm"
+      }
+    ],
+    "published_at": "2026-09-22T01:21:43Z",
+    "references": [],
+    "severity": "critical",
+    "summary": " Path traversal in the virtual-folder management endpoints allows deletion and relocation of arbitrary directories",
+    "updated_at": "2026-09-22T01:21:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "12.0",
+        "vulnerable_version_range": "< 12.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

@@ -1,0 +1,60 @@
+{
+  "id": "GHSA-8647-2jxj-p2rc",
+  "aliases": [],
+  "title": "containerd: daemon crash when pulling an image with a crafted Content-Length header",
+  "summary": "### Impact\r\n\r\nA bug in containerd's image pull process can cause containerd to crash when downloading layers from an untrusted registry. When parallel layer fetch is enabled, an untrusted registry returning a crafted `Content-Length` header can trigger an unhandled memory allocation panic. This issue only affects configurations where `concurrent_layer_fetch_buffer` is set to enable parallel layer fetch; default configurations with this setting disabled are not affected. A daemon crash interrupts in-flight container operations and blocks new pod startup until containerd is restarted by a service manager, though existing running containers remain unaffected.\r\n\r\n### Patches\r\n\r\nThis bug has been fixed in containerd 2.4.2, 2.3.7, and 2.2.10. Users should update to these versions to resolve the issue.\r\n\r\n### Workarounds\r\n\r\nEnsure `concurrent_layer_fetch_buffer` is set to `0` (the default) or omitted in containerd's configuration under `[plugins.\"io.containerd.transfer.v1.local\"]` and `[plugins.\"io.containerd.cri.v1.images\"]` to disable parallel layer fetch. Restrict pod image references to trusted registries (for example, using a Kubernetes `ValidatingAdmissionPolicy` or admission webhook).\r\n\r\n### Credits\r\n\r\nThe containerd project would like to thank Opensec Intelligence for responsibly disclosing this issue in accordance with the [containerd security policy](https://github.com/containerd/project/blob/main/SECURITY.md).\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n* Open an issue in [containerd](https://github.com/containerd/containerd/issues/new/choose)\r\n* Email us at [security@containerd.io](mailto:security@containerd.io)\r\n\r\nTo report a security issue in containerd:\r\n* [Report a new vulnerability](https://github.com/containerd/containerd/security/advisories/new)\r\n* Email us at [security@containerd.io](mailto:security@containerd.io)",
+  "published_at": "2026-10-13T22:53:58.000Z",
+  "modified_at": "2026-10-13T22:53:58.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-20",
+    "CWE-400",
+    "CWE-770"
+  ],
+  "affected": [
+    {
+      "product": "containerd",
+      "ranges": [
+        {
+          "introduced": "2.2.0",
+          "fixed": "2.2.10"
+        },
+        {
+          "introduced": "2.3.0",
+          "fixed": "2.3.7"
+        },
+        {
+          "introduced": "2.4.0",
+          "fixed": "2.4.2"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/containerd/containerd/security/advisories/GHSA-8647-2jxj-p2rc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8647-2jxj-p2rc",
+      "url": "https://github.com/containerd/containerd/security/advisories/GHSA-8647-2jxj-p2rc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:38561a5a0717a169170c860a24da580070e32cb047de14c5d71e32cc2bcfa8ea",
+  "note": null
+}

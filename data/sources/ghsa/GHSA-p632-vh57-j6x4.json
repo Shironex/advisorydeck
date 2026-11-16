@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-p632-vh57-j6x4",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "**ANT-ID:** ANT-2026-XYPPVQ1N\r\n\r\n> Reported by Calif.io, in collaboration with Anthropic. Our reference: ANT-2026-XYPPVQ1N.\r\n\r\n## Summary\r\n\r\nWhen a user runs `immich upload`, the CLI first POSTs a locally-built list of `{id: <local path>, checksum}` to `/assets/bulk-upload-check`, then trusts the server's reply to decide what to do with files on the user's disk. In `checkForDuplicates` at `packages/cli/src/commands/asset.ts:236`, the loop `for (const { id: filepath, assetId, action } of results)` takes the `id` the server returns and uses it directly as a local filesystem path, with no check that the path is one the client actually sent. The `stat()` pre-pass earlier in the function runs over the locally-crawled file list before the request, so it does not constrain the reply.\r\n\r\nTwo consequences follow, both driven entirely by server-chosen strings. Entries the server marks `accept` go into `newFiles` and are read and uploaded by `uploadFiles` (`asset.ts:309`), which calls `createReadStream` on the server-named path and POSTs its contents back to the server. A server that returns `{id: \"/home/victim/.ssh/id_rsa\", action: \"accept\"}` therefore exfiltrates that file even though the user only pointed the CLI at a photo directory, and this needs no non-default flags. Entries the server marks as rejected go into `duplicates`, and when `--delete` or `--delete-duplicates` is set, `deleteFiles` (`asset.ts:456`) calls `unlink` on the server-named path (and its `.xmp` sidecar), deleting arbitrary local files. The CLI authenticates against the server with no version, TLS, or identity check, so any endpoint the user points `--url` at, or an active MITM on a plain-`http://` connection, controls these replies.\r\n\r\n## Reproduce\r\n\r\nThe proof of concept is attached, and is also mirrored at https://drive.google.com/file/d/19GDTs2x_8AqZBqMIpr97w3eAPafqRi2y/view.\r\n\r\n## Recommendations\r\n\r\nIn `checkForDuplicates`, do not trust the server's `id` as a path. Before using any `results[].id` as a filesystem path, confirm it is a member of the set of paths the client actually sent in that batch (or resolve it and require containment within the user-supplied upload roots), and drop any result whose `id` is not. The accept branch that feeds `uploadFiles` needs this guard as much as the reject branch that feeds `deleteFiles`; a check on only the deletion path still leaves the read-and-exfiltrate path open. Reject reasons the client does not recognize should keep the file on disk and be reported, never silently deleted.\r\n\r\n## Affected\r\n\r\n`@immich/cli` 3.3.3, the newest release, and master HEAD: `checkForDuplicates` in `packages/cli/src/commands/asset.ts` is byte-identical at both and still uses the server-returned `id` as a local path with no containment check. No CVE covers it.\r\n",
+    "ghsa_id": "GHSA-p632-vh57-j6x4",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-p632-vh57-j6x4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p632-vh57-j6x4"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:03Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Malicious or MITM Immich server can read, exfiltrate and delete arbitrary local files via the @immich/cli duplicate check",
+    "updated_at": "2026-11-10T18:45:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@immich/cli"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

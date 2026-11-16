@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-xmmr-fhf3-cwwj",
+  "aliases": [],
+  "title": "Authenticated Remote Code Execution and Host Escape via Command Injection in Dokploy Domain Management ServiceName Field",
+  "summary": "## Summary\r\n\r\nA user with the `domain.create` permission can execute arbitrary shell commands inside the Dokploy container through the `domain.create` endpoint. The `serviceName` parameter is stored without sanitization and later interpolated into a shell command via an error message in the `writeDomainsToCompose` function, enabling command injection. This results in full container compromise, and if the Docker socket is mounted, the attacker can escape to the underlying host via a privileged container with chroot to the host filesystem.\r\n\r\n## Key Permissions Risk Emphasis\r\n\r\n**CRITICAL:** Admin and Owner privileges definitely have full, unrestricted access to exploit this vulnerability!\r\n\r\n### Admin/Owner = Guaranteed Exploit Access \r\n- **Most importantly:** Admins and Owners have `domain: [\"create\"]` permission by default across all services.\r\n- They can exploit the Command Injection to gain full root access to the underlying Dokploy host or any connected remote servers.\r\n- **This is the most dangerous scenario:** A malicious admin/owner can own the entire host in seconds.\r\n\r\n### Member Role = High Risk (Exploitable with Basic Access)\r\n- Member role has `domain: [\"create\"]` for services they are granted access to.\r\n- **A member can exploit the RCE if they have access to at least one compose service.** They just need to create a malicious domain for that service.\r\n- **Only a risk with member granted service access**\r\n\r\n### Proof from Code\r\n```typescript\r\n// apps/dokploy/server/api/routers/domain.ts\r\ncreate: protectedProcedure\r\n    .input(apiCreateDomain)\r\n    .mutation(async ({ input, ctx }) => {\r\n        try {\r\n            if (input.domainType === \"compose\" && input.composeId) {\r\n                await checkServicePermissionAndAccess(ctx, input.composeId, {\r\n                    domain: [\"create\"],  // Members have this!\r\n                });\r\n            } else if (input.domainType === \"application\" && input.applicationId) {\r\n                await checkServicePermissionAndAccess(ctx, input.applicationId, {\r\n                    domain: [\"create\"],\r\n                });\r\n            }\r\n            const domain = await createDomain(input);\r\n            // ...\r\n```\r\n\r\n```typescript\r\n// packages/server/src/lib/access-control.ts\r\nexport const memberRole = ac.newRole({\r\n    // ...\r\n    domain: [\"read\", \"create\", \"update\", \"delete\"],  // Members have domain.create!\r\n    // ...\r\n});\r\n```\r\n\r\n---\r\n\r\n## The Vulnerability\r\n\r\nThe vulnerability exists in a chain of three functions:\r\n\r\n1. **`addDomainToCompose`** (in `packages/server/src/utils/docker/domain.ts`) throws an error containing user-controlled `serviceName` when the service doesn't exist in the compose file.\r\n2. **`writeDomainsToCompose`** catches this error and interpolates the error message directly into a shell script string.\r\n3. **`getBuildComposeCommand`** (in `packages/server/src/utils/builders/compose.ts`) embeds this shell script into a larger bash command that is executed via `execAsync()`.\r\n\r\n```typescript\r\n// packages/server/src/utils/docker/domain.ts\r\nexport const writeDomainsToCompose = async (compose: Compose, domains: Domain[]) => {\r\n    try {\r\n        const composeConverted = await addDomainToCompose(compose, domains);\r\n        // ...\r\n    } catch (error) {\r\n        // @ts-ignore\r\n        // CRITICAL: User input in error message interpolated into shell script!\r\n        return `echo \"❌ Has occurred an error: ${error?.message || error}\"; exit 1;`;\r\n    }\r\n};\r\n\r\nexport const addDomainToCompose = async (compose: Compose, domains: Domain[]) => {\r\n    // ...\r\n    for (const domain of domains) {\r\n        const { serviceName } = domain;\r\n        if (!result?.services?.[serviceName]) {\r\n            // User-controlled serviceName included in error message!\r\n            throw new Error(\r\n                `Domain \"${domain.host}\" is attached to service \"${serviceName}\" which does not exist in the compose`,\r\n            );\r\n        }\r\n    }\r\n};\r\n```\r\n\r\nThe `getBuildComposeComma...",
+  "published_at": "2026-11-12T08:16:52.000Z",
+  "modified_at": "2026-11-12T08:16:52.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78",
+    "CWE-94",
+    "CWE-116"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.30.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-xmmr-fhf3-cwwj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xmmr-fhf3-cwwj",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-xmmr-fhf3-cwwj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:408df7405fcdbaeec05336c13642080af01b68a155821380f1ea88efda382787",
+  "note": null
+}

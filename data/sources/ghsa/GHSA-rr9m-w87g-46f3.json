@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rr9m-w87g-46f3",
+  "repo": {
+    "cve_id": "CVE-2026-45791",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "### Summary\r\n\r\nChanging a user's password does not revoke existing sessions. An attacker who has compromised a session token retains full access even after the legitimate user changes their password, defeating the standard incident response action of credential rotation.\r\n\r\n### Details\r\n\r\nThe password change handler (`apps/dokploy/server/api/routers/user.ts:201-250`) updates the `account.password` field but does not call any session revocation API. Sessions have a 3-day lifetime (`auth.ts:354`) with `updateAge: 60*60*24`, meaning an attacker's compromised session can persist for up to 3 days after the password is changed.\r\n\r\nBetter-auth provides `auth.api.revokeSessions({ userId })` for exactly this purpose, but it is not called during the password change flow.\r\n\r\nNote: member removal and role downgrade were tested and both correctly terminate sessions immediately. Only the password change path is affected.\r\n\r\n### PoC\r\n\r\n**Prerequisites:** A Dokploy instance with a test user account.\r\n\r\n**Step 1 - Establish a session:**\r\n\r\nLog in as a test user and note the session token from the `better-auth.session_token` cookie.\r\n\r\n**Step 2 - Change the password:**\r\n\r\nChange the user's password through the UI or API.\r\n\r\n**Step 3 - Use the pre-change session token:**\r\n\r\n```\r\nGET /api/trpc/user.all HTTP/1.1\r\nHost: <target>\r\nCookie: better-auth.session_token=<PRE_PASSWORD_CHANGE_TOKEN>\r\n```\r\n\r\nThe request succeeds. The old session remains valid despite the password change.\r\n\r\n### Impact\r\n\r\nThe standard incident response procedure of changing a compromised password does not lock out an attacker who holds an active session. The attacker retains full access at the compromised user's privilege level for up to 3 days after the password is rotated. This is particularly dangerous when combined with other findings that enable session compromise.",
+    "ghsa_id": "GHSA-rr9m-w87g-46f3",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-rr9m-w87g-46f3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rr9m-w87g-46f3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45791"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:44Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Password Change Does Not Revoke Active Sessions",
+    "updated_at": "2026-07-21T23:25:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

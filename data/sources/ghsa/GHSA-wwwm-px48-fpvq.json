@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-wwwm-px48-fpvq",
+  "repo": {
+    "cve_id": "CVE-2026-48793",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-88"
+    ],
+    "description": "### Impact\r\nA potential FFmpeg argument injection vulnerability exists in the subtitle conversion code path, of the same vulnerability class as [CVE-2023-49096 ](https://nvd.nist.gov/vuln/detail/cve-2023-49096) and [CVE-2025-31499](https://nvd.nist.gov/vuln/detail/CVE-2025-31499), in a code path that was not addressed by either fix.\r\n\r\n`SubtitleEncoder.ConvertTextSubtitleToSrtInternal` (SubtitleEncoder.cs, line 382) interpolates the subtitle file path into FFmpeg command-line arguments without calling `EncodingUtils.NormalizePath()`. On Linux, filenames can contain double-quote characters, which break the argument quoting and allow injection of arbitrary FFmpeg arguments. The vulnerability is reachable without authentication via `SubtitleController.GetSubtitle`, which has no `[Authorize]` attribute. An attacker who can place a file in a Jellyfin media library directory (shared NAS, Samba share, guest upload) can achieve arbitrary file write on the server and information disclosure.\r\n\r\n### Patches\r\nThis issue has been fixed in Jellyfin 10.11.10.\r\n\r\n### Workarounds\r\nN/A\r\n\r\n### References\r\n\r\nReported by Alister MacCormack (@a-maccormack).\r\n",
+    "ghsa_id": "GHSA-wwwm-px48-fpvq",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-wwwm-px48-fpvq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wwwm-px48-fpvq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-48793"
+      }
+    ],
+    "published_at": "2026-06-10T04:21:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Potential FFmpeg argument injection via unescaped subtitle file path",
+    "updated_at": "2026-06-10T04:21:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "jellyfin"
+        },
+        "patched_versions": "10.11.10",
+        "vulnerable_version_range": "<10.11.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

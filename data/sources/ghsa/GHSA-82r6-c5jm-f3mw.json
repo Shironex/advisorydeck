@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-82r6-c5jm-f3mw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "> [!IMPORTANT]\r\n> Note: This advisory describes the same SSRF vulnerability as GHSA-c6xv-rcvw-v685 (CVE-2025-65958), which was published Dec 4, 2025. Both reports identify the SSRF in /api/v1/retrieval/process/web, and the same fix (commit 02238d3113e966c353fce18f1b65117380896774, released in v0.6.37) addresses both. @Mosstrow's report (filed Sept 9, 2025) chronologically predates the canonical advisory's publication; the duplicate disposition reflects publication order rather than filing order, and is a consequence of triage queue depth rather than a judgment on the reports. Affected versions on the canonical advisory (<=0.6.36) supersede the range here (<=0.6.26).\r\n\r\n### Summary\r\nOpen WebUI is vulnerable to Server-side Request Forgery (SSRF) via the /api/v1/retrieval/process/web endpoint.\r\n\r\nAn attacker with user privilege can manipulate the URL to any external destination without validation, enabling the endpoint to initiate requests to the specified URL and relay the response.\r\n\r\nDirect internal fetch is blocked via \"ENABLE_LOCAL_WEB_FETCH to protect against SSRF attacks\"\r\nhttps://github.com/open-webui/open-webui/pull/1862/files\r\nBut it's possible to use a location php script to redirect the flow internally bypassing this security.\r\n\r\nThis vulnerability permits unauthorized access to internal services and could potentially allow command execution by accessing instance secrets.\r\n\r\n### Details\r\nDirect internal fetch is blocked via \"ENABLE_LOCAL_WEB_FETCH to protect against SSRF attacks\"\r\nhttps://github.com/open-webui/open-webui/pull/1862/files\r\n\r\nThis could be bypassed by redirect location header.\r\n\r\n### PoC\r\n\r\n<img width=\"476\" height=\"46\" alt=\"image\" src=\"https://github.com/user-attachments/assets/bba98d63-56f6-4a2b-8326-d0a6e4bf761c\" />\r\n\r\n`<?php header(\"location: http://localhost:8080/health\"); ?>`\r\n\r\nInternal call success:\r\n<img width=\"1316\" height=\"551\" alt=\"image\" src=\"https://github.com/user-attachments/assets/4712b569-68a1-479a-b41f-0c2a0500c049\" />\r\n\r\nLocation redirect:\r\n<img width=\"675\" height=\"82\" alt=\"image\" src=\"https://github.com/user-attachments/assets/8ce16837-eaac-4505-992e-1c79d560c761\" />\r\n\r\n### Impact\r\nThis vulnerability permits unauthorized access to internal services and could potentially allow command execution by accessing instance secrets.\r\n\r\n### Recommendation\r\nImplement additional security measures to prevent redirects",
+    "ghsa_id": "GHSA-82r6-c5jm-f3mw",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-82r6-c5jm-f3mw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-82r6-c5jm-f3mw"
+      }
+    ],
+    "published_at": "2026-05-05T13:11:58Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Full SSRF with user role on endpoint /api/v1/retrieval/process/web via location redirect",
+    "updated_at": "2026-05-07T15:24:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.6.27",
+        "vulnerable_version_range": "<=0.6.26"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

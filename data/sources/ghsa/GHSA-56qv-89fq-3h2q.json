@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-56qv-89fq-3h2q",
+  "repo": {
+    "cve_id": "CVE-2026-72737",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\n`backup.create`, `backup.update`, and `restoreBackupWithLogs` accept a client-supplied `destinationId` and use it\r\n**without verifying the destination belongs to the caller's active organization**. A member who can manage\r\nbackups for one of their own database/compose services can reference **another organization's** backup destination,\r\ncausing that org's S3 credentials to be used (and exposed in the rclone process arguments / logs on the attacker's\r\nhost) and enabling cross-tenant backup data theft.\r\n\r\n## Severity\r\n\r\n- **CVSS v3.1: 9.6 (Critical)** - `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N` (multi-tenant): a low-privilege member reads/writes\r\n  another tenant's backup bucket and obtains its S3 secret access key. Caveat: needs the victim `destinationId` (a\r\n  `nanoid`).\r\n\r\n## Vulnerable code\r\n\r\n**Routers (no org check on `destinationId`) - `apps/dokploy/server/api/routers/backup.ts`:**\r\n`create` (`:80`), `update` (`:174`), `restoreBackupWithLogs` (`:547-563`). All are `protectedProcedure` +\r\n`checkServicePermissionAndAccess(ctx, serviceId, { backup:[...] })` on the **service** only - never on the destination.\r\n\r\n**Service sinks:**\r\n- `packages/server/src/services/backup.ts:11-16` `createBackup` → `db.insert(backups).values({...input})` stores the\r\n  client `destinationId`; `updateBackupById(input.backupId, input)` spreads it.\r\n- `packages/server/src/utils/backups/utils.ts:69-90` `getS3Credentials(destination)` interpolates the destination's\r\n  `accessKey` + `secretAccessKey` into the rclone command executed on the caller-controlled service's server.\r\n\r\n**The guard that exists elsewhere but is missing here - `backup.ts:463-469` (`listBackupFiles`):**\r\n```ts\r\nconst destination = await findDestinationById(input.destinationId);\r\nif (destination.organizationId !== ctx.session.activeOrganizationId) {\r\n  throw new TRPCError({ code: \"UNAUTHORIZED\", ... });\r\n}\r\n```\r\n\r\n## Reproduction (official image `dokploy/dokploy`, reports v0.29.8)\r\n\r\nTwo orgs on one instance; attacker = base **member** of Org A only (no membership in Org B).\r\n\r\n1. As owner active in **Org B**, create an S3 destination → note `destinationId_B` (in the PoC it carried a marker\r\n   secret `ORG2-VICTIM-SECRET-MARKER-…`).\r\n2. As owner active in **Org A**, create a postgres/compose service and grant the member access to it (a normal\r\n   \"developer has access to one service\" grant).\r\n3. **As the member, active in Org A**, call `backup.create` with the Org-A service id and **Org B's** `destinationId`:\r\n   ```bash\r\n   curl -b member.txt -X POST http://HOST:3000/api/trpc/backup.create -H 'Content-Type: application/json' \\\r\n     --data '{\"json\":{\"schedule\":\"0 0 * * *\",\"enabled\":false,\"prefix\":\"/\",\"destinationId\":\"<destinationId_B>\",\r\n              \"keepLatestCount\":1,\"database\":\"<db>\",\"databaseType\":\"postgres\",\"backupType\":\"database\",\r\n              \"postgresId\":\"<A-service>\",\"metadata\":null}}'\r\n   # -> HTTP 200, {\"result\":{\"data\":{\"json\":null,...}}}  - accepted; NO check that the destination is in the caller's org\r\n   ```\r\n   The persisted `backup` row references `destinationId_B` whose `organizationId` is Org B (≠ the member's Org A)\r\n4. **Negative control** - the same member, same `destinationId_B`, sibling `listBackupFiles`:\r\n   ```bash\r\n   curl -b member.txt 'http://HOST:3000/api/trpc/backup.listBackupFiles?input=%7B%22json%22%3A%7B%22destinationId%22%3A%22<destinationId_B>%22%2C%22search%22%3A%22%22%7D%7D'\r\n   # -> HTTP 400, {\"error\":{\"json\":{\"message\":\"You don't have access to this destination.\", ...}}}\r\n   ```\r\n   `listBackupFiles` enforces the org check; `create` does not\r\n5. `restoreBackupWithLogs` (`:547-563`) and `update` (`:174`) take the same client `destinationId` through the same\r\n   `findDestinationById(...)` with no subsequent org check. When a backup/restore runs, `getS3Credentials(destination)`\r\n   materializes Org B's `accessKey`/`secretAccessKey` into the rclone command on the member's service host, and a\r\n   restore pulls Org B's backup objects into the member's database (cross-tenant data theft).\r\n\r\n## Impact\r\n\r\n1. **Cross-org S3 credential cross-use / exposure:** the victim org's secret access key is materialized in the rclone\r\n   command on the attacker's host, and the attacker pulls the victim's backup objects into their own database\r\n   (cross-tenant data theft).\r\n2. **Backup redirection/poisoning:** attach a victim destination to the attacker's backups (writing into the victim's\r\n   bucket), or redirect a service's backups.\r\n\r\n## Remediation\r\n\r\nAdd the `findDestinationById(destinationId).organizationId === ctx.session.activeOrganizationId` check (already present\r\nin `listBackupFiles`) to `create`, `update`, and `restoreBackupWithLogs`; do not return secret destination columns to\r\nbackup flows that don't require them.",
+    "ghsa_id": "GHSA-56qv-89fq-3h2q",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-56qv-89fq-3h2q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-56qv-89fq-3h2q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72737"
+      }
+    ],
+    "published_at": "2026-07-21T23:22:21Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Cross-organization IDOR in Dokploy backup destinations exposes another tenant's S3 credentials and backups",
+    "updated_at": "2026-08-10T17:46:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

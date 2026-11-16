@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-27590",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P"
+      }
+    },
+    "cwe_ids": [
+      "CWE-20"
+    ],
+    "description": "### Summary\n\nCaddy's FastCGI path splitting logic computes the split index on a lowercased copy of the request path and then uses that byte index to slice the original path. This is unsafe for Unicode because `strings.ToLower()` can change UTF-8 byte length for some characters. As a result, Caddy can derive an incorrect `SCRIPT_NAME`/`SCRIPT_FILENAME` and `PATH_INFO`, potentially causing a request that contains `.php` to execute a different on-disk file than intended (path confusion). In setups where an attacker can control file contents (e.g., upload features), this can lead to unintended PHP execution of non-.php files (potential RCE depending on deployment).\n\n### Details\n\nThe issue is in `github.com/caddyserver/caddy/modules/caddyhttp/fastcgi.Trasnport.splitPos()` (and the subsequent slicing in `buildEnv()`):\n\n```\nlowerPath := strings.ToLower(path)\nidx := strings.Index(lowerPath, strings.ToLower(split))\nreturn idx + len(split)\n```\n\nThe returned index is computed in the byte space of lowerPath, but `buildEnv()` applies it to the original path:\n\n- `docURI = path[:splitPos]`\n- `pathInfo = path[splitPos:]`\n- `scriptName = strings.TrimSuffix(path, fc.pathInfo)`\n- `scriptFilename = caddyhttp.SanitizedPathJoin(fc.documentRoot, fc.scriptName)`\n\nThis assumes `lowerPath` and `path` have identical byte lengths and identical byte offsets, which is not true for some Unicode case mappings. Certain characters expand when lowercased (UTF-8 byte length increases), shifting the computed index. This creates a mismatch where `.php` is found in the lowercased string at an offset that does not correspond to the same position in the original string, causing the split point to land later/earlier than intended.\n\n### PoC\n\nCreate a small Go program that reproduces Caddy's `splitPos()` behavior (compute the `.php` split point on a lowercased path, then use that byte index on the original path):\n\n1. Save this as `poc.go`:\n\n```go\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strings\"\n)\n\nfunc splitPos(path string, split string) int {\n\tlowerPath := strings.ToLower(path)\n\tidx := strings.Index(lowerPath, strings.ToLower(split))\n\tif idx < 0 {\n\t\treturn -1\n\t}\n\treturn idx + len(split)\n}\n\nfunc main() {\n\t// U+023A: Ⱥ (UTF-8: C8 BA). Lowercase is ⱥ (UTF-8: E2 B1 A5), longer in bytes.\n\tpath := \"/ȺȺȺȺshell.php.txt.php\"\n\tsplit := \".php\"\n\n\tpos := splitPos(path, split)\n\n\tfmt.Printf(\"orig bytes=%d\\n\", len(path))\n\tfmt.Printf(\"lower bytes=%d\\n\", len(strings.ToLower(path)))\n\tfmt.Printf(\"splitPos=%d\\n\", pos)\n\n\tfmt.Printf(\"orig[:pos]=%q\\n\", path[:pos])\n\tfmt.Printf(\"orig[pos:]=%q\\n\", path[pos:])\n\n\t// Expected split: right after the first \".php\" in the original string\n\twant := strings.Index(path, split) + len(split)\n\tfmt.Printf(\"expected splitPos=%d\\n\", want)\n\tfmt.Printf(\"expected orig[:]=%q\\n\", path[:want])\n}\n```\n\n2. Run it:\n\n```console\ngo run poc.go\n```\n\nOutput on my side:\n\n```\norig bytes=26\nlower bytes=30\nsplitPos=22\norig[:pos]=\"/ȺȺȺȺshell.php.txt\"\norig[pos:]=\".php\"\nexpected splitPos=18\nexpected orig[:]=\"/ȺȺȺȺshell.php\"\n```\n\nExpected split is right after the first `.php` (`/ȺȺȺȺshell.php`). Instead, the computed split lands later and cuts the original path after `shell.php.txt`, leaving `.php` as the remainder.\n\n### Impact\n\nSecurity boundary bypass/path confusion in script resolution.\nIn typical deployments, `.php` extension boundaries are relied on to decide what is executed by PHP. This bug can cause Caddy/FPM to execute a different file than intended by confusing `SCRIPT_NAME`/`SCRIPT_FILENAME`. If an attacker can place attacker-controlled content into a file that can be resolved as `SCRIPT_FILENAME` (common in web apps with uploads or writable directories), this can lead to unintended PHP execution of non-.php files and potentially remote code execution. Severity depends on deployment and presence of attacker-controlled file writes, but the primitive itself is remotely triggerable via crafted URLs.\n\nThis vulnerability was initially reported to FrankenPHP (https://github.com/php/frankenphp/security/advisories/GHSA-g966-83w7-6w38) by @AbdrrahimDahmani. The affected code has been copied/adapted from Caddy, which, according to research, is also affected.\n\nThe patch is a port of the FrankenPHP patch.",
+    "ghsa_id": "GHSA-5r3v-vc8m-m96g",
+    "html_url": "https://github.com/advisories/GHSA-5r3v-vc8m-m96g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5r3v-vc8m-m96g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27590"
+      }
+    ],
+    "published_at": "2026-02-24T20:39:08Z",
+    "references": [
+      "https://github.com/caddyserver/caddy/security/advisories/GHSA-5r3v-vc8m-m96g",
+      "https://github.com/php/frankenphp/security/advisories/GHSA-g966-83w7-6w38",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-27590",
+      "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+      "https://pkg.go.dev/vuln/GO-2026-4536",
+      "https://github.com/advisories/GHSA-5r3v-vc8m-m96g"
+    ],
+    "severity": "high",
+    "summary": "Caddy: Unicode case-folding length expansion causes incorrect split_path index in FastCGI transport",
+    "updated_at": "2026-02-27T19:55:11Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.11.1",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/caddyserver/caddy/v2"
+        },
+        "vulnerable_version_range": "< 2.11.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-5r3v-vc8m-m96g",
+  "repo": {
+    "cve_id": "CVE-2026-27590",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "This vulnerability was initially reported to FrankenPHP (https://github.com/php/frankenphp/security/advisories/GHSA-g966-83w7-6w38) by @AbdrrahimDahmani. The affected code has been copied/adapted from Caddy, which, according to my research, is also affected.\r\n\r\nThe patch is a port of the FrankenPHP patch I wrote.\r\n\r\n### Summary\r\n\r\nCaddy's FastCGI path splitting logic computes the split index on a lowercased copy of the request path and then uses that byte index to slice the original path. This is unsafe for Unicode because `strings.ToLower()` can change UTF-8 byte length for some characters. As a result, Caddy can derive an incorrect `SCRIPT_NAME`/`SCRIPT_FILENAME` and `PATH_INFO`, potentially causing a request that contains `.php` to execute a different on-disk file than intended (path confusion). In setups where an attacker can control file contents (e.g., upload features), this can lead to unintended PHP execution of non-.php files (potential RCE depending on deployment).\r\n\r\n### Details\r\n\r\nThe issue is in `github.com/caddyserver/caddy/modules/caddyhttp/fastcgi.Trasnport.splitPos()` (and the subsequent slicing in `buildEnv()`):\r\n\r\n```\r\nlowerPath := strings.ToLower(path)\r\nidx := strings.Index(lowerPath, strings.ToLower(split))\r\nreturn idx + len(split)\r\n```\r\n\r\nThe returned index is computed in the byte space of lowerPath, but `buildEnv()` applies it to the original path:\r\n\r\n- `docURI = path[:splitPos]`\r\n- `pathInfo = path[splitPos:]`\r\n- `scriptName = strings.TrimSuffix(path, fc.pathInfo)`\r\n- `scriptFilename = caddyhttp.SanitizedPathJoin(fc.documentRoot, fc.scriptName)`\r\n\r\nThis assumes `lowerPath` and `path` have identical byte lengths and identical byte offsets, which is not true for some Unicode case mappings. Certain characters expand when lowercased (UTF-8 byte length increases), shifting the computed index. This creates a mismatch where `.php` is found in the lowercased string at an offset that does not correspond to the same position in the original string, causing the split point to land later/earlier than intended.\r\n\r\n### PoC\r\n\r\nCreate a small Go program that reproduces Caddy's `splitPos()` behavior (compute the `.php` split point on a lowercased path, then use that byte index on the original path):\r\n\r\n1. Save this as `poc.go`:\r\n\r\n```go\r\npackage main\r\n\r\nimport (\r\n\t\"fmt\"\r\n\t\"strings\"\r\n)\r\n\r\nfunc splitPos(path string, split string) int {\r\n\tlowerPath := strings.ToLower(path)\r\n\tidx := strings.Index(lowerPath, strings.ToLower(split))\r\n\tif idx < 0 {\r\n\t\treturn -1\r\n\t}\r\n\treturn idx + len(split)\r\n}\r\n\r\nfunc main() {\r\n\t// U+023A: Ⱥ (UTF-8: C8 BA). Lowercase is ⱥ (UTF-8: E2 B1 A5), longer in bytes.\r\n\tpath := \"/ȺȺȺȺshell.php.txt.php\"\r\n\tsplit := \".php\"\r\n\r\n\tpos := splitPos(path, split)\r\n\r\n\tfmt.Printf(\"orig bytes=%d\\n\", len(path))\r\n\tfmt.Printf(\"lower bytes=%d\\n\", len(strings.ToLower(path)))\r\n\tfmt.Printf(\"splitPos=%d\\n\", pos)\r\n\r\n\tfmt.Printf(\"orig[:pos]=%q\\n\", path[:pos])\r\n\tfmt.Printf(\"orig[pos:]=%q\\n\", path[pos:])\r\n\r\n\t// Expected split: right after the first \".php\" in the original string\r\n\twant := strings.Index(path, split) + len(split)\r\n\tfmt.Printf(\"expected splitPos=%d\\n\", want)\r\n\tfmt.Printf(\"expected orig[:]=%q\\n\", path[:want])\r\n}\r\n```\r\n\r\n2. Run it:\r\n\r\n```console\r\ngo run poc.go\r\n```\r\n\r\nOutput on my side:\r\n\r\n```\r\norig bytes=26\r\nlower bytes=30\r\nsplitPos=22\r\norig[:pos]=\"/ȺȺȺȺshell.php.txt\"\r\norig[pos:]=\".php\"\r\nexpected splitPos=18\r\nexpected orig[:]=\"/ȺȺȺȺshell.php\"\r\n```\r\n\r\nExpected split is right after the first `.php` (`/ȺȺȺȺshell.php`). Instead, the computed split lands later and cuts the original path after `shell.php.txt`, leaving `.php` as the remainder.\r\n\r\n### Impact\r\n\r\nSecurity boundary bypass/path confusion in script resolution.\r\nIn typical deployments, `.php` extension boundaries are relied on to decide what is executed by PHP. This bug can cause Caddy/FPM to execute a different file than intended by confusing `SCRIPT_NAME`/`SCRIPT_FILENAME`. If an attacker can place attacker-controlled content into a file that can be resolved as `SCRIPT_FILENAME` (common in web apps with uploads or writable directories), this can lead to unintended PHP execution of non-.php files and potentially remote code execution. Severity depends on deployment and presence of attacker-controlled file writes, but the primitive itself is remotely triggerable via crafted URLs.",
+    "ghsa_id": "GHSA-5r3v-vc8m-m96g",
+    "html_url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-5r3v-vc8m-m96g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5r3v-vc8m-m96g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27590"
+      }
+    ],
+    "published_at": "2026-02-23T04:22:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unicode case-folding length expansion causes incorrect split_path index (SCRIPT_NAME/PATH_INFO confusion) in FastCGI transport",
+    "updated_at": "2026-02-23T04:22:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/fastcgi"
+        },
+        "patched_versions": "v2.11.0",
+        "vulnerable_version_range": "< v2.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "caddyserver/caddy"
+}

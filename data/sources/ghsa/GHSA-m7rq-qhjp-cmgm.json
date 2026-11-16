@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-m7rq-qhjp-cmgm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-915"
+    ],
+    "description": "## What happened\r\n\r\n`user.update` lets a user edit their profile, but the update schema is `createSchema.partial()` (`db/schema/user.ts:235`), so every column on the user table is writable, and the router passes the input straight to `updateUser(ctx.user.id, input)` (`routers/user.ts:273`).\r\n\r\nConfirmed on dokploy.com: one request set `serversQuantity` to 999 on my own account (reverted afterwards). Fields that should be server-managed are client-writable, including:\r\n\r\n- `serversQuantity`: bypasses the plan limit on how many servers you can add\r\n- `expirationDate`: self-extend a trial/subscription\r\n- `banned`: self-unban\r\n- `enablePaidFeatures` / `enableEnterpriseFeatures`: flip feature flags\r\n- `emailVerified`, `stripeCustomerId`, `licenseKey`, `allowImpersonation`, ...\r\n\r\nThe `role` and `isValidEnterpriseLicense` fields are correctly omitted, so this is not a direct privilege escalation.\r\n\r\nThe `stripeCustomerId` field makes this more serious. It is the key used to resolve a user's billing identity:\r\n\r\n- `getCurrentPlanForUser` (`server/utils/billing.ts:48`) lists active Stripe subscriptions for `customer: stripeCustomerId` on every plan check. Set your account's `stripeCustomerId` to a paying customer's `cus_...`, and your organization resolves to their plan: unlimited servers, unlimited members, no payment.\r\n- Billing-portal sessions are created for that same customer ID, so a spoofed account gets a portal into the victim's Stripe customer: invoices, billing details, payment-method metadata, cancel/modify the subscription.\r\n- Stripe webhooks match users by `stripeCustomerId` (`pages/api/stripe/webhook.ts`), so subscription updates get credited to the wrong account.\r\n\r\nRequires knowing the victim's `cus_...` ID (leaks via invoices, emails, support threads). Still worth locking down: it converts a self-scoped field bug into cross-customer billing access.\r\n\r\n## How to reproduce\r\n\r\n```js\r\nfetch(\"/api/trpc/user.update?batch=1\", {\r\n  method: \"POST\", credentials: \"include\",\r\n  headers: { \"content-type\": \"application/json\" },\r\n  body: JSON.stringify({ \"0\": { \"json\": { \"serversQuantity\": 999 } } })\r\n})\r\n```\r\n\r\n## Suggested fix\r\n\r\nReplace `createSchema.partial()` with an explicit `.pick()` of the fields a user may edit (name, email, password, avatar, notification prefs, ...). This is the same pattern as the `project.update` issue reported separately (GHSA-h52x-gwf8-4h58); worth auditing every `*.partial()` update schema for columns that must be immutable.",
+    "ghsa_id": "GHSA-m7rq-qhjp-cmgm",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-m7rq-qhjp-cmgm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m7rq-qhjp-cmgm"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:42Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Users can overwrite server-managed fields on their own account via `user.update`",
+    "updated_at": "2026-11-12T08:15:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

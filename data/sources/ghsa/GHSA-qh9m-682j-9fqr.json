@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-qh9m-682j-9fqr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nAuthenticated OS command injection in the database backup and restore features, yielding arbitrary command execution as the Dokploy service account (root, for Docker) on the host and on connected remote servers. Present on the latest release (v0.29.8) and is a distinct sink from the 2026 command-injection advisories (appName / containerId / destinationPath / registryUrl / branch / traefik / schedule / container-logs) - the backup/restore command builders were never sanitized.\r\n\r\n**Disclosure timeline:** Reported privately to contact@dokploy.com on June 18, follow-up June 19 with full PoC, Discord contact attempt June 28. No response after 12+ days - opening this advisory to establish contact, per GitHub's notification system.\r\n\r\n## Severity\r\n\r\nCritical - CVSS:3.1 9.9 (AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H), consistent with prior command-injection CVEs (CVE-2026-24841 / 27130 / 45663).\r\n\r\nAffected: v0.29.8 and earlier (verified on v0.29.8 and canary HEAD 24b02f5).\r\n\r\n## Vulnerability Details (root cause)\r\n\r\n**Backup** - `packages/server/src/utils/backups/utils.ts`:\r\n- `getLibsqlBackupCommand` (L122): `... tar cf - -C /var/lib/sqld ${database} ...` (UNQUOTED)\r\n- `getMariadbBackupCommand` (L99): `... --databases ${database} ...` (UNQUOTED)\r\n- `getPostgres/Mysql/Mongo` (L92/107/114): `'${database}'` - single-quoted, but the whole string is embedded into a host bash script (`getBackupCommand` L253), where `$(...)` / backticks inside the outer double-quotes still expand on the HOST.\r\n- `getBackupCommand` embeds it as `${backupCommand}` into a script executed by `/bin/bash` via `execAsync` (`backups/postgres.ts:50`).\r\n\r\n**Restore** - `packages/server/src/utils/restore/libsql.ts:20-27` (and siblings):\r\n`rclone cat ... \":s3:${bucket}/${backupInput.backupFile}\"` → run via `execAsync`. No container guard here, so the payload fires unconditionally.\r\n\r\n**Input validation** - `packages/server/src/db/schema/backups.ts`:\r\n`database: z.string().min(1)` (L146); restore `backupFile`/`databaseName`: `z.string().min(1)` (L222-223). No shell escaping anywhere in `utils/backups/*` or `utils/restore/*`. `createBackup()` (`services/backup.ts`) inserts `{...input}` unmodified.\r\n\r\n**Execution sink** - `packages/server/src/utils/process/execAsync.ts:10`:\r\n`execAsync = util.promisify(child_process.exec)` → always runs via a shell. `execAsyncRemote` runs the same string through the remote SSH shell.\r\n\r\n**Authorization** - `apps/dokploy/server/api/routers/backup.ts`:\r\n`create/update/manualBackup*` are `protectedProcedure` (any authenticated user); the only gate is `checkServicePermissionAndAccess(ctx, serviceId, {backup:[\"create\"]})`, which a non-owner/non-admin member passes with the granted backup permission + service access. `manualBackup*` triggers execution immediately.\r\n\r\n## Steps to Reproduce (live instance)\r\n\r\nPrecondition: an account that is a member of an org with the `backup` permission on a libsql/postgres/mysql/mariadb/mongo database service that has a running container (the normal case). Reproduces equally as owner/admin.\r\n\r\n**A) Backup vector**\r\n1. Create (or own) a database service, e.g. a libsql DB.\r\n2. Call `backup.create` (tRPC) with, for that service: `database = $(id > /tmp/dokploy_rce_proof.txt)` (any valid destinationId/prefix/schedule)\r\n3. Call `backup.manualBackupLibsql { backupId }` (or wait for the schedule).\r\n4. Observe `/tmp/dokploy_rce_proof.txt` created on the Dokploy host (or, if the service has a serverId, on that remote server) containing the host user's id.\r\n\r\n**B) Restore vector**\r\n1. Call `backup.restoreBackupWithLogs` with: `databaseType=libsql, backupType=database, databaseName=<db>, backupFile = $(id > /tmp/dokploy_restore_proof.txt), destinationId=<valid>`\r\n2. Observe the marker created on the host.\r\n\r\nUse `; cmd`, `\"; cmd; \"`, or backticks for non-substitution payloads.\r\n\r\n## Supporting PoC (real code, host vs container)\r\n\r\nTo avoid touching any production infrastructure, I ran Dokploy's OWN on-disk builders. `poc.sh` reads `packages/server/src/utils/backups/utils.ts` at commit `24b02f5`, extracts the actual functions (`getPostgresBackupCommand` … `getBackupCommand`) verbatim - no reimplementation - calls `getBackupCommand()` with `database = $(echo \"HOST=$(hostname) USER=$(id -un)\" > marker)`, starts a REAL container labelled like a Dokploy service, and runs the produced script through `/bin/bash` exactly as `execAsync` does.\r\n\r\nResult:\r\ncontainer hostname : 38dab6b0c2cd\r\nmarker on HOST      : HOST=fedora USER=pereletun     <-- host, NOT the container\r\n\r\ni.e. the injected `$(...)` executes on the HOST, with the real backup container present and the container-lookup guard passed naturally. Confirmed for ALL five DB builders (single-quoted postgres/mysql/mongo included) and for the restore `backupFile` path:\r\npostgres '…' single-quoted   => HOST RCE     mariadb  --databases X => HOST RCE\r\nmysql    '…' single-quoted   => HOST RCE     mongo    '…'          => HOST RCE\r\nlibsql   tar … X (raw)        => HOST RCE     restore  backupFile   => HOST RCE\r\n\r\nLIVE end-to-end check: drove the REAL server code - actual tRPC procedures `backup.create` (real apiCreateBackup zod) and `backup.manualBackupLibsql` (real permission gate → runLibsqlBackup → execAsync) - against a real Postgres with the schema migrated from the repo. The server logged `Executing backup command: libsql database` with the injected `$(...)` and the marker was written with the HOST identity. Confirmed for BOTH an org **owner** and a plain non-admin **member**: the default static `memberRole` (`packages/server/src/lib/access-control.ts`) grants `backup: [read, create, update, delete, restore]`, so any member with access to a database service reaches host RCE (no enterprise license needed).\r\n\r\nPoC scripts (`poc.sh`, `poc_realcode.mjs`, `poc_all.mjs`, `poc_restore.mjs`, `live_exploit.mts`) available on request. Tested only on my own machine with a harmless payload (id / hostname into a marker file); no Dokploy user data or systems were accessed and no DoS was performed.\r\n\r\n## Impact\r\n\r\nArbitrary command execution as the Dokploy service account (root, via the Docker socket) on the control-plane host, and on any connected server (`execAsyncRemote` over SSH). Full compromise: theft of S3/registry/SSH credentials and env, lateral movement to all managed nodes, persistence. Privilege escalation from a delegated backup-manager role to platform root.\r\n\r\n## Remediation\r\n\r\n- Do not interpolate database/prefix/backupFile/databaseName (or the S3 destination fields) into shell strings. Pass them as argv to `execFile`/`spawn` without a shell, or quote via a vetted escaper (e.g. `shell-quote`).\r\n- Add strict validation: DB-identifier allowlist (`/^[A-Za-z0-9_-]+$/`) on `database`/`databaseName`; path-segment allowlist on `prefix`/`backupFile`.\r\n- Fix the whole class across `utils/backups/*` and `utils/restore/*` (every builder), not one field - prior fixes patched single fields and missed these.",
+    "ghsa_id": "GHSA-qh9m-682j-9fqr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qh9m-682j-9fqr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qh9m-682j-9fqr"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:57Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated OS command injection in database backup/restore → root RCE (v0.29.8)",
+    "updated_at": "2026-11-12T08:16:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

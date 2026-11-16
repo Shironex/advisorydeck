@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-3mh5-gqfm-phgj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "Immich's **Locked folder** (hidden vault) is the most-private asset class: `visibility: locked` assets are hidden from the timeline and require the OWNER's PIN (an elevated session) to view. The code intends Locked assets to stay hidden even from PARTNERS - `timeBucketChecks` blocks Locked when `withPartners` is set, and `getUserIdsToSearch` carries the comment \"Locked assets are personal. Never include partner IDs, regardless of A's elevated session.\"\r\n\r\nTwo endpoints break that boundary: both authorize the Locked case using only the CALLER's own elevated session plus a partner-broad access grant, never binding the target `userId` to the caller. A partner (any low-trust sharing relationship) with their OWN PIN can read another user's hidden-vault asset IDs, GPS coordinates, blur previews, timestamps, and counts. Runtime-verified end-to-end against `ghcr.io/immich-app/immich-server:release` (v3.0.3).\r\n\r\n## Finding 1 (High) - partner reads victim's Locked timeline\r\n`GET /api/timeline/bucket` and `GET /api/timeline/buckets` (`@Authenticated({permission: AssetRead, sharedLink:true})`) → `server/src/services/timeline.service.ts` `timeBucketChecks`:\r\n```\r\nif (dto.visibility === AssetVisibility.Locked) { requireElevatedPermission(auth); }   // caller's OWN session only\r\n...\r\nif (dto.userId) {\r\n  await this.requireAccess({ auth, permission: Permission.TimelineRead, ids: [dto.userId] }); // partner-broad\r\n  if (dto.visibility === AssetVisibility.Archive) {\r\n    await this.requireAccess({ auth, permission: Permission.ArchiveRead, ids: [dto.userId] }); // Archive self-binds\r\n  } // NO equivalent self-bind for Locked\r\n}\r\n```\r\n`requireElevatedPermission` (`utils/access.ts`) validates only `auth.session?.hasElevatedPermission` - the ATTACKER's PIN session, not the owner of the target assets. `Permission.TimelineRead` admits partners (`access.timeline.checkPartnerAccess`). The Archive branch adds `ArchiveRead` (which only ever returns `auth.user.id`, self-restricting to the caller); Locked has no such guard. The repository then binds only `ownerId = dto.userId`, and `withDefaultVisibility` (which would exclude Locked) is skipped because `visibility` is passed explicitly.\r\n\r\nImpact: cross-user disclosure of the victim's PIN-locked hidden-vault asset IDs, per-bucket counts, and metadata - GPS latitude/longitude, city, country, a thumbhash blur preview, timestamps, aspect ratio, favorite/trashed status, live-photo id. The full image itself is NOT reachable (partner AssetRead/AssetView correctly exclude Locked), so it is bounded to metadata + location + preview of the most sensitive asset class.\r\n\r\nRuntime proof (v3.0.3), Alice=attacker, Bob=victim, Bob added Alice as partner, Bob's photo in Locked vault, Alice elevated her OWN session:\r\n```\r\n# control (boundary is real):\r\nAlice(elevated) GET /timeline/buckets?userId=<random-non-partner>&visibility=locked  -> 400 (denied)\r\n# attack:\r\nAlice(elevated,partner) GET /timeline/buckets?userId=<BOB>&visibility=locked   -> 200 [{\"timeBucket\":\"2026-01-01\",\"count\":1}]\r\nAlice(elevated,partner) GET /timeline/bucket?userId=<BOB>&visibility=locked&timeBucket=2026-01-01&withCoordinates=true\r\n   -> 200 { id:[<BOB's LOCKED asset>], visibility:[\"locked\"], ownerId:[BOB], city/country/latitude/longitude/thumbhash/... }\r\n# ceiling (image not reachable):\r\nAlice GET /assets/<id> -> 400; /assets/<id>/thumbnail -> 400; /assets/<id>/original -> 404\r\n```\r\n\r\n## Finding 2 (Low, same root cause) - partner leaks victim's Locked count via search statistics\r\n`POST /api/search/statistics` (`@Authenticated({permission: AssetStatistics})`) → `server/src/services/search.service.ts` `searchStatistics` calls `getUserIdsToSearch(auth)` WITHOUT `dto.visibility`, unlike its four siblings (`searchMetadata`/`searchRandom`/`searchLargeAssets`/`searchSmart`) which all pass it. `getUserIdsToSearch` only short-circuits to self-only `[auth.user.id]` when `visibility === Locked`; because visibility is omitted it falls through to `[auth.user.id, ...partnerIds]`, while `dto.visibility=locked` still reaches the repository.\r\n```\r\nAlice POST /api/search/statistics {\"visibility\":\"locked\"}  -> 200 {\"total\":1}   (Alice owns 0; the 1 is BOB's locked asset)\r\n```\r\nThe DTO's date/city/camera filters make this a granular oracle over the hidden vault.\r\n\r\n## Suggested fix (single root cause)\r\nFor `visibility === Locked`, bind scope to the caller only: in `timeBucketChecks`, require `dto.userId === auth.user.id` for Locked (mirror the Archive/`ArchiveRead` self-bind) so `TimelineRead` (partner-broad) can never authorize a Locked read of another user's timeline; in `searchStatistics`, pass `dto.visibility` into `getUserIdsToSearch(auth, dto.visibility)` like the four siblings and add the `requireElevatedPermission` guard.\r\n\r\nFound via source review + runtime verification of `main` @ HEAD f2b0b69 (2026-07-20). Distinct from the published Immich advisories (album-name open-redirect, AssetShare add-owner-assets, shared-link password, OAuth hijack, etc.). Please credit \"cyberkareem\" (https://github.com/CyberKareem). Happy to help validate the fix.",
+    "ghsa_id": "GHSA-3mh5-gqfm-phgj",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-3mh5-gqfm-phgj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3mh5-gqfm-phgj"
+      }
+    ],
+    "published_at": "2026-10-19T12:53:19Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-user disclosure of a user's Locked (hidden-vault) assets to a partner via timeline-bucket and search-statistics endpoints",
+    "updated_at": "2026-10-19T12:53:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich (immich-app/immich) — server"
+        },
+        "patched_versions": "v3.1.0",
+        "vulnerable_version_range": "<= 3.0.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

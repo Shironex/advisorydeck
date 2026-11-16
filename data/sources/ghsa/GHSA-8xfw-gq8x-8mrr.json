@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-8xfw-gq8x-8mrr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nImmich's plugin/workflow system lets a plugin manifest declare `allowedHosts` - a list of hostname patterns restricting where its `httpRequest` capability can reach, intended as a sandboxing boundary. The check enforcing this is broken: it builds a regex from each pattern but never anchors it, so the match succeeds if the allowed hostname appears anywhere as a substring of the target, not just as an exact match. Any attacker-controlled domain that embeds the allowed hostname (e.g. `trusted-partner.example.com.attacker-controlled.net`) bypasses the restriction completely.\r\n\r\n\r\n### Details\r\nIn `server/src/services/workflow-execution.service.ts`, the `httpRequest` host function checks each `allowedHosts` pattern like this:\r\n\r\n```ts\r\nconst regex = new RegExp(pattern.replaceAll('.', String.raw`\\.`).replaceAll('*', '.*'));\r\nif (regex.test(hostname)) {\r\n  // request permitted\r\n}\r\n```\r\n\r\nThere are no `^`/`$` anchors. A pattern like `trusted-partner.example.com`, meant to restrict requests to that exact host, will also match `trusted-partner.example.com.attacker-controlled.net`, `nottrusted-partner.example.com`, or any string containing that substring. This defeats the entire purpose of `allowedHosts` as a security boundary - a plugin manifest can display a narrow, trustworthy-looking restriction while actually being able to reach arbitrary attacker-controlled infrastructure.\r\n\r\n### PoC\r\nReproduced in three layers, from isolated logic to full live GUI exploitation:\r\n\r\n**1. Isolated logic verification** (real Node.js, exact vulnerable code):\r\n**2. In-container live network test**: ran the identical check inside the running `immich_server` container against a real internal-only listener reachable via a lookalike domain. Result: `allowed: true`, followed by a successful `fetch()` (`status: 200`) reaching the internal target.\r\n\r\n**3. Full end-to-end GUI exploitation (primary evidence)**: Built and installed a real, compiled WASM plugin (`test-ssrf-plugin`) declaring method `restrictedPing` with `\"allowedHosts\": [\"trusted-partner.example.com\"]`. Created a workflow via Immich's Workflows UI (Trigger: `AssetCreate`; Step: `Restricted Ping`, `url: http://trusted-partner.example.com.attacker-controlled.net:8000/`). Uploaded a test photo through the ordinary Immich UI - no terminal access involved in the trigger itself. This fired the workflow, which called `httpRequest()`, which the broken check incorrectly approved. The internal listener's access log confirmed the request arrived:\r\n\r\nThe `POST` method matches the plugin's code (`functions.httpRequest(config.url, { method: 'POST' })`) exactly, confirming this was real workflow execution triggered by normal product usage.\r\n\r\n### Impact\r\nAny plugin declaring `allowedHosts` for sandboxing provides no real security boundary - the restriction is trivially bypassable by anyone who can register a domain containing the allowed hostname as a substring. This undermines the trust model an admin relies on when reviewing/installing a plugin claiming restricted network access. A malicious or compromised plugin can reach attacker-controlled infrastructure, internal-only services, or cloud metadata endpoints while displaying an innocuous, narrowly-scoped `allowedHosts` declaration.\r\n\r\n**Suggested remediation:** Anchor the regex and use safer wildcard semantics:\r\n```ts\r\nconst escaped = pattern.replaceAll('.', '\\\\.').replaceAll('*', '[^.]*');\r\nconst regex = new RegExp(`^${escaped}$`);\r\n```\r\nUsing `[^.]*` instead of `.*` for `*` also ensures a wildcard matches only a single hostname label, consistent with standard hostname-wildcard conventions.\r\n\r\n<img width=\"748\" height=\"223\" alt=\"ssrf_testing\" src=\"https://github.com/user-attachments/assets/db9783b8-2c5f-453c-84c2-55ce291d5d7e\" />\r\n\r\n<img width=\"440\" height=\"454\" alt=\"ssrf_testing_1\" src=\"https://github.com/user-attachments/assets/8f26acd8-3f76-40ad-a9f7-2a91cc907b1f\" />\r\n",
+    "ghsa_id": "GHSA-8xfw-gq8x-8mrr",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-8xfw-gq8x-8mrr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8xfw-gq8x-8mrr"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:27Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Unanchored Regex Allows Complete Bypass of Plugin allowedHosts SSRF Protection",
+    "updated_at": "2026-11-10T18:45:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@immich/server"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

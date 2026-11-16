@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-v549-87g2-g95q",
+  "aliases": [],
+  "title": "Credential-redaction fix leaves Docker-source passwords in application responses",
+  "summary": "## Summary\r\n\r\nA base member may read an assigned application's configuration. That access should not reveal the plaintext password used to pull from its private Docker registry.\r\n\r\nCommit `c968a275` removed passwords from the `registry`, `buildRegistry`, and `rollbackRegistry` relations returned to service readers. Applications using a direct Docker image store equivalent private-registry credentials in the application row itself.\r\n\r\n`findApplicationById()` still selects the top-level `username`, `password`, and `registryUrl` columns. `application.one` returns that object unchanged to any base member with read access to the service, although that role has no registry permission.\r\n\r\n## Details\r\n\r\n`application.saveDockerProvider` stores the Docker registry username and password directly on the application row. These fields are separate from the optional `registry`, `buildRegistry`, and `rollbackRegistry` relations.\r\n\r\n```ts\r\nsaveDockerProvider: protectedProcedure\r\n\t.input(apiSaveDockerProvider)\r\n\t.mutation(async ({ input, ctx }) => {\r\n\t\tawait checkServicePermissionAndAccess(ctx, input.applicationId, {\r\n\t\t\tservice: [\"create\"],\r\n\t\t});\r\n\t\tawait updateApplication(input.applicationId, {\r\n\t\t\tdockerImage: input.dockerImage,\r\n\t\t\tusername: input.username,\r\n\t\t\tpassword: input.password,\r\n\t\t\tsourceType: \"docker\",\r\n\t\t\tapplicationStatus: \"idle\",\r\n\t\t\tregistryUrl: input.registryUrl,\r\n\t\t});\r\n\t\t// ...\r\n\t}),\r\n```\r\n\r\n`findApplicationById()` does not specify a column allowlist for the application itself, so Drizzle selects every top-level application column, including `username`, `password`, and `registryUrl`. The password exclusions below apply only to the three nested registry relations.\r\n\r\n```ts\r\nexport const findApplicationById = async (applicationId: string) => {\r\n\tconst application = await db.query.applications.findFirst({\r\n\t\twhere: eq(applications.applicationId, applicationId),\r\n\t\twith: {\r\n\t\t\t// ...\r\n\t\t\tregistry: { columns: { password: false } },\r\n\t\t\tbuildRegistry: { columns: { password: false } },\r\n\t\t\trollbackRegistry: { columns: { password: false } },\r\n\t\t},\r\n\t});\r\n\t// ...\r\n\treturn application;\r\n};\r\n```\r\n\r\n`application.one` requires only read access to the assigned service and spreads that complete object into its response. The Docker settings form confirms that the returned `data.password` is sent to the browser and placed back into the password field.\r\n\r\n```ts\r\none: protectedProcedure\r\n\t.input(apiFindOneApplication)\r\n\t.query(async ({ input, ctx }) => {\r\n\t\tawait checkServiceAccess(ctx, input.applicationId, \"read\");\r\n\t\tconst application = await findApplicationById(input.applicationId);\r\n\t\t// ...\r\n\t\treturn {\r\n\t\t\t...application,\r\n\t\t\thasGitProviderAccess,\r\n\t\t\tunauthorizedProvider,\r\n\t\t};\r\n\t}),\r\n\r\nform.reset({\r\n\tdockerImage: data.dockerImage || \"\",\r\n\tpassword: data.password || \"\",\r\n\tusername: data.username || \"\",\r\n\tregistryURL: data.registryUrl || \"\",\r\n});\r\n```\r\n\r\n## Steps to reproduce\r\n\r\n1. Configure an application with Docker as its source, a private image, and registry credentials.\r\n2. Grant a base member read access to the application.\r\n3. As that member, send the authenticated GET request to `/api/trpc/application.one` shown below.\r\n\r\n```http\r\nGET /api/trpc/application.one?input={\"json\":{\"applicationId\":\"APPLICATION_ID\"}}\r\nCookie: better-auth.session_token=MEMBER_SESSION\r\n```\r\n\r\n4. The response includes the reusable credentials.\r\n\r\n```json\r\n{\r\n  \"sourceType\": \"docker\",\r\n  \"registryUrl\": \"registry.example.test\",\r\n  \"username\": \"registry-user\",\r\n  \"password\": \"PLAINTEXT-DOCKER-REGISTRY-PASSWORD\"\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nA service reader can reuse the credential outside Dokploy to pull private images, inspect proprietary code and embedded secrets, or push malicious image tags when the account has write access.\r\n\r\n## Recommendation\r\n\r\nExclude the top-level application `password` from `findApplicationById()` and all user-facing queries. Load it through a separate internal-only function during deployment, and make the edit form preserve an exist...",
+  "published_at": "2026-11-12T08:15:24.000Z",
+  "modified_at": "2026-11-12T08:15:24.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-v549-87g2-g95q",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v549-87g2-g95q",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-v549-87g2-g95q",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

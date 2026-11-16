@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-fx4f-j8fj-2q69",
+  "aliases": [],
+  "title": "Cross-organization IDOR across ~145 tRPC handlers via checkServicePermissionAndAccess / checkServiceAccess owner/admin bypass (CVE-2026-43917 missed siblings) + swarm topology",
+  "summary": "## Summary\n\nThe shared authorization helpers `checkServicePermissionAndAccess` and `checkServiceAccess` (`packages/server/src/services/permission.ts:242-289`), used by most service-router handlers, verify the caller's ROLE in the caller's OWN active organization and then check an `accessedServices` membership list ONLY for non-owner/non-admin roles. For `role === \"owner\" || \"admin\"` the access check is skipped entirely, and in NO branch is the target resource's `organizationId` ever compared to `ctx.session.activeOrganizationId`.\n\nBecause `organization.create` is a plain `protectedProcedure` (`organization.ts:17`), any authenticated user can self-create an organization and become its owner (PR:L). An owner of org A can therefore pass an org-B resource id (`applicationId`, `composeId`, `postgresId`, `domainId`, `serverId`, ...) to any helper-only handler and operate on the victim organization's resource.\n\nThis is a missed-sibling class of CVE-2026-43917 / GHSA-f8wj-5c4w-frhg. The fix-PR #4298 hardened `deployment.ts`, `rollbacks.ts`, `backup.ts`, `volume-backups.ts`, `cluster.ts`, `mount.ts:create` and 4 wss handlers with `find*ById(id).organizationId === activeOrganizationId` compares and recommended adding the check after every `find*ById()`. It did NOT touch any of the routers below, nor the shared helper. ~145 handlers across 14 routers remain reachable cross-organization by an owner-role attacker.\n\n## Root cause (v0.29.8, HEAD 1f4f94042f1d874349c42d8ae7fee51346cd086e)\n\n`permission.ts:242-259`:\n```ts\nexport const checkServicePermissionAndAccess = async (ctx, serviceId, permissions) => {\n  const memberRecord = await findMemberByUserId(ctx.user.id, ctx.session.activeOrganizationId); // caller's OWN org\n  await checkPermission(ctx, permissions);                          // role check in caller's OWN org\n  if (memberRecord.role !== \"owner\" && memberRecord.role !== \"admin\") {  // owner/admin SKIP\n    if (!memberRecord.accessedServices.includes(serviceId)) throw new TRPCError({ code: \"UNAUTHORIZED\" });\n  }\n  // serviceId's organizationId is NEVER resolved or compared to activeOrganizationId\n};\n```\n`checkServiceAccess` (`:261-289`) has the identical owner/admin skip and missing org compare.\n\n### Maintainer's own reference fix (proves helper-alone is insufficient) - mount.ts:177-199\n```ts\nlistByServiceId: protectedProcedure.input(...).query(async ({ input, ctx }) => {\n  await checkServiceAccess(ctx, input.serviceId, \"read\");\n  const organizationId = await getServiceOrganizationId(input.serviceId, input.serviceType);\n  if (organizationId === null || organizationId !== ctx.session.activeOrganizationId)\n    throw new TRPCError({ code: \"UNAUTHORIZED\", ... });\n  return await findMountsByApplicationId(input.serviceId, input.serviceType);\n});\n```\n`mount.ts` defines `getServiceOrganizationId()` (`:34-74`) for exactly this - yet only `listByServiceId` uses it.\n\n### Un-scoped sibling next to a scoped one - application.ts\n```ts\none: protectedProcedure (application.ts:141)              // SCOPED: application.environment.project.organizationId !== activeOrganizationId throws\nsaveEnvironment: protectedProcedure (application.ts:372)  // HELPER-ONLY, NO org compare: updateApplication(id, { env, buildArgs, buildSecrets })\n```\n\n## Census (v0.29.8) - helper-only handlers are owner-bypass cross-org reachable\n\n| Router | helper-only (UNCOVERED) | org-compared (safe) |\n|---|---|---|\n| application.ts | 25 (reload, stop, start, redeploy, saveEnvironment, saveBuildType, save{Github,Gitlab,Bitbucket,Gitea,Docker,Git}Provider, disconnectGitProvider, markRunning, update, refreshToken, deploy, cleanQueues, clearDeployments, killBuild, readTraefikConfig, dropDeployment, updateTraefikConfig, move, cancelDeployment) | 4 (create, one, delete, readLogs) |\n| compose.ts | 23 | 4 |\n| postgres.ts / mysql / mongo / mariadb / redis | 12 each (start, stop, saveExternalPort, deploy, deployWithLogs, changeStatus, saveEnvironment, reload, update, changePassword, move, reb...",
+  "published_at": "2026-11-12T08:17:09.000Z",
+  "modified_at": "2026-11-12T08:17:09.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fx4f-j8fj-2q69",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fx4f-j8fj-2q69",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fx4f-j8fj-2q69",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

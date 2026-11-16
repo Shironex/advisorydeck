@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-7f32-g5xc-mqr7",
+  "aliases": [],
+  "title": "Vault provider credential exfiltration: echoing the \"********\" mask restores the stored secret, which is then sent to a caller-controlled endpoint URL",
+  "summary": "### Summary\r\n\r\nA user holding a delegated `vaultProvider` role can exfiltrate the organization's external secret-store credential (HashiCorp Vault token, Infisical machine-identity client secret, Scaleway secret key) to a server they control.\r\n\r\nVault secrets are write-only by design: the read path replaces them with a mask. That mask is the **constant string `********`**, and the config merge restores the real stored secret whenever an incoming config carries it. The merge validates only that `providerType` is unchanged - it never validates the endpoint URL, which sits in the same object and is fully caller-controlled. Echo the mask, change the URL, and Dokploy sends the real credential to the attacker's host.\r\n\r\nIntroduced with the vault subsystem on 2026-08-10, first shipped in `v0.30.0`. Not covered by any existing advisory.\r\n\r\n### Details\r\n\r\n`packages/server/src/services/vault-provider.ts:16` - the mask is a constant:\r\n\r\n```ts\r\nexport const VAULT_SECRET_MASK = \"********\";\r\n```\r\n\r\n`:28-38` - every read stamps that same constant, so the caller learns it for free:\r\n\r\n```ts\r\nexport const maskVaultProviderConfig = (config) => {\r\n  const masked = { ...config };\r\n  for (const field of SENSITIVE_FIELDS[config.providerType]) {\r\n    if (masked[field]) masked[field] = VAULT_SECRET_MASK;\r\n  }\r\n  return masked;\r\n};\r\n```\r\n\r\n`:40-58` - the merge restores the real secret, validating only the provider type:\r\n\r\n```ts\r\nexport const mergeVaultProviderConfig = (incoming, existing) => {\r\n  const merged = { ...incoming };\r\n  for (const field of SENSITIVE_FIELDS[incoming.providerType]) {\r\n    if (merged[field] === VAULT_SECRET_MASK) {          // attacker-supplied sentinel\r\n      if (incoming.providerType !== existing.providerType) throw new TRPCError({...});\r\n      merged[field] = existing[field];                   // real stored secret\r\n    }\r\n  }\r\n  return merged;                                         // `url` came straight from `incoming`\r\n};\r\n```\r\n\r\nEvery provider schema carries a caller-settable destination (`packages/server/src/db/schema/vault-provider.ts`): hashicorp `url` (:18), infisical `siteUrl` (:26), aws `endpoint` (:39), azure `vaultUri` (:51), scaleway `apiUrl` (:62).\r\n\r\nThe sink has no egress restriction - `packages/server/src/utils/vault/types.ts:13-18`:\r\n\r\n```ts\r\nexport const vaultFetch = async (url: string, init: RequestInit = {}) =>\r\n  await fetch(url, { ...init, signal: AbortSignal.timeout(VAULT_REQUEST_TIMEOUT_MS) });\r\n```\r\n\r\nA grep for `isPrivate|localhost|allowlist|validateUrl|ssrf` under `utils/vault/` returns nothing. The credential goes straight into the outbound request - `utils/vault/hashicorp.ts:20-28, 79-89`:\r\n\r\n```ts\r\nconst buildHeaders = (config) => ({ \"X-Vault-Token\": config.token, ... });\r\n\r\nasync testConnection(config) {\r\n  const response = await vaultFetch(`${baseUrl(config)}/v1/auth/token/lookup-self`,\r\n    { headers: buildHeaders(config) });\r\n```\r\n\r\nInfisical is worse in shape - `utils/vault/infisical.ts:9-33` POSTs `clientSecret` in the request **body** to `${config.siteUrl}/api/v1/auth/universal-auth/login`.\r\n\r\n**Reachability.** `apps/dokploy/server/api/routers/vault-provider.ts:102-125` - `testConnection` is gated by `withPermission(\"vaultProvider\", \"create\")` and accepts both a `vaultProviderId` and a full `config`, taking the merge branch when `config` is supplied:\r\n\r\n```ts\r\nconfig = config ? mergeVaultProviderConfig(config, provider.config) : provider.config;\r\n```\r\n\r\n`update` (`:43-63`) performs the same merge and **persists** it, so the redirect survives: every later deploy resolving a `${{vault.NAME.ref}}` reference re-sends the credential (`utils/vault/index.ts:103-104`).\r\n\r\nOrganization scoping is correctly enforced (`findVaultProviderInOrganization`, `services/vault-provider.ts:146-158`) - this is an intra-organization role-boundary break, not cross-tenant.\r\n\r\n**Suggested fix.** Don't round-trip the secret through the client: if a sensitive field equals the mask, ignore it and load the stor...",
+  "published_at": "2026-11-12T08:16:02.000Z",
+  "modified_at": "2026-11-12T08:16:02.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-522",
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-7f32-g5xc-mqr7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7f32-g5xc-mqr7",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-7f32-g5xc-mqr7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

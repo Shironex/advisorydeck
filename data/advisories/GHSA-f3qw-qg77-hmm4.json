@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-f3qw-qg77-hmm4",
+  "aliases": [],
+  "title": "IDOR in Organization Import Allows Unauthorized Data Injection",
+  "summary": "Summary\r\nAn Insecure Direct Object Reference (IDOR) vulnerability in the organization import endpoint allows an authenticated member with \"Read-Only\" permissions to bypass authorization checks and inject unauthorized cipher entries into a restricted collection.\r\n\r\nDetails\r\nThe vulnerability originates from an incorrect authorization check during the organization import process. When the system verifies whether a user can assign imported ciphers to an existing collection, it evaluates the user's visibility (read access) of the collection rather than their writability (manage/write access). Consequently, a user with strictly read-only access successfully passes this validation boundary.\r\n\r\nFurthermore, because the import payload explicitly supplies a list of target collections, a subsequent authorization check intended to verify cipher-level write access is short-circuited. This logical misalignment allows the read-only user's payload to be fully processed, establishing unauthorized relations in the database and mounting new cipher entries into the restricted collection.\r\n\r\nPoC\r\nGeneral replication steps:\r\n\r\nAuthenticate as a standard organization member who is granted strictly \"Read-Only\" access to a specific collection.\r\n\r\nSubmit an HTTP POST request to the /api/ciphers/import-organization?organizationId=<ORG_UUID> endpoint.\r\n\r\nProvide a structured JSON payload containing the target read-only collection's UUID in the collections array, and map a newly defined cipher entry to this collection using the relationships array.\r\n\r\nObserve that the server accepts the payload with an HTTP 200 OK status, successfully mounting the unauthorized cipher into the read-only collection.\r\n\r\nImpact\r\nThis is an Improper Privilege Management flaw affecting multi-user organization vaults.\r\n\r\nNo existing vault data is exposed. However, because every confirmed member holds the organization key, the injected entries can be valid, readable items (for example a login item pointing to an attacker-controlled URL) that other members with access to the collection will see and may trust.\r\n\r\nThis flaw allows low-privileged accounts to inject unauthorized items into shared restricted collections. While these entries can be manually deleted by Organization Admins or Owners, the vulnerability leads to data pollution, UI clutter, and an unnecessary administrative burden to clean up the affected collections.\r\n\r\nPatches\r\nFixed in 1.37.0. Assigning imported items to an existing collection now requires write access to that collection, and the collection list supplied in the import no longer short-circuits the cipher-level write check.\r\n\r\n## Credits\r\n\r\nReported independently by the following researchers, in order of first report:\r\n\r\n1. @gigioneggiando (Luigi Colluto), 2026-07-08, as one item within a broader report, and again by email\r\n2. @GN998, 2026-07-19, the complete standalone analysis this advisory tracks\r\n3. @cipher-creator, Causal Security (https://causalsecurity.com/), by email\r\n\r\nOrdering is listed here because the credits field cannot record it.",
+  "published_at": "2026-10-03T20:04:17.000Z",
+  "modified_at": "2026-10-03T20:04:17.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-f3qw-qg77-hmm4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f3qw-qg77-hmm4",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-f3qw-qg77-hmm4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:70c87274b0f9de254e1c71b390c401ad2fc69cd4c9180d5c1a5e1ad99be62e80",
+  "note": null
+}

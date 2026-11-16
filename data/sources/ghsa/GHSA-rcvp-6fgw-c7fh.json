@@ -1,0 +1,104 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44563",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Ollama Model Access Control Bypass via /api/generate, /api/embed, /api/embeddings, and /api/show\n\n## Affected Component\n\nOllama proxy endpoints missing model access control:\n- `backend/open_webui/routers/ollama.py` (lines 955-995, `generate_completion`)\n- `backend/open_webui/routers/ollama.py` (lines 835-881, `embed`)\n- `backend/open_webui/routers/ollama.py` (lines 891-937, `embeddings`)\n- `backend/open_webui/routers/ollama.py` (lines 791-820, `show_model_info`)\n\n## Affected Versions\n\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with Ollama model access control support.\n\n## Description\n\nFour Ollama proxy endpoints accept any model name from the user and forward the request to the Ollama backend without checking whether the user is authorized to access that model. These endpoints only require `get_verified_user` (any authenticated non-pending user) and validate that the model exists in the full unfiltered model list, but never check `AccessGrants.has_access()`.\n\nThis is in direct contrast with the `/ollama/api/chat` endpoint (line 1101-1122) which correctly validates model access grants and returns 403 for unauthorized users:\n\n```python\n# /api/chat (line 1101-1122) - CORRECTLY checks access\nif not bypass_filter and user.role == 'user':\n    user_group_ids = {group.id for group in Groups.get_groups_by_member_id(user.id)}\n    if not (\n        user.id == model_info.user_id\n        or AccessGrants.has_access(\n            user_id=user.id, resource_type='model',\n            resource_id=model_info.id, permission='read',\n            user_group_ids=user_group_ids,\n        )\n    ):\n        raise HTTPException(status_code=403, detail='Model not found')\n\n# /api/generate (line 955-995) - NO access check at all\n# /api/embed (line 835-881) - NO access check at all\n# /api/embeddings (line 891-937) - NO access check at all\n# /api/show (line 791-820) - NO access check at all\n```\n\n## CVSS 3.1 Breakdown\n\n| Metric | Value | Rationale |\n|--------|-------|-----------|\n| Attack Vector | Network (N) | Exploited remotely via API calls |\n| Attack Complexity | Low (L) | Single API call with a known model name |\n| Privileges Required | Low (L) | Requires any authenticated user account |\n| User Interaction | None (N) | No victim interaction required |\n| Scope | Unchanged (U) | Impact within the Ollama model access boundary |\n| Confidentiality | Low (L) | `/api/show` exposes restricted model details including system prompts and parameters |\n| Integrity | None (N) | No data modification |\n| Availability | Low (L) | Unauthorized consumption of GPU/compute resources on restricted models |\n\n## Attack Scenario\n\n1. Admin configures model access control, restricting `llama3:70b` to the \"ML Engineers\" group. Regular user Alice is only authorized for `llama3:8b`.\n2. Alice knows the restricted model name (model names are predictable - `llama3:70b`, `mistral:latest`, etc.).\n3. Alice calls the unprotected endpoints directly:\n   ```bash\n   # Run completions on restricted model\n   curl -X POST /ollama/api/generate \\\n     -H \"Authorization: Bearer <alice_token>\" \\\n     -d '{\"model\": \"llama3:70b\", \"prompt\": \"...\"}'\n\n   # View restricted model details and system prompt\n   curl -X POST /ollama/api/show \\\n     -H \"Authorization: Bearer <alice_token>\" \\\n     -d '{\"model\": \"llama3:70b\"}'\n\n   # Generate embeddings with restricted model\n   curl -X POST /ollama/api/embed \\\n     -H \"Authorization: Bearer <alice_token>\" \\\n     -d '{\"model\": \"llama3:70b\", \"input\": \"...\"}'\n   ```\n4. All requests succeed and are proxied to Ollama without any access control check.\n\n## Impact\n\n- Model access control is silently ineffective for four out of five Ollama proxy endpoints\n- Unauthorized users can consume GPU/compute resources on restricted models (cost and capacity impact in multi-user deployments)\n- `/api/show` exposes restricted model configurations including system prompts, parameters, templates, and license information\n- Admins have a false sense of security - access restrictions appear to work via the main chat interface but are trivially bypassed via direct API calls\n\n## Preconditions\n\n- Ollama must be configured as a backend\n- Admin must have configured model access control (not using `BYPASS_MODEL_ACCESS_CONTROL=true`)\n- Attacker must know the restricted model name (model names follow predictable conventions)",
+    "ghsa_id": "GHSA-rcvp-6fgw-c7fh",
+    "html_url": "https://github.com/advisories/GHSA-rcvp-6fgw-c7fh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rcvp-6fgw-c7fh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44563"
+      }
+    ],
+    "published_at": "2026-05-08T19:52:42Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-rcvp-6fgw-c7fh",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44563",
+      "https://github.com/advisories/GHSA-rcvp-6fgw-c7fh"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI's Ollama Model Access Control Bypass via /api/generate, /api/embed, /api/embeddings, and /api/show",
+    "updated_at": "2026-05-15T23:53:15Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-rcvp-6fgw-c7fh",
+  "repo": {
+    "cve_id": "CVE-2026-44563",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Ollama Model Access Control Bypass via /api/generate, /api/embed, /api/embeddings, and /api/show\r\n\r\n## Affected Component\r\n\r\nOllama proxy endpoints missing model access control:\r\n- `backend/open_webui/routers/ollama.py` (lines 955-995, `generate_completion`)\r\n- `backend/open_webui/routers/ollama.py` (lines 835-881, `embed`)\r\n- `backend/open_webui/routers/ollama.py` (lines 891-937, `embeddings`)\r\n- `backend/open_webui/routers/ollama.py` (lines 791-820, `show_model_info`)\r\n\r\n## Affected Versions\r\n\r\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with Ollama model access control support.\r\n\r\n## Description\r\n\r\nFour Ollama proxy endpoints accept any model name from the user and forward the request to the Ollama backend without checking whether the user is authorized to access that model. These endpoints only require `get_verified_user` (any authenticated non-pending user) and validate that the model exists in the full unfiltered model list, but never check `AccessGrants.has_access()`.\r\n\r\nThis is in direct contrast with the `/ollama/api/chat` endpoint (line 1101-1122) which correctly validates model access grants and returns 403 for unauthorized users:\r\n\r\n```python\r\n# /api/chat (line 1101-1122) - CORRECTLY checks access\r\nif not bypass_filter and user.role == 'user':\r\n    user_group_ids = {group.id for group in Groups.get_groups_by_member_id(user.id)}\r\n    if not (\r\n        user.id == model_info.user_id\r\n        or AccessGrants.has_access(\r\n            user_id=user.id, resource_type='model',\r\n            resource_id=model_info.id, permission='read',\r\n            user_group_ids=user_group_ids,\r\n        )\r\n    ):\r\n        raise HTTPException(status_code=403, detail='Model not found')\r\n\r\n# /api/generate (line 955-995) - NO access check at all\r\n# /api/embed (line 835-881) - NO access check at all\r\n# /api/embeddings (line 891-937) - NO access check at all\r\n# /api/show (line 791-820) - NO access check at all\r\n```\r\n\r\n## CVSS 3.1 Breakdown\r\n\r\n| Metric | Value | Rationale |\r\n|--------|-------|-----------|\r\n| Attack Vector | Network (N) | Exploited remotely via API calls |\r\n| Attack Complexity | Low (L) | Single API call with a known model name |\r\n| Privileges Required | Low (L) | Requires any authenticated user account |\r\n| User Interaction | None (N) | No victim interaction required |\r\n| Scope | Unchanged (U) | Impact within the Ollama model access boundary |\r\n| Confidentiality | Low (L) | `/api/show` exposes restricted model details including system prompts and parameters |\r\n| Integrity | None (N) | No data modification |\r\n| Availability | Low (L) | Unauthorized consumption of GPU/compute resources on restricted models |\r\n\r\n## Attack Scenario\r\n\r\n1. Admin configures model access control, restricting `llama3:70b` to the \"ML Engineers\" group. Regular user Alice is only authorized for `llama3:8b`.\r\n2. Alice knows the restricted model name (model names are predictable - `llama3:70b`, `mistral:latest`, etc.).\r\n3. Alice calls the unprotected endpoints directly:\r\n   ```bash\r\n   # Run completions on restricted model\r\n   curl -X POST /ollama/api/generate \\\r\n     -H \"Authorization: Bearer <alice_token>\" \\\r\n     -d '{\"model\": \"llama3:70b\", \"prompt\": \"...\"}'\r\n\r\n   # View restricted model details and system prompt\r\n   curl -X POST /ollama/api/show \\\r\n     -H \"Authorization: Bearer <alice_token>\" \\\r\n     -d '{\"model\": \"llama3:70b\"}'\r\n\r\n   # Generate embeddings with restricted model\r\n   curl -X POST /ollama/api/embed \\\r\n     -H \"Authorization: Bearer <alice_token>\" \\\r\n     -d '{\"model\": \"llama3:70b\", \"input\": \"...\"}'\r\n   ```\r\n4. All requests succeed and are proxied to Ollama without any access control check.\r\n\r\n## Impact\r\n\r\n- Model access control is silently ineffective for four out of five Ollama proxy endpoints\r\n- Unauthorized users can consume GPU/compute resources on restricted models (cost and capacity impact in multi-user deployments)\r\n- `/api/show` exposes restricted model configurations including system prompts, parameters, templates, and license information\r\n- Admins have a false sense of security - access restrictions appear to work via the main chat interface but are trivially bypassed via direct API calls\r\n\r\n## Preconditions\r\n\r\n- Ollama must be configured as a backend\r\n- Admin must have configured model access control (not using `BYPASS_MODEL_ACCESS_CONTROL=true`)\r\n- Attacker must know the restricted model name (model names follow predictable conventions)",
+    "ghsa_id": "GHSA-rcvp-6fgw-c7fh",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-rcvp-6fgw-c7fh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rcvp-6fgw-c7fh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44563"
+      }
+    ],
+    "published_at": "2026-05-05T11:19:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Ollama Model Access Control Bypass via /api/generate, /api/embed, /api/embeddings, and /api/show",
+    "updated_at": "2026-05-07T15:08:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

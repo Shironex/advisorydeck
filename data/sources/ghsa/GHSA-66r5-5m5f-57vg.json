@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-66r5-5m5f-57vg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\nThe Git-provider tRPC routers (`github.ts`, `gitlab.ts`, `bitbucket.ts`, `gitea.ts`) each expose a `one` query (and `getRepositories`/`getBranches`/`testConnection`) that loads a provider by a bare ID through `protectedProcedure`, which performs authentication ONLY and does NOT enforce organization scoping. The handler returns the full provider row including secrets: GitHub App private key, client secret, webhook secret; GitLab/Gitea OAuth secret + access/refresh tokens; Bitbucket API token.\n\nAny authenticated user - including one who self-registers and creates their own organization (`organization.create` is `protectedProcedure`, available to every authenticated user, making the caller an owner) - can pass another organization's provider ID and read that organization's Git-provider credentials. This crosses the tenant trust boundary and yields the secrets needed to clone/modify the victim org's source repositories (e.g. minting GitHub App installation tokens from the leaked private key).\n\nThis is a missed sibling of CVE-2026-43917 (GHSA-f8wj-5c4w-frhg, \"Cross-Organization IDOR: Multiple tRPC endpoints missing activeOrganizationId validation\"). That advisory enumerated deployment/rollbacks/backup/volume-backups/cluster/mount and recommended adding `organizationId !== activeOrganizationId` validation after every `find*ById()` call. The four Git-provider `one` handlers were not covered and remain unscoped at the latest release.\n\n## Affected (verified at latest, v0.29.8, commit 1f4f94042f1d874349c42d8ae7fee51346cd086e)\n- `apps/dokploy/server/api/routers/github.ts:25` `one` -> `findGithubById(input.githubId)` (no org check). Leaks `githubPrivateKey`, `githubClientSecret`, `githubWebhookSecret`, `githubInstallationId` (schema `packages/server/src/db/schema/github.ts:13-18`).\n- `apps/dokploy/server/api/routers/gitlab.ts:54` `one` -> `findGitlabById` leaks `secret`, `accessToken`, `refreshToken`.\n- `apps/dokploy/server/api/routers/bitbucket.ts:52` `one` -> `findBitbucketById` leaks `apiToken`.\n- `apps/dokploy/server/api/routers/gitea.ts:56` `one` -> `findGiteaById` leaks `clientSecret`, `accessToken`, `refreshToken`.\n\n## Root cause\n`protectedProcedure` (`apps/dokploy/server/api/trpc.ts:161-173`) only checks `ctx.session`/`ctx.user`; it never validates that an input resource ID belongs to `ctx.session.activeOrganizationId`. Each handler must enforce the org boundary manually. The list handler in each router (`githubProviders` etc.) DOES filter `provider.gitProvider.organizationId === ctx.session.activeOrganizationId` and strips secret fields - proving the pattern is known - but the `one` handlers omit it and return the raw secret-bearing row.\n\n## Checked-vs-unchecked sibling (github)\nVULNERABLE (github.ts:25-27):\n```ts\none: protectedProcedure.input(apiFindOneGithub).query(async ({ input }) => {\n  return await findGithubById(input.githubId);   // bare id, NO org check, raw row w/ secrets\n}),\n```\nCORRECT SIBLING (github.ts:47-63):\n```ts\nresult = result.filter((provider) =>\n  provider.gitProvider.organizationId === ctx.session.activeOrganizationId &&\n  accessibleIds.has(provider.gitProvider.gitProviderId));\n// ...then returns only { githubId, gitProvider } (no secret fields)\n```\n\n## Attack scenario\n1. Attacker registers and creates org A via `organization.create` (becomes owner).\n2. Attacker obtains org B's `githubId` (nanoid; visible in shared-deployment UIs/build logs or enumerable).\n3. `github.one({ githubId: \"<org-B-id>\" })` returns org B's `githubPrivateKey` + `githubClientSecret` + `githubWebhookSecret`.\n4. Attacker mints GitHub App installation tokens -> clones/modifies org B's private repos -> supply-chain compromise of org B's deployments.\n\n## Impact\nCross-tenant disclosure of Git-provider credentials enabling access to the victim org's source code. CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N (7.7 High).\n\n## Fix\nAfter each `find*ById(id)` in the `one`/`getRepositories`/`getBranches`/`testConnection` handlers, verify `provider.gitProvider.organizationId === ctx.session.activeOrganizationId` (throw UNAUTHORIZED otherwise) and strip secret columns from any row returned to the client - the exact pattern the `*Providers` list handlers already use.",
+    "ghsa_id": "GHSA-66r5-5m5f-57vg",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-66r5-5m5f-57vg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-66r5-5m5f-57vg"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:12Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-organization Git-provider secret disclosure (IDOR) via {github,gitlab,bitbucket,gitea}.one tRPC handlers",
+    "updated_at": "2026-11-12T08:17:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

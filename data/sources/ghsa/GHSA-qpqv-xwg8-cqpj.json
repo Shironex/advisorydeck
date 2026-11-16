@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qpqv-xwg8-cqpj",
+  "repo": {
+    "cve_id": "CVE-2026-109291",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "# Viewer session token theft via a script link in a shared chat's citation\r\n\r\n## Summary\r\nAny authenticated user can store a `javascript:` URL in the `embed_url` field of a chat citation and share that chat with another user. When the second user opens the shared chat and clicks the citation, the URL is passed straight to `window.open`, executing attacker script in the Open WebUI origin. The frontend never checks the URL scheme before opening it, so the attacker's script runs with the victim's session and can read `localStorage.token` and act as the victim.\r\n\r\n## Preconditions\r\nDefault configuration, fresh database, no special settings. The attacker is any authenticated user who can create and share a chat (no admin rights, no `workspace.*` permission). The victim is any user who opens the shared read-only chat (`/s/{share_id}`), expands the sources, and clicks the malicious citation. The `embed_url` value is set by editing the attacker's own chat through the normal chat update API, which stores the attacker-controlled citation structure.\r\n\r\n## Impact\r\nScript executes in the application origin as the victim, so the attacker can exfiltrate `localStorage.token` (the JWT used for every API call) and then act with the victim's permissions, including reading the victim's private chats. Exploitation requires the victim to click the citation in the shared chat. If the victim is an administrator, the account compromise extends to admin capabilities. Only the citation-embed click path is affected; citations whose `embed_url` is a normal http/https link are unaffected.\r\n\r\n## Fix\r\nFixed in 0.11.4 by PR #29701. The citation click handler now requires the `embed_url` to be an `http`/`https` URL (or protocol-relative) before it is opened or handed to the embed panel; any other value, including a `javascript:` URL, falls back to the citation modal, which renders the source safely. Upgrading to 0.11.4 fully resolves the issue with no further configuration.\r\n\r\n## Root cause\r\n`src/lib/components/chat/Messages/Citations.svelte` (`showSourceModal`) read `citations[index].source.embed_url` and, when the chat is read-only, called `window.open(embedUrl, '_blank')` directly. The value comes from the stored chat, which a user fully controls through the chat update API, and no URL-scheme validation stood between the stored value and the sink. The read-only `window.open` branch shipped from 0.6.33 onward, so every build from 0.6.33 through 0.11.3 carried the code.\r\n\r\n## Proof of concept\r\nThe reporter reproduced with two normal accounts on a default 0.11.3 instance: the attacker stored a citation with `embed_url` set to a `javascript:` payload that fetched `localStorage.token` to a listener, shared the chat with the victim, and on the victim clicking the citation the token was exfiltrated and then used to read a private victim chat that the attacker account could not access directly. Independently confirmed in Chromium that `window.open` with a `javascript:` URL and a `_blank` target runs in the opening page's origin and can read and send its `localStorage.token`. On 0.11.4 the guard rejects `javascript:` and `data:` values and admits only http, https and protocol-relative URLs to that path.\r\n\r\n## Credits\r\nReported by @zyakir13. Fix by @Classic298.",
+    "ghsa_id": "GHSA-qpqv-xwg8-cqpj",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-qpqv-xwg8-cqpj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qpqv-xwg8-cqpj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109291"
+      }
+    ],
+    "published_at": "2026-09-27T19:45:25Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Viewer session token theft via a script link in a shared chat's citation",
+    "updated_at": "2026-10-28T20:47:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.6.33, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

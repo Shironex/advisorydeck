@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-jxxj-gmpx-h5rj",
+  "repo": {
+    "cve_id": "CVE-2026-72877",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nThe `dockerImage` field is interpolated **unquoted** into shell commands in `buildRemoteDocker()`. The field is validated only with `z.string().optional()` - no shell-metacharacter restriction. An authenticated user with `application: create/update` permission can inject arbitrary shell commands via `$(...)` command substitution, achieving RCE on the build host (local or remote SSH).\r\n\r\n## Affected versions\r\n\r\nv0.29.8 (canary, commit 24b02f552)\r\n\r\n## Vulnerable code\r\n\r\nFile: `packages/server/src/utils/providers/docker.ts:11-31`\r\n\r\n    let command = `\r\n    echo \"Pulling ${dockerImage}\";\t\t\r\n    `;\r\n    // line 12 - injection in double-quoted echo\r\n\r\n    command += `\r\n    docker pull ${dockerImage} 2>&1 || { \r\n      echo \"❌ Pulling image failed\";\r\n      exit 1;\r\n    }\r\n    `;\r\n    // line 25 - injection in docker pull command\r\n\r\nSchema: `packages/server/src/db/schema/application.ts:151,318`\r\n\r\n    dockerImage: z.string().optional(),  // no regex\r\n\r\nCalled from: `packages/server/src/services/application.ts:199-200`\r\n\r\n    } else if (application.sourceType === \"docker\") {\r\n        command += await buildRemoteDocker(application);\r\n    }\r\n\r\n## PoC\r\n\r\n**Prerequisites**: Authenticated user with `application: create/update` permission.\r\n\r\nStep 1 - Save malicious dockerImage via `application.saveDockerProvider`:\r\n\r\n    dockerImage: \"alpine$(id > /tmp/rce-proof.txt)\"\r\n\r\nStep 2 - Deploy via `application.deploy`.\r\n\r\nThe server executes:\r\n\r\n    echo \"Pulling alpine$(id > /tmp/rce-proof.txt)\";\r\n    docker pull alpine$(id > /tmp/rce-proof.txt) 2>&1 || { ... }\r\n\r\nThe `$(...)` is expanded by the shell **before** `docker pull` runs, executing `id` on the build host. The expansion produces empty output, so `docker pull alpine` succeeds and the deployment appears successful (stealth).\r\n\r\n## Impact\r\n\r\n- **Remote Code Execution** as the Dokploy process user (typically `root` in self-hosted deployments, or a user with `docker` group access)\r\n- **Full host compromise** via Docker socket access → container escape → root on host\r\n- **Cross-project data theft**: access to environment variables, secrets, SSH keys, and application data of all projects on the same instance\r\n- **Lateral movement**: in remote server deployments, the RCE executes on the remote SSH target via `execAsyncRemote`\r\n- **Stealth**: the `$(...)` expansion produces empty output, so `docker pull` succeeds and the deployment appears successful\r\n\r\n## Remediation\r\n\r\nA fix PR has been submitted:\r\nhttps://github.com/gsmatheus/dokploy/tree/security/fix-command-injection-docker-image\r\n\r\nAdds `VALID_DOCKER_IMAGE_REGEX` validation (`packages/server/src/utils/docker-image-validation.ts`) following the same pattern as the existing `VALID_BRANCH_REGEX`. The regex accepts standard Docker image references (e.g. `alpine`, `ghcr.io/owner/repo:v1.0.0`, `registry.example.com:5000/namespace/image`, `image@sha256:...`) while rejecting shell metacharacters (`$`, backticks, `;`, `|`, `&`, `<>`, spaces, etc.).\r\n\r\nThe validation is applied at the Zod schema layer in `apiSaveDockerProvider`:\r\n\r\n    .extend({\r\n        dockerImage: z\r\n            .string()\r\n            .min(1)\r\n            .refine(VALID_DOCKER_IMAGE_REGEX, \"Invalid Docker image\"),\r\n    })",
+    "ghsa_id": "GHSA-jxxj-gmpx-h5rj",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jxxj-gmpx-h5rj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jxxj-gmpx-h5rj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72877"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:07Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command Injection via dockerImage in buildRemoteDocker",
+    "updated_at": "2026-08-10T19:01:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "v0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

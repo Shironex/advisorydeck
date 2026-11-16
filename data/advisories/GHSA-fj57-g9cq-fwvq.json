@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-fj57-g9cq-fwvq",
+  "aliases": [],
+  "title": "Incomplete Fix: Cross-Organization GitHub Provider Reassignment Exposes Stored Credentials",
+  "summary": "## Summary\n\nDokploy v0.30.2 added organization/access checks to the GitHub-provider read route, but the sibling `github.update` mutation does not authorize either caller-controlled identifier. An authenticated administrator in Organization A can supply Organization B's `gitProviderId` and `githubId`. The mutation updates the victim parent provider by global ID and sets its `organizationId` to the attacker's active organization, while the credential-bearing GitHub row remains attached to that parent.\n\nAfter this reassignment, the existing guarded `github.one` route treats the victim provider as belonging to Organization A and returns the stored GitHub client secret, private key, installation ID, and webhook secret to the attacker. The victim simultaneously loses access to the provider.\n\nI reproduced the full HTTP state transition against the published `dokploy/dokploy:v0.30.2` image. Before the mutation, the victim read returned HTTP 200 and the attacker's read returned HTTP 404. The attacker's cross-organization update returned HTTP 200. Afterward, the attacker read returned HTTP 200 with all synthetic victim credentials, while the victim read returned HTTP 404.\n\n## Security impact\n\nThis is a cross-organization provider takeover and credential disclosure. Exposure of a real GitHub App private key, client secret, webhook secret, and installation identifier can allow an attacker to obtain installation tokens subject to the app's configured permissions, access private repositories, modify repository content, or interfere with CI/CD workflows. The exact downstream impact depends on the victim GitHub App's permissions and installation scope; I did not access an external GitHub account during testing.\n\nThe Dokploy-side integrity and availability impact is direct: the victim provider record is moved into the attacker's organization and becomes inaccessible to the victim through the guarded route.\n\nThe attacker must be authenticated with `gitProviders:create` in another organization and know both victim IDs. Owners/admins in their own organization satisfy the permission precondition. The report does not claim brute-force enumeration of high-entropy IDs. A realistic acquisition path is prior legitimate service/application access that discloses the connected provider subtype ID and parent `gitProviderId`, followed by removal from the victim organization or a switch to an attacker-controlled organization.\n\nSuggested severity: **High**\n\nSuggested CVSS v3.1: `CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:L` (8.4)\n\nSuggested weaknesses: `CWE-639` (Authorization Bypass Through User-Controlled Key), `CWE-862` (Missing Authorization), `CWE-200` (Exposure of Sensitive Information)\n\n## Affected build\n\n- Published image: `dokploy/dokploy:v0.30.2`\n- Image digest: `sha256:98d9471d6152b3fdb2ecd1124b180ec0cb525586ed4186580069fdd3e8f9f482`\n- Source checkout: canary commit `532de2c59e4d9be13b0c4db2d7cb7f2da9a3cd48`, package version `v0.30.2`\n- Exact introduction point: not determined\n- Patched version: none known at the time of reporting\n\n## Root cause\n\nThe `github.one` route correctly resolves the provider and calls `assertGitProviderAccess`:\n\n```typescript\none: protectedProcedure\n\t.input(apiFindOneGithub)\n\t.query(async ({ input, ctx }) => {\n\t\tconst github = await findGithubById(input.githubId);\n\t\tawait assertGitProviderAccess(ctx.session, github.gitProvider);\n\t\treturn github;\n\t}),\n```\n\nHowever, `apps/dokploy/server/api/routers/github.ts` protects `github.update` only with a general permission evaluated in the active organization. It does not load or authorize either target ID before writing:\n\n```typescript\nupdate: withPermission(\"gitProviders\", \"create\")\n\t.input(apiUpdateGithub)\n\t.mutation(async ({ input, ctx }) => {\n\t\tawait updateGitProvider(input.gitProviderId, {\n\t\t\tname: input.name,\n\t\t\torganizationId: ctx.session.activeOrganizationId,\n\t\t});\n\n\t\tawait updateGithub(input.githubId, {\n\t\t\t...input,\n\t\t});\n\n\t\tawait audit(ctx, {\n\t\t\taction: \"update\",\n\t\t\tres...",
+  "published_at": "2026-11-12T08:15:55.000Z",
+  "modified_at": "2026-11-12T08:15:55.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.4,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-639",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fj57-g9cq-fwvq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fj57-g9cq-fwvq",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fj57-g9cq-fwvq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

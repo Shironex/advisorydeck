@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-5p7c-hggf-c748",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-772"
+    ],
+    "description": "### Impact\n\nA bug in containerd's CRI plugin on Linux can cause containerd to leak read-only mounts and pinned snapshots when restoring a container from a checkpoint image fails. Repeatedly creating containers from a checkpoint image with malformed metadata or a base image that cannot be pulled can exhaust the host mount table and disk space indefinitely. In Kubernetes, this resource exhaustion can prevent containerd and the kubelet from pulling images or starting new pods on the node.\n\n### Patches\n\nThis bug has been fixed in containerd 2.3.7 and 2.2.10. Users should update to these versions to resolve the issue. To release resources from mounts leaked prior to the update, administrators must unmount any lingering `/tmp/checkpoint*` mount points on the host (or reboot the node) so containerd can garbage-collect the pinned snapshots.\n\n### Workarounds\n\ncontainerd 2.4 does not support restore via the CRI plugin and is not vulnerable to this bug.\n\nIn containerd 2.3 and 2.2, disable CRI checkpoint and restore support by setting `enable_criu = false` under `[plugins.\"io.containerd.cri.v1.runtime\"]` (or `[plugins.\"io.containerd.grpc.v1.cri\"]` in config version 2) in containerd's configuration, or ensure `enable_experimental_restore_via_create` is set to `false` (the default starting in containerd 2.3.4 and 2.2.7). Restrict pod image references to trusted registries (for example, using a Kubernetes `ValidatingAdmissionPolicy` or admission webhook).\n\n### Credits\n\nThe containerd project would like to thank @IamwhatIamSY for responsibly disclosing this issue in accordance with the [containerd security policy](https://github.com/containerd/project/blob/main/SECURITY.md).\n\n### For more information\n\nIf you have any questions or comments about this advisory:\n\n* Open an issue in [containerd](https://github.com/containerd/containerd/issues/new/choose)\n* Email us at [security@containerd.io](mailto:security@containerd.io)\n\nTo report a security issue in containerd:\n* [Report a new vulnerability](https://github.com/containerd/containerd/security/advisories/new)\n* Email us at [security@containerd.io](mailto:security@containerd.io)\n\n",
+    "ghsa_id": "GHSA-5p7c-hggf-c748",
+    "html_url": "https://github.com/containerd/containerd/security/advisories/GHSA-5p7c-hggf-c748",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5p7c-hggf-c748"
+      }
+    ],
+    "published_at": "2026-10-13T22:48:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "containerd CRI plugin: mount and snapshot leak when container checkpoint restore fails",
+    "updated_at": "2026-10-13T22:48:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containerd/containerd/v2"
+        },
+        "patched_versions": "2.2.10, 2.3.7",
+        "vulnerable_version_range": ">= 2.2.0, < 2.2.10, >= 2.3.0, < 2.3.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "containerd/containerd"
+}

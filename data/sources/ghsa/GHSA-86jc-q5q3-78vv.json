@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-86jc-q5q3-78vv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nThe fix for CVE-2026-72864 (GHSA-899j-cjwp-v4gw, v0.29.13) added a `serviceId` authorization path to `/docker-container-terminal`: when `serviceId` is present, the endpoint checks read access on that service and returns true. It never correlates the target `containerId` with the granted service. A member holding read access to a single service opens an interactive root shell (`docker exec -it ... sh`) in any container of the organization, including database containers of services they cannot access.\r\n\r\n### Details\r\n\r\n`apps/dokploy/server/wss/authorize.ts:39-46`:\r\n\r\n```ts\r\nif (serviceId) {\r\n    try {\r\n        await checkServiceAccess(ctx, serviceId, \"read\");\r\n        return true;   // no check binds containerId to the granted service\r\n    } catch { return false; }\r\n}\r\n```\r\n\r\n`apps/dokploy/server/wss/docker-container-terminal.ts:33-36`: `containerId` and `serviceId` are independent query-string parameters. The remaining org check applies to `serverId` only (lines 70-75); the attacker stays in the same org anyway. `containerId`/`shell` pass charset validation (blocks injection, the CVE-2026-24841 class) but nothing validates **ownership**.\r\n\r\nSame gap in `docker-container-logs.ts` (logs of any container) and `docker-stats.ts`.\r\n\r\n### PoC\r\n\r\nVerified on a live v0.30.0 instance. Attacker: member with accessedServices = [one nginx compose service]; no access to the victim database service.\r\n\r\n```js\r\nconst ws = new WebSocket(\r\n  `wss://<host>/docker-container-terminal?containerId=<victim postgres containerId>&activeWay=sh&serviceId=<granted gate serviceId>`\r\n);\r\nws.binaryType = \"arraybuffer\";\r\nws.onopen = () => setTimeout(() => ws.send('whoami; hostname\\n'), 2000);\r\nws.onmessage = (e) => console.log(typeof e.data === \"string\" ? e.data : new TextDecoder().decode(e.data));\r\n```\r\n\r\n(The 2-second delay waits for the PTY to attach; input sent too early is dropped.)\r\n\r\nOutput received by the attacker:\r\n\r\n![terminal exploit output](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/image.png)\r\n\r\n`whoami` returns **root** and the hostname matches the victim container ID - an interactive root shell inside the database container of an unauthorized service. The current user has no permission on the victim container yet executes commands in it.\r\n\r\nUI context - the attacker's granted service and its legitimate terminal dialog:\r\n\r\n![attacker gate containers](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/vuln07-01-attacker-gate-containers-context.jpeg)\r\n\r\n### Impact\r\n\r\nIn a multi-member org, any member with read access to one service gets root shells on every container in the org: other projects' databases, internal apps. Read/modify data, plant backdoors, harvest DB credentials; restart policies make access persistent. Does not cross organizations (serverId org check holds) - the blast radius is the org's whole container estate. This is the same member-to-root-in-arbitrary-containers class accepted as Critical 9.9 for CVE-2026-72864; the fix closed the unauthenticated local branch but the serviceId path still bypasses scoping.\r\n\r\n### Affected versions\r\n\r\nv0.29.13 through v0.30.0 (introduced by the CVE-2026-72864 fix).\r\n\r\n### Remediation\r\n\r\nWhen serviceId is present, resolve the target container to its owning service (match `com.docker.compose.project` / swarm service name against the serviceId's appName) and reject mismatches. Or drop the serviceId path entirely and require docker:read plus getAccessibleServerIds for every terminal connection. Apply the same to docker-container-logs and docker-stats.\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H (8.8 High; S:C in multi-tenant) - CWE-862.",
+    "ghsa_id": "GHSA-86jc-q5q3-78vv",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-86jc-q5q3-78vv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-86jc-q5q3-78vv"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:10Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "docker-container-terminal serviceId gate not bound to containerId (incomplete fix of CVE-2026-72864) - member with one service opens root shell in any org container",
+    "updated_at": "2026-11-12T08:16:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.0",
+        "vulnerable_version_range": "< 0.31.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-j4h6-55cr-j72v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-116",
+      "CWE-79",
+      "CWE-80"
+    ],
+    "description": "## Description\r\n\r\n### Summary\r\n\r\nThe enterprise \"whitelabeling\" feature stores an operator-supplied `customCss` string and injects it verbatim into a `<style>` element via React `dangerouslySetInnerHTML`, with **no sanitization**. A `</style>` sequence in `customCss` closes the style element and allows arbitrary HTML/JS to follow (e.g. `</style><img src=x onerror=alert(document.domain)>`), yielding stored cross-site scripting. Because the whitelabeling config is served by the **public** `whitelabeling.getPublic` procedure and rendered on every page - including the unauthenticated login page - the payload executes in the browser of every visitor and user.\r\n\r\n**Important scope / severity caveat (validated):** both the write and the read of `customCss` are **enterprise-license-gated**. Setting it requires `whitelabeling.update` (an `enterpriseProcedure`), and the public render path (`getPublicWhitelabelingConfig`) returns `null` unless `hasAnyValidLicense()` is true. On an instance without a valid enterprise license this feature is inert and the vulnerability is **not exploitable** - so it primarily affects enterprise-licensed deployments, and the actor is a licensed instance owner/admin. This was fixed in the canary branch after v0.30.5.\r\n\r\n### Details\r\n\r\nSink - `apps/dokploy/components/proprietary/whitelabeling/whitelabeling-provider.tsx:29-33`:\r\n\r\n```tsx\r\n{config?.customCss && (\r\n    <style\r\n        dangerouslySetInnerHTML={{\r\n            __html: config.customCss,          // no sanitization / no </style> escaping\r\n        }}\r\n    />\r\n)}\r\n```\r\n\r\n`config` comes from `whitelabeling.getPublic` (`apps/dokploy/server/api/routers/proprietary/whitelabeling.ts:90` - `publicProcedure`), rendered app-wide including the login page. A `customCss` value of `</style><img src=x onerror=alert(document.domain)>` renders as `<style></style><img src=x onerror=alert(document.domain)>`, and the `img` `onerror` executes. The live Content-Security-Policy is only `frame-ancestors 'none'` (no `script-src`), so inline event-handler script executes.\r\n\r\n**License gating (both paths):**\r\n\r\n- Write - `apps/dokploy/server/api/routers/proprietary/whitelabeling.ts:29`: `update: enterpriseProcedure` → without a license returns `403 \"Valid enterprise license required\"`.\r\n- Read - `packages/server/src/services/proprietary/whitelabeling.ts` `getPublicWhitelabelingConfig()`:\r\n\r\n```ts\r\nexport const getPublicWhitelabelingConfig = async () => {\r\n    if (IS_CLOUD) return null;\r\n    if (!(await hasAnyValidLicense())) return null;      // <-- render path gated on license\r\n    const settings = await getWebServerSettings();\r\n    const config = settings?.whitelabelingConfig;\r\n    if (!config) return null;\r\n    return { ..., customCss: config.customCss, ... };\r\n};\r\n```\r\n\r\n**Upstream fix (patch-gap):** commit `6282b6ef3` (\"fix: resolve security vulnerabilities in whitelabeling\"), landed on canary **after** the v0.30.5 release, adds `customCss.replace(/<\\/style>/gi, \"\")` (and removes an SSR favicon SSRF). v0.30.5 does not contain this fix.\r\n\r\n### PoC\r\n\r\nConfirmed on `dokploy/dokploy:v0.30.5` (git f67fab0), http://localhost:3000. This lab has **no enterprise license**, which - as shown below - makes the vulnerability non-exploitable here; on a licensed instance the same `customCss` value executes.\r\n\r\n**Payload (the stored XSS):**\r\n\r\n```\r\n</style><img src=x onerror=alert(document.domain)>\r\n```\r\n\r\nOn a licensed instance an owner/admin sets it via the whitelabeling settings UI / API:\r\n\r\n```\r\nPOST /api/whitelabeling.update\r\n{\"customCss\":\"</style><img src=x onerror=alert(document.domain)>\"}\r\n```\r\n\r\nand it then renders (unsanitized) on every page served, including the unauthenticated login page, executing `alert(document.domain)` in each visitor's browser.\r\n\r\n**Live gating validation on this (unlicensed) instance - proving why a live popup is not demonstrable here:**\r\n\r\n1) Owner attempts the write:\r\n\r\n```bash\r\ncurl -sS -i 'http://localhost:3000/api/whitelabeling.update' \\\r\n  -H 'Cookie: better-auth.session_token=S1wlso5rd7seaDk1teiI7SUYDuFkqw0O.86wRrVcfNWxC3qhNHbLSrijWiV3ggRKcjnND0d7cM04%3D' \\\r\n  -H 'Content-Type: application/json' \\\r\n  --data '{\"customCss\":\"</style><img src=x onerror=alert(document.domain)>\"}'\r\n```\r\n```http\r\nHTTP/1.1 403 Forbidden\r\n\r\n{\"message\":\"Valid enterprise license required\",\"code\":\"FORBIDDEN\",\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"path\":\"whitelabeling.update\"}}\r\n```\r\n\r\n2) The public render path returns nothing without a license (even after planting `customCss` directly in the database):\r\n\r\n```bash\r\ncurl -sS 'http://localhost:3000/api/whitelabeling.getPublic'\r\n# -> {\"message\":\"Unauthorized\"}   (getPublicWhitelabelingConfig returns null: hasAnyValidLicense()=false)\r\n```\r\n\r\n<img width=\"1126\" height=\"730\" alt=\"gf2_xss_mechanism_demo\" src=\"https://github.com/user-attachments/assets/9b13234a-201b-471b-a0ec-c2da3c21ff7c\" />\r\n\r\nSo `customCss` cannot be stored and would not render on this instance. A genuine `alert()` popup therefore cannot be produced against this lab without a valid enterprise license (which was not forged). The payload's execution mechanism (the `</style>` breakout rendering through `dangerouslySetInnerHTML`) is what the upstream fix `6282b6ef3` neutralizes.\r\n\r\n**Remediation.** Sanitize/encode `customCss` before injecting it into the DOM - at minimum strip/escape `</style>` (as the canary fix does), and preferably render operator CSS through a mechanism that cannot introduce markup, plus a `script-src`-restricting CSP. Apply on v0.30.5.\r\n\r\n### Impact\r\n\r\nThis is a **stored cross-site scripting** (CWE-79) in the enterprise whitelabeling feature. On an enterprise-licensed instance, a user able to set whitelabeling (owner/admin) can store JavaScript that executes in the browser of every visitor and user - including on the unauthenticated login page - enabling session/credential theft and actions in victims' sessions (e.g., an admin's). It is **not exploitable on non-enterprise-licensed instances** (both the write and the public render are license-gated, validated above), which bounds real-world exposure and, combined with the actor already being a licensed owner/admin, keeps severity Low. It is a patch-gap: fixed on canary after v0.30.5, unfixed in v0.30.5.\r\n\r\n",
+    "ghsa_id": "GHSA-j4h6-55cr-j72v",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j4h6-55cr-j72v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j4h6-55cr-j72v"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:47Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored XSS via unsanitized whitelabeling `customCss` (`</style>` breakout) - enterprise-license-gated; patched in canary after v0.30.5",
+    "updated_at": "2026-11-12T08:15:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

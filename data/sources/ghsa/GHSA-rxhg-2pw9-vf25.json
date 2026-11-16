@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-rxhg-2pw9-vf25",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\r\n\r\nVaultwarden does not enforce a Send's `max_access_count` atomically. The access-count check and the increment are separate operations, so concurrent requests can all pass the check before any of them writes, allowing more accesses than the sender configured.\r\n\r\n### Details\r\n\r\n**File:** `src/api/core/sends.rs`\r\n\r\nBoth Send access endpoints read `access_count`, compare it against `max_access_count`, then write `access_count + 1` as a separate operation, with no database-level locking:\r\n\r\n```rust\r\n// Read (check):\r\nif let Some(max_access_count) = send.max_access_count\r\n    && send.access_count >= max_access_count { ... }\r\n// Write (increment - separate DB operation):\r\nsend.access_count += 1;\r\nsend.save(&conn).await?;\r\n```\r\n\r\nTwo concurrent requests against a Send at `access_count = 0, max_access_count = 1`: both read `0`, both pass the check, and both write `access_count = 1`. Both return the secret - the text content for a text Send, or a signed download token for a file Send.\r\n\r\nThe write compounds the problem. `save()` persists the whole row from memory, so one request's stale in-memory value overwrites another's increment rather than adding to it. The stored counter can therefore under-report the number of accesses that actually succeeded.\r\n\r\n### Reproduction\r\n\r\nCreate a Send with `maxAccessCount: 1`, then issue many concurrent access requests for it. Before the fix, more than one request returns 200 while the stored `access_count` advances only once - the whole-row save overwriting the concurrent increment. After the fix, exactly one request succeeds and the rest return 404.\r\n\r\n### Impact\r\n\r\n- A Send capped at a given number of accesses can be accessed more times than configured, by anyone holding the Send link.\r\n- For text Sends, two parties can simultaneously claim the \"last\" access and both receive the content.\r\n- The sender's intent in setting `maxAccessCount` is not reliably enforced.\r\n\r\n### Fix\r\n\r\nFixed in 1.37.0 (`46ae59ea`, #7472). `Send::register_access` (`src/db/models/send.rs`) performs the check and the increment as a single conditional statement:\r\n\r\n```rust\r\ndiesel::update(sends::table)\r\n    .filter(sends::uuid.eq(uuid))\r\n    .filter(\r\n        sends::max_access_count\r\n            .is_null()\r\n            .or(sends::access_count.nullable().lt(sends::max_access_count)),\r\n    )\r\n    .set((sends::access_count.eq(sends::access_count + 1), sends::revision_date.eq(revision_date)))\r\n    .execute(conn)\r\n```\r\n\r\nZero affected rows means the limit was already reached, which every access path turns into the existing 404. In 1.37.0 one path still wrote the whole row: the legacy access route (`post_access_legacy`) called `save()` for file Sends, which could overwrite a concurrent increment.",
+    "ghsa_id": "GHSA-rxhg-2pw9-vf25",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-rxhg-2pw9-vf25",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rxhg-2pw9-vf25"
+      }
+    ],
+    "published_at": "2026-10-03T20:58:17Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Send max_access_count can be exceeded by concurrent access requests",
+    "updated_at": "2026-10-03T21:03:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.0",
+        "vulnerable_version_range": "<= 1.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

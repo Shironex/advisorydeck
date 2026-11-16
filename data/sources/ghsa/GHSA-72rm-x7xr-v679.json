@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-72rm-x7xr-v679",
+  "repo": {
+    "cve_id": "CVE-2026-119328",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-73"
+    ],
+    "description": "# Unauthenticated filesystem path injection (arbitrary directory write + recursive delete) in the machine-learning service\r\n\r\n**Severity:** High - CVSS 3.1 **8.6** `AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H` (when the ML port is reachable)\r\n**Affected:** `immich-app/immich` machine-learning service - confirmed by code path on **v3.0.3**.\r\n**Weakness:** CWE-73 (External Control of File Name or Path) / CWE-306 (Missing Authentication) / CWE-22.\r\n\r\n## Summary\r\nThe machine-learning FastAPI service has **no authentication** on any endpoint and binds all interfaces (`[::]:3003`). Its `/predict` endpoint accepts a per-request `options` object that is spread as keyword arguments into the model constructor, letting an unauthenticated client set `cache_dir` to an arbitrary path. That path is used both as the model **download/write** target and, on any load failure, as the argument to `shutil.rmtree(...)` - a recursive delete of an attacker-chosen directory.\r\n\r\n## Root cause\r\n- No auth on any route; binds `[::]:3003` (`machine-learning/immich_ml/main.py:156-182`, `machine-learning/immich_ml/config.py:86`). The release `docker/docker-compose.prod.yml:47-48` publishes `3003:3003`; even otherwise it is reachable by anything on the Docker network / any remote-ML deployment.\r\n- `get_entries` reads `options` unvalidated (`machine-learning/immich_ml/main.py:143`) and `run_inference` spreads it: `model_cache.get(..., **entry[\"options\"])` (`machine-learning/immich_ml/main.py:191`).\r\n- `InferenceModel.__init__(model_name, cache_dir=None, model_format=None, session=None, **kwargs)` binds `self.cache_dir = Path(cache_dir)` from the request (`machine-learning/immich_ml/models/base.py:23-34`).\r\n- Write sink: `snapshot_download(cache_dir=self.cache_dir, local_dir=self.cache_dir)` (`base.py:75-80`).\r\n- Delete sink: `clear_cache()` → `rmtree(self.cache_dir)` (`base.py:85-96`), invoked by the load handler on `OSError`/`InvalidProtobuf`/`BadZipFile`/`NoSuchFile` (`machine-learning/immich_ml/main.py:243-248`).\r\n\r\n*(Note: the model **name→source** mapping is allowlisted (`constants.py:163-178`; unknown → `ValueError`), so this is not arbitrary-model / pickle RCE - the issue is the attacker-controlled `cache_dir` path, not the model.)*\r\n\r\n## Proof of concept (validated: the exact `base.py`/`main.py` control flow was executed; the real `shutil.rmtree` deleted an attacker-named victim directory on the Linux code path)\r\n```bash\r\ncurl -s -F 'entries={\"clip\":{\"visual\":{\"modelName\":\"ViT-B-32__openai\",\"options\":{\"cache_dir\":\"/data\"}}}}' \\\r\n     -F 'image=@any.jpg' http://ML_HOST:3003/predict\r\n```\r\n- The service writes downloaded model files into the attacker-chosen `cache_dir` (e.g. a mounted media/data volume).\r\n- If model load then raises an `OSError`-family exception (e.g. a `model_format` mismatch or a write/parse failure with the chosen path), `clear_cache()` executes `rmtree(cache_dir)` - recursively deleting that directory. On the Linux container, `shutil.rmtree.avoids_symlink_attacks` is `True`, so the delete proceeds.\r\n\r\n## Impact\r\nUnauthenticated attacker with network access to the ML port can write attacker-controlled files into arbitrary writable directories (including mounted photo/data volumes) and trigger recursive deletion of an attacker-named directory → data loss / integrity and availability impact. Combined with the total lack of authentication, this is reachable pre-auth wherever the ML service is exposed.\r\n\r\n## Remediation\r\n- Allowlist the permitted `options` keys before spreading (drop `cache_dir`, `model_format`, `session`); or validate that any effective `cache_dir` is contained within `settings.cache_folder`.\r\n- Add authentication to the ML service, or bind it to loopback / an internal-only interface by default and document that it must never be exposed.\r\n",
+    "ghsa_id": "GHSA-72rm-x7xr-v679",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-72rm-x7xr-v679",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-72rm-x7xr-v679"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-119328"
+      }
+    ],
+    "published_at": "2026-10-19T12:53:57Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated filesystem path injection (arbitrary directory write + recursive delete) in the machine-learning service",
+    "updated_at": "2026-10-30T19:49:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich"
+        },
+        "patched_versions": "v3.3.0",
+        "vulnerable_version_range": "<= 3.0.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

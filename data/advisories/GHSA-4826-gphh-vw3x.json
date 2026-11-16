@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-4826-gphh-vw3x",
+  "aliases": [],
+  "title": "MQTT 5.0: Receive Maximum zero disables delivery credit",
+  "summary": "## Summary\r\n\r\nRabbitMQ accepts the MQTT 5 `Receive Maximum` CONNECT property with value zero,\r\nalthough MQTT 5 requires the server to treat zero as a malformed packet.\r\n\r\nRabbitMQ converts the value directly into `{simple_prefetch, 0}`. For classic\r\nqueues, zero means **unlimited prefetch**, not zero delivery credit. An\r\nauthenticated subscriber can therefore advertise zero, subscribe at QoS 1,\r\nread deliveries without sending PUBACK, and cause the broker's MQTT process and\r\nqueue acknowledgement state to grow without the configured MQTT prefetch bound.\r\n\r\nA control connection advertising `Receive Maximum = 1` receives exactly one\r\nQoS 1 message until it acknowledges it.\r\n\r\n## Preconditions\r\n\r\n- `rabbitmq_mqtt` or Web MQTT is enabled.\r\n- The attacker has valid credentials and permission to consume a topic.\r\n- Messages are available to the subscription at QoS 1.\r\n- The affected subscription uses a classic queue. Clean-start MQTT\r\n  subscriptions use classic queues in the verified configuration.\r\n\r\n## Root cause\r\n\r\n### 1. CONNECT parsing accepts zero\r\n\r\n```erlang\r\n%% deps/rabbitmq_mqtt/src/rabbit_mqtt_packet.erl:350-351\r\nparse_prop(<<16#21, Val:16, Bin/binary>>, ?CONNECT = Type, Props) ->\r\n    parse_prop(Bin, Type, Props#{'Receive-Maximum' => Val});\r\n```\r\n\r\nNo guard rejects `Val = 0`.\r\n\r\n### 2. Zero becomes effective prefetch\r\n\r\n```erlang\r\n%% deps/rabbitmq_mqtt/src/rabbit_mqtt_processor.erl:295-302\r\nprefetch(Props) ->\r\n    ReceiveMax = maps:get('Receive-Maximum', Props, ?TWO_BYTE_INTEGER_MAX),\r\n    min(rabbit_mqtt_util:env(prefetch), ReceiveMax).\r\n```\r\n\r\nWith `mqtt.prefetch = 10`, a client value of zero produces zero.\r\n\r\n### 3. Classic queues interpret zero as unlimited\r\n\r\nThe MQTT consumer is created with:\r\n\r\n```erlang\r\nmode => {simple_prefetch, Prefetch}\r\n```\r\n\r\nAt `Prefetch = 0`, `rabbit_queue_consumers` does not install a limiting credit\r\nrecord. QoS 1 deliveries continue while the MQTT processor tracks packet IDs\r\nand waits for PUBACK.\r\n\r\nQuorum queues treat zero differently and can stop delivery, but this does not\r\nprotect classic MQTT subscription queues.\r\n\r\n## Basic Python proof of concept\r\n\r\nAttachment: `mqtt-receive-maximum-zero-poc.py`\r\n\r\nThe attachment is one Python 3 file using only the standard library.\r\n\r\nTarget configuration:\r\n\r\n```ini\r\n# rabbitmq.conf\r\nmqtt.prefetch = 10\r\n```\r\n\r\nEnable MQTT and create any ordinary user with permission to consume and publish\r\nin the target vhost:\r\n\r\n```bash\r\nrabbitmq-plugins enable rabbitmq_mqtt\r\n```\r\n\r\nRun the PoC against that server:\r\n\r\n```bash\r\npython3 mqtt-receive-maximum-zero-poc.py \\\r\n  --host rabbitmq.example --port 1883 \\\r\n  --user poc --password pocpass \\\r\n  --messages 1000\r\n```\r\n\r\nThe script connects two raw MQTT 5 subscribers:\r\n\r\n- control: `Receive Maximum = 1`;\r\n- attack: forbidden `Receive Maximum = 0`.\r\n\r\nBoth subscribe at QoS 1 and deliberately send no PUBACK. A third connection\r\npublishes 20 control messages and 1,000 attack messages. A vulnerable server\r\nprints:\r\n\r\n```text\r\n{\r\n  \"receive_maximum_1_deliveries_without_puback\": 1,\r\n  \"receive_maximum_0_deliveries_without_puback\": 1000,\r\n  \"attack_messages_published\": 1000\r\n}\r\nVULNERABLE\r\n```\r\n\r\n### Independent Docker validation evidence\r\n\r\nThe same wire sequence was independently run against stock RabbitMQ 4.3.4:\r\n\r\n```text\r\nRabbitMQ 4.3.4\r\n\r\ncontrol:\r\n  Receive Maximum: 1\r\n  published QoS 1: 20\r\n  received without PUBACK: 1\r\n\r\nattack:\r\n  Receive Maximum: 0\r\n  published QoS 1: 1000\r\n  received without PUBACK: 1000\r\n\r\nPASS: Receive Maximum zero exceeded configured broker prefetch\r\nPASS: Receive Maximum zero delivered at least 90% without PUBACK\r\nASSERTIONS_OK\r\nPing succeeded\r\n```\r\n\r\nMQTT QoS acknowledgements are tracked inside `rabbit_mqtt_processor`, so\r\nmanagement queue `messages_unacknowledged` can remain zero even while the MQTT\r\nclient has 1,000 QoS 1 deliveries awaiting PUBACK. The wire-level control\r\ndirectly demonstrates the credit bypass.\r\n\r\n## Impact\r\n\r\n- The attacker can make unsettled delivery state g...",
+  "published_at": "2026-08-18T03:08:48.000Z",
+  "modified_at": "2026-08-18T03:08:49.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.10"
+        },
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-4826-gphh-vw3x",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4826-gphh-vw3x",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-4826-gphh-vw3x",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0f3a8ed21f69030e4ef9f6a5c84d113be73f0366655090adfe2861468d014168",
+  "note": null
+}

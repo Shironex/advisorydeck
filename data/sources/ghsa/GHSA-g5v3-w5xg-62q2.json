@@ -1,0 +1,82 @@
+{
+  "global": null,
+  "id": "GHSA-g5v3-w5xg-62q2",
+  "repo": {
+    "cve_id": "CVE-2026-66075",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Source references\n\n`deps/rabbitmq_federation_management/src/rabbit_federation_mgmt.erl:64` · Broken access control\n\n## Impact\n\nA read-only `monitoring` user can restart any federation link - a state-changing operation that disrupts message flow.\n\n## Description\n\n`is_authorized/2` for the `/federation-links/.../restart` route uses `is_authorized_monitor` (accepts the `monitoring` tag), while `allowed_methods` permits `DELETE` and `delete_resource/2` triggers `rabbit_federation_link_sup:restart`. There is no per-method elevation check and no comment marking it intentional.\n\n## Exploit scenario\n\nUser with only the `monitoring` tag runs `curl -u mon:pw -X DELETE http://broker:15672/api/federation-links/%2F/...`; the federation link restarts, briefly interrupting cross-cluster message flow.\n\n## Preconditions\n\n- rabbitmq_federation + rabbitmq_federation_management plugins enabled\n- Attacker has credentials with the `monitoring` tag\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N` (2.3, Low). Fixed in `3.13.15`, `4.0.20`, `4.1.11`, `4.2.6`, `4.3.1`.",
+    "ghsa_id": "GHSA-g5v3-w5xg-62q2",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-g5v3-w5xg-62q2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g5v3-w5xg-62q2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-66075"
+      }
+    ],
+    "published_at": "2026-07-09T09:22:08Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Monitoring-tag user can restart federation links",
+    "updated_at": "2026-07-29T15:01:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "3.13.15",
+        "vulnerable_version_range": ">= 3.13.0, < 3.13.15"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.20",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.20"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.11",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.11"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.6",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.6"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.1",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

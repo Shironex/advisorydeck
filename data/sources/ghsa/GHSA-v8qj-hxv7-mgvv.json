@@ -1,0 +1,109 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54011",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Summary\n\nOpen WebUI renders Mermaid blocks from Markdown files in the file preview panel and inserts the generated SVG into the DOM using `innerHTML`.\n\nBecause Mermaid is configured with `securityLevel: 'loose'`, attacker-controlled Mermaid content can be rendered unsafely in this flow. A working payload was validated through the Markdown preview path, resulting in JavaScript execution in the victim’s browser under the application origin.\n\nThis is a confirmed stored XSS vulnerability reachable through normal product functionality.\n\n## Affected Version\n\n- `main`\n- Reproduced on `v0.8.12`\n\n## Affected Code\n\nMermaid is initialized in permissive mode:\n\nhttps://github.com/open-webui/open-webui/blob/9bd84258d09eefe7bf975878fb0e31a5dadfe0f8/src/lib/utils/index.ts#L1698\nThe file preview path renders Mermaid output and injects the returned SVG into the DOM:\n\nhttps://github.com/open-webui/open-webui/blob/9bd84258d09eefe7bf975878fb0e31a5dadfe0f8/src/lib/components/chat/FileNav/FilePreview.svelte#L133\n\n## Impact\n\nA successful exploit allows JavaScript execution in the victim’s browser under the Open WebUI origin when a malicious Markdown file is opened in the preview panel.\n\n## PoC\n\nA malicious `.md` file containing the follwowing contents can be used to trigger the bug:\n````\n```mermaid\nflowchart LR\n  A[click me]\n  click A href \"javascript:alert(document.domain)\" \"x\"\n```\n````\nSteps to reproduce: \n1- Create a new chat \n2- Enable Code Interpreter and browse and upload the file with `.md` extension. \n<img width=\"331\" height=\"258\" alt=\"image\" src=\"https://github.com/user-attachments/assets/bce2b754-56d1-4da1-90a9-22bcb93269f2\" />\n3- Clicking on the file, and clicking `click me` should pop an alert\n<img width=\"1103\" height=\"485\" alt=\"image\" src=\"https://github.com/user-attachments/assets/18754486-799b-434e-a2fc-dd7c09956a29\" />\n \n\n## Remediation\n\nSince `mermaid` has `DOMPurify` as a built-in, it is recommended to use the `strict` mode instead of `loose`.",
+    "ghsa_id": "GHSA-v8qj-hxv7-mgvv",
+    "html_url": "https://github.com/advisories/GHSA-v8qj-hxv7-mgvv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v8qj-hxv7-mgvv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54011"
+      }
+    ],
+    "published_at": "2026-06-17T14:14:05Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-v8qj-hxv7-mgvv",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54011",
+      "https://github.com/advisories/GHSA-v8qj-hxv7-mgvv",
+      "https://github.com/open-webui/open-webui",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/open-webui/PYSEC-2026-2759.yaml",
+      "https://pypi.org/project/open-webui"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: Stored XSS in Mermaid Markdown Preview",
+    "updated_at": "2026-07-20T21:04:31Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-v8qj-hxv7-mgvv",
+  "repo": {
+    "cve_id": "CVE-2026-54011",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Summary\r\n\r\nOpen WebUI renders Mermaid blocks from Markdown files in the file preview panel and inserts the generated SVG into the DOM using `innerHTML`.\r\n\r\nBecause Mermaid is configured with `securityLevel: 'loose'`, attacker-controlled Mermaid content can be rendered unsafely in this flow. A working payload was validated through the Markdown preview path, resulting in JavaScript execution in the victim’s browser under the application origin.\r\n\r\nThis is a confirmed stored XSS vulnerability reachable through normal product functionality.\r\n\r\n## Affected Version\r\n\r\n- `main`\r\n- Reproduced on `v0.8.12`\r\n\r\n## Category\r\n\r\n- CWE-79: Improper Neutralization of Input During Web Page Generation\r\n\r\n## Affected Code\r\n\r\nMermaid is initialized in permissive mode:\r\n\r\nhttps://github.com/open-webui/open-webui/blob/9bd84258d09eefe7bf975878fb0e31a5dadfe0f8/src/lib/utils/index.ts#L1698\r\nThe file preview path renders Mermaid output and injects the returned SVG into the DOM:\r\n\r\nhttps://github.com/open-webui/open-webui/blob/9bd84258d09eefe7bf975878fb0e31a5dadfe0f8/src/lib/components/chat/FileNav/FilePreview.svelte#L133\r\n\r\n## Impact\r\n\r\nA successful exploit allows JavaScript execution in the victim’s browser under the Open WebUI origin when a malicious Markdown file is opened in the preview panel.\r\n\r\n## PoC\r\n\r\nA malicious `.md` file containing the follwowing contents can be used to trigger the bug:\r\n````\r\n```mermaid\r\nflowchart LR\r\n  A[click me]\r\n  click A href \"javascript:alert(document.domain)\" \"x\"\r\n```\r\n````\r\nSteps to reproduce: \r\n1- Create a new chat \r\n2- Enable Code Interpreter and browse and upload the file with `.md` extension. \r\n<img width=\"331\" height=\"258\" alt=\"image\" src=\"https://github.com/user-attachments/assets/bce2b754-56d1-4da1-90a9-22bcb93269f2\" />\r\n3- Clicking on the file, and clicking `click me` should pop an alert\r\n<img width=\"1103\" height=\"485\" alt=\"image\" src=\"https://github.com/user-attachments/assets/18754486-799b-434e-a2fc-dd7c09956a29\" />\r\n \r\n\r\n## Remediation\r\n\r\nSince `mermaid` has `DOMPurify` as a built-in, it is recommended to use the `strict` mode instead of `loose`. ",
+    "ghsa_id": "GHSA-v8qj-hxv7-mgvv",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-v8qj-hxv7-mgvv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v8qj-hxv7-mgvv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54011"
+      }
+    ],
+    "published_at": "2026-06-11T18:58:03Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored XSS in Mermaid Markdown Preview",
+    "updated_at": "2026-06-11T18:58:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.6",
+        "vulnerable_version_range": "<= 0.9.5"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">= 0.9.6",
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

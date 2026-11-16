@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-jx3w-3pqq-7f3w",
+  "repo": {
+    "cve_id": "CVE-2026-109287",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "# Directory structure of inaccessible knowledge bases disclosed via an unscoped directory id\r\n\r\n## Summary\r\nA user who can read one knowledge base could list it with the id of a directory that belongs to a different knowledge base they have no access to. The response returned that directory and every parent above it, including folder names and the owning user. The same foreign directory id was also accepted as the parent of a new or moved directory and as the target directory when linking files. None of these paths checked that the directory belonged to the knowledge base named in the request.\r\n\r\n## Preconditions\r\n- An account with read access to at least one knowledge base, through a share grant, the `workspace.knowledge` permission (off by default) or the admin role.\r\n- The id of a directory inside a knowledge base the attacker cannot access. Directory ids are random UUIDs and cannot be enumerated, so in practice this is someone who saw them earlier, for example a collaborator whose access was later revoked.\r\n- No configuration flag is involved. Every deployment running an affected version with knowledge base directories carries the code path.\r\n\r\n## Impact\r\nWith one retained directory id, the attacker reads the current name, id, parent, owner user id, containing knowledge base id and timestamps of that directory and all of its ancestors. Renames made after their access was revoked are also visible. Where folder names encode client, project or case names, that structure is the sensitive part. The id requirement keeps the realistic attacker population small. The write-side paths let the attacker attach their own directories or files under a foreign directory, but this gives them nothing beyond the write access they already hold on their own knowledge base. File contents, file lists and the embeddings of the foreign knowledge base are not exposed.\r\n\r\n## Fix\r\nFixed in a9541c18c. Directory lookups are now bound to the knowledge base in the request: the breadcrumb walk only follows directories of that knowledge base, and every endpoint that accepts a directory or parent id rejects one from another knowledge base. The upload path ignores it. Upgrading is sufficient.\r\n\r\n## Root cause\r\n- `backend/open_webui/models/knowledge.py`, `get_directory_breadcrumbs`\r\n- `backend/open_webui/routers/knowledge.py`, `GET /api/v1/knowledge/{id}/files` (`directory_id`), `POST /{id}/dirs/create` and `POST /{id}/dirs/{dir_id}/update` (`parent_id`), `POST /{id}/file/add` and `POST /{id}/files/batch/add` (`directory_id`)\r\n- `backend/open_webui/routers/files.py`, upload auto-link (`metadata.directory_id`)\r\n- Present in every release from 0.9.6, when knowledge base directories were introduced.\r\n\r\nEach endpoint checked the caller's access to the knowledge base in the URL and then used the caller-supplied directory id as given. The breadcrumb walk looked directories up by id alone, while the file list and directory list in the same response were filtered by knowledge base. So the one part of the response that followed the caller's id could leave the authorised knowledge base. The create, update and link paths had the same gap, and only the move, delete and sync cleanup paths compared the directory's knowledge base to the one in the URL.\r\n\r\n## Proof of concept\r\nReproduced against the real knowledge router on a fresh database. The admin owns a private knowledge base A with the nested directories `ACME-Litigation/witness-list` and a knowledge base B shared with an ordinary user.\r\n\r\n1. As the user, `GET /api/v1/knowledge/{A}/files` returns 400 (no access).\r\n2. As the user, `GET /api/v1/knowledge/{B}/files?directory_id={id of witness-list}` returns 200 with `breadcrumbs` listing `ACME-Litigation` and `witness-list`, each carrying knowledge base A's id and the admin's user id.\r\n3. As the user, `POST /api/v1/knowledge/{B}/dirs/create` with `parent_id` set to a directory of A returns 200 and stores the foreign parent. The same happens for `POST /api/v1/knowledge/{B}/dirs/{dir}/update`.\r\n\r\nOn the fixed version, step 2 returns an empty `breadcrumbs` list and step 3 returns 404. Directories of B still produce breadcrumbs and can still be used as parents.\r\n\r\n## Credits\r\n- 0xMax-Sec (reporter)",
+    "ghsa_id": "GHSA-jx3w-3pqq-7f3w",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-jx3w-3pqq-7f3w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jx3w-3pqq-7f3w"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109287"
+      }
+    ],
+    "published_at": "2026-09-27T19:34:53Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Directory structure of inaccessible knowledge bases disclosed via an unscoped directory id",
+    "updated_at": "2026-10-27T14:23:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.9.6, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jrp5-g662-hq92",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 2.8,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-73"
+    ],
+    "description": "# Immich - Unsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint\r\n\r\n## Title\r\nUnsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint\r\n\r\n## Product\r\nImmich\r\n\r\n## Version\r\nImmich Server v2.6.2\r\n\r\n## Vulnerability Type\r\nZip Slip / Path Traversal via Archive Entry Names\r\n\r\n## CWE\r\n- CWE-22 - Improper Limitation of a Pathname to a Restricted Directory\r\n- CWE-73 - External Control of File Name or Path\r\n\r\n## CVSS v3.1 (Suggested)\r\n**Score:** 5.4 (Medium)  \r\n**Vector:** AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N\r\n\r\n## Date\r\n2026-03-26\r\n\r\n## Credit\r\nRegorSec (Roger Bourget)\r\n\r\n---\r\n\r\n## Summary\r\nImmich generates ZIP archives for asset downloads using user-controlled filenames as ZIP entry names without sufficient sanitization or normalization. A user who uploads an asset with a crafted filename can cause generated ZIP archives to contain entries with path components such as directory traversal sequences or absolute paths.\r\n\r\nThis represents a Zip Slip-class vulnerability where downstream archive extraction tools may write files outside the intended extraction directory depending on extractor behavior and platform.\r\n\r\nAt minimum, this violates the expectation that generated ZIP archives contain safe relative filenames.\r\n\r\n---\r\n\r\n## Affected Component\r\nArchive generation endpoint:\r\n\r\n```\r\nPOST /api/download/archive\r\n```\r\n\r\nRelevant code path:\r\n\r\n```\r\nDownloadService.downloadArchive()\r\n→ StorageRepository.createZipStream()\r\n→ archiver.file(input, { name: filename })\r\n```\r\n\r\nThe archive entry name is derived from:\r\n\r\n```\r\nasset.originalFileName\r\n```\r\n\r\nwhich originates from a user-controlled upload filename.\r\n\r\n---\r\n\r\n## Root Cause\r\nThe upload process allows a user-controlled filename to be stored as `asset.originalFileName` without path sanitization. This value is later used directly as the ZIP entry name when generating archives.\r\n\r\nObserved behavior indicates:\r\n\r\n- No basename enforcement\r\n- No filtering of traversal sequences (`../`)\r\n- No filtering of Windows path separators\r\n- No normalization of absolute paths or drive paths\r\n\r\nAs a result, attacker-controlled filenames are embedded directly into ZIP archive entry paths.\r\n\r\n---\r\n\r\n## Proof of Concept / Observations\r\nUsing authenticated upload and archive download functionality, the following behaviors were observed:\r\n\r\n| Uploaded Filename        | ZIP Entry Name |\r\n|--------------------------|----------------|\r\n| ../../../../tmp/pwn.jpg  | tmp/pwn.jpg    |\r\n| C:\\temp\\abs3.jpg         | temp/abs3.jpg  |\r\n| a/../../b.jpg            | a/../../b.jpg  |\r\n| ..\\..\\win1.jpg           | win1.jpg       |\r\n\r\nSome traversal sequences are normalized into subdirectories, while others remain intact in the ZIP entry name.\r\n\r\nThis demonstrates inconsistent path handling and confirms attacker control over ZIP entry paths.\r\n\r\n---\r\n\r\n## Impact\r\nPotential impacts include:\r\n\r\n- File overwrite during extraction depending on unzip tool behavior\r\n- Writing files outside intended extraction directory\r\n- Malicious archive contents placing files into unexpected directories\r\n- Risk when archives are shared via links, email, or downloads\r\n- Client-side path traversal upon extraction\r\n\r\nSeverity depends on the extraction tool and environment used by the victim.\r\n\r\nThis is primarily a client-side archive extraction vulnerability.\r\n\r\n---\r\n\r\n## Reproduction Steps\r\n\r\n1. Authenticate to Immich and obtain access token.\r\n2. Upload an asset using a crafted filename:\r\n\r\n```\r\nPOST /api/assets\r\nmultipart form field:\r\nfilename = ../../../../tmp/pwn.jpg\r\n```\r\n\r\n3. Request archive download:\r\n\r\n```\r\nPOST /api/download/archive\r\n{\r\n  \"assetIds\": [\"<assetId>\"]\r\n}\r\n```\r\n\r\n4. Extract the generated ZIP archive.\r\n5. Observe archive entry paths:\r\n\r\n```\r\nzipinfo -1 archive.zip\r\n```\r\n\r\n---\r\n\r\n## Recommended Remediation\r\nSanitize filenames used for ZIP entry names.\r\n\r\nRecommended approaches:\r\n\r\n- Use `basename()` only\r\n- Strip `/` and `\\`\r\n- Reject `..`\r\n- Reject absolute paths\r\n- Reject Windows drive paths\r\n- Enforce allowlist filename regex\r\n- Optionally generate server-side archive filenames instead of using user input\r\n\r\n---\r\n\r\n## Notes\r\nThis behavior was observed in a lab environment running an Immich server container. Exact behavior may vary depending on Immich version and ZIP library path normalization behavior.",
+    "ghsa_id": "GHSA-jrp5-g662-hq92",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrp5-g662-hq92",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrp5-g662-hq92"
+      }
+    ],
+    "published_at": "2026-07-06T09:50:43Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Unsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint",
+    "updated_at": "2026-07-06T09:50:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "immich"
+        },
+        "patched_versions": "3.0.0",
+        "vulnerable_version_range": ">2.6.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

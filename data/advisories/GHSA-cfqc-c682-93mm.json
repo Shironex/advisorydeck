@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-cfqc-c682-93mm",
+  "aliases": [],
+  "title": "RabbitMQ Web STOMP: compressed pre-authentication messages exhaust broker memory",
+  "summary": "## Summary\r\n\r\nRabbitMQ enables WebSocket `permessage-deflate` before STOMP authentication.\r\nThe unauthenticated WebSocket frame-size limit applies to each decompressed\r\nWebSocket message independently, but the STOMP parser can accumulate one\r\nincomplete STOMP body across thousands of WebSocket messages.\r\n\r\nAn unauthenticated client can declare a large STOMP `content-length`, then send\r\nmany highly compressible 60 KiB WebSocket messages without completing the STOMP\r\nframe. Parser continuations retain the decompressed body chunks up to the\r\ndefault 100 MiB STOMP body limit per connection.\r\n\r\nThe retained data is primarily off-heap binary memory, so RabbitMQ's 16 MiB\r\nunauthenticated process-heap limit does not terminate the connection. A small\r\nnumber of connections can exhaust the broker before the normal 10-second login\r\ntimeout closes them.\r\n\r\n## Preconditions\r\n\r\n- `rabbitmq_web_stomp` is enabled.\r\n- TCP port 15674, or an equivalent configured Web STOMP listener, is reachable.\r\n- The listener negotiates `permessage-deflate`, as it does by default.\r\n- No valid RabbitMQ credentials are required.\r\n\r\n## Root cause\r\n\r\n### 1. Compression is enabled before authentication\r\n\r\n```erlang\r\n%% deps/rabbitmq_web_stomp/src/rabbit_web_stomp_handler.erl:119-135\r\nMaxFrameSize =\r\n    application:get_env(\r\n      rabbitmq_stomp, max_frame_size_unauthenticated,\r\n      ?DEFAULT_MAX_FRAME_SIZE_UNAUTHENTICATED) + 4096,\r\nWsOpts = maps:merge(#{compress => true,\r\n                      max_frame_size => MaxFrameSize}, WsOpts0),\r\n```\r\n\r\nThe frame-size setting limits one decompressed WebSocket message, not aggregate\r\nSTOMP parser state.\r\n\r\n### 2. Parser state survives across WebSocket messages\r\n\r\n`rabbit_web_stomp_handler:handle_data1/2` stores the STOMP parser continuation\r\nwhen a complete frame has not arrived and invokes it with the next WebSocket\r\nmessage.\r\n\r\nThe body parser in `rabbit_stomp_frame.erl` retains every body chunk until the\r\ndeclared `content-length` is complete. The default maximum STOMP body is\r\n100 MiB, so one unauthenticated connection can retain close to 100 MiB while\r\neach individual WebSocket message remains under the 64 KiB pre-auth limit.\r\n\r\n### 3. The process heap limit does not account for retained binary memory\r\n\r\nRabbitMQ applies a 16 MiB `max_heap_size` to unauthenticated connection\r\nprocesses. Large decompressed binaries are reference-counted off-heap; only\r\nsmall references are charged to the Erlang process heap. The process therefore\r\nsurvives while retaining substantially more than 16 MiB of broker memory.\r\n\r\n## Basic Python proof of concept\r\n\r\nAttachment: `web-stomp-preauth-memory-dos-poc.py`\r\n\r\nThe attachment is one Python 3 file using only the standard library. It\r\nimplements the WebSocket upgrade, masking, `permessage-deflate`, and STOMP\r\nframing directly.\r\n\r\nTarget setup:\r\n\r\n```bash\r\nrabbitmq-plugins enable rabbitmq_web_stomp\r\n```\r\n\r\nBounded one-connection validation:\r\n\r\n```bash\r\npython3 web-stomp-preauth-memory-dos-poc.py \\\r\n  --host rabbitmq.example --port 15674 --path /ws \\\r\n  --connections 1 --retain-mib 64 --hold-seconds 5\r\n```\r\n\r\nExpected output:\r\n\r\n```text\r\nsending incomplete compressed STOMP frames before authentication\r\nfilling connection 1/1\r\nretained body sent: 60 MiB\r\nholding 64 MiB declared body fragments for 5s\r\nconnections_alive_after_hold=1/1\r\ncompressed_websocket_bytes_sent=91829\r\nMEMORY_PIN_SENT\r\n```\r\n\r\nThis transmits approximately 92 KB over the network and retains 64 MiB of\r\ndecompressed STOMP body state.\r\n\r\nStress setting for a disposable test server:\r\n\r\n```bash\r\npython3 web-stomp-preauth-memory-dos-poc.py \\\r\n  --host 127.0.0.1 --port 15674 \\\r\n  --connections 5 --retain-mib 64 --hold-seconds 2\r\n```\r\n\r\nDo not use the stress setting against a production broker.\r\n\r\n## Verified results\r\n\r\n### Bounded memory measurement\r\n\r\nRabbitMQ 4.3.4 in a 1 GiB container:\r\n\r\n```text\r\nconnections: 1\r\ndecompressed body retained: 64 MiB\r\ncompressed WebSocket bytes sent: 91,829\r\ncontainer memory before: 178.4 MiB...",
+  "published_at": "2026-08-18T03:08:47.000Z",
+  "modified_at": "2026-08-18T03:08:47.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.10"
+        },
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-cfqc-c682-93mm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cfqc-c682-93mm",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-cfqc-c682-93mm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:8c96143920d7fd67af6aa925f0090f52677b7d5c3ae4c906655210277aab7503",
+  "note": null
+}

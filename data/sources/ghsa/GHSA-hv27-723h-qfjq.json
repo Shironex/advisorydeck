@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hv27-723h-qfjq",
+  "repo": {
+    "cve_id": "CVE-2026-119329",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\nImmich partner sharing is documented and implemented as **non-archived** assets only - a view-only partner should never see the sharer's *archived* (deliberately hidden) content. This invariant is enforced for the timeline and for direct asset access, but **not** for the map. `GET /api/map/markers?withPartners=true&isArchived=true` returns the GPS markers of the sharer's archived assets to the partner.\r\n\r\n## Vulnerable code\r\n\r\n`server/src/services/map.service.ts` injects partner owner-ids when `withPartners=true`:\r\n```ts\r\nconst userIds = [auth.user.id];\r\nif (options.withPartners) {\r\n  const partnerIds = await getMyPartnerIds({ userId: auth.user.id, repository: this.partnerRepository });\r\n  userIds.push(...partnerIds);            // partner (sharer) ids added\r\n}\r\nreturn this.mapRepository.getMapMarkers(userIds, albumIds, options);\r\n```\r\n\r\n`server/src/repositories/map.repository.ts` then admits `Archive` visibility for **all** owner ids when `isArchived === true`, with no per-owner restriction:\r\n```ts\r\n.$if(isArchived === true, (qb) =>\r\n  qb.where((eb) => eb.or([\r\n    eb('asset.visibility', '=', AssetVisibility.Timeline),\r\n    eb('asset.visibility', '=', AssetVisibility.Archive),   // <-- archived, for partner owners too\r\n  ])),\r\n)\r\n```\r\n\r\nThe sibling timeline path enforces the invariant the map omits - `server/src/services/timeline.service.ts` throws when `withPartners` is combined with archived/trashed - and `checkPartnerAccess` (`server/src/repositories/access.repository.ts`) admits only `Timeline`/`Hidden` visibility for partner assets, never `Archive`. The map endpoint is the inconsistent sibling.\r\n\r\n### Proof of Concept (verified on v2.7.5)\r\n\r\n`poc/verify_partner_map.mjs`: sharer A uploads a photo, sets its GPS, and **archives** it; A shares their library with view-only partner B. Then:\r\n```\r\n[contrast] B GET /map/markers?withPartners=true&isArchived=false -> archived asset present = false  (correctly hidden)\r\nrun 1: archived asset GPS visible to partner = true (lat=48.8584, lon=2.2945)\r\nrun 2: ... true\r\nrun 3: ... true\r\nRESULT: 3/3 - view-only partner read GPS of the sharer's ARCHIVED photo\r\n```\r\nThe contrast run confirms the asset is genuinely hidden from the partner's normal map view; only `isArchived=true` leaks it.\r\n\r\n## Suggested fix\r\n\r\nIn the map path, apply the same restriction the timeline path uses: do not return `Archive`-visibility assets for partner-owned ids (restrict `isArchived=true` + `Archive` visibility to the caller's own assets), or reject `withPartners=true` combined with `isArchived=true` as the timeline service does. Consolidate the visibility/partner rule so map and timeline share one enforcement point.\r\n\r\n## Impact\r\nA view-only partner can enumerate the GPS coordinates (and existence) of the sharer's archived photos/videos - content the sharer deliberately moved out of the shared timeline. Archived assets are commonly sensitive; leaking their locations to a partner violates the documented \"non-archived only\" partner-sharing boundary. Limited to location metadata and asset ids (the image bytes remain gated by checkPartnerAccess).\r\n\r\n## References\r\n- `server/src/services/map.service.ts`, `server/src/repositories/map.repository.ts` (vulnerable path)\r\n- `server/src/services/timeline.service.ts` (the guard the map omits), `server/src/repositories/access.repository.ts` `checkPartnerAccess` (Timeline/Hidden only)\r\n- Distinct from all 6 prior Immich advisories (none concern partner sharing or the map).\r\n\r\n## Attachment\r\n[poc.zip](https://github.com/user-attachments/files/28502818/poc.zip)",
+    "ghsa_id": "GHSA-hv27-723h-qfjq",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-hv27-723h-qfjq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hv27-723h-qfjq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-119329"
+      }
+    ],
+    "published_at": "2026-10-19T12:30:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Partner \"view-only\" sharing leaks GPS coordinates of the sharer's archived assets via GET /api/map/markers (the map endpoint omits the archived-asset guard the timeline endpoint enforces)",
+    "updated_at": "2026-10-30T19:50:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "immich-server",
+          "name": "immich-server"
+        },
+        "patched_versions": "v3.0.0",
+        "vulnerable_version_range": "<= v2.7.5 (current release)"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-59218",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "### Summary\n\nThe `/api/v1/auths/signin` endpoint leaked whether an email address belonged to a registered account through a response-time side channel. Password verification ran bcrypt only when the email was found in the database; for a non-existent email the request returned early without hashing. The expensive bcrypt comparison therefore made valid-account attempts respond significantly slower (~180 ms) than non-existent ones (~5 ms), so an unauthenticated attacker could enumerate valid accounts by measuring response time.\n\n### Details\n\nOn signin the backend looked the user up by email and only performed the bcrypt password comparison if a record existed. A missing email short-circuited before any hashing, producing the timing gap. The built-in brute-force throttling did not prevent it: sending one request at a time with a small delay between requests stays under the rate limit while still exposing the difference.\n\nObserved in the reporter's run (HTTP 400 for every attempt, the response time is the signal):\n\n```\nEmail                Status   Response time\njoe@example.com      400      186 ms   <- valid account\nlarry@example.com    400        9 ms\njose@example.com     400        6 ms\njames@example.com    400        5 ms\n```\n\n### Impact\n\nAn unauthenticated attacker can enumerate which email addresses are registered accounts, which enables targeted password-spraying against confirmed accounts. The impact is amplified by MFA not being enabled by default. No data is read or modified; the disclosure is limited to account existence.\n\n### Patched\n\nThe authentication path now runs a bcrypt verification against a constant placeholder hash whenever the email does not resolve to an active credential, so a real hash comparison executes on every attempt and the response time is the same whether or not the account exists. Fixed in 0.10.0.\n\n### Credits\n\n@dievus",
+    "ghsa_id": "GHSA-7rw5-9f7q-xj36",
+    "html_url": "https://github.com/advisories/GHSA-7rw5-9f7q-xj36",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7rw5-9f7q-xj36"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59218"
+      }
+    ],
+    "published_at": "2026-07-24T16:55:06Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-7rw5-9f7q-xj36",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-59218",
+      "https://github.com/open-webui/open-webui/pull/26385",
+      "https://github.com/open-webui/open-webui/commit/993e74912199c66c522f08ec81abe31d76985e39",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.10.0",
+      "https://github.com/advisories/GHSA-7rw5-9f7q-xj36"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: Account enumeration via observable login timing discrepancy",
+    "updated_at": "2026-07-24T16:55:07Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.10.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-7rw5-9f7q-xj36",
+  "repo": {
+    "cve_id": "CVE-2026-59218",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "### Summary\r\n\r\nThe `/api/v1/auths/signin` endpoint leaked whether an email address belonged to a registered account through a response-time side channel. Password verification ran bcrypt only when the email was found in the database; for a non-existent email the request returned early without hashing. The expensive bcrypt comparison therefore made valid-account attempts respond significantly slower (~180 ms) than non-existent ones (~5 ms), so an unauthenticated attacker could enumerate valid accounts by measuring response time.\r\n\r\n### Details\r\n\r\nOn signin the backend looked the user up by email and only performed the bcrypt password comparison if a record existed. A missing email short-circuited before any hashing, producing the timing gap. The built-in brute-force throttling did not prevent it: sending one request at a time with a small delay between requests stays under the rate limit while still exposing the difference.\r\n\r\nObserved in the reporter's run (HTTP 400 for every attempt, the response time is the signal):\r\n\r\n```\r\nEmail                Status   Response time\r\njoe@example.com      400      186 ms   <- valid account\r\nlarry@example.com    400        9 ms\r\njose@example.com     400        6 ms\r\njames@example.com    400        5 ms\r\n```\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker can enumerate which email addresses are registered accounts, which enables targeted password-spraying against confirmed accounts. The impact is amplified by MFA not being enabled by default. No data is read or modified; the disclosure is limited to account existence.\r\n\r\n### Patched\r\n\r\nThe authentication path now runs a bcrypt verification against a constant placeholder hash whenever the email does not resolve to an active credential, so a real hash comparison executes on every attempt and the response time is the same whether or not the account exists. Fixed in 0.10.0.\r\n\r\n### Credits\r\n\r\n@dievus",
+    "ghsa_id": "GHSA-7rw5-9f7q-xj36",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-7rw5-9f7q-xj36",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7rw5-9f7q-xj36"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59218"
+      }
+    ],
+    "published_at": "2026-06-29T23:15:33Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Account enumeration via observable login timing discrepancy",
+    "updated_at": "2026-07-07T14:48:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.10.0",
+        "vulnerable_version_range": "< 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

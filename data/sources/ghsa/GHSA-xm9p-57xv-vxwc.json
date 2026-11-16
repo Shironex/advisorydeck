@@ -1,0 +1,82 @@
+{
+  "global": null,
+  "id": "GHSA-xm9p-57xv-vxwc",
+  "repo": {
+    "cve_id": "CVE-2026-67239",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Source references\n\n`deps/rabbitmq_stream_management/priv/www/js/tmpl/streamConnection.ejs:102` · Stored XSS\n\n## Impact\n\nSame as the connection.ejs finding, against operators viewing the stream-connection detail page.\n\n## Description\n\nLines 102/106/110 render `peer_cert_subject` / `peer_cert_issuer` with raw `<%= %>` and no `fmt_string()`. RFC4514 backslash-escaping of `<`/`>` is HTML-inert and bypassable (`\\<img ... //\\>`). Requires non-default config: a stream TLS listener with `verify_peer` and an attacker-obtainable trusted cert with a malicious DN.\n\n## Exploit scenario\n\nAttacker enrolls a cert with a `<img onerror=...>` CN from a CA the stream TLS listener trusts, connects on port 5551, and waits for an operator to open the stream-connection detail page.\n\n## Preconditions\n\n- rabbitmq_stream + rabbitmq_stream_management enabled with a TLS listener using `verify_peer`\n- Attacker can obtain a certificate signed by a CA the listener trusts, with attacker-chosen DN\n- An operator views the stream-connection detail page\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N` (7.6, High). Fixed in `3.13.18`, `4.0.23`, `4.1.14`, `4.2.9`, `4.3.3`.",
+    "ghsa_id": "GHSA-xm9p-57xv-vxwc",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-xm9p-57xv-vxwc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xm9p-57xv-vxwc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-67239"
+      }
+    ],
+    "published_at": "2026-07-22T19:49:23Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored XSS via TLS peer-certificate DN in stream-management UI (sibling of V-11)",
+    "updated_at": "2026-07-29T15:06:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "3.13.18",
+        "vulnerable_version_range": ">= 3.13.0, < 3.13.18"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.23",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.23"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.14",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.14"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.9",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.9"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.3",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

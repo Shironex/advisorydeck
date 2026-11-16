@@ -1,0 +1,54 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-58431",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nGitea's `/api/v1/teams/{id}` API routes do not correctly enforce the `public-only` access token restriction.\n\nA `public-only` token is intended to limit API access to public repositories and public organizations. However, several team API routes continue to return private team repository metadata and private team activity feed entries when called with a `public-only` token.\n\n### Details\n\nThe `/api/v1/teams/{teamid}` route group uses:\n\n```go\norgAssignment(false, true)\n```\n\nThis loads `ctx.Org.Team`, but does not load `ctx.Org.Organization`.\n\nThe `checkTokenPublicOnly` middleware checks organization visibility through `ctx.Org.Organization`. When `ctx.Org.Organization` is nil, the organization visibility check silently passes.\n\nIn addition, the team repository handlers return repositories without applying repository-level `public-only` filtering:\n\n```go\nrepo_model.GetTeamRepositories(...)\nconvert.ToRepo(...)\n```\n\nThey do not call:\n\n```go\nctx.TokenCanAccessRepo(repo)\n```\n\nThe team activity feed handler also sets:\n\n```go\nIncludePrivate: true\n```\n\nbut does not apply:\n\n```go\nopts.ApplyPublicOnly(ctx.PublicOnly)\n```\n\n### PoC\n\nVulnerability is verified on latest gitea release (1.26.2) and nightly build.\nFrist, create a `public-only` organization-scoped token for a user who is a member of a team in a private org with private repositories:\n\n<img width=\"1075\" height=\"577\" alt=\"image\" src=\"https://github.com/user-attachments/assets/4a01d0ab-f67c-47c9-94b1-e74ddd77d7bc\" />\n\n<img width=\"649\" height=\"375\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b5d91962-088e-40f4-bc51-88a17946e6d8\" />\n\nUse the returned token to request team repositories:\n\n<img width=\"1728\" height=\"190\" alt=\"image\" src=\"https://github.com/user-attachments/assets/0f15878f-5806-431d-958c-ffb39bf7c1e9\" />\n\nExpected result: Private repositories should be hidden or rejected for a public-only token.\nActual result: Private team repository metadata is returned.\n\nThe team activity feed endpoint can be tested similarly:\n\n<img width=\"1728\" height=\"237\" alt=\"image\" src=\"https://github.com/user-attachments/assets/280a5ddf-ad14-4769-86a8-1fdad858287c\" />\n\n### Impact\n\nA `public-only` token can access private team resources that should be hidden from that token.",
+    "ghsa_id": "GHSA-h56g-4qw7-2mxg",
+    "html_url": "https://github.com/advisories/GHSA-h56g-4qw7-2mxg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h56g-4qw7-2mxg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-58431"
+      }
+    ],
+    "published_at": "2026-07-21T21:50:11Z",
+    "references": [
+      "https://github.com/go-gitea/gitea/security/advisories/GHSA-h56g-4qw7-2mxg",
+      "https://github.com/go-gitea/gitea/releases/tag/v1.27.0",
+      "https://github.com/advisories/GHSA-h56g-4qw7-2mxg"
+    ],
+    "severity": "medium",
+    "summary": "Gitea: Public-only API token restriction is not enforced on team API routes",
+    "updated_at": "2026-07-21T21:50:12Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "1.27.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "gitea.dev"
+        },
+        "vulnerable_version_range": "< 1.27.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-h56g-4qw7-2mxg",
+  "repo": null,
+  "repository": null
+}

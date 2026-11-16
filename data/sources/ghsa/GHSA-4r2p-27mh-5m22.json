@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-59214",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "**Title:** Same-origin Pyodide code execution allows server-side RCE via a shared chat\n\n### Summary\n\nOpen WebUI runs client-side Python (Pyodide) in a same-origin web worker. Through Pyodide's JavaScript API (`pyodide.http.pyfetch`, or the `js` module which exposes the page's `fetch` / `XMLHttpRequest`) executed Python can issue requests on the application origin, and those requests carry the victim's session cookie. A low-privileged user can store such a payload in a chat message, share the chat, and when a victim opens it and clicks **Run** the payload executes authenticated same-origin requests as the victim. When the victim is an admin (or a user holding `workspace.functions` / `workspace.tools` permissions) the payload creates a Function/Tool whose body runs server-side, yielding **remote code execution**.\n\n### Details\n\nPyodide's `js` bridge gives Python in the worker the same reach as inline JavaScript on the origin, and the worker is same-origin, so a credentialed request to the app's own API is authenticated as the victim. No separate XSS sink is required: storing the payload in a shared chat and having the victim run it is enough.\n\n```python\nfrom pyodide.http import pyfetch\nimport json\nawait pyfetch('/api/v1/functions/create', method='POST', credentials='include',\n              headers={'Content-Type': 'application/json'},\n              body=json.dumps({'id': 'x', 'name': 'x', 'meta': {'description': 'x'},\n                               'content': \"import os; os.system('<attacker command>')\"}))\n```\n\n### Impact\n\nWhen the victim runs the shared code, an authenticated low-privileged user achieves remote code execution on the server (the created Function/Tool runs server-side Python) if the victim is an admin or holds `workspace.functions` / `workspace.tools` permissions. More generally the executed code can issue any authenticated request as the victim. Requires the victim to click Run, and Open WebUI configured to use Pyodide.\n\n### Patched\n\nPyodide now runs in a sandboxed iframe at an opaque origin by default (`sandbox=\"allow-scripts\"`, no `allow-same-origin`). At an opaque origin `pyfetch`, `fetch` and `XMLHttpRequest` to the app become cross-origin requests that carry no session cookie and are CORS-blocked, and the `js` bridge operates on the isolated iframe window with no access to the parent's cookie, token, `localStorage` or DOM. Full Python, JavaScript and external fetch keep working. IDBFS persistence is available only behind `ENABLE_PYODIDE_FILE_PERSISTENCE=true`, which restores the same-origin worker and re-accepts this risk.\n\n### Workaround\n\nUntil upgraded, disable Pyodide code execution or set the Code Execution / Code Interpreter engine to a server-side option.\n\n### Credits\n\n@gg0h",
+    "ghsa_id": "GHSA-4r2p-27mh-5m22",
+    "html_url": "https://github.com/advisories/GHSA-4r2p-27mh-5m22",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4r2p-27mh-5m22"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59214"
+      }
+    ],
+    "published_at": "2026-07-24T16:54:40Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-4r2p-27mh-5m22",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-59214",
+      "https://github.com/advisories/GHSA-4r2p-27mh-5m22"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: Stored web worker XSS via Pyodide",
+    "updated_at": "2026-07-24T16:54:42Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.10.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4r2p-27mh-5m22",
+  "repo": {
+    "cve_id": "CVE-2026-59214",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "**Title:** Same-origin Pyodide code execution allows server-side RCE via a shared chat\r\n\r\n### Summary\r\n\r\nOpen WebUI runs client-side Python (Pyodide) in a same-origin web worker. Through Pyodide's JavaScript API (`pyodide.http.pyfetch`, or the `js` module which exposes the page's `fetch` / `XMLHttpRequest`) executed Python can issue requests on the application origin, and those requests carry the victim's session cookie. A low-privileged user can store such a payload in a chat message, share the chat, and when a victim opens it and clicks **Run** the payload executes authenticated same-origin requests as the victim. When the victim is an admin (or a user holding `workspace.functions` / `workspace.tools` permissions) the payload creates a Function/Tool whose body runs server-side, yielding **remote code execution**.\r\n\r\n### Details\r\n\r\nPyodide's `js` bridge gives Python in the worker the same reach as inline JavaScript on the origin, and the worker is same-origin, so a credentialed request to the app's own API is authenticated as the victim. No separate XSS sink is required: storing the payload in a shared chat and having the victim run it is enough.\r\n\r\n```python\r\nfrom pyodide.http import pyfetch\r\nimport json\r\nawait pyfetch('/api/v1/functions/create', method='POST', credentials='include',\r\n              headers={'Content-Type': 'application/json'},\r\n              body=json.dumps({'id': 'x', 'name': 'x', 'meta': {'description': 'x'},\r\n                               'content': \"import os; os.system('<attacker command>')\"}))\r\n```\r\n\r\n### Impact\r\n\r\nWhen the victim runs the shared code, an authenticated low-privileged user achieves remote code execution on the server (the created Function/Tool runs server-side Python) if the victim is an admin or holds `workspace.functions` / `workspace.tools` permissions. More generally the executed code can issue any authenticated request as the victim. Requires the victim to click Run, and Open WebUI configured to use Pyodide.\r\n\r\n### Patched\r\n\r\nPyodide now runs in a sandboxed iframe at an opaque origin by default (`sandbox=\"allow-scripts\"`, no `allow-same-origin`). At an opaque origin `pyfetch`, `fetch` and `XMLHttpRequest` to the app become cross-origin requests that carry no session cookie and are CORS-blocked, and the `js` bridge operates on the isolated iframe window with no access to the parent's cookie, token, `localStorage` or DOM. Full Python, JavaScript and external fetch keep working. IDBFS persistence is available only behind `ENABLE_PYODIDE_FILE_PERSISTENCE=true`, which restores the same-origin worker and re-accepts this risk.\r\n\r\n### Workaround\r\n\r\nUntil upgraded, disable Pyodide code execution or set the Code Execution / Code Interpreter engine to a server-side option.\r\n\r\n### Credits\r\n\r\n@gg0h",
+    "ghsa_id": "GHSA-4r2p-27mh-5m22",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-4r2p-27mh-5m22",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4r2p-27mh-5m22"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59214"
+      }
+    ],
+    "published_at": "2026-06-29T20:57:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Same-origin Pyodide code execution allows server-side RCE via a shared chat",
+    "updated_at": "2026-07-07T14:45:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.10.0",
+        "vulnerable_version_range": "< 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

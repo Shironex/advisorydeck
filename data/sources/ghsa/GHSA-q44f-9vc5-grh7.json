@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-q44f-9vc5-grh7",
+  "repo": {
+    "cve_id": "CVE-2026-67406",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 4.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:N/VC:N/VI:N/VA:N/SC:H/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "## Summary\r\n\r\nThe shovel worker `gen_server` processes does not implement the `format_status/2` callback. When these processes crash (e.g., due to network partitions, connection failures), the OTP SASL error handler writes the full process state - including plaintext AMQP passwords and URIs - to the error log.\r\n\r\nThis is particularly severe for the shovel worker, which stores deobfuscated plaintext URIs (including `amqp://user:password@host` format) in its gen_server state for the entire process lifetime.\r\n\r\n## Affected Modules\r\n\r\n### `rabbit_shovel_worker`\r\n\r\nThe shovel worker stores deobfuscated URIs in its `#state.config` map:\r\n\r\n```erlang\r\n%% rabbit_amqp091_shovel.erl:119\r\nSrcURIs  = deobfuscated_uris(<<\"src-uri\">>, Def),\r\n\r\n%% rabbit_amqp091_shovel.erl:162\r\nDestURIs = deobfuscated_uris(<<\"dest-uri\">>, Def),\r\n```\r\n\r\nThese plaintext URIs (containing passwords in `amqp://user:PASSWORD@host/vhost` format) are stored under `source => #{uris => SrcURIs}` and `dest => #{uris => DestURIs}` in the config map, which is part of the gen_server state.\r\n\r\nThe same pattern exists in `rabbit_amqp10_shovel.erl` at lines 107 and 126.\r\n\r\n## Missing Callback\r\n\r\nConfirmed: `grep -rn format_status` across the shovel source code returns **zero results**. None of these gen_server modules implement `format_status/2` (OTP < 25) or `format_status/1` (OTP 25+).\r\n\r\n## Exposure Paths\r\n\r\n### Path 1: SASL Error Reports (Always Enabled)\r\n\r\nWhen a shovel worker crashes (e.g., network partition, connection timeout), OTP writes:\r\n\r\n```\r\n** State: #{config => #{source => #{uris => [<<\"amqp://admin:SECRET_PASSWORD@upstream:5672/vhost\">>]},\r\n                        dest => #{uris => [<<\"amqp://admin:SECRET_PASSWORD@downstream:5672/vhost\">>]}},\r\n            ...}\r\n```\r\n\r\nSASL error reports are written at ERROR level, which is **always enabled in production** - no DEBUG logging required.\r\n\r\n### Path 2: Erlang Crash Dumps\r\n\r\nFull BEAM crash dumps (written on VM crash) include all process states, exposing credentials for every active shovel.\r\n\r\n## Impact\r\n\r\n- **Automatic Credential Exposure**: Shovel worker crashes (common during network partitions) automatically write plaintext upstream/downstream passwords to error logs\r\n- **No Special Configuration Needed**: Unlike DEBUG logging, SASL error reports are always active\r\n- **Broad Exposure Surface**: Crash dumps are routinely collected during production incidents and shared with support teams, centralized logging systems, and monitoring platforms\r\n- **Multiple Credential Sets**: Each shovel can expose a separate set of credentials, potentially revealing passwords for many upstream/downstream brokers\r\n\r\n## Suggested Fix\r\n\r\nImplement `format_status/1` (OTP 25+) in each affected module to redact credentials:\r\n\r\n```erlang\r\nformat_status(Status) ->\r\n    maps:update_with(state, fun redact_credentials/1, Status).\r\n\r\nredact_credentials(State = #{config := Config}) ->\r\n    State#{config := redact_uris(Config)};\r\nredact_credentials(State) ->\r\n    State.\r\n\r\nredact_uris(Config) ->\r\n    maps:map(fun\r\n        (K, #{uris := _} = V) when K =:= source; K =:= dest ->\r\n            V#{uris := [<<\"amqp://REDACTED\">>]};\r\n        (_, V) -> V\r\n    end, Config).\r\n```",
+    "ghsa_id": "GHSA-q44f-9vc5-grh7",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-q44f-9vc5-grh7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q44f-9vc5-grh7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-67406"
+      }
+    ],
+    "published_at": "2026-07-23T01:01:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Shovel does not format state logged by the crash reporter and can leave unencrypted credentials in a crash dump file",
+    "updated_at": "2026-07-29T15:08:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.3",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.3"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.9",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.9"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.14",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.14"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.23",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-69hv-5jfc-mvmv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-174"
+    ],
+    "description": "### Summary\r\n\r\nThe rewrite handler inserts `{http.matchers.file.remainder}` unescaped, then percent-decodes the rewritten URI again after the matchers already ran. A double-encoded path info such as `..%252f` becomes `../` and reaches files a path-based deny rule protects; `%3F` and `%23` in the path info replace the query string or truncate the path.\r\n\r\n### Details\r\n\r\n`{http.matchers.file.remainder}` holds decoded path text. `escapePathPlaceholders()` (`modules/caddyhttp/rewrite/rewrite.go`) escapes `{http.request.uri.path}` and `{http.matchers.file.relative}` before the rewritten URI is parsed, but not the remainder. The rewrite handler inserts it raw, cuts the result at `#` and `?`, and percent-decodes it a second time, after the matchers that ran on the original path.\r\n\r\n`try_files` with `split_path` and a rewrite to `{http.matchers.file.relative}{http.matchers.file.remainder}` is the usual setup for PHP-style path info (FrankenPHP's `php_server` generated it).\r\n\r\nFix: escape the remainder with `escapePathPreservingSlashes()`, like `{http.matchers.file.relative}`. A remainder without reserved characters, such as `/foo/bar`, is rewritten as before. Patch: public PR from `dunglas:rewrite-escape-file-remainder`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-32RAL55Q.\r\n\r\n### Proof of concept\r\n\r\n`public/index.php` and `public/private/secret.txt` exist:\r\n\r\n```caddyfile\r\n:8080 {\r\n\troot * ./public\r\n\troute {\r\n\t\t@denied path /private/*\r\n\t\terror @denied 403\r\n\t\t@php file {\r\n\t\t\ttry_files {path} index.php\r\n\t\t\tsplit_path .php\r\n\t\t}\r\n\t\trewrite @php {http.matchers.file.relative}{http.matchers.file.remainder}\r\n\t\t@phpfiles path *.php /index.php/*\r\n\t\trespond @phpfiles \"PHP route: {uri}\" 200\r\n\t\tfile_server\r\n\t}\r\n}\r\n```\r\n\r\n```console\r\n$ curl 'http://localhost:8080/index.php/..%252fprivate%252fsecret.txt'\r\nSECRET\r\n$ curl 'http://localhost:8080/index.php/x%23y?a=b'\r\nPHP route: /index.php/x?a=b\r\n$ curl 'http://localhost:8080/index.php/x%253Fa=evil?a=b'\r\nPHP route: /index.php/x%3Fa=evil?a=b\r\n```\r\n\r\nThe first request is a single opaque segment for `@denied`. After the rewrite it becomes `/index.php/../private/secret.txt`, misses the PHP route and `file_server` serves the protected file.\r\n\r\n### Impact\r\n\r\nUnauthenticated clients read static files that a path-based rule placed before the rewrite is meant to deny, on sites that rewrite to `{http.matchers.file.remainder}` (PHP-style path info). They can also change the query string or path the backend receives.",
+    "ghsa_id": "GHSA-69hv-5jfc-mvmv",
+    "html_url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-69hv-5jfc-mvmv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-69hv-5jfc-mvmv"
+      }
+    ],
+    "published_at": "2026-11-04T00:59:57Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "rewrite re-decodes {http.matchers.file.remainder}, bypassing path-based deny rules",
+    "updated_at": "2026-11-04T01:01:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/caddyserver/caddy/v2"
+        },
+        "patched_versions": "2.11.8",
+        "vulnerable_version_range": "<= 2.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "caddyserver/caddy"
+}

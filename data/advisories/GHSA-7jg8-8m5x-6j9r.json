@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-7jg8-8m5x-6j9r",
+  "aliases": [],
+  "title": "vaultwarden: device-level 2FA \"remember\" tokens survive admin-initiated 2FA removal, allowing 2FA bypass for up to 30 days (residual gap in fix f1ff613)",
+  "summary": "## Summary\r\n\r\nCommit `f1ff613` (\"revoke 2FA remember tokens when credentials or 2FA change\", released in 1.37.3) established that whenever a user's second factors change, every device's 30-day `twofactor_remember` token must be revoked. The fix covered the user self-service paths, the recovery-code path, and the security-stamp rotation chain - but missed the two administrative remediation paths that strip a user's second factor:\r\n\r\n- the admin panel endpoint `POST /admin/users/<user_id>/remove-2fa` (`src/api/admin.rs:508-514`), and\r\n- organization account recovery with `resetTwoFactor=true` but `resetMasterPassword=false` (`src/api/core/organizations.rs:3072-3077`) - the standard \"the attacker enabled their own 2FA on the victim's account, remove it\" response flow.\r\n\r\nAfter either remediation runs and the victim re-enrolls a brand-new second factor, a device holding a stale remember token still skips 2FA entirely: we reproduce at runtime against the official `vaultwarden/server:latest` image (1.37.3) that the same device which captured a remember token before the remediation logs in with HTTP 200 and receives an `access_token` while the new TOTP is active - and that the identical token is rejected (400) once a *covered* path (password change) fires, isolating the residual exactly. All released versions, including 1.37.3, and current main are affected.\r\n\r\n## Details\r\n\r\nCode locations (master `061694d0`; identical at tag 1.37.3 unless noted):\r\n\r\n- Background - the audited fix: `f1ff613` (2026-09-08, released 1.37.3) added `Device::clear_twofactor_remember_by_user` calls to: user self-disable of a 2FA provider (`src/api/core/two_factor/mod.rs:154`), recovery-code login that deletes all 2FA (`src/api/identity.rs:907-912`), and the security-stamp rotation chain (`src/db/models/device.rs:266-273`, `rotate_refresh_tokens_by_user`).\r\n\r\n- Residual gap A: `src/api/admin.rs:507-514` - `remove_2fa` calls `TwoFactor::delete_all_by_user(...)` and clears `user.totp_recover`, but never calls `Device::clear_twofactor_remember_by_user`:\r\n\r\n  ```rust\r\n  async fn remove_2fa(user_id: UserId, token: AdminToken, conn: DbConn) -> EmptyResult {\r\n      let mut user = get_user_or_404(&user_id, &conn).await?;\r\n      TwoFactor::delete_all_by_user(&user.uuid, &conn).await?;\r\n      two_factor::enforce_2fa_policy(&user, &ACTING_ADMIN_USER.into(), 14, &token.ip.ip, &conn).await?;\r\n      user.totp_recover = None;\r\n      user.save(&conn).await\r\n  }\r\n  ```\r\n\r\n- Residual gap B: `src/api/core/organizations.rs` `recover_account` (function starts at line 3009): with `resetMasterPassword=false, resetTwoFactor=true` - the \"strip the attacker's 2FA only\" option - `TwoFactor::delete_all_by_user` runs at line 3073, but the security-stamp rotation chain (which does clear remember tokens) lives inside the `reset_master_password` branch (around line 3060) and is not entered.\r\n\r\n- Full sweep: of the five `TwoFactor::delete_all_by_user` call sites in `src/`, exactly these two do not clear `twofactor_remember` (the account-deletion site is not applicable; emergency-access takeover triggers `set_password(..., reset_security_stamp=true)` and is covered).\r\n\r\n- Why this is a gap rather than intended behavior: the remember check (`src/api/identity.rs:877-893`) only compares the device's stored `twofactor_remember` constant-time plus the JWT binding - it is not bound to the current set of second factors. The fix commit itself states the invariant: \"No device may keep skipping 2FA once every second factor is gone.\"\r\n\r\nDeduplication: the project's published advisories (CVE-2025-24898, CVE-2025-25188 - both dependency-layer fixes) and older attachment/invite/admin-panel issues do not touch 2FA-remember revocation completeness.\r\n\r\n## PoC\r\n\r\nEnvironment: Docker (image `vaultwarden/server:latest`, version 1.37.3), Python 3. No external dependencies (stdlib only).\r\n\r\n```\r\ndocker run -d --name vw-audit -p 18080:80 \\\r\n  -e SIGNUPS_ALLOWED=true -e ADMIN_TOKEN='audittoken-7f3a9c' \\\r\n  -e IN...",
+  "published_at": "2026-10-28T18:00:11.000Z",
+  "modified_at": "2026-10-28T18:00:11.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.8,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287",
+    "CWE-613"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7jg8-8m5x-6j9r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7jg8-8m5x-6j9r",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7jg8-8m5x-6j9r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+  "note": null
+}

@@ -1,0 +1,82 @@
+{
+  "global": null,
+  "id": "GHSA-7jc3-73v6-rjvc",
+  "repo": {
+    "cve_id": "CVE-2026-67233",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Source references\n\n`deps/rabbitmq_shovel_management/src/rabbit_shovel_mgmt_shovel.erl:78` · Broken access control\n\n## Impact\n\nA read-only `monitoring` user can delete or restart any dynamic shovel - a state-changing operation that the equivalent `/api/parameters` endpoint correctly restricts to `policymaker`.\n\n## Description\n\nThe shovel management resource's `is_authorized/2` delegates to `rabbit_mgmt_util:is_authorized_monitor/2`, which accepts the `monitoring` tag. But `allowed_methods` includes `DELETE`, and `delete_resource/2` deletes / restarts shovel runtime parameters with no additional role check. A `monitoring` user - intended to have read-only visibility - can therefore delete or restart any shovel in any vhost they can see.\n\n## Exploit scenario\n\nUser `bob` has only the `monitoring` tag. `curl -u bob:pw -X DELETE http://broker:15672/api/shovels/vhost/%2F/my-shovel` → the shovel is deleted (or with `?restart=true`, restarted), disrupting message flow.\n\n## Preconditions\n\n- rabbitmq_shovel + rabbitmq_shovel_management plugins enabled\n- Attacker has credentials with the `monitoring` tag\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:H/VA:L/SC:N/SI:N/SA:N` (6.0, Moderate). Fixed in `3.13.15`, `4.0.20`, `4.1.11`, `4.2.6`, `4.3.1`.",
+    "ghsa_id": "GHSA-7jc3-73v6-rjvc",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-7jc3-73v6-rjvc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7jc3-73v6-rjvc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-67233"
+      }
+    ],
+    "published_at": "2026-07-09T09:22:09Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Monitoring-tag user can DELETE shovels",
+    "updated_at": "2026-07-29T15:05:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "3.13.15",
+        "vulnerable_version_range": ">= 3.13.0, < 3.13.15"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.20",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.20"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.11",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.11"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.6",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.6"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.1",
+        "vulnerable_version_range": ">= 4.3.0, < 4.3.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

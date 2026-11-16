@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-fhwq-9rvh-prj2",
+  "repo": {
+    "cve_id": "CVE-2026-66069",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Origin\n\nThis vulnerability was identified by Team RabbitMQ and/or other teams at Broadcom, not via a responsible disclosure from an external researcher.\n\n## Source references\n\n`deps/rabbitmq_management/src/rabbit_mgmt_wm_auth_attempts.erl:35` · Broken Access Control\n\n## Impact\n\nA monitoring-tagged user can reset the per-node authentication-attempt counters via DELETE /api/auth/attempts/:node, erasing evidence of brute-force activity. The sibling endpoint wm_reset requires administrator.\n\n## Description\n\nis_authorized/2 uses is_authorized_monitor for all methods. DELETE resets rabbit_core_metrics:reset_auth_attempt_metrics(). Impact is cosmetic (counters only, no log erasure), but inconsistent with rabbit_mgmt_wm_reset.erl which requires admin for the analogous operation.\n\n## Exploit scenario\n\nAfter a credential-stuffing attempt, attacker (with stolen monitoring creds) issues DELETE /api/auth/attempts/rabbit@node1 to zero the failure counters before the security team's dashboard polls.\n\n## Preconditions\n\n- Management plugin enabled\n- monitoring tag\n\n## CVSS\nCVSS v4.0: `CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N` (2.3, Low). Fixed in `4.1.13`, `4.2.7`, `4.3.0`.",
+    "ghsa_id": "GHSA-fhwq-9rvh-prj2",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-fhwq-9rvh-prj2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fhwq-9rvh-prj2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-66069"
+      }
+    ],
+    "published_at": "2026-07-09T09:21:53Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Monitoring-tag DELETE of auth-attempt metrics",
+    "updated_at": "2026-07-29T15:00:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.13",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.13"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.7",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

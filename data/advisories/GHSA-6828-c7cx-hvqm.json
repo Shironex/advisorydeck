@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-6828-c7cx-hvqm",
+  "aliases": [],
+  "title": "Path traversal in the virtual-folder management endpoints allows deletion and relocation of arbitrary directories",
+  "summary": "### Impact\r\nDELETE /Library/VirtualFolders and POST /Library/VirtualFolders/Name concatenate the caller-supplied library name onto the user-views root without validation, then pass the result to Directory.Delete(path, true) or Directory.Move. Because Path.Combine accepts a rooted second argument, the name escapes the library root either way:\r\n\r\n- name=.. → <data>/root, name=../.. → <data>\r\n- name=/var/lib/jellyfin/data → the root is discarded entirely\r\n\r\nThis lets an attacker recursively delete or relocate any directory the server process can write, including the data directory and jellyfin.db. Impact is permanent data loss and denial of service.\r\n\r\nBefore the startup wizard is completed, the FirstTimeSetupOrElevated policy grants anonymous access, so a freshly installed server reachable on the network can be destroyed without credentials. That is the primary risk. After setup, the endpoints require an administrator, who can already delete libraries - that variant is hardening only.\r\n\r\nPOST /Library/VirtualFolders (add) is not affected; it sanitizes the name through IFileSystem.GetValidFilename.\r\n\r\n### Patches\r\n_Has the problem been patched? What versions should users upgrade to?_\r\n\r\n### Workarounds\r\n- Complete the setup wizard immediately after installation, and keep a new server off untrusted networks until then - that is the unauthenticated window.\r\n- Block /Library/VirtualFolders at a reverse proxy until setup is complete.\r\n- Run the server as an unprivileged account limited to its own data and media directories.\r\n- Keep backups of the data directory.\r\n\r\n\r\n### References\r\n_Are there any links users can visit to find out more?_",
+  "published_at": "2026-09-22T01:21:43.000Z",
+  "modified_at": "2026-09-22T01:21:44.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "jellyfin",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-6828-c7cx-hvqm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6828-c7cx-hvqm",
+      "url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-6828-c7cx-hvqm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1cb400639ced8253d46b1302189f3e793c69de109101d22d4b04c8b4fc2932e3",
+  "note": null
+}

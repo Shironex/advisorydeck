@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-qxjv-6cvh-32c6",
+  "aliases": [],
+  "title": "Local privilege escalation to root: install.sh makes /etc/dokploy world-writable (0777)",
+  "summary": "## Summary\n\nDokploy's `install.sh` (served from https://dokploy.com/install.sh, source `apps/website/public/install.sh` in the website repo) and the manual-installation docs run `chmod 777 /etc/dokploy`. That directory is bind-mounted into the Dokploy and Traefik containers and holds their configuration (`traefik/`), generated application files, scheduled-task scripts (`schedules/`), and application `.env` files.\n\n## Impact\n\nThis is a **local privilege escalation to root** on shared or multi-user hosts. Single-user hosts are not affected because it requires an existing non-root local account on the Dokploy host.\n\nOn Linux, write permission on a directory is enough to rename the entries inside it, including root-owned ones. Because `/etc/dokploy` is `0777`, an unprivileged local user can move a root-owned subdirectory aside and put their own directory in its place, which Dokploy and Traefik then consume as trusted configuration.\n\nThe most direct path to root: Dokploy writes scheduled-task scripts to `/etc/dokploy/schedules/<app>/script.sh` and later executes them as the root Dokploy process (`packages/server/src/services/schedule.ts` writes the script; `packages/server/src/utils/schedules/utils.ts` runs `bash -c ./script.sh` with the working directory set to that path, for `dokploy-server` schedules). A local non-root user can rename the root-owned `schedules/` directory, recreate `schedules/<app>/script.sh` with their own contents, and have it executed as root on the next scheduled run. The same primitive also allows swapping `traefik/traefik.yml` and other root-consumed configuration.\n\n## Affected\n\nAll versions installed via the one-line installer or the manual-installation docs, up to and including the current `install.sh`. Confirmed present on `canary` and on the live `install.sh` as of 2026-11-09 (v0.31.0 was the latest release).\n\n## Reproduction (throwaway container, as root)\n\n```\nmkdir -p /etc/dokploy/traefik && chmod 777 /etc/dokploy\necho root-config > /etc/dokploy/traefik/traefik.yml\nadduser -D bob\nsu bob -c \"mv /etc/dokploy/traefik /etc/dokploy/old && mkdir /etc/dokploy/traefik && echo bob-config > /etc/dokploy/traefik/traefik.yml\"\ncat /etc/dokploy/traefik/traefik.yml    # prints bob-config\n```\n\nThe same move against `schedules/<app>/` yields code execution as root when the scheduler next runs the script.\n\n## Fix\n\nThe installer runs as root (it enforces `id -u == 0`) and the Dokploy container also runs as root, so nothing needs the directory world-writable. Lowering it to `0755` keeps root as the sole writer while leaving it readable and traversable. This mirrors the remote-server install path, which already takes ownership with `chown -R $CURRENT_USER:$CURRENT_USER /etc/dokploy` (`packages/server/src/setup/server-setup.ts`) instead of widening permissions.\n\nPull request (public, since the report below was sent privately first and went unanswered for ~6 weeks): https://github.com/Dokploy/website/pull/225\n\n## Related: application .env files are world-readable (0644)\n\nWhile hardening the same host I also found that the `.env` files Dokploy writes for applications and compose projects are created under the default umask (0644), so any local user can read every project's secrets (`packages/server/src/utils/builders/utils.ts`, `packages/server/src/utils/builders/compose.ts`). Fix (sets 0600 before writing, tightens existing files on next deploy, with a test): https://github.com/Dokploy/dokploy/pull/5944\n\n## Disclosure timeline\n\n- 2026-09-30: reported privately to contact@dokploy.com per SECURITY.md.\n- No acknowledgement received.\n- 2026-11-09: re-verified both issues still present; opened the two fix PRs above and filed this advisory.",
+  "published_at": "2026-11-12T08:28:55.000Z",
+  "modified_at": "2026-11-12T08:28:55.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-732"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "0.31.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qxjv-6cvh-32c6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qxjv-6cvh-32c6",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qxjv-6cvh-32c6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ac5f4748782f007bed65341f2c58339401f15532cca02ae52d0d424a4a751880",
+  "note": null
+}

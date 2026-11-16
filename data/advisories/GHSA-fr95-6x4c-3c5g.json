@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-fr95-6x4c-3c5g",
+  "aliases": [],
+  "title": "Dokploy member users can read the global web-server SSH private key through settings.getWebServerSettings",
+  "summary": "### Summary\r\n\r\nDokploy 0.29.13 allows any authenticated member user to call `settings.getWebServerSettings` and receive the global web-server settings object.\r\n\r\nThat object includes the stored `sshPrivateKey` value. The write endpoint for the same key is admin-only, but the read endpoint is only authenticated-user protected.\r\n\r\nIn my proof, an owner stores an SSH private key through the normal admin-only mutation. A default member user cannot overwrite that key, but the same member user can read it back through `settings.getWebServerSettings`.\r\n\r\n### Details\r\n\r\nThe access-control boundary is inconsistent:\r\n\r\n- `settings.saveSSHPrivateKey` is an `adminProcedure`.\r\n- `settings.getWebServerSettings` is a `protectedProcedure`.\r\n- The returned settings object includes the `sshPrivateKey` field.\r\n\r\nRelevant source locations in Dokploy 0.29.13:\r\n\r\n- `apps/dokploy/server/api/routers/settings.ts:87`: `getWebServerSettings` is registered as `protectedProcedure`.\r\n- `apps/dokploy/server/api/routers/settings.ts:91`: the full settings object is returned.\r\n- `apps/dokploy/server/api/routers/settings.ts:303`: `saveSSHPrivateKey` is registered as `adminProcedure`.\r\n- `packages/server/src/db/schema/web-server-settings.ts:26`: `sshPrivateKey` is stored in the web-server settings table.\r\n\r\nThis is not an unsafe custom integration issue. The proof uses Dokploy's built-in settings router and a normal default member role.\r\n\r\n### PoC\r\n\r\nUse the attached PoC:\r\n\r\n- `poc/settings_ssh_private_key_disclosure_probe.py`\r\n\r\nRun:\r\n\r\n```bash\r\npython poc/settings_ssh_private_key_disclosure_probe.py\r\n```\r\n\r\nThe PoC uses a local Dokploy 0.29.13 instance and two normal authenticated sessions:\r\n\r\n- owner session\r\n- default member session\r\n\r\nThe owner stores a private key through the admin-only endpoint. The member then attempts both write and read access.\r\n\r\nObserved result:\r\n\r\n```text\r\nscope=Dokploy v0.29.13 official release image\r\nattacker_role=default member\r\nadmin_only_key_save_status=200\r\nmember_key_save_status=401\r\nmember_key_save_denied=True\r\nmember_settings_read_status=200\r\nmember_received_private_key=True\r\nreceived_private_key_sha256=4f7706cf9d1fda45ee1b5285fe50fece4aebe504c01e064572e59a8f8981b306\r\nexpected_private_key_sha256=4f7706cf9d1fda45ee1b5285fe50fece4aebe504c01e064572e59a8f8981b306\r\nverdict=member_private_key_disclosure_confirmed\r\n```\r\n\r\nExpected result:\r\n\r\nThe default member should not receive the stored SSH private key. The field should be omitted, redacted, or the endpoint should require admin permission.\r\n\r\nActual result:\r\n\r\nThe default member receives the same private key value that only an admin can write.\r\n\r\n### Impact\r\n\r\nA default authenticated member can disclose the global SSH private key configured for Dokploy web-server operations.\r\n\r\nDepending on how the key is used, this may expose infrastructure access, deployment credentials, or server-management credentials. The demonstrated impact is high-confidentiality secret disclosure.\r\n\r\n### Attachments\r\n\r\n- `poc/settings_ssh_private_key_disclosure_probe.py`\r\n- `evidence/evidence_run.txt`\r\n- `screenshots/settings_before.png`\r\n- `screenshots/settings_after.png`\r\n\r\n[settings_ssh_private_key_disclosure_probe.py](https://github.com/user-attachments/files/30334166/settings_ssh_private_key_disclosure_probe.py)\r\n[evidence_run.txt](https://github.com/user-attachments/files/30334170/evidence_run.txt)\r\n\r\n\r\n<img width=\"1280\" height=\"820\" alt=\"settings_before\" src=\"https://github.com/user-attachments/assets/7b3418c0-a0aa-4b07-ae5d-85710a8c179c\" />\r\n<img width=\"1280\" height=\"820\" alt=\"settings_after\" src=\"https://github.com/user-attachments/assets/be30a670-6ffb-4fc1-965e-9cf1bc7a2074\" />",
+  "published_at": "2026-11-12T08:16:36.000Z",
+  "modified_at": "2026-11-12T08:16:36.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fr95-6x4c-3c5g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fr95-6x4c-3c5g",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fr95-6x4c-3c5g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

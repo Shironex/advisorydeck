@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-478p-cx3j-hghc",
+  "repo": {
+    "cve_id": "CVE-2026-72735",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "## Summary\n\nThe fix for GHSA-p787 (command injection in Traefik config update) was incomplete. The `writeConfigRemote()` function was patched to use base64 encoding, but the sibling function `writeTraefikConfigRemote()` still uses the original vulnerable pattern: it serializes user-controlled Traefik configuration to YAML via `yaml.stringify()` and interpolates the result directly into a shell command executed over SSH.\n\nSingle quotes in user input (redirect regex/replacement, basic auth username) survive YAML serialization because they are not special characters in YAML plain scalars. When the resulting YAML string is placed inside `echo '...'` in a shell command, these single quotes break the quoting and enable arbitrary shell command injection.\n\n## Impact\n\nAn authenticated Dokploy user with access to an application can execute arbitrary shell commands on all managed remote servers with the privileges of the configured SSH user. This provides full remote code execution on managed infrastructure.\n\n## Reproduction\n\n1. Authenticate to a Dokploy instance that has at least one remote server\n2. Create or update a redirect for an application with:\n   - regex: `^.*$`\n   - replacement: `test'$(whoami > /tmp/pwned)'injection`\n3. The redirect triggers `writeTraefikConfigRemote()` which serializes the redirect to YAML and executes the shell command\n4. The `whoami` command runs on the remote server via SSH, and `/tmp/pwned` is created\n\n## Technical Details\n\n**Vulnerable code** - `packages/server/src/utils/traefik/application.ts:266-279`:\n\n```typescript\nexport const writeTraefikConfigRemote = async (\n  traefikConfig: FileConfig,\n  appName: string,\n  serverId: string,\n) => {\n  try {\n    const { DYNAMIC_TRAEFIK_PATH } = paths(true);\n    const configPath = path.join(DYNAMIC_TRAEFIK_PATH, `${appName}.yml`);\n    const yamlStr = stringify(traefikConfig);\n    await execAsyncRemote(serverId, `echo '${yamlStr}' > ${configPath}`);\n  } catch (e) {\n    console.error(\"Error saving the YAML config file:\", e);\n  }\n};\n```\n\n**Already-fixed sibling** - `packages/server/src/utils/traefik/application.ts:213-229`:\n\n```typescript\nexport const writeConfigRemote = async (\n  serverId: string,\n  appName: string,\n  traefikConfig: string,\n) => {\n  try {\n    const { DYNAMIC_TRAEFIK_PATH } = paths(true);\n    const configPath = path.join(DYNAMIC_TRAEFIK_PATH, `${appName}.yml`);\n    const encoded = encodeBase64(traefikConfig);\n    await execAsyncRemote(\n      serverId,\n      `echo \"${encoded}\" | base64 -d > \"${configPath}\"`,\n    );\n  } catch (e) {\n    console.error(\"Error saving the YAML config file:\", e);\n  }\n};\n```\n\nThe fix pattern (base64 encode before shell interpolation) is present in `writeConfigRemote` but missing from `writeTraefikConfigRemote`.\n\n**Reachable vectors**:\n- Redirect creation/update via regex and replacement fields (`redirect.ts`)\n- Basic auth security management via username field (`security.ts`)\n- Domain management via host values (`domain.ts`)\n- Middleware configuration reload (`middleware.ts`)\n\n**Validation gap**: All affected fields use `z.string().min(1)` with no character restrictions.\n\n## Remediation\n\nApply base64 encoding to `writeTraefikConfigRemote()` in the same pattern used for `writeConfigRemote()`:\n\n```typescript\nexport const writeTraefikConfigRemote = async (\n  traefikConfig: FileConfig,\n  appName: string,\n  serverId: string,\n) => {\n  try {\n    const { DYNAMIC_TRAEFIK_PATH } = paths(true);\n    const configPath = path.join(DYNAMIC_TRAEFIK_PATH, `${appName}.yml`);\n    const encoded = encodeBase64(stringify(traefikConfig));\n    await execAsyncRemote(serverId, `echo \"${encoded}\" | base64 -d > \"${configPath}\"`);\n  } catch (e) {\n    console.error(\"Error saving the YAML config file:\", e);\n  }\n};\n```\n\n## Evidence\n\nTested with Python YAML library (behavior identical to the npm `yaml` library used by dokploy):\n\nInput: `replacement = \"test'$(id)'inject\"`\nYAML output: `replacement: test'$(id)'inject`\nShell command: `echo '...replacement: test'$(id)'inject...'`\n\nThe first `'` terminates the echo, `$(id)` executes as a command substitution.",
+    "ghsa_id": "GHSA-478p-cx3j-hghc",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-478p-cx3j-hghc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-478p-cx3j-hghc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72735"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:58Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Fix bypass for GHSA-p787: Command injection in writeTraefikConfigRemote via shell interpolation of unescaped YAML in SSH remote execution",
+    "updated_at": "2026-08-10T17:30:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 0.29.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

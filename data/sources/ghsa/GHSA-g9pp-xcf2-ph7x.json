@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-g9pp-xcf2-ph7x",
+  "repo": {
+    "cve_id": "CVE-2026-72871",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306"
+    ],
+    "description": "### Summary\r\n\r\nThe GitHub App setup callback endpoint (`/api/providers/github/setup`) requires no authentication. An unauthenticated attacker can inject an attacker-controlled GitHub App configuration into any organization by crafting a request with a target `organizationId` and `userId` in the `state` parameter.\r\n\r\n### Details\r\n\r\nThe Next.js API route at `apps/dokploy/pages/api/providers/github/setup.ts:1-68` handles the OAuth callback after GitHub App manifest creation. It parses the `state` query parameter for `gh_init:<organizationId>:<userId>`, exchanges the `code` with GitHub's API, and calls `createGithub()` (`packages/server/src/services/github.ts:14-46`) which inserts a new `gitProvider` row and a `github` row containing the App's `client_secret`, `webhook_secret`, and PEM private key - all using the attacker-supplied `organizationId` and `userId`.\r\n\r\nThe endpoint performs no session validation, no CSRF check, and no verification that the `organizationId` or `userId` belong to the caller. It sits outside the tRPC layer and bypasses all procedure guards.\r\n\r\nOrganization IDs are nanoid strings (~21 characters) but are not secret - they appear in URL bars, session storage, audit logs, and are returned by multiple API endpoints (including those affected by the secret-leak findings).\r\n\r\n### PoC\r\n\r\n**Prerequisites:** A GitHub account to create a GitHub App, and knowledge of a target `organizationId` (obtainable from any authenticated org member session).\r\n\r\n**Step 1 - Confirm endpoint is unauthenticated:**\r\n\r\n```\r\nGET /api/providers/github/setup?code=fake123&state=gh_init:<TARGET_ORG_ID>:someUserId HTTP/1.1\r\nHost: <target>\r\n```\r\n\r\nResponse: `HTTP/1.1 500 Internal Server Error` - the server attempted the GitHub code exchange with no authentication check. The 500 is caused by the invalid code, not by an authorization failure. No 401 or 403 is returned.\r\n\r\n**Step 2 - Full exploitation (requires a real GitHub App):**\r\n\r\n1. Create a GitHub App via manifest flow in the attacker's GitHub account.\r\n2. Capture the one-time `code` from GitHub's callback.\r\n3. Send: `GET /api/providers/github/setup?code=<REAL_CODE>&state=gh_init:<TARGET_ORG_ID>:<TARGET_USER_ID>`\r\n4. The server exchanges the code with GitHub, receives the App credentials, and inserts a `gitProvider` row owned by `<TARGET_USER_ID>` in `<TARGET_ORG_ID>` containing the attacker's App secrets.\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker can inject a malicious GitHub App configuration into any organization. This pollutes the organization's connected git providers, potentially tricking legitimate users into deploying from attacker-controlled repositories. If a user creates an application sourced from the injected provider, the attacker controls the webhook secret and can sign malicious push events to trigger arbitrary deployments. On multi-tenant cloud deployments, this is a cross-tenant attack requiring no prior access.",
+    "ghsa_id": "GHSA-g9pp-xcf2-ph7x",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-g9pp-xcf2-ph7x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g9pp-xcf2-ph7x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72871"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated Git Provider Injection via GitHub OAuth Callback",
+    "updated_at": "2026-08-10T18:46:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}
