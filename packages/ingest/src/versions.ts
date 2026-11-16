@@ -191,12 +191,17 @@ export function singlePatchedVersion(raw: string | null | undefined): string | u
   return cleanVersion(value.replace(/^>=\s*/, ''));
 }
 
+/** Identity of a range: two ranges with the same key are the same range. */
+export function rangeKey(range: VersionRange): string {
+  return `${range.introduced}|${range.fixed ?? ''}|${range.last_affected ?? ''}`;
+}
+
 /** Drops exact duplicates and keeps the first-seen order. */
 export function dedupeRanges(ranges: readonly VersionRange[]): VersionRange[] {
   const seen = new Set<string>();
   const out: VersionRange[] = [];
   for (const range of ranges) {
-    const key = `${range.introduced}|${range.fixed ?? ''}|${range.last_affected ?? ''}`;
+    const key = rangeKey(range);
     if (!seen.has(key)) {
       seen.add(key);
       out.push(range);

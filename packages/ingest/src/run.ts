@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import {
   loadCatalog,
+  loadCorrections,
   loadNotes,
   repoRoot,
   toFeedNote,
@@ -8,6 +9,7 @@ import {
   type FeedNote,
 } from '@advisorydeck/contract';
 import { buildAdvisory, clusterRecords, cveIdsOf } from './advisories.ts';
+import { applyCorrections } from './corrections.ts';
 import { backfillCvelist, fetchCve, ingestCvelistDeltas } from './cvelist.ts';
 import { fetchBranches } from './endoflife.ts';
 import {
@@ -191,6 +193,8 @@ export async function runIngest(options: RunOptions): Promise<RunReport> {
   const loaded = loadNotes(root);
   warnings.push(...loaded.issues.map((i) => `${i.file}: ${i.message}`));
   for (const { note, body } of loaded.notes) notes.set(note.advisory, toFeedNote(note, body));
+  const { corrections, issues: correctionIssues } = loadCorrections(root);
+  warnings.push(...correctionIssues.map((i) => `${i.file}: ${i.message}`));
 
   // Clusters that will be published, before enrichment: the CVEs to enrich come from these.
   const candidates: { ids: string[]; draft: Advisory }[] = [];
@@ -216,15 +220,21 @@ export async function runIngest(options: RunOptions): Promise<RunReport> {
     warnings.push('the KEV catalog was never read: every advisory is published as not checked');
   }
 
-  const advisories: Advisory[] = [];
+  const built: Advisory[] = [];
   const quality: Record<string, string[]> = {};
   for (const { ids } of candidates) {
     const advisory = buildAdvisory(ids, facts, notes, enrichment);
     if (advisory === undefined) continue;
-    advisories.push(advisory);
+    built.push(advisory);
     const found = ids.flatMap((id) => facts.get(id)?.warnings ?? []);
     if (found.length > 0) quality[advisory.id] = found;
   }
+  const corrected = applyCorrections(built, corrections);
+  const advisories = corrected.advisories;
+  for (const [id, found] of Object.entries(corrected.quality)) {
+    quality[id] = [...(quality[id] ?? []), ...found];
+  }
+  warnings.push(...corrected.warnings);
 
   store.flush();
   const output = writeOutputs({
