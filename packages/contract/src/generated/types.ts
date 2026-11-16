@@ -257,11 +257,15 @@ export interface Advisory {
     source: 'cna' | 'ghsa' | 'nvd' | 'vendor' | 'none';
   };
   /**
-   * Listed in the CISA Known Exploited Vulnerabilities catalog.
+   * Listed in the CISA Known Exploited Vulnerabilities catalog. listed is only a real no when checked is true: without checked (or with checked false) the catalog was not read for this advisory, so consumers must say not checked, never not listed.
    */
   kev: {
     listed: boolean;
     added_at: string | null;
+    /**
+     * True when the advisory's CVE ids were looked up in the KEV catalog. Missing or false means not checked. Ingest always writes it.
+     */
+    checked?: boolean;
   };
   /**
    * FIRST EPSS exploit probability, or null when unknown.
