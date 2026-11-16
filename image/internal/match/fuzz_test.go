@@ -1,6 +1,10 @@
 package match
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Shironex/advisorydeck/image/internal/feed"
+)
 
 // Run one target at a time, for example:
 //
@@ -84,6 +88,33 @@ func FuzzCompare(f *testing.F) {
 		bc, ac := Compare(vb, vc), Compare(va, vc)
 		if ab <= 0 && bc <= 0 && ac > 0 {
 			t.Fatalf("%s: %q <= %q <= %q but %q > %q", scheme, a, b, c, a, c)
+		}
+	})
+}
+
+// FuzzEvaluate checks the safety rules on arbitrary input: no panic, an affected result
+// names its range, and not affected only comes with outside-ranges.
+func FuzzEvaluate(f *testing.F) {
+	f.Add(uint8(0), "3.7.17", "3.0.0", "3.7.18", "")
+	f.Add(uint8(1), "17", "17", "17.12", "")
+	f.Add(uint8(0), "27.1", "27.1.0", "", "27.1.0")
+	f.Add(uint8(3), "1:9.2p1-2+deb12u3", "0", "1:9.2p1-2+deb12u4", "")
+	f.Add(uint8(5), "x", "x", "", "x")
+	f.Fuzz(func(t *testing.T, si uint8, installed, introduced, fixed, last string) {
+		scheme := schemeOf(si)
+		r := Evaluate(scheme, installed, []feed.Range{{Introduced: introduced, Fixed: fixed, LastAffected: last}})
+		switch r.Outcome {
+		case OutcomeAffected:
+			if r.Range == nil {
+				t.Fatal("affected without a range")
+			}
+		case OutcomeNotAffected:
+			if r.Reason != ReasonOutsideRanges {
+				t.Fatalf("not affected with reason %s", r.Reason)
+			}
+		}
+		if e := Evaluate(scheme, installed, nil); e.Outcome != OutcomeUnknown {
+			t.Fatalf("empty ranges gave %s", e.Outcome)
 		}
 	})
 }
