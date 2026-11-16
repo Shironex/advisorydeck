@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6j4w-g4jh-xjfx",
+  "repo": {
+    "cve_id": "CVE-2026-43911",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "### Summary\r\n\r\nRefresh tokens are not invalidated when the user's `security_stamp` is rotated by some security-sensitive operations (password change, KDF change, key rotation, email change, org admin password reset, emergency access takeover). This allows an attacker holding a previously obtained refresh token to maintain session access even after the user has taken action to secure their account.\r\n\r\n### Details\r\n\r\n#### How access tokens are validated\r\n\r\nWhen a client makes an API request with an access token, `Headers::from_request` in `src/auth.rs` (line ~626) checks that the `sstamp` claim embedded in the JWT matches the user's current `security_stamp` in the database. If they don't match, the request is rejected (unless a temporary stamp exception applies). This correctly invalidates access tokens after stamp rotation.\r\n\r\n#### How refresh tokens bypass the sstamp check\r\n\r\nThe refresh token flow (`refresh_tokens` in `src/auth.rs`, line ~1205) works as follows:\r\n\r\n```rust\r\npub async fn refresh_tokens(\r\n    ip: &ClientIp,\r\n    refresh_token: &str,\r\n    client_id: Option<String>,\r\n    conn: &DbConn,\r\n) -> ApiResult<(Device, AuthTokens)> {\r\n    let refresh_claims = decode_refresh(refresh_token)?;\r\n    let mut device = Device::find_by_refresh_token(&refresh_claims.device_token, conn).await\r\n        .ok_or(\"Invalid refresh token\")?;\r\n    device.save(true, conn).await?;\r\n    let user = User::find_by_uuid(&device.user_uuid, conn).await\r\n        .ok_or(\"Impossible to find user\")?;\r\n    // No security stamp validation here\r\n    let auth_tokens = AuthTokens::new(&device, &user, refresh_claims.sub, client_id);\r\n    Ok((device, auth_tokens))\r\n}\r\n```\r\n\r\nThe `RefreshJwtClaims` struct does not contain a `security_stamp` field:\r\n\r\n```rust\r\npub struct RefreshJwtClaims {\r\n    pub nbf: i64,\r\n    pub exp: i64,\r\n    pub iss: String,\r\n    pub sub: AuthMethod,\r\n    pub device_token: String,\r\n    pub token: Option<TokenWrapper>,\r\n    // No sstamp / security_stamp field\r\n}\r\n```\r\n\r\nSince the refresh flow only looks up the Device by `device_token` and never checks the security stamp, any refresh token issued before a stamp rotation remains valid as long as the Device record exists in the database.\r\n\r\n#### Comparison with upstream Bitwarden\r\n\r\nThe upstream Bitwarden server (`bitwarden/server`) persists the `SecurityStamp` claim into the grant when issuing a refresh token. On every refresh, `ProfileService.IsActiveAsync` validates this:\r\n\r\n```csharp\r\n// From bitwarden/server src/Identity/IdentityServer/ProfileService.cs\r\npublic async Task IsActiveAsync(IsActiveContext context)\r\n{\r\n    var securityTokenClaim = context.Subject?.Claims\r\n        .FirstOrDefault(c => c.Type == Claims.SecurityStamp);\r\n    var user = await _userService.GetUserByPrincipalAsync(context.Subject);\r\n\r\n    if (user != null && securityTokenClaim != null)\r\n    {\r\n        context.IsActive = string.Equals(\r\n            user.SecurityStamp,\r\n            securityTokenClaim.Value,\r\n            StringComparison.InvariantCultureIgnoreCase);\r\n        return;\r\n    }\r\n    else\r\n    {\r\n        context.IsActive = true;\r\n    }\r\n}\r\n```\r\n\r\nWhen the stamps don't match, `IsActive` is set to `false`, which causes IdentityServer to reject the refresh request. This means that in upstream Bitwarden, **any security stamp rotation automatically invalidates all outstanding refresh tokens**.\r\n\r\n#### Affected operations\r\n\r\nThe following operations reset the `security_stamp` (via `reset_security_stamp()` or `set_password(..., true, ...)`) but do **not** delete Device records or rotate the `refresh_token` of each device:\r\n\r\n| Operation | Code location | Deletes Devices? | Sends Logout? |\r\n|-----------|--------------|-----------------|---------------|\r\n| Password change | `post_password` in `accounts.rs` | No | Yes |\r\n| KDF change | `post_kdf` in `accounts.rs` | No | Yes |\r\n| Key rotation | `post_rotatekey` in `accounts.rs` | No | Yes |\r\n| Email change | `post_email` in `accounts.rs` | No | Yes |\r\n| Org admin password reset | `put_reset_password` in `organizations.rs` | No | Yes |\r\n| Emergency access takeover | `password_emergency_access` in `emergency_access.rs` | No | **No** |\r\n\r\nNote: Three operations (`post_sstamp`, `deauth_user`, `disable_user`) correctly call `Device::delete_all_by_user` in addition to stamp rotation, which effectively invalidates refresh tokens by removing the Device records. These are **not** affected.\r\n\r\n### PoC\r\n\r\n#### Prerequisites\r\n\r\n- A Vaultwarden instance (tested on `v1.35.4`)\r\n- A user account with at least one active device/session\r\n- The refresh token from that device (obtainable from the login response or client storage)\r\n\r\n#### Steps\r\n\r\n1. **Obtain a refresh token**: Log in as the target user. The login response includes a `refresh_token`. Save it.\r\n\r\n    ```bash\r\n    # Login and capture tokens\r\n    curl -s -X POST \"$VW_URL/identity/connect/token\" \\\r\n      -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n      -d \"grant_type=password&username=$EMAIL&password=$MASTER_HASH&scope=api+offline_access&client_id=web&deviceIdentifier=$DEVICE_ID&deviceType=7&deviceName=Test\" \\\r\n      | jq -r '.refresh_token' > refresh_token.txt\r\n    ```\r\n\r\n2. **Change the user's password** (simulating the user securing their account):\r\n\r\n    ```bash\r\n    curl -s -X POST \"$VW_URL/api/accounts/password\" \\\r\n      -H \"Authorization: Bearer $ACCESS_TOKEN\" \\\r\n      -H \"Content-Type: application/json\" \\\r\n      -d '{\"masterPasswordHash\":\"old_hash\",\"newMasterPasswordHash\":\"new_hash\",\"masterPasswordHint\":\"\",\"key\":\"new_key\"}'\r\n    ```\r\n\r\n3. **Verify that the old access token is now invalid**:\r\n\r\n    ```bash\r\n    curl -s \"$VW_URL/api/accounts/profile\" \\\r\n      -H \"Authorization: Bearer $ACCESS_TOKEN\"\r\n    # Expected: 401 Unauthorized or \"Invalid security stamp\"\r\n    ```\r\n\r\n4. **Use the old refresh token to obtain a new valid access token**:\r\n\r\n    ```bash\r\n    curl -s -X POST \"$VW_URL/identity/connect/token\" \\\r\n      -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n      -d \"grant_type=refresh_token&refresh_token=$(cat refresh_token.txt)&client_id=web\" \\\r\n      | jq '.access_token'\r\n    # Expected (current behavior): Returns a new valid access token\r\n    # Expected (correct behavior): Should return an error\r\n    ```\r\n\r\n5. **Confirm continued access with the new token**:\r\n\r\n    ```bash\r\n    curl -s \"$VW_URL/api/accounts/profile\" \\\r\n      -H \"Authorization: Bearer $NEW_ACCESS_TOKEN\"\r\n    # Returns user profile - session was not revoked\r\n    ```\r\n\r\n### Impact\r\n\r\nAn attacker who has obtained a user's refresh token (e.g., through device theft, malware, or session hijacking) can **maintain persistent access to the user's vault** even after the user has:\r\n\r\n- Changed their master password\r\n- Changed their KDF settings\r\n- Rotated their encryption keys\r\n- Changed their email address\r\n- Had their password reset by an organization admin\r\n\r\nThe attacker can refresh their session and continue to read and modify vault entries, unless the user explicitly uses the \"Deauthorize Sessions\" feature (which does delete devices) or has an admin deauth their account.\r\n\r\nThe **emergency access takeover** scenario is particularly concerning: the takeover does not send any logout notification, so even well-behaved clients of the original account owner might silently refresh and maintain their sessions.\r\n\r\n### Suggested Fix\r\n\r\n**Option A - Add `sstamp` to `RefreshJwtClaims` and validate it in `refresh_tokens`:**\r\n\r\n```rust\r\npub struct RefreshJwtClaims {\r\n    // ... existing fields ...\r\n    pub sstamp: String, // security stamp at time of issuance\r\n}\r\n\r\n// In refresh_tokens():\r\nif user.security_stamp != refresh_claims.sstamp {\r\n    err!(\"Invalid token\")\r\n}\r\n```\r\n\r\nThis approach is more aligned with the upstream approach, but it structurally changes the refresh token JWT. All refresh tokens issued before the update would lack the `sstamp` field and fail deserialization (or require a fallback path). In practice, this means **all existing users would be force-logged-out** upon upgrading Vaultwarden.\r\n\r\n**Option B - Rotate device `refresh_token` on security stamp reset:**\r\n\r\nWhen `security_stamp` is reset, also regenerate the `refresh_token` field on all Device records for that user if `Device::delete_all_by_user()` is not called. Since `refresh_tokens()` locates the device via `Device::find_by_refresh_token`, the old refresh token would no longer match any device record and would be effectively invalidated.",
+    "ghsa_id": "GHSA-6j4w-g4jh-xjfx",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6j4w-g4jh-xjfx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6j4w-g4jh-xjfx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-43911"
+      }
+    ],
+    "published_at": "2026-04-25T20:49:19Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Refresh tokens not invalidated on security stamp rotation",
+    "updated_at": "2026-05-04T17:50:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "Vaultwarden"
+        },
+        "patched_versions": "1.35.5",
+        "vulnerable_version_range": "<= 1.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

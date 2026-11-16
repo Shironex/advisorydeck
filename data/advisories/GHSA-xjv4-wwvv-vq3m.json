@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-xjv4-wwvv-vq3m",
+  "aliases": [],
+  "title": "Read-only Viewer can deploy applications and Compose stacks through exposed webhook tokens",
+  "summary": "## Summary\r\n\r\nThe predefined Viewer role may inspect an assigned service and its deployment history. It lacks `deployment:create` and should not receive a bearer token that bypasses that permission.\r\n\r\nDokploy's application and Compose detail procedures authorize only `service:read` and return the complete database object, including its `refreshToken`.\r\n\r\nThe returned `refreshToken` is a bearer credential for the unauthenticated deployment webhook. Supplying it to `/api/deploy/[refreshToken]` or `/api/deploy/compose/[refreshToken]` queues a deployment without checking the caller's session or deployment permission. Docker applications accept an empty request body and use the configured image. Raw Compose services skip all provider-event checks.\r\n\r\n## Details\r\n\r\nThe predefined Viewer role has `service:read` and `deployment:read`, but lacks `deployment:create`. Dokploy's application and Compose detail procedures authorize only `service:read` and return the complete database object, including its `refreshToken`.\r\n\r\n```ts\r\n\t// ...\r\n\tone: protectedProcedure\r\n\t\t.input(apiFindOneApplication)\r\n\t\t.query(async ({ input, ctx }) => {\r\n\t\t\tawait checkServiceAccess(ctx, input.applicationId, \"read\");\r\n\t\t\tconst application = await findApplicationById(input.applicationId);\r\n\t\t\tif (\r\n\t\t\t\tapplication.environment.project.organizationId !==\r\n\t\t\t\tctx.session.activeOrganizationId\r\n\t\t\t) {\r\n\t\t\t\tthrow new TRPCError({\r\n\t\t\t\t\tcode: \"UNAUTHORIZED\",\r\n\t\t\t\t\tmessage: \"You are not authorized to access this application\",\r\n\t// ...\r\n\t\t\treturn {\r\n\t\t\t\t...application,\r\n\t\t\t\thasGitProviderAccess,\r\n\t\t\t\tunauthorizedProvider,\r\n\t\t\t};\r\n\t\t}),\r\n```\r\n\r\n## Steps to reproduce\r\n\r\n1. Assign an account the predefined Viewer role and grant it access to an auto-deploy-enabled application or Compose service.\r\n2. As the Viewer, send `GET /api/trpc/application.one?batch=1&input={\"0\":{\"json\":{\"applicationId\":\"APPLICATION_ID\"}}}` with the Viewer session cookie. For Compose, use `/api/trpc/compose.one` and `{\"composeId\":\"COMPOSE_ID\"}`. Read `refreshToken` from the response.\r\n3. Confirm that the normal `application.deploy` or `compose.deploy` procedure rejects the Viewer because the role lacks `deployment:create`.\r\n4. Without a session cookie, POST `{}` to `/api/deploy/REFRESH_TOKEN` for an application or `/api/deploy/compose/REFRESH_TOKEN` for a Compose service.\r\n\r\n```http\r\nPOST /api/deploy/VIEWER_READ_REFRESH_TOKEN\r\nContent-Type: application/json\r\n\r\n{}\r\n```\r\n\r\nFor a raw Compose service, use `/api/deploy/compose/VIEWER_READ_REFRESH_TOKEN`.\r\n\r\n5. Dokploy returns HTTP 200 and queues a deployment for the service.\r\n\r\n## Impact\r\n\r\nA read-only user can redeploy production applications and entire Compose stacks, bypassing the explicit deployment permission. Repeated deployments can interrupt service and consume build or host resources. The attacker can also activate configuration or mutable image changes that were saved but deliberately not deployed.\r\n\r\n## Recommendation\r\n\r\nExclude `refreshToken` from every read-only service response. Return it only from a procedure requiring `deployment:create`, and require a signed provider event or a separate non-readable webhook secret before queueing any public deployment.",
+  "published_at": "2026-11-12T08:15:30.000Z",
+  "modified_at": "2026-11-12T08:15:30.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-xjv4-wwvv-vq3m",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xjv4-wwvv-vq3m",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-xjv4-wwvv-vq3m",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

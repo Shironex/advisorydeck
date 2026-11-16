@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-72vh-x5jq-m82g",
+  "repo": {
+    "cve_id": "CVE-2026-47160",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1389",
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nThe IP validation for the icon fetching endpoint `/icons/{domain}/icon.png` can be bypassed, resulting in a basic Server-side request forgery (SSRF) vulnerability. The `http_request_block_non_global_ips` protection checks IPs using Rust's `IpAddr::from_str()`, which does not parse decimal, hex, or octal IP representations. However, the underlying DNS/HTTP resolver (glibc/Hickory) resolves them.\r\n\r\nThis SSRF allows an attacker to perform HTTP/HTTPS requests from the Vaultwarden server to arbitrary (internal) IPs, but only responds with parsed favicon images (not raw response bodies), limiting this to a blind internal network/port discovery via timing and response-size differences.\r\n\r\n### Details\r\nVaultwarden runs as two Docker containers:                                                              \r\n\r\n  - vaultwarden, port 80 (internal only), using SQLite for storage                       \r\n  - nginx reverse proxy TLS port 8443 externally, proxies to the vaultwarden container\r\n\r\nRoot cause (two-stage bypass):\r\n\r\n1. Pre-connect filter bypass (`src/http_client.rs:62-69`): `should_block_address()` uses Rust's `IpAddr::from_str()` which only recognizes dotted-decimal notation. Decimal/hex/octal representations are not parsed as IPs and pass through unchecked.\r\n\r\n2. Post-resolve check bypass (`src/http_client.rs:229`): The `post_resolve()` function checks resolved IPs, but it is only called from the custom DNS resolver (`CustomDnsResolver::resolve_domain`). When the URL host is a numeric literal, the Rust `url` crate (WHATWG URL Standard compliant) parses it directly as an IPv4 address. Reqwest then connects to the IP without invoking the custom DNS resolver at all, `post_resolve()` is never called.\r\n\r\nBypass payloads that successfully fetched from internal IPs:\r\n- `2130706433` → `127.0.0.1` (decimal integer)\r\n- `0x7f000001` → `127.0.0.1` (hexadecimal)\r\n- `0177.0.0.1` → `127.0.0.1` (octal-dotted)\r\n\r\n### PoC\r\n\r\nBasic PoC:\r\n - https://localhost:8443/icons/127.0.0.1/icon.png -> Response is generic icon.png (Blocked IP)\r\n - https://localhost:8443/icons/2130706433/icon.png -> Response is vaulwarden favicon, bypassing the IP filter\r\n\r\nFrom the logs:\r\n\r\n```\r\n[2026-04-02 09:28:04.648][request][INFO] GET /icons/2130706433/icon.png\r\n[2026-04-02 09:28:04.651][response][INFO] (icon_internal) GET /icons/<domain>/icon.png => 200 OK\r\n[2026-04-02 09:28:08.371][request][INFO] GET /icons/127.0.0.1/icon.png\r\n[2026-04-02 09:28:08.371][vaultwarden::api::icons][WARN] Blocked address: 127.0.0.1\r\n[2026-04-02 09:28:08.371][response][INFO] (icon_internal) GET /icons/<domain>/icon.png => 200 OK\r\n```\r\n\r\nThe same applies to other resources, that are only internally available. An exemplary, additional nginx container on a Docker internal: true network, serving a favicon with no published ports, only reachable from the vaultwarden container, not from nginx or the outside, yet the decimal IP bypass (2886991875 for 172.20.0.3) successfully fetches the favicon through the icon endpoint.\r\n\r\n - http://172.19.0.4/favicon.ico -> Request fails from the host.\r\n - https://localhost:8443/icons/172.19.0.4/icon.png -> Response is generic icon.png (Blocked IP)\r\n - https://localhost:8443/icons/2886926340/icon.png -> Response is the PoC favicon, bypassing the IP filter\r\n\r\nFrom the logs:\r\n\r\n```\r\n[2026-04-02 09:40:43.433][request][INFO] GET /icons/172.19.0.4/icon.png\r\n[2026-04-02 09:40:43.433][vaultwarden::api::icons][WARN] Blocked address: 172.19.0.4\r\n[2026-04-02 09:40:43.433][response][INFO] (icon_internal) GET /icons/<domain>/icon.png => 200 OK\r\n[2026-04-02 09:40:44.983][request][INFO] GET /icons/2886926340/icon.png\r\n[2026-04-02 09:40:44.985][response][INFO] (icon_internal) GET /icons/<domain>/icon.png => 200 OK\r\n```\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker can:\r\n\r\n- Access internal HTTP/HTTPS services on the Docker/cloud network (parsed favicon images, not raw response bodies)\r\n- Map the internal network topology via response timing analysis\r\n\r\n---\r\nVulnerability identified, AI assisted, Reimar @ Hacking Cult GmbH (https://hackingcult.de/)",
+    "ghsa_id": "GHSA-72vh-x5jq-m82g",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-72vh-x5jq-m82g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-72vh-x5jq-m82g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47160"
+      }
+    ],
+    "published_at": "2026-05-19T21:27:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Server-side request forgery (SSRF) via Icon Endpoint Decimal/Hex/Octal IP Bypass",
+    "updated_at": "2026-05-19T21:27:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.36.0",
+        "vulnerable_version_range": "<1.35.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

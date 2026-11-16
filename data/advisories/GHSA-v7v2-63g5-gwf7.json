@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-v7v2-63g5-gwf7",
+  "aliases": [],
+  "title": "Partner can read the sharer's Locked Folder metadata when a search request omits visibility",
+  "summary": "### Summary\r\n\r\nA partner can read the full metadata of every asset the sharer put in their Locked Folder. That\r\nincludes GPS coordinates, the on-disk path, the EXIF description and a thumbhash preview. The\r\npartner gets it by calling the legacy search endpoints with the `visibility` field left out, while\r\ntheir own session is unlocked with their own PIN.\r\n\r\nThe guard for this only fires when the client sends `visibility` explicitly. Leaving one optional\r\nfield out of the same request body gets past it.\r\n\r\n| route | what the partner gets |\r\n|---|---|\r\n| `POST /api/search/metadata` | asset rows with `exifInfo` |\r\n| `POST /api/search/statistics` | a count of the locked assets |\r\n| `POST /api/search/random` | locked assets in the sample |\r\n| `POST /api/search/large-assets` | locked assets listed |\r\n\r\nAsset bytes stay protected. `GET /assets/{id}`, `/thumbnail` and `/original` are all refused, so this\r\nis metadata rather than file access.\r\n\r\n**How this differs from CVE-2026-108165.** That one is the partner sync stream:\r\n`POST /api/sync/stream`, queried in `server/src/repositories/sync.repository.ts`. This is the search\r\npath, queried in `server/src/utils/database.ts`. The two build their queries in different files and\r\nshare no code, so a fix to the sync queries will not change this behaviour. Both are present in\r\nv3.3.3.\r\n\r\n### Details\r\n\r\nThe legacy builder applies its visibility predicate conditionally:\r\n\r\n```ts\r\n// server/src/utils/database.ts:432-436\r\n    .$if(!!options.visibility, (qb) =>\r\n      options.visibility === 'not-locked'\r\n        ? qb.where('asset.visibility', '!=', AssetVisibility.Locked)\r\n        : qb.where('asset.visibility', '=', options.visibility!),\r\n    )\r\n```\r\n\r\n`!!undefined` is `false`, so when `visibility` is omitted no visibility predicate is added at all.\r\nThe only ownership predicate in the builder is this:\r\n\r\n```ts\r\n// server/src/utils/database.ts:489\r\n    .$if(!!options.userIds, (qb) => qb.where('asset.ownerId', '=', anyUuid(options.userIds!)))\r\n```\r\n\r\nand `userIds` still holds the partner ids, because the guard that strips them keys on the explicit\r\nvalue:\r\n\r\n```ts\r\n// server/src/services/search.service.ts:356-360\r\n  private async getUserIdsToSearch(auth: AuthDto, visibility?: AssetVisibility): Promise<string[]> {\r\n    // Locked assets are personal. Never include partner IDs, regardless of A's elevated session.\r\n    if (visibility === AssetVisibility.Locked) {\r\n      return [auth.user.id];\r\n    }\r\n```\r\n\r\nFive callers pass `undefined` as soon as the caller's own session is elevated\r\n(`search.service.ts` lines 106, 128, 146, 161 and 193, each identical):\r\n\r\n```ts\r\nvisibility: dto.visibility ?? (auth.session?.hasElevatedPermission ? undefined : 'not-locked'),\r\n```\r\n\r\nSo for an elevated caller who omits the field there is no visibility filter, and\r\n`ownerId IN (self, ...partners)`. Every partner's locked asset matches.\r\n\r\nThe V3 builder gets this right, which is where the fix should come from:\r\n\r\n```ts\r\n// server/src/utils/database.ts:814-816\r\n      .where((eb) =>\r\n        eb.or([eb('asset.visibility', '!=', AssetVisibility.Locked), eb('asset.ownerId', '=', scope.lockedOwnerId)]),\r\n      )\r\n```\r\n\r\nThat predicate is unconditional and scoped to the requester, so a locked row survives only if the\r\nrequester owns it. Sending `\"filter\": {}` routes to V3 and returns nothing, while the same query\r\nwithout it leaks.\r\n\r\n### Proof of concept\r\n\r\nimmich v3.3.1 in Docker. A is the victim, B the partner. A uploads an asset, sets a PIN, unlocks,\r\nand sets the asset to `visibility: locked`. A shares with B. B turns it on in B's own timeline and\r\nunlocks B's own session with B's own PIN. B never learns A's PIN, and holds no admin role, no API\r\nkey and no share link.\r\n\r\n```http\r\nPOST /api/search/metadata\r\nAuthorization: Bearer <B, elevated session>\r\n\r\n{\"size\":200,\"withExif\":true}\r\n```\r\n\r\n```json\r\n{\"assets\":{\"total\":1,\"items\":[{\r\n  \"id\":\"fbf29e29-e631-486e-9b14-47c23fd31eb9\",\r\n  \"ownerId\":\"b99e2116-db06-4613-9199-3cecb4...",
+  "published_at": "2026-11-10T18:45:02.000Z",
+  "modified_at": "2026-11-10T18:45:02.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v7v2-63g5-gwf7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v7v2-63g5-gwf7",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v7v2-63g5-gwf7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+  "note": null
+}

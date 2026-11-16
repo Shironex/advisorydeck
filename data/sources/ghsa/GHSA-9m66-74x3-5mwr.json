@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-9m66-74x3-5mwr",
+  "repo": {
+    "cve_id": "CVE-2026-45663",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": " ### Description:\r\n  A command injection vulnerability exists in the Docker file upload functionality. When an authenticated user uploads a\r\n  file to a container, the destinationPath parameter is not properly sanitized and is directly interpolated into a shell\r\n  command string. By including shell metacharacters such as ; or \", an attacker can escape the intended docker cp\r\n  command and execute arbitrary OS commands on the Dokploy host.\r\n\r\n ### Affected Component:\r\n   - Endpoint: uploadFileToContainer in apps/dokploy/server/api/routers/docker.ts\r\n   - Vulnerable Function: uploadFileToContainer in packages/server/src/services/docker.ts\r\n\r\n  Steps to Reproduce (PoC):\r\n   1. Log in to Dokploy as an authenticated user.\r\n   2. Trigger a file upload to any container.    \r\n<img width=\"926\" height=\"640\" alt=\"image\" src=\"https://github.com/user-attachments/assets/9988a588-29ed-44f2-95a1-442d60254f9b\" />\r\n   3. Intercept the request and set the destinationPath to:\r\n    /\" ; id && uname -a > /tmp/dokrce ; #\r\n   4. The server executes:\r\n     docker cp \"/tmp/...\" \"id:/tmp/test\" ; touch /tmp/pwned_upload ; #\" ; rm -f ...\r\n   5. Observe that the file /tmp/pwned_upload is created on the host.\r\n   \r\n<img width=\"1917\" height=\"914\" alt=\"image\" src=\"https://github.com/user-attachments/assets/11b181a4-75e3-4627-b71b-290fe5b6fc14\" />\r\n\r\n\r\n ### Suggested Remediation:\r\n  Use execFile or spawn with an array of arguments instead of string interpolation with exec. Validate the\r\n  destinationPath against a strict regex that disallows shell metacharacters.\r\n\r\n  Modify packages/server/src/services/docker.ts as follows:\r\n```\r\n    1 /* [Vulnerable Code] */\r\n    2 // Unsanitized destinationPath is directly interpolated into a shell string\r\n    3 const command = `echo '${base64Content}' | base64 -d > \"${tempPath}\" && docker cp \"${tempPath}\"\r\n      \"${containerId}:${normalizedPath}\" ; rm -f \"${tempPath}\"`;\r\n    4 await execAsync(command);\r\n    5\r\n    6 /* [Remediation Code] */\r\n    7 // 1. Implement strict regex validation for the destination path\r\n    8 // This disallows shell metacharacters like ;, &, |, \", ', and `\r\n    9 const pathRegex = /^[a-zA-Z0-9.\\-_\\/ ]+$/;\r\n   10 if (!pathRegex.test(destinationPath)) {\r\n   11     throw new Error(\"Invalid destination path: Shell metacharacters are not allowed.\");\r\n   12 }\r\n   13\r\n   14 // 2. Use execFileAsync (argument-based) instead of execAsync (shell-based)\r\n   15 // This prevents the shell from interpreting characters as commands\r\n   16 await execFileAsync(\"sh\", [\"-c\", `echo \"${base64Content}\" | base64 -d > \"${tempPath}\"`]);\r\n   17 await execFileAsync(\"docker\", [\"cp\", tempPath, `${containerId}:${normalizedPath}`]);\r\n   18 await execFileAsync(\"rm\", [\"-f\", tempPath]);\r\n\r\n```\r\n",
+    "ghsa_id": "GHSA-9m66-74x3-5mwr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-9m66-74x3-5mwr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9m66-74x3-5mwr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45663"
+      }
+    ],
+    "published_at": "2026-05-11T18:38:08Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Remote Code Execution via destinationPath in Container File Upload",
+    "updated_at": "2026-05-13T04:43:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "None",
+        "vulnerable_version_range": "<= 0.29.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

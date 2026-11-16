@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-x7g7-cgx5-jhx2",
+  "repo": {
+    "cve_id": "CVE-2026-31835",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-345"
+    ],
+    "description": "### Summary\r\nVaultwarden updates persistent WebAuthn credential metadata based on unverified authenticatorData before signature validation during the WebAuthn authentication flow.\r\n\r\nAn attacker who knows a user's password but cannot produce a valid WebAuthn signature can still permanently modify the stored backup_eligible and backup_state flags for that user's credential.\r\n\r\nThis can result in permanent denial of service of WebAuthn 2FA for affected credentials.\r\n\r\n### Details\r\nIn `validate_webauthn_login()`\r\n```\r\ncheck_and_update_backup_eligible(...);\r\nlet authentication_result =\r\n    WEBAUTHN.finish_passkey_authentication(...)?;\r\n```\r\n\r\n`check_and_update_backup_eligible()` parses `rsp.response.authenticator_data and` updates the stored WebAuthn registration before calling `finish_passkey_authentication()`\r\n\r\nThe function extracts the Backup Eligible (BE) and Backup State (BS) flags directly from the unverified authenticatorData and persists them to the database.\r\n\r\nHowever, `finish_passkey_authentication()` performs signature validation only afterward.\r\n\r\nIf signature verification fails, the database update is not rolled back.\r\n\r\n### PoC\r\n1. Use a normal user account with an existing WebAuthn credential already registered.\r\n2. Start a login that reaches the WebAuthn 2FA assertion step (so a login challenge state exists).\r\n3. Submit a WebAuthn assertion response where:\r\n  - .`rawId` matches one of the user’s registered credentials, and\r\n  - `response.authenticatorData[32]` (flags) is tampered to set BE=1 (and optionally toggle BS), but the signature is invalid (expected after tampering).\r\n 4. Observe: authentication fails, but the server updates the stored credential metadata (`backup_eligible`/`backup_state`) before signature verification and persists it.\r\n\r\n### Impact\r\nAn authenticated user can cause a persistent DB update of their WebAuthn credential’s `backup_eligible` / `backup_state` metadata based on an unverified assertion response (i.e., even when signature verification fails), because the DB write occurs prior to `finish_passkey_authentication()`.\r\n",
+    "ghsa_id": "GHSA-x7g7-cgx5-jhx2",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-x7g7-cgx5-jhx2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x7g7-cgx5-jhx2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-31835"
+      }
+    ],
+    "published_at": "2026-04-25T20:48:06Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Vaultwarden: WebAuthn assertion processed before signature verification allows persistent credential backup-flag tampering",
+    "updated_at": "2026-04-25T20:48:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.35.5",
+        "vulnerable_version_range": "<= 1.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

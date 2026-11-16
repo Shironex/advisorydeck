@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-x2r4-3gv4-jv6x",
+  "aliases": [],
+  "title": "OS Command Injection via composePath remains in utils/docker/domain.ts - incomplete fix of CVE-2026-72865",
+  "summary": "### Summary\r\n\r\nThe v0.29.13 fix for CVE-2026-72865 (GHSA-8r5w-vqjr-8c44) correctly quoted `docker compose -f ${path}` in `builders/compose.ts` and `services/compose.ts`, but missed two sinks in `utils/docker/domain.ts` fed by the same user-controlled `composePath`:\r\n\r\n- `writeDomainsToCompose` (domain.ts:130): `echo \"<b64>\" | base64 -d > \"${path}\";` - runs on every deploy of a compose that rewrites its file. Command substitution `$(...)` and backticks execute inside the double-quoted redirect target.\r\n- `loadDockerComposeRemote` (domain.ts:88): `cat ${path}` - completely unquoted, executed over SSH on the remote server.\r\n\r\nA member with write+deploy rights on one compose service puts a payload in the **Compose Path** field in the UI and deploys.\r\n\r\n### Details\r\n\r\n- `composePath`: `z.string().min(1)` only (`packages/server/src/db/schema/compose.ts:188`), no regex.\r\n- `getComposePath` (domain.ts:49-61) uses `path.join`, which does not neutralize shell metacharacters.\r\n- Contrast: `createCommand` (builders/compose.ts:132-134) quotes the same value correctly - one field, escaped in one place, missed in two others.\r\n\r\n### PoC\r\n\r\nAll steps through the UI, verified on a live v0.30.0 instance (attacker = member with one compose service):\r\n\r\n1. Compose service -> General -> Git provider: set **Compose Path** = `./docker-compose.yml$(touch${IFS}PWNED_VULN02_MARKER)`, repo URL/branch to a repo the attacker controls:\r\n\r\n![composePath payload in form](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/vuln02-01-composepath-payload-in-form.jpeg)\r\n\r\n2. Save -> \"Git Provider Saved\":\r\n\r\n![git provider saved](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/vuln02-02-git-provider-saved.jpeg)\r\n\r\n3. Commit a file literally named `docker-compose.yml$(touch${IFS}PWNED_VULN02_MARKER)` to the repo root (git permits `$()`, `{}`, `${IFS}` in filenames). The file must exist so `loadDockerCompose` can parse it.\r\n4. Deploy -> Confirm. The rewrite step executes `base64 -d > \"${path}\"` with the payload path; the `$(touch ...)` substitution runs as root. The deploy still succeeds, and the deployment log shows the injected command:\r\n\r\n![deploy log with injection](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/vuln02-03-deploy-log-injection-visible.jpeg)\r\n\r\nResult verified via `docker exec` from the host (SSH):\r\n\r\n```\r\n$ docker exec <dokploy-container> sh -c 'ls -la /app/PWNED_VULN02_MARKER; id'\r\n-rw-r--r-- 1 root root 0 Aug 14 21:23 /app/PWNED_VULN02_MARKER\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\nThe marker timestamp matches the deployment at 21:23:45 exactly.\r\n\r\n### Impact\r\n\r\nMember -> root RCE in the control-plane (Docker socket = host compromise, same containment assumption accepted for CVE-2026-72865 scored 9.9 Critical). With a remote `serverId`, sink 2 runs the payload directly in the remote host's SSH shell, bypassing any container boundary. A `composePath` containing `../` additionally allows path traversal on the file write.\r\n\r\n### Affected versions\r\n\r\nAll through v0.30.0. The 0.29.13 patch left these two sinks unquoted.\r\n\r\n### Remediation\r\n\r\nValidate composePath as a relative path confined to the build dir (no `..`, no shell metacharacters, regex like APP_NAME_REGEX). Quote domain.ts:88 and :130 with shell-quote or use file APIs. Add regression tests with filenames containing `$(...)`, backtick, `${IFS}`.\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H - CWE-78.",
+  "published_at": "2026-11-12T08:16:13.000Z",
+  "modified_at": "2026-11-12T08:16:13.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-x2r4-3gv4-jv6x",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-x2r4-3gv4-jv6x",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-x2r4-3gv4-jv6x",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

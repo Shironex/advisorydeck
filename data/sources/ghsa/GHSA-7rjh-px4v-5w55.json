@@ -1,0 +1,105 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44558",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "# Channel Access Grants Bypass filter_allowed_access_grants\n\n## Affected Component\n\nChannel creation and update endpoints:\n- `backend/open_webui/routers/channels.py` (lines 291-340, `create_new_channel`)\n- `backend/open_webui/routers/channels.py` (lines 617-638, `update_channel_by_id`)\n- `backend/open_webui/models/channels.py` (lines 825-826, `set_access_grants` call without filtering)\n\n## Affected Versions\n\nCurrent main branch (commit `6fdd19bf1`) and likely all versions supporting user-created group channels with access grants.\n\n## Description\n\nAll resource routers in Open WebUI (knowledge, models, notes, prompts, tools, skills) call `filter_allowed_access_grants()` before persisting access grants. This function strips `principal_id: \"*\"` wildcard grants from users who lack the relevant `sharing.public_*` permission, and strips individual user grants from users who lack `access_grants.allow_users` permission.\n\nThe channel router does not call `filter_allowed_access_grants` on either create or update paths. A non-admin user who can create group channels (or who owns a channel) can submit arbitrary access grants - including public wildcard grants - and those grants are stored verbatim, bypassing the admin's permission framework.\n\n```python\n# channels.py - access_grants from form data flow directly into persistence\n# No call to filter_allowed_access_grants() anywhere in these paths.\n\n# Compare with knowledge.py / models.py / notes.py / prompts.py / tools.py / skills.py,\n# all of which do:\n#     form_data.access_grants = filter_allowed_access_grants(user, form_data.access_grants)\n# before creating or updating.\n```\n\n## Attack Scenario\n\n1. Admin configures permissions so that regular users do NOT have `sharing.public_channels` - public sharing of channels is intended to be admin-only.\n2. Attacker (a regular user) creates or owns a group channel.\n3. Attacker sends:\n   ```\n   POST /api/v1/channels/\n   {\n     \"name\": \"public-channel\",\n     \"type\": \"group\",\n     \"access_control\": {\n       \"access_grants\": [\n         {\"principal_type\": \"user\", \"principal_id\": \"*\", \"permission\": \"read\"}\n       ]\n     }\n   }\n   ```\n4. `set_access_grants` is called directly without `filter_allowed_access_grants` - the wildcard grant is persisted.\n5. The channel becomes publicly readable to every user on the instance, despite the admin's policy prohibiting public channels for regular users.\n\nThe same attack works via `POST /api/v1/channels/{id}/update` for any channel the attacker owns.\n\n## Impact\n\n- Regular users can bypass the `sharing.public_channels` permission and make channels publicly accessible\n- Regular users can bypass `access_grants.allow_users` to grant individual-user access in environments where only group-based sharing is intended\n- Admin's permission framework for channels is silently ineffective\n- Creates an inconsistency with every other resource type in the codebase, making the security posture harder to reason about\n\n## Preconditions\n\n- Attacker must have an account with the ability to create group channels (default user capability), or ownership of an existing channel\n- Admin must have configured restrictive sharing permissions for regular users (otherwise there's no policy to bypass)",
+    "ghsa_id": "GHSA-7rjh-px4v-5w55",
+    "html_url": "https://github.com/advisories/GHSA-7rjh-px4v-5w55",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7rjh-px4v-5w55"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44558"
+      }
+    ],
+    "published_at": "2026-05-08T19:50:51Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-7rjh-px4v-5w55",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44558",
+      "https://github.com/advisories/GHSA-7rjh-px4v-5w55"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI's Channel Access Grants Bypass filter_allowed_access_grants",
+    "updated_at": "2026-05-15T23:52:45Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-7rjh-px4v-5w55",
+  "repo": {
+    "cve_id": "CVE-2026-44558",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Channel Access Grants Bypass filter_allowed_access_grants\r\n\r\n## Affected Component\r\n\r\nChannel creation and update endpoints:\r\n- `backend/open_webui/routers/channels.py` (lines 291-340, `create_new_channel`)\r\n- `backend/open_webui/routers/channels.py` (lines 617-638, `update_channel_by_id`)\r\n- `backend/open_webui/models/channels.py` (lines 825-826, `set_access_grants` call without filtering)\r\n\r\n## Affected Versions\r\n\r\nCurrent main branch (commit `6fdd19bf1`) and likely all versions supporting user-created group channels with access grants.\r\n\r\n## Description\r\n\r\nAll resource routers in Open WebUI (knowledge, models, notes, prompts, tools, skills) call `filter_allowed_access_grants()` before persisting access grants. This function strips `principal_id: \"*\"` wildcard grants from users who lack the relevant `sharing.public_*` permission, and strips individual user grants from users who lack `access_grants.allow_users` permission.\r\n\r\nThe channel router does not call `filter_allowed_access_grants` on either create or update paths. A non-admin user who can create group channels (or who owns a channel) can submit arbitrary access grants - including public wildcard grants - and those grants are stored verbatim, bypassing the admin's permission framework.\r\n\r\n```python\r\n# channels.py - access_grants from form data flow directly into persistence\r\n# No call to filter_allowed_access_grants() anywhere in these paths.\r\n\r\n# Compare with knowledge.py / models.py / notes.py / prompts.py / tools.py / skills.py,\r\n# all of which do:\r\n#     form_data.access_grants = filter_allowed_access_grants(user, form_data.access_grants)\r\n# before creating or updating.\r\n```\r\n\r\n## Attack Scenario\r\n\r\n1. Admin configures permissions so that regular users do NOT have `sharing.public_channels` - public sharing of channels is intended to be admin-only.\r\n2. Attacker (a regular user) creates or owns a group channel.\r\n3. Attacker sends:\r\n   ```\r\n   POST /api/v1/channels/\r\n   {\r\n     \"name\": \"public-channel\",\r\n     \"type\": \"group\",\r\n     \"access_control\": {\r\n       \"access_grants\": [\r\n         {\"principal_type\": \"user\", \"principal_id\": \"*\", \"permission\": \"read\"}\r\n       ]\r\n     }\r\n   }\r\n   ```\r\n4. `set_access_grants` is called directly without `filter_allowed_access_grants` - the wildcard grant is persisted.\r\n5. The channel becomes publicly readable to every user on the instance, despite the admin's policy prohibiting public channels for regular users.\r\n\r\nThe same attack works via `POST /api/v1/channels/{id}/update` for any channel the attacker owns.\r\n\r\n## Impact\r\n\r\n- Regular users can bypass the `sharing.public_channels` permission and make channels publicly accessible\r\n- Regular users can bypass `access_grants.allow_users` to grant individual-user access in environments where only group-based sharing is intended\r\n- Admin's permission framework for channels is silently ineffective\r\n- Creates an inconsistency with every other resource type in the codebase, making the security posture harder to reason about\r\n\r\n## Preconditions\r\n\r\n- Attacker must have an account with the ability to create group channels (default user capability), or ownership of an existing channel\r\n- Admin must have configured restrictive sharing permissions for regular users (otherwise there's no policy to bypass)",
+    "ghsa_id": "GHSA-7rjh-px4v-5w55",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-7rjh-px4v-5w55",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7rjh-px4v-5w55"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44558"
+      }
+    ],
+    "published_at": "2026-05-05T11:19:02Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Channel Access Grants Bypass filter_allowed_access_grants",
+    "updated_at": "2026-05-07T14:54:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

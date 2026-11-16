@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-xwf8-pjh7-h589",
+  "aliases": [],
+  "title": "Cross-organization full cipher access via unguarded full-access-group query",
+  "summary": "# GitHub Security Advisory (vaultwarden)\r\n\r\nSplit out from the original report, which grouped two primary issues plus a supporting set. The\r\nSSRF and the `post_org_import` gate are tracked separately, see the note at the end.\r\n\r\n- **Ecosystem / package:** Rust / self-hosted server - `dani-garcia/vaultwarden`.\r\n- **Affected versions:** 1.27.0 through 1.36.0.\r\n- **Patched versions:** 1.37.0.\r\n\r\n## Title\r\nCross-org full-access authorization gap in vaultwarden\r\n\r\n## Severity\r\n**AUTHZ (cross-org full access) - Medium.** Reporter's suggested CVSS v3.1\r\n`AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:N` (~7.0, but gated on the non-default `org_groups_enabled` +\r\nknowing target UUIDs -> Medium in practice). Assigned as\r\n`AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:H/A:N` (5.9), matching the reporter's own \"Medium in practice\"\r\nassessment; `S:U` because both orgs sit under the same authorization component, and `C:L` because\r\nthe attacker obtains ciphertext they cannot decrypt without the org key.\r\n\r\n## CWEs\r\nCWE-863 / CWE-639 (incorrect authorization / IDOR), CWE-862 (missing authorization).\r\n\r\n## Summary\r\nvaultwarden is an internet-exposed, multi-tenant server. An authenticated user who is Admin/Owner of any organization (any user can create one unless `ORG_CREATION_USERS` restricts it) can:\r\n\r\n**Cross-organization full cipher access.** `edit_member` / `send_invite`\r\n(`src/api/core/organizations.rs:1606` / `:1162` in 1.36.0) bind body-supplied group UUIDs to a member with no\r\n`Group::find_by_uuid_and_org` check (unlike the collections loop and `put_group_members`), planting a\r\ncross-org `groups_users` row. Then `Group::is_in_full_access_group` (`src/db/models/group.rs:261`) - the\r\nquery behind `Cipher::get_access_restrictions` - lacks the `groups.organizations_uuid ==\r\nusers_organizations.org_uuid` guard its sibling `get_orgs_by_user_with_full_access` (`group.rs:243`) has,\r\nso that stray row grants full read/write/manage on a foreign org's ciphers to a non-member. Requires\r\n`org_groups_enabled=true` (non-default) and knowing target group + cipher UUIDs (no enumeration).\r\n\r\n## Proof of concept\r\nSource-only, offline, provided privately:\r\n- `poc/poc_authz_cross_org_full_access.py` - SQLite repro of the two Diesel queries: the unguarded\r\n`is_in_full_access_group` grants a non-member cross-org full access, the guarded sibling denies it on\r\nidentical data. (`RESULT_authz_cross_org.txt`)\r\n\r\n## Impact\r\nAn authenticated user who is Admin/Owner of any organization (with the groups feature enabled) can gain full read/write/manage on specific\r\nciphers of an organization they are not a member of. Vault contents remain client-side encrypted\r\nthroughout.\r\n\r\n## Remediation\r\nAdd the org-match join guard to `Group::is_in_full_access_group` (matching\r\n`get_orgs_by_user_with_full_access`) and validate group-org in `edit_member`/`send_invite`.\r\n\r\nBoth were applied in 1.37.0.\r\n\r\n## Split-out issues\r\nThe original report also covered, and the reporter is credited as a finder on both:\r\n- Unauthenticated favicon SSRF bypassing the non-global-IP filter -> GHSA-hw4g-2v3f-74x5\r\n- Read-only collection member injecting ciphers via `post_org_import` -> GHSA-f3qw-qg77-hmm4",
+  "published_at": "2026-10-03T20:04:47.000Z",
+  "modified_at": "2026-10-03T20:04:47.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.9,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-xwf8-pjh7-h589",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xwf8-pjh7-h589",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-xwf8-pjh7-h589",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+  "note": null
+}

@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-5w58-mwmh-vf2m",
+  "repo": {
+    "cve_id": "CVE-2026-109299",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-834"
+    ],
+    "description": "# Instance-wide stall via recurrence rules with no possible occurrence\r\n\r\n## Summary\r\nA recurrence rule whose date filters can never be satisfied, for example February 30th, has no occurrence at any point in time. Computing its next run walked the whole search horizon of the calendar library before reporting that there is none, synchronously on the shared event loop. One automation create or update request from one account therefore held up the entire deployment for seconds, and the request could be repeated indefinitely. Nothing bounded that search by time, by iteration count or by how far ahead it looked.\r\n\r\n## Preconditions\r\nAn account permitted to create or update automations. `USER_PERMISSIONS_FEATURES_AUTOMATIONS` defaults to `False`, so out of the box only an administrator can reach it. It becomes reachable by ordinary users on any deployment that has granted the automations feature, which is the normal way to make the shipped feature usable. No other configuration matters, and no knowledge of other users, ids or tokens is required. `UVICORN_WORKERS` defaults to 1, so a single blocked event loop is the whole instance.\r\n\r\n## Impact\r\nAvailability, against every other user of the instance. The stall lasts as long as the search, and the attacker picks the duration through the rule's shape: a minutely rule on February 30th costs about 4 seconds, and adding a full `BYSECOND` list raises the same single request to over 30 seconds. The rule is rejected once the search finishes, so nothing is stored and nothing shows up in the automation list, but the cost has already been paid. The per-user automation limits are checked after validation, so they do not reduce it. Requests are cheap and can be repeated or pipelined, so one account in a loop keeps the instance unresponsive for as long as it continues. There is no confidentiality or integrity impact, and no data is written.\r\n\r\n## Fix\r\nFixed in commit 5fb869db221d9599a576e8e2eea9c3314947d25e. All recurrence evaluation now runs in a separate worker process with a two-second limit, so the event loop stays free while a rule is evaluated. A rule that cannot be settled within that limit is rejected on write, and the scheduler skips it. Upgrading fully resolves the issue; no configuration change is required.\r\n\r\n## Root cause\r\nAffected component: the recurrence-rule validator (`validate_rrule` and `_parse_rule` in `backend/open_webui/utils/automations.py`), reached from `POST /api/v1/automations/create` and `POST /api/v1/automations/{id}/update` in `backend/open_webui/routers/automations.py`.\r\nAffected setup: every build that ships automations, from 0.9.0 up to the fix.\r\n\r\nThe validator checked that a rule has a future occurrence by asking the calendar library for the next one and treating an empty answer as invalid. For a rule that can never match, the library can only give that empty answer after exhausting its entire search space, and the validator put no limit on that search. Both routes are async handlers and called the validator directly, so the search ran on the event loop and blocked every other request for its full duration. The earlier fix for sub-daily rules anchored in the year 2000 did not help here: that fix moves the starting point of the search, and a rule with no occurrence is walked to the end of the representable range wherever the search starts.\r\n\r\n## Proof of concept\r\nA single next-occurrence computation on the released code path, one call each, measured on 0.11.0 with the sub-daily fix in place:\r\n\r\n| rule | cost |\r\n|---|---|\r\n| `RRULE:FREQ=MINUTELY;BYMONTH=2;BYMONTHDAY=30` | 3.85 s |\r\n| `RRULE:FREQ=SECONDLY;BYMONTH=2;BYMONTHDAY=30` | 5.73 s |\r\n| `RRULE:FREQ=HOURLY;BYMONTH=2;BYMONTHDAY=30` | 4.39 s |\r\n| `RRULE:FREQ=DAILY;BYMONTH=2;BYMONTHDAY=30` | 1.81 s |\r\n| `RRULE:FREQ=MINUTELY;BYMONTH=2;BYMONTHDAY=30;BYSECOND=0,1,...,59` | 31.45 s |\r\n\r\nA variant combining full `BYMINUTE` and `BYSECOND` lists at hourly frequency did not return within 10 minutes.\r\n\r\nReaching this over HTTP requires nothing beyond the rule itself:\r\n\r\n```bash\r\ncurl -X POST $BASE/api/v1/automations/create -H \"Authorization: Bearer $ATK\" \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{\"name\":\"x\",\"data\":{\"rrule\":\"RRULE:FREQ=MINUTELY;BYMONTH=2;BYMONTHDAY=30;BYSECOND=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59\",\"prompt\":\"x\"}}'\r\n```\r\n\r\nThe measurements were taken at function level against the released validator, with a concurrent task on the same event loop recording how long it was starved. On 0.9.0, 0.10.2 and 0.11.3 the February 30th minutely rule blocked the event loop for 3.6 to 4.0 seconds per call. On 0.11.4 the same rule, and the full `BYSECOND` variant, are rejected after two seconds, and the event loop is never blocked for longer than its normal scheduling interval. Both automation routes call the validator directly inside their async handlers, so a request to either one blocks the instance for the same duration.\r\n\r\n## Credits\r\n@Classic298",
+    "ghsa_id": "GHSA-5w58-mwmh-vf2m",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-5w58-mwmh-vf2m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5w58-mwmh-vf2m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109299"
+      }
+    ],
+    "published_at": "2026-09-27T16:31:36Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Instance-wide stall via recurrence rules with no possible occurrence",
+    "updated_at": "2026-10-28T20:47:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.9.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

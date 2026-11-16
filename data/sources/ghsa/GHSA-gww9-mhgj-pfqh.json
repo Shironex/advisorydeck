@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-gww9-mhgj-pfqh",
+  "repo": {
+    "cve_id": "CVE-2026-109298",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-770"
+    ],
+    "description": "# Any authenticated user can exhaust worker memory via a nested-repetition knowledge-search pattern\r\n\r\n## Summary\r\nThe built-in knowledge search tools let a chat participant choose the pattern used to grep knowledge files. That pattern is compiled before any of the limits on the search apply, and the regular expression engine expands counted repetition as it compiles, so a pattern that nests repetition counts forces it to build a structure vastly larger than the pattern itself. A pattern of a couple of dozen characters makes one worker allocate hundreds of megabytes, and because compiled patterns are cached for the life of the process, that memory is never returned. Neither the size of that work nor the number of times it can be repeated is bounded.\r\n\r\n## Preconditions\r\n- Default configuration. The knowledge builtin tool group is enabled by default, and with `ENABLE_KB_EXEC` at its default of `False` the model is handed the knowledge grep tool, which is the affected path. The chat file grep tool and the `kb_exec` grep command share the same pattern compiler and are affected the same way.\r\n- Any authenticated user, no elevated role and no workspace permission.\r\n- One file the attacker can read. The tool returns early when no readable file is in scope, so a file is required, and `USER_PERMISSIONS_CHAT_FILE_UPLOAD` defaults to true so the attacker can supply their own.\r\n- A model willing to call the tool with the attacker's literal pattern. This is the one non-deterministic step: reliable in practice by instructing the model in your own chat, but not guaranteed on a given turn.\r\n- Only releases 0.11.0 through 0.11.3 carry the code. Earlier releases compiled with Python's standard library engine, which does not expand repetition this way and is unaffected. Releases 0.11.1 to 0.11.3 added a check on repetition counts, but it could be sidestepped with an escaped character or inline verbose mode, so those releases remain affected.\r\n- Deployments running with `UVICORN_WORKERS` at its default of 1 lose the whole instance; multi-worker deployments lose one worker per request.\r\n\r\n## Impact\r\nAvailability, against every other user of the affected worker. Peak allocation grows with the fourth power of the repetition count while the pattern stays the same length, so the attacker chooses the cost by editing two digits, and the compiled result is then retained in the engine's pattern cache, which holds up to 500 entries before it evicts anything. Each distinct pattern is therefore a permanent bite out of the worker rather than a spike that unwinds: measured directly, one pattern at a repetition count of 40 retained about 740 MB, six distinct patterns at counts of 30 to 35 retained 1.38 GB together, and under a 2 GB memory limit the next compile failed with the process out of memory. A modest sequence of requests walks the process into memory exhaustion with no recovery short of a restart, and a deployment whose container memory limit sits below the peak loses the worker outright. While each compile runs, the work happens synchronously on the event loop, so the worker serves nobody else for its duration. There is no confidentiality or integrity effect, and no data is read or altered.\r\n\r\n## Fix\r\nFixed in 0.11.4 by https://github.com/open-webui/open-webui/commit/97e013a66169c4fcd7f26ab9e41a4ff260ffd4da. Search patterns are now compiled with RE2, which refuses oversized repetition and runs under a fixed 1 MiB memory limit for the compiled pattern, and search patterns are also capped in length. Ordinary search patterns are unaffected, though regex searches now follow RE2 syntax (no lookarounds or backreferences). Upgrading is sufficient; there is nothing an operator has to configure.\r\n\r\n## Root cause\r\n- `backend/open_webui/tools/knowledge_fs.py`, `build_matcher`: compiled the caller's pattern with no limit on the result.\r\n- `backend/open_webui/tools/builtin.py`, `grep_knowledge_files`: the default-configuration caller that passes an unvalidated pattern to it; `grep_chat_files` and the `kb_exec` grep command reach the same function.\r\n- Affected setup: releases 0.11.0 through 0.11.3.\r\n\r\nThe earlier fix for catastrophic backtracking moved matching to an engine that supports a per-search timeout and placed every search under a shared time budget. That budget is acquired after the pattern has been compiled, so by construction it governs matching only. The replacement engine materialises counted repetition at compile time, which the previous one did not, so the migration introduced a new cost on a step that had never needed a limit before and that the budget was never positioned to cover. The pattern reached the compiler with no check beyond being non-empty. The count check added in 0.11.1 scanned the raw pattern text for repetition counts, so any spelling the engine reads as a count but the scan did not recognise went through unchecked.\r\n\r\n## Proof of concept\r\nAgainst a running instance, as a user with the default `user` role and no workspace permissions:\r\n\r\n1. Upload any small text file.\r\n2. In a chat on a model with the knowledge tools available, have the model grep that file for `((((a{40}){40}){40}){40})|x`.\r\n3. The worker allocates several hundred megabytes inside the compile, and requests arriving from other connections during that window are delayed by the full duration. Repeating the request with different repetition counts adds to the total rather than reusing it.\r\n\r\nObserved on the vulnerable code, with the tool call driven by a stub upstream so the model's choice to call the tool is deterministic. Everything from the tool call onward is unmodified Open WebUI code. Worker memory growth and the delay seen by a concurrent request on a second connection:\r\n\r\n| repetition count | worker memory | concurrent request delayed by |\r\n| ---------------- | ------------- | ----------------------------- |\r\n| literal pattern  | 0.1 MB        | 20 ms                         |\r\n| 32               | 273 MB        | 219 ms                        |\r\n| 40               | 612 MB        | 513 ms                        |\r\n\r\nThe pattern is 27 bytes at every row, so limiting the length of the input does not bound the cost. The engine used before 0.11.0 compiles all of these in under a millisecond with no measurable allocation, and 0.11.4 rejects them outright.\r\n\r\n## Credits\r\n@baeseungwon1010, for identifying that compilation runs outside the matching budget.",
+    "ghsa_id": "GHSA-gww9-mhgj-pfqh",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-gww9-mhgj-pfqh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gww9-mhgj-pfqh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109298"
+      }
+    ],
+    "published_at": "2026-09-27T19:32:16Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Any authenticated user can exhaust worker memory via a nested-repetition knowledge-search pattern",
+    "updated_at": "2026-10-28T20:47:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

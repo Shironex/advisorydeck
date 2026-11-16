@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-hfvf-5c8x-8rc4",
+  "aliases": [],
+  "title": "OIDC discovery/token/userinfo/JWKS fetches run with TLS certificate verification unconditionally disabled via allowInsecureRequests (CWE-295)",
+  "summary": "# OIDC discovery / token / userinfo / JWKS fetches run with TLS certificate verification unconditionally disabled via `allowInsecureRequests` (CWE-295)\r\n\r\n**Venue:** https://github.com/immich-app/immich/security/advisories/new\r\n**Affected:** `immich-app/immich` - all versions through HEAD (2026-04-11) that call `getClient()` in `oauth.repository.ts`\r\n**Affected files:**\r\n- `server/src/repositories/oauth.repository.ts:3,9,128-155` (`getClient()` passes `allowInsecureRequests` to `discovery()` unconditionally)\r\n- `server/src/repositories/oauth.repository.ts:116-126` (`getProfilePicture()` calls `fetch(url)` on the OIDC `picture` claim - related; covered below)\r\n- `server/src/dtos/system-config.dto.ts:439-441` (`issuerUrl` has `@IsString()` only, no `@IsUrl()`)\r\n**CWE:** CWE-295 (Improper Certificate Validation), CWE-346 (Origin Validation Error)\r\n\r\n---\r\n\r\n## Summary\r\n\r\nImmich's OIDC integration builds a single `openid-client` instance for every authentication event by calling `discovery(issuerUrl, clientId, metadata, authMethod, options)`. The `options` argument is a literal object whose `execute` array contains the `openid-client` built-in `allowInsecureRequests` interceptor - unconditionally, with no feature flag, no config toggle, no `NODE_ENV` check, and no warning. According to the `openid-client` documentation, `allowInsecureRequests` disables TLS certificate verification for every HTTP request the resulting client performs: the `.well-known/openid-configuration` discovery fetch, the JWKS fetch, the `/authorize` redirect target resolution, the `/token` POST, and the `/userinfo` GET. A network-adjacent attacker (on the same LAN, the same k8s cluster, or via DNS poisoning / BGP hijack on the path between Immich and the IdP) who can observe or intercept the TCP connection to the IdP can present any TLS certificate and will be accepted without verification.\r\n\r\nThe attacker can then serve a crafted `.well-known/openid-configuration` response that points `token_endpoint` and `userinfo_endpoint` at an attacker-controlled host, a crafted `/token` response that returns a self-signed JWT, and a crafted `/userinfo` response that claims the victim is an arbitrary local Immich user (including the administrator, whose email is typically the admin's well-known address). Immich's `userMapping` logic then matches the OIDC identity against a local user and logs the attacker in with that user's session - full authentication bypass on every Immich deployment that has OIDC enabled.\r\n\r\nBecause the `allowInsecureRequests` flag is applied to the entire `openid-client` HTTP stack, this also affects any fetch the client makes to the JWKS endpoint, which is used to validate the signature of received ID tokens. An attacker who can forge the JWKS response can sign arbitrary JWTs with a key pair they control and submit them as valid ID tokens.\r\n\r\n## Details\r\n\r\n### Unconditional `allowInsecureRequests` in `getClient()`\r\n\r\n`server/src/repositories/oauth.repository.ts:128-155`:\r\n```ts\r\nprivate async getClient({\r\n  issuerUrl,\r\n  clientId,\r\n  clientSecret,\r\n  profileSigningAlgorithm,\r\n  signingAlgorithm,\r\n  tokenEndpointAuthMethod,\r\n  timeout,\r\n}: OAuthConfig) {\r\n  try {\r\n    return await discovery(\r\n      new URL(issuerUrl),\r\n      clientId,\r\n      {\r\n        client_secret: clientSecret,\r\n        response_types: ['code'],\r\n        userinfo_signed_response_alg: profileSigningAlgorithm === 'none' ? undefined : profileSigningAlgorithm,\r\n        id_token_signed_response_alg: signingAlgorithm,\r\n      },\r\n      this.getTokenAuthMethod(tokenEndpointAuthMethod, clientSecret),\r\n      {\r\n        execute: [allowInsecureRequests],   // <-- unconditionally applied\r\n        timeout,\r\n      },\r\n    );\r\n  } catch (error: any | AggregateError) {\r\n    this.logger.error(`Error in OAuth discovery: ${error}`, error?.stack, error?.errors);\r\n    throw new InternalServerErrorException(`Error in OAuth discovery: ${error}`, { cause: error });\r\n  }\r\n}\r\n```\r\n\r\nObservations:\r\n1. Th...",
+  "published_at": "2026-07-06T09:50:45.000Z",
+  "modified_at": "2026-07-06T09:50:45.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-295"
+  ],
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hfvf-5c8x-8rc4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-hfvf-5c8x-8rc4",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hfvf-5c8x-8rc4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:02c62b2840397eb359a0847475ce528da9b8d8d681f5abf8c03bbc9f30d81202",
+  "note": null
+}

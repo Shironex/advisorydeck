@@ -1,0 +1,97 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45387",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\nWhen setting model permissions so that a group has read access to it, intending for other users to use it, those users also can read the model's system prompt.\n\nHowever users may consider their system prompt confidential, so we consider this a security issue.\n\nCompare https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/ or prompt injections to get popular chatbots on the internet to reveal their prompt.\n\n### Details\n\nWe discovered that users can open the workspace model edit page /workspace/models/edit?id=notmymodel for models that do not appear in their workspace.\n\nSaving is not possible, that permission check is correct.\n\nOn the API level:\n\n- ```/api/v1/models/model?id=notmymodel``` -> returns the model details, most importantly params.system\n- even though ```/api/v1/models/list``` does NOT contain the model since it checks for write permission.\n- ```/api/models``` contains the model correctly and does not reveal the system prompt.\n\nIt seems inconsistent that the REST API list does not contain an item, but if you know the id, you can access it anyway.\n\n### PoC\n- create model\n- give read permission to group with another user\n- other user can access ```/api/v1/models/model?id=notmymodel```\n\n### Impact\nSystem prommpt leakage\n\nIf this is intended behavior for the \"read\" permission, maybe there should be an additional \"use\" permission (which would be 99% of use cases of the read permission i believe).",
+    "ghsa_id": "GHSA-h2cw-7qw9-56xr",
+    "html_url": "https://github.com/advisories/GHSA-h2cw-7qw9-56xr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h2cw-7qw9-56xr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45387"
+      }
+    ],
+    "published_at": "2026-05-14T20:26:03Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-h2cw-7qw9-56xr",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.5",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45387",
+      "https://github.com/advisories/GHSA-h2cw-7qw9-56xr"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: Sharing models for others to use (read permission) also exposes model details (system prompt leakage)",
+    "updated_at": "2026-05-15T23:54:25Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.5",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-h2cw-7qw9-56xr",
+  "repo": {
+    "cve_id": "CVE-2026-45387",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nWhen setting model permissions so that a group has read access to it, intending for other users to use it, those users also can read the model's system prompt.\r\n\r\nHowever users may consider their system prompt confidential, so we consider this a security issue.\r\n\r\nCompare https://genai.owasp.org/llmrisk/llm072025-system-prompt-leakage/ or prompt injections to get popular chatbots on the internet to reveal their prompt.\r\n\r\n### Details\r\n\r\nWe discovered that users can open the workspace model edit page /workspace/models/edit?id=notmymodel for models that do not appear in their workspace.\r\n\r\nSaving is not possible, that permission check is correct.\r\n\r\nOn the API level:\r\n\r\n- ```/api/v1/models/model?id=notmymodel``` -> returns the model details, most importantly params.system\r\n- even though ```/api/v1/models/list``` does NOT contain the model since it checks for write permission.\r\n- ```/api/models``` contains the model correctly and does not reveal the system prompt.\r\n\r\nIt seems inconsistent that the REST API list does not contain an item, but if you know the id, you can access it anyway.\r\n\r\n### PoC\r\n- create model\r\n- give read permission to group with another user\r\n- other user can access ```/api/v1/models/model?id=notmymodel```\r\n\r\n### Impact\r\nSystem prommpt leakage\r\n\r\nIf this is intended behavior for the \"read\" permission, maybe there should be an additional \"use\" permission (which would be 99% of use cases of the read permission i believe).",
+    "ghsa_id": "GHSA-h2cw-7qw9-56xr",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-h2cw-7qw9-56xr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h2cw-7qw9-56xr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45387"
+      }
+    ],
+    "published_at": "2026-05-10T19:31:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Sharing models for others to use (read permission) also exposes model details (system prompt leakage)",
+    "updated_at": "2026-05-12T17:48:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.5",
+        "vulnerable_version_range": "<= 0.9.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-jq2g-h4xr-4mcr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nAn improper authorization issue exists in the organization import endpoint (/api/ciphers/import-organization). While the endpoint validates the target organization specified in the URL query, it fails to enforce that each imported cipher is bound to that organization. A user with organization import permissions can set organizationId at the cipher level to null in the request payload. This causes the imported cipher to be saved to their personal vault while remaining linked to the organization's collection, resulting in inconsistent data ownership and collection mappings between organization and personal vaults.\r\n\r\n### Details\r\n\r\nIn `src/api/core/organizations.rs`, the `post_org_import` function overly trusts external input:\r\n\r\n1. Although the route validates the user's permissions for the target organization via the URL parameter (`query.organization_id`), when iterating through `data.ciphers`, it **does not force `cipher_data.organization_id` to be overwritten with the authenticated `org_id`**. As a result, the system blindly trusts the organization ID provided in the JSON payload.\r\n2. When invoking `update_cipher_from_data(...).await.ok()`, `.ok()` silently suppresses potential business validation errors.\r\n3. Subsequently, the code unconditionally executes `CollectionCipher::save`, forcefully mapping the generated `cipher.uuid` to the target organization's `collection_uuid`.\r\n\r\nWhen an attacker sets `organizationId` to `null`, the cipher item is incorrectly saved to the personal vault while simultaneously being mapped to the organization's collection, breaking physical data isolation.\r\n\r\n### PoC\r\n\r\n**Reproduction Steps:**\r\n\r\n1. Log in with an account that has import permissions for the target organization (e.g., Org B).\r\n2. Initiate an import request to Org B and intercept the HTTP request: `POST /api/ciphers/import-organization?organizationId=<Org_B_UUID>`.\r\n3. Modify the `organizationId` field in the request payload to `null` \r\n\r\n```\r\n  \"body\": JSON.stringify({\r\n    \"ciphers\": [\r\n      {\r\n        \"type\": 1,\r\n        \"encryptedFor\": \"XXXXXXXXXXXXXXXXXXXXX\",\r\n        \"folderId\": null,\r\n        \"organizationId\": null, \r\n```\r\n\r\n4. **Triggered Result**:\r\n* If the payload defines a new collection (only possible for admins and owners), it is created in the target organization.\r\n* A new cipher item appears in the user's **personal vault**. Because the cipher item was encrypted by the client using the organization key prior to upload but erroneously assigned to the personal vault server-side, client-side decryption using the personal key fails, resulting in a ghost entry displaying `[error: cannot decrypt]` in the personal account.\r\n\r\n\r\n### Impact\r\n\r\nAffected Scope: Vaultwarden instances with organization features enabled.\r\n\r\nImpact: This can create inconsistent ownership between imported ciphers and organization collections.\r\n\r\nThe same missing binding also allowed setting the per-cipher `organizationId` to a different organization in which the attacker is any confirmed member (including read-only, with no collection write rights). This created an item owned by that organization, outside of any collection, visible to and decryptable by its owners and admins. The same empty-collection shortcut was reachable via `/ciphers/create` with an empty `collectionIds` list.\r\n<img width=\"395\" height=\"91\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f2028d83-69c6-4160-bf4d-cf4cf35efee4\" />\r\n\r\n### Patches\r\n\r\nFixed in 1.37.0. Organization import now overwrites each item's `organizationId` with the target organization, and an empty collection list is no longer treated as proof of write access.",
+    "ghsa_id": "GHSA-jq2g-h4xr-4mcr",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-jq2g-h4xr-4mcr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jq2g-h4xr-4mcr"
+      }
+    ],
+    "published_at": "2026-10-03T20:03:37Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cipher Ownership Confusion in Organization Import",
+    "updated_at": "2026-10-03T20:03:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.0",
+        "vulnerable_version_range": "≤ 1.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

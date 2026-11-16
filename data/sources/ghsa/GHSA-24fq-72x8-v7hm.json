@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-24fq-72x8-v7hm",
+  "repo": {
+    "cve_id": "CVE-2026-40096",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-601",
+      "CWE-79"
+    ],
+    "description": "### Summary\r\nAn attacker (a registered user) can redirect the victim to any website (e.g. a modified version of Immich that collects login info), which helps massively with phishing attacks.\r\n\r\n### Details\r\nAn attacker creates a shared album with the name `0;url=https://attackersite.com\" http-equiv=\"refresh`. They then create a share link for it, and give the link to the victim, who will get redirected to the attacker's site. The attack happens via the `<meta>` tag in api.service.ts: https://github.com/immich-app/immich/blob/781d568f29d438be44920c7f531bf6c6bac6e2b7/server/src/services/api.service.ts#L21\r\n\r\nI think the fix is to encode the value with HTML entities, so `\"` would become `&quot;`. But I'm not 100% sure, there could be bypasses for that which I'm not aware of.\r\n\r\n### PoC\r\n1. Create a new album\r\n2. Give it the name `0;url=https://example.com\" http-equiv=\"refresh`\r\n3. Click on the Share icon, and copy the link\r\n4. Open the link in a new browser tab\r\n5. You should now get redirected to example.com\r\n\r\nhttps://github.com/user-attachments/assets/18453493-f9c9-477f-a320-6bd2c231be8e\r\n\r\n### Impact\r\nThis helps attackers a lot in phishing users. They could for example host a modified version of Immich at `https://immich.attacker.com` that asks for login when the victim opens it. The victim would think they need to log in to view the shared album, and the attacker would get the victim's login credentials to the original instance.",
+    "ghsa_id": "GHSA-24fq-72x8-v7hm",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-24fq-72x8-v7hm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24fq-72x8-v7hm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-40096"
+      }
+    ],
+    "published_at": "2026-04-13T17:08:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Open Redirect via Shared Album name",
+    "updated_at": "2026-04-13T17:08:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "immich-server"
+        },
+        "patched_versions": ">= 2.7.3",
+        "vulnerable_version_range": "< 2.7.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-f47c-m7gr-q92j",
+  "repo": {
+    "cve_id": "CVE-2026-49246",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Impact\r\n\r\nA specifically crafted MKV file containing forged `filename` tags can be leveraged to exploit missing path sanitization during playback.\r\n\r\nJellyfin treats the MKV file name tag on MKV attachments as trusted and passes it unsanitized into Path.Combine(attachmentFolder, fileName) inside PathManager.GetAttachmentPath. Because .NET's Path.Combine neither normalises `..` nor rejects a rooted second argument, a crafted MKV can redirect Jellyfin's MKV attachment extraction to any absolute path on disk. This triggers on any playback action of the affected video on a client which will attempt to burn in the subtitles by default.\r\n\r\nWe consider this a relatively low severity due to the fact that public exploitation would be random and would require a complex chain of events leading up to the compromise, but administrators should always be cautions of media from untrusted sources.\r\n\r\n### Patches\r\nThis issue has been fixed in Jellyfin 10.11.10.\r\n\r\n### Workarounds\r\nPractice good hygene in media files, including checking for `filename` tags, especially in untrusted sources..\r\n\r\n### References\r\n\r\nReported independently by Tuan Nguyen (@supperhellokitty20), Harrison Keating (@voraci0us), and Tomas Savėnas (@savenas).\r\n",
+    "ghsa_id": "GHSA-f47c-m7gr-q92j",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-f47c-m7gr-q92j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f47c-m7gr-q92j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-49246"
+      }
+    ],
+    "published_at": "2026-06-10T04:23:15Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Potential MKV attachment filename path traversal to RCE",
+    "updated_at": "2026-06-10T04:23:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "10.11.10",
+        "vulnerable_version_range": "< 10.11.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

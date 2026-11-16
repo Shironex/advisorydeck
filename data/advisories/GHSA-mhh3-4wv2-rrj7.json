@@ -1,0 +1,64 @@
+{
+  "id": "GHSA-mhh3-4wv2-rrj7",
+  "aliases": [],
+  "title": "SASL credentials are not redacted from `amqp10_client` crash dumps and `sys:get_status` output",
+  "summary": "> [!NOTE]\r\n> This report was written by Claude (Anthropic's Claude Code) under the direction of @lukebakken, who reviewed it before filing. The analysis, the proposed fix and its tests were produced by Claude and verified against `main` before submission.\r\n\r\n## Affected product\r\n\r\n`amqp10_client`, the Erlang AMQP 1.0 client library published on Hex.pm and vendored in `rabbitmq-server` as `deps/amqp10_client`.\r\n\r\n## Summary\r\n\r\n`amqp10_client_connection:format_status/1` is the `gen_statem` status redactor: OTP calls it before the process state is written to a crash dump, and it also runs on `sys:get_status`. It delegates to `obfuscate_state_config_sasl/1`, whose only redacting clause matches `{plain, User, Pwd}`.\r\n\r\nThe connection state never holds that shape. `open/1` runs the config through `maybe_encrypt_sasl/1`, which converts `{plain, User, Pwd}` into `credentials_obfuscation:encrypt(term_to_binary(Plain))`, so `#state.config` holds an `encrypted_sasl()` - `{plaintext, Bin}` or `{encrypted, Bin}`. The decrypted tuple exists only in transient locals during the handshake. The redacting clause is therefore unreachable and the `Other -> Other` fallback returns the credential-bearing term unchanged.\r\n\r\n`credentials_obfuscation:encrypt/1` returns `{plaintext, Bin}` whenever no obfuscation secret is configured, and no secret is configured by default. In that mode the stored value is `{plaintext, term_to_binary({plain, User, Pwd})}`, and the password is recoverable from it by inspection.\r\n\r\n## Relationship to CVE-2026-67406\r\n\r\nThis is not that issue, and not a duplicate of it, but they are the same defect class and a reader will reasonably ask.\r\n\r\nCVE-2026-67406 (GHSA-q44f-9vc5-grh7, patched 4.3.3 / 4.2.9 / 4.1.14 / 4.0.23) reported that the shovel `gen_server` processes implemented no `format_status` callback at all, so the crash reporter wrote their deobfuscated plaintext URIs to the error log. Its own text notes that `grep -rn format_status` across the shovel source returned zero results. The fix, a7cc6b5b50, added `format_status/1` to `rabbit_shovel_worker`.\r\n\r\nThat commit did not touch `amqp10_client_connection`, and the module's history since is unrelated to redaction. An AMQP 1.0 shovel starts an `amqp10_client_connection` process holding the same credentials, in the same supervision tree, and that process's redactor has been ineffective since 2023 - predating CVE-2026-67406 by two years. So the shovel worker is now redacted while its client connection is not.\r\n\r\nThe two differ in substance as well as in scope: CVE-2026-67406 concerned a missing callback exposing plaintext URIs, this concerns a present callback matching a shape the state never holds. They also affect different packages - that one `rabbitmq-server`, this one the `amqp10_client` Hex.pm package, which has consumers well beyond RabbitMQ.\r\n\r\n## Impact depends on how the library is used\r\n\r\n**Standalone users of `amqp10_client` are the affected population.** Nothing in the library sets an obfuscation secret, so the default is `{plaintext, ...}` and a crash dump or a captured `sys:get_status` carries the broker password in recoverable form.\r\n\r\n**RabbitMQ brokers are materially less exposed, and less so than CVE-2026-67406 was.** `rabbit_prelaunch_dist:set_credentials_obfuscation_secret/0` always calls `credentials_obfuscation:set_secret/1` with the Erlang cookie, and `enabled` defaults to `true`, so on a node the unredacted term is PBE ciphertext rather than a password. That is weaker than intended - anyone able to read a crash dump can often read the cookie beside it - but unlike CVE-2026-67406, which exposed deobfuscated plaintext URIs, it is not direct credential disclosure. Within the broker the path is reachable through `rabbitmq_shovel`, which builds an AMQP 1.0 connection config from a shovel URI via `amqp10_client:parse_uri/1` (`rabbit_amqp10_shovel.erl`), and through `rabbitmq_amqp_client`.\r\n\r\nReading the data requires access to the node's crash dump or...",
+  "published_at": "2026-10-25T16:02:33.000Z",
+  "modified_at": "2026-10-25T16:02:33.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.7,
+    "vector": "CVSS:4.0/AV:L/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-215",
+    "CWE-312",
+    "CWE-532"
+  ],
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.7"
+        },
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.12"
+        },
+        {
+          "introduced": "4.1.0",
+          "fixed": "4.1.17"
+        },
+        {
+          "introduced": "3.13.0",
+          "fixed": "3.13.21"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-mhh3-4wv2-rrj7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-mhh3-4wv2-rrj7",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-mhh3-4wv2-rrj7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5d1c7094ca06e1e8f22d60f005301d346dc9b927589d6dbb3ca3ebd28f70e5bb",
+  "note": null
+}

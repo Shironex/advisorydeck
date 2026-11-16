@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-9wj4-mcm3-ppj6",
+  "repo": {
+    "cve_id": "CVE-2026-109300",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "# Stored XSS via user-authored tool-call embeds in the Markdown renderer\r\n\r\n## Summary\r\nAny authenticated user can execute arbitrary JavaScript in other users' browsers by sending content shaped as a tool-call `<details>` block. The Markdown renderer parsed the block's `embeds` attribute without distinguishing server-generated tool-call output from user-authored input, decoded and JSON-parsed it, and mounted each element in a sandboxed iframe with scripts enabled, so it ran at render time for every viewer. The missing control is a trust gate separating user content from the tool-call embed path.\r\n\r\n## Preconditions\r\nAn authenticated account on the instance. The primary demonstrated surface is channel messages, which requires the Channels feature enabled by an admin (`ENABLE_CHANNELS`, off by default); the same gadget also reaches main-chat user messages and citation previews of retrieved documents, which need no special feature flag. No elevated role is required. By default the embed iframe is sandboxed `allow-scripts` without `allow-same-origin`, so the injected script runs in an opaque origin.\r\n\r\n## Impact\r\nThe injected script executes in a null-origin sandboxed iframe for anyone who views the message or opens the citation. In the default configuration it cannot read the viewer's session token or make same-origin authenticated requests; the confirmed default primitive is contained script execution and convincing in-app phishing content rendered inside the interface. Where an operator has turned on `iframeSandboxAllowSameOrigin`, the sandbox gains `allow-same-origin` and the script can read `localStorage` (session token) and act as the victim, raising the impact to session hijacking. The payload is stored, so it re-executes on every view.\r\n\r\n## Fix\r\nFixed in 0.11.4 by PR #29985. Embed rendering is now opt-in: the flag defaults off and is forwarded through every Markdown render path, including the standalone tool-call branch, colon fences and alerts. Assistant responses opt in only for the viewer's own chat; channel messages and read-only/shared views pass it explicitly off, so user-authored content can no longer reach the embed iframe. Upgrading to 0.11.4 fully resolves the issue with no additional configuration.\r\n\r\n## Root cause\r\nThe tool-call embed sink lives in the shared Markdown renderer: `ToolCallDisplay.svelte` and `ConsecutiveDetailsGroup.svelte` read the `embeds` attribute off a `<details type=\"tool_calls\">` token and mount each element in `FullHeightIframe` with `allowScripts={true}`. The renderer never distinguished tokens produced by the tool-execution pipeline from tokens parsed out of arbitrary user-authored message content, and the later `allowEmbeds` guard was applied only to the grouped path, so a single standalone details block bypassed it entirely and reached the iframe on every surface that renders user content.\r\n\r\n## Proof of concept\r\nReproduced on stock 0.11.3 with default settings and Channels enabled. A non-admin account posted a channel message whose content was `<details type=\"tool_calls\" embeds=\"[&quot;&lt;script&gt;...&lt;/script&gt;&quot;]\">...</details>`. Opening the channel rendered one iframe with `sandbox=\"allow-scripts allow-popups allow-downloads\"` and the attacker HTML in `srcdoc`, and the injected script executed in the viewer's browser (null origin). The same message on 0.11.4 renders no iframe and no script runs.\r\n\r\n## Credits\r\n@KadirArslan: channel messages, original report and proof of concept.\r\n@5yu4n: cross-user delivery through channel direct messages.\r\n@ComputerOnFire: citation previews of knowledge-base documents, and the ungated standalone-block path.",
+    "ghsa_id": "GHSA-9wj4-mcm3-ppj6",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-9wj4-mcm3-ppj6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9wj4-mcm3-ppj6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109300"
+      }
+    ],
+    "published_at": "2026-09-27T19:27:08Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Stored XSS via user-authored tool-call embeds in the Markdown renderer",
+    "updated_at": "2026-10-28T20:47:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.6.31, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

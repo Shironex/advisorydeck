@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6fjc-5cg3-mgvh",
+  "repo": {
+    "cve_id": "CVE-2026-109284",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Read-only shared folder members can still add chats to the folder by forking\r\n\r\n## Summary\r\nA member of a shared folder who once had write access and was later downgraded to read-only could keep adding new chats to that folder. Forking a chat they had created in the folder while they could still write produced a new chat inside the same folder, without checking whether they could still write there. The new chat then appears to everyone who can read the folder. Direct chat creation, chat moves and chat completions already enforced folder write access; the fork action did not.\r\n\r\n## Preconditions\r\n- An authenticated account of any role that was given write access to a shared folder and later downgraded to read-only by the folder owner.\r\n- The member created at least one chat in that folder while they still had write access.\r\n- Folders enabled, which is the default (`ENABLE_FOLDERS=true`, `USER_PERMISSIONS_FEATURES_FOLDERS=true`), and the chat import permission, which forking requires and which ordinary users hold by default (`USER_PERMISSIONS_CHAT_IMPORT=true`).\r\n- Folders that were never shared with write access, and members who never had write access, are not affected.\r\n\r\n## Impact\r\nThe integrity of shared folder contents. Revoking a member's write access did not stop them from adding entries: using the chat they created earlier, they could fork it any number of times, and each fork shows up in the shared folder for the owner and every other member, under a title and with content the attacker controls. The owner has no signal that the downgrade was ineffective.\r\n\r\nNothing is disclosed to the attacker and nothing belonging to other users is changed or deleted. Availability is unaffected.\r\n\r\n## Fix\r\nFixed in 0.11.4 by https://github.com/open-webui/open-webui/pull/30069. A fork now keeps the source chat's folder only when the caller still has write access to it and is otherwise created outside any folder, matching chat creation and chat moves. Upgrading to 0.11.4 resolves it completely, with no configuration change required.\r\n\r\n## Root cause\r\nAffected component: the chat fork handler in `backend/open_webui/routers/chats.py`, reached through `POST /api/v1/chats/{id}/fork`. Affected setup: every deployment on 0.11.0 through 0.11.3 with folders enabled.\r\n\r\nThe fork action was added in 0.11.0 and built the new chat by copying the folder of the source chat. Because the source chat belongs to the caller, the handler treated its folder as already authorized, but write access to a shared folder can be revoked after the chat was placed there. When the folder write check was consolidated into one shared helper for the other chat creation paths in 0.11.1, the fork path was not routed through it.\r\n\r\n## Proof of concept\r\nReproduced on running 0.11.3 and 0.11.4 instances with two accounts: an administrator acting as folder owner and an ordinary user acting as attacker.\r\n\r\n1. The owner creates a folder and grants the attacker write access through `POST /api/v1/folders/{id}/access/update`.\r\n2. The attacker creates a chat in that folder with `POST /api/v1/chats/new`.\r\n3. The owner downgrades the attacker to read access. A direct `POST /api/v1/chats/new` into the folder is now rejected.\r\n4. The attacker calls `POST /api/v1/chats/{chat_id}/fork` on the chat from step 2.\r\n5. On 0.11.3 the fork is created with the shared folder's id and is listed by `GET /api/v1/folders/{id}/shared/chats` for both the attacker (`folder_permission: read`) and the owner. On 0.11.4 the fork is created outside any folder and does not appear in the listing.\r\n\r\n## Credits\r\n- @avrlab233 (reporter)",
+    "ghsa_id": "GHSA-6fjc-5cg3-mgvh",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-6fjc-5cg3-mgvh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6fjc-5cg3-mgvh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109284"
+      }
+    ],
+    "published_at": "2026-09-27T16:42:03Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Read-only shared folder members can still add chats to the folder by forking",
+    "updated_at": "2026-10-28T20:46:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

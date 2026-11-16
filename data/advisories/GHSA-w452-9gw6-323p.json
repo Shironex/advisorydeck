@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-w452-9gw6-323p",
+  "aliases": [],
+  "title": "Failed builds and backups send every application secret in plain text to notifications",
+  "summary": "### Summary\n\nWhen a Railpack build fails, Dokploy sends the full build command to every notification channel. That command holds every environment variable of the application as `export NAME=value`. So one failed build sends all application secrets in plain text to email, Slack, Discord, Telegram or a webhook.\r\n\r\nFailed database backups do the same with the database password and the S3 destination keys. Dokploy also writes the same text to its own container log.\r\n\n\n### Details\n\nI saw this on v0.30.9 and read the same code in v0.30.10. I checked the Railpack builder and the database backups. I did not check the Nixpacks builder.\r\n\r\nHow the secrets get into the command:\r\n\r\n1. packages/server/src/utils/builders/railpack.ts: for each environment variable, the builder adds `export NAME=<value>` to the bash command. It also passes each variable to `railpack prepare` as `--env NAME=value`.\r\n2. packages/server/src/utils/backups/utils.ts: `getS3Credentials` puts `--s3-access-key-id` and `--s3-secret-access-key` on the rclone command line.\r\n3. `getMongoBackupCommand` puts the database password in `docker exec -e DB_PASS=<value>`.\r\n\r\nHow the command gets into notifications and logs:\r\n\r\n1. packages/server/src/utils/process/execAsync.ts: on failure, `ExecError` gets the message `Command execution failed: ${error.message}`. Node's `error.message` starts with `Command failed:` and the full command.\r\n2. packages/server/src/services/application.ts: the catch block sends `errorMessage: error?.message` to `sendBuildErrorNotifications`. Compose deploys do the same.\r\n3. packages/server/src/utils/backups/mongo.ts and postgres.ts: the catch block logs the error and sends `errorMessage: error?.message` to `sendDatabaseBackupNotifications`.\r\n4. The Dokploy container log also gets the error with the full command.\r\n\r\nSuggested fix:\r\n\r\n1. Keep secret values out of command strings. Pass them in the `env` option of exec, or in temporary files with `--secret id=NAME,src=<file>`.\r\n2. Do not put the command in notification text or in logs. Send the exit code and the last lines of stderr, with known secret values removed.\r\n3. Give rclone its keys through `RCLONE_CONFIG_*` environment variables, not flags.\r\n\n\n### Proof of concept\n\n1. Install Dokploy v0.30.10 on a test server.\r\n2. In Settings > Notifications, add a notification (for example Discord or Email) with \"App Build Error\" on.\r\n3. Create an application from a small Node.js repository. Set the build type to Railpack.\r\n4. Add the environment variable `CANARY_SECRET=canary-1234`.\r\n5. Make the build fail. For example, set the `build` script in package.json to `exit 1`.\r\n6. Deploy the application.\r\n\r\nResult: the build-error notification contains `export CANARY_SECRET='canary-1234'`. It also contains every other variable of the application. On the server, `docker service logs dokploy` shows the same text.\r\n\r\nBackups use the same code path: a failed MongoDB backup to an S3 destination sends the database password and the S3 keys in its notification. I did not run the backup test.\r\n\n\n### Impact\n\nThis is an exposure of sensitive information. It affects every instance that has a notification with \"App Build Error\" or \"Database Backup\" on. A normal build failure is enough, so no attacker action is needed.\r\n\r\nNotification channels are third-party systems. Email providers, Slack, Discord and Telegram store the messages, and more people can read them than can read the Dokploy server. The secrets also stay in the Dokploy container log.\r\n\r\nOn 2026-10-23, one failed build sent all 14 secrets of a production application to my email through Resend. I had to rotate all of them, including database passwords, OAuth secrets, payment tokens and an encryption key.",
+  "published_at": "2026-11-12T08:15:09.000Z",
+  "modified_at": "2026-11-12T08:15:09.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.3,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-201",
+    "CWE-214",
+    "CWE-532"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-w452-9gw6-323p",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-w452-9gw6-323p",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-w452-9gw6-323p",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

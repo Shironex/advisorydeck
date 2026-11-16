@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-9fg7-wgm7-57fh",
+  "aliases": [],
+  "title": "RSS status feed does not set content type, leading to a Stored XSS in Public Status Page RSS Feed via CDATA escaped Monitor Name IF USING AN UNSECURE CLIENT",
+  "summary": "### Summary\r\n\r\nThe RSS feed for public status pages returns a default `text/html` content type instead of a safe RSS/XML content type. Monitor names are already CDATA-escaped, so the content itself is safe. However, serving the feed as `text/html` can cause browsers to interpret it incorrectly, potentially exposing users to cross-site scripting if the feed is embedded in a web context.\r\n\r\n### Description\r\n\r\nMonitor names are stored safely and rendered within CDATA sections in RSS feed items. The feed is generated dynamically and returned using `response.send()`. Because no explicit content type is set, the response defaults to `text/html`.\r\n\r\nWhile the content is already escaped, serving it as HTML can cause browsers to parse the feed incorrectly, possibly leading to **script execution in certain contexts**, such as embedded feed readers or if the feed is opened directly in a browser. Setting the correct RSS/XML content type ensures browsers interpret the feed safely and reduces risk.\r\n\r\n### Affected Code\r\n\r\n```js\r\n// server/model/status_page.js\r\nresponse.send(await StatusPage.renderRSS(statusPage, slug));\r\n// No Content-Type override (defaults to text/html)\r\n```\r\n\r\n### Impact\r\n\r\n* Incorrect content type can lead to unsafe rendering in some browsers or feed readers\r\n* Low likelihood of XSS due to CDATA escaping, but setting a proper type mitigates potential risk\r\n* Affects anyone consuming the RSS feed in a browser context\r\n\r\nSeverity is assessed as **Low**, since user content is already escaped and the risk requires a specific client behavior.\r\n\r\n### Recommended Fix\r\n\r\n* Explicitly set the content type to a safe RSS/XML type:\r\n\r\n```js\r\nresponse.type('application/rss+xml');\r\n```\r\n\r\n* Ensure all user-controlled content remains properly escaped in CDATA sections\r\n* Optionally, apply a Content Security Policy (CSP) to further mitigate browser risks\r\n\r\n### CWE\r\n\r\n* **CWE-116** - Improper Encoding or Escaping of Output\r\n\r\n### References\r\n\r\n* OWASP XSS Prevention Cheat Sheet - CDATA in XML/RSS\r\n* RFC 822 / RSS Security Considerations\r\n\r\n### Credits\r\n\r\nReported by: Bugbunny.ai",
+  "published_at": "2026-02-08T15:49:41.000Z",
+  "modified_at": "2026-02-08T15:49:41.000Z",
+  "severity": {
+    "level": "low",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "uptime-kuma",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-9fg7-wgm7-57fh",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9fg7-wgm7-57fh",
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-9fg7-wgm7-57fh",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:a3ba11398f78c805050796481e8de5a96ab410eeef1aa3a2c9d8e489a51a9c49",
+  "note": null
+}

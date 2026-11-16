@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-wwfq-95jq-3m3c",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1220",
+      "CWE-22"
+    ],
+    "description": "\r\n### Summary\r\nThe Storage Template engine in Immich allows an authenticated user to write uploaded files outside their intended per-user library directory, into sibling directories under the library root. This is caused by two compounding issues: (1) the make, model, and lensModel template variables are populated directly from raw, attacker-controlled EXIF metadata without sanitization (unlike album and filename, which are passed through the sanitize-filename package), and (2) the path containment check that should prevent traversal uses a naive string-prefix comparison (fullPath.startsWith(rootPath)) with no separator-boundary check, allowing paths that merely share rootPath as a literal string prefix - rather than actually residing within it - to pass validation.\r\n\r\n### Details\r\nThe vulnerability is in `server/src/services/storage-template.service.ts`.\r\n\r\nIn `render()`, the `make`, `model`, and `lensModel` template variables are populated directly from raw EXIF metadata with no sanitization:\r\n\r\n    make: make ?? '',\r\n    model: model ?? '',\r\n    lensModel: lensModel ?? '',\r\n\r\nThis is inconsistent with `album`, which is passed through `sanitize()` in the same function. `make`/`model`/`lensModel` are attacker-controlled via a crafted uploaded image's EXIF tags, and are offered by the admin UI as valid storage template variables.\r\n\r\nIn `getTemplatePath()` (~line 342), the path containment check that should prevent traversal is a naive string-prefix comparison with no path-separator boundary:\r\n\r\n    const fullPath = path.normalize(path.join(rootPath, storagePath));\r\n    let destination = `${fullPath}.${extension}`;\r\n    if (!fullPath.startsWith(rootPath)) {\r\n      this.logger.warn(`Skipped attempt to access an invalid path: ${fullPath}. Path should start with ${rootPath}`);\r\n      return source;\r\n    }\r\n\r\n`String.prototype.startsWith()` has no concept of directory boundaries. If `rootPath` is `/data/library/admin`, a `fullPath` of `/data/library/admin-poc-sibling-dir` also satisfies `fullPath.startsWith(rootPath)`, despite residing outside `admin/` entirely, in a sibling directory.\r\n\r\n\r\n### PoC\r\n1. As an admin, set the Storage Template to include `{{make}}`, e.g. `{{y}}/{{album}}/{{make}}/{{filename}}`, and save.\r\n2. Craft a JPEG with EXIF `Make` set to `../../admin-poc-sibling-dir` (exact `../` depth depends on the configured template's segment count - two levels was sufficient with an empty album against the default two-segment template).\r\n3. Upload the file as the `admin` user (library root `/data/library/admin`).\r\n4. The file is written to `/data/library/admin-poc-sibling-dir/<filename>.jpg`, outside the intended library directory, with no warning logged (confirming the check passed rather than triggered).\r\n\r\nVerified via:\r\n- `asset_exif` table: `make = ../../admin-poc-sibling-dir`, confirming unsanitized EXIF ingestion.\r\n- Server logs: no \"Skipped attempt to access an invalid path\" warning for this payload (contrast: a 4-level `../../../../` payload was correctly rejected and logged, since it overshot past the library root entirely rather than landing on a same-prefix sibling).\r\n- Filesystem: `find /data/library/admin-poc-sibling-dir -type f` → `/data/library/admin-poc-sibling-dir/malicious_exif.jpg`.\r\n\r\n### Impact\r\nAny authenticated user who can upload assets can cause files to be written outside their per-user library directory, into sibling directories under the shared library root - provided an admin has configured `{{make}}`, `{{model}}`, or `{{lensModel}}` in the storage template (offered by the admin UI as a standard option). Depending on directory-naming conventions in a given deployment, this could allow writes adjacent to other users' library directories, or pollute arbitrary sibling paths under the library root.\r\n\r\n### Suggested fix\r\nReplace the prefix check with a boundary-safe comparison, e.g.:\r\n\r\n    const relative = path.relative(rootPath, fullPath);\r\n    if (relative.startsWith('..') || path.isAbsolute(relative)) {\r\n      // reject\r\n    }\r\n\r\nAdditionally, sanitize `make`, `model`, and `lensModel` in `render()` consistently with `album`, as [defense-in-depth.](\r\n<img width=\"665\" height=\"365\" alt=\"2\" src=\"https://github.com/user-attachments/assets/2ac5bf9f-d04b-416e-8afd-4bd35703caba\" />\r\n<img width=\"907\" height=\"91\" alt=\"3\" src=\"https://github.com/user-attachments/assets/58ce855a-7014-442d-91cc-54abb20ec9d5\" />\r\n<img width=\"1274\" height=\"493\" alt=\"4\" src=\"https://github.com/user-attachments/assets/a9ed81ba-525f-4b3b-8e39-62619ddefa57\" />\r\n<img width=\"957\" height=\"165\" alt=\"5\" src=\"https://github.com/user-attachments/assets/2e7799aa-8008-4609-9352-2834c96e87fd\" />\r\n<img width=\"690\" height=\"253\" alt=\"6\" src=\"https://github.com/user-attachments/assets/1dbfd563-08c7-41e6-a31b-78d9f4ba1435\" />\r\n<img width=\"729\" height=\"232\" alt=\"7\" src=\"https://github.com/user-attachments/assets/b3dbd724-b857-4eb9-b6df-4b42bb843aed\" />\r\n<img width=\"873\" height=\"137\" alt=\"8\" src=\"https://github.com/user-attachments/assets/ed09157f-acb3-456c-b7d8-1e1a95ab8059\" />\r\n<img width=\"913\" height=\"143\" alt=\"1\" src=\"https://github.com/user-attachments/assets/1017183c-6d6a-4b47-8a41-a8ca9feb6090\" />)\r\n<img width=\"661\" height=\"269\" alt=\"9\" src=\"https://github.com/user-attachments/assets/8efd3ebe-ad69-4cde-93d0-2c31e1fb6659\" />\r\n",
+    "ghsa_id": "GHSA-wwfq-95jq-3m3c",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-wwfq-95jq-3m3c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wwfq-95jq-3m3c"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Path Traversal via Improper Prefix Check in Storage Template Engine (unsanitized EXIF Make/Model/LensModel)",
+    "updated_at": "2026-11-10T18:45:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

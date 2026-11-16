@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-6chv-gv3h-cvcj",
+  "aliases": [],
+  "title": "RabbitMQ direct reply-to: forged suffix fanout causes quadratic mailbox memory",
+  "summary": "## Summary\r\n\r\nRabbitMQ direct reply-to addresses have the form:\r\n\r\n```text\r\namq.rabbitmq.reply-to.<encoded-channel-or-session-pid>.<capability-key>\r\n```\r\n\r\nWhen resolving a destination, RabbitMQ decodes and validates the PID but\r\ndiscards the capability-key suffix. An attacker who obtains their own valid\r\ndirect reply-to address can create many distinct routing keys that preserve the\r\nencoded PID and replace only the suffix.\r\n\r\nA single message can carry these names through the AMQP `CC` header. RabbitMQ\r\ncreates one volatile target per distinct name and sends one cast per target to\r\nthe same channel/session PID. Every cast retains a copy of the message's full\r\n`O(N)` routing-key structure, producing `N × O(N) = O(N²)` mailbox memory.\r\n\r\nThe final capability-key check happens only after each cast reaches the target\r\nmailbox, too late to prevent amplification.\r\n\r\n## Preconditions\r\n\r\n- The attacker has an authenticated AMQP account.\r\n- The account can write to the default exchange.\r\n- The attacker activates direct reply-to and obtains its own generated reply\r\n  address. No victim address or cross-user information leak is required.\r\n\r\nThese are ordinary application permissions. No plugin or administrator role is\r\nrequired.\r\n\r\n## Root cause\r\n\r\n### 1. The suffix is parsed but never validated\r\n\r\n```erlang\r\n%% deps/rabbit/src/rabbit_volatile_queue.erl:368-389\r\npid_from_name(<<?PREFIX, Bin/binary>>, CandidateNodes) ->\r\n    ...\r\n    [PidBase64, _KeyBase64] = binary:split(Bin, Cp),\r\n    PidBin = base64:decode(PidBase64),\r\n    ...\r\n    {ok, rabbit_pid_codec:recompose(PidParts)}\r\n```\r\n\r\nOnly the encoded PID contributes to the returned target.\r\n\r\n### 2. Distinct forged names become distinct targets\r\n\r\nThe default exchange resolves each CC routing key independently through\r\n`rabbit_db_queue:get_targets/1`. Names are different as binaries, so they are\r\nnot deduplicated even when they decode to the same PID.\r\n\r\n### 3. Every target receives the full message structure\r\n\r\n`rabbit_queue_type:deliver0/4` groups the volatile targets but retains the\r\nmessage carrying all routing keys. `rabbit_volatile_queue:deliver/3` then sends\r\none `queue_event` cast per target.\r\n\r\nThe target channel eventually notices the wrong capability key and drops each\r\nevent, but every event has already occupied mailbox memory.\r\n\r\n## Basic Python proof of concept\r\n\r\nAttached at the end of file: `dos-poc.py`\r\n\r\nRequirements:\r\n\r\n- Python 3 with `pika` (`python3 -m pip install pika`).\r\n- An already-running RabbitMQ server.\r\n- An ordinary account with configure/read/write permission in one vhost.\r\n- No RabbitMQ plugin or non-default server configuration.\r\n\r\nRun:\r\n\r\n```bash\r\npython3 dos-poc.py \\\r\n  --host rabbitmq.example --port 5672 --vhost / \\\r\n  --user poc --password pocpass \\\r\n  --count 800 --repeats 1\r\n```\r\n\r\nThe PoC uses only the AMQP network interface. It registers a real direct\r\nreply-to consumer, obtains the broker-expanded address through a normal RPC\r\nrequest, replaces the capability suffix with 800 distinct values, and sends\r\nthem in one `CC` header. Monitor RabbitMQ process memory while increasing\r\n`--count` or `--repeats`.\r\n\r\n`--count 800 --repeats 1` is the bounded validation setting. Larger values can\r\nterminate the broker.\r\n\r\nSuccessful delivery of the attack prints:\r\n\r\n```text\r\nsent iteration 1/1: 800 forged destinations target one broker channel\r\nPOC_SENT\r\n```\r\n\r\n### Independent Docker validation evidence\r\n\r\nThe attached network-only PoC does not require Docker or broker shell access.\r\nFor deterministic measurement, the finding was separately validated on stock\r\nRabbitMQ 4.3.4 by temporarily suspending only the attacker's own broker channel\r\nwhile sampling its mailbox:\r\n\r\n```text\r\nRabbitMQ 4.3.4\r\n\r\ncontrol n=400:\r\n  mailbox delta: 0\r\n  memory delta:  0 bytes\r\n\r\nattack n=200:\r\n  mailbox delta: 200\r\n  memory delta:  7,540,800 bytes\r\n\r\nattack n=400:\r\n  mailbox delta: 400\r\n  memory delta:  29,801,600 bytes\r\n  growth versus n=200: 3.95x\r\n\r\nattack n=800:\r\n  mailb...",
+  "published_at": "2026-08-18T03:08:48.000Z",
+  "modified_at": "2026-08-18T03:08:48.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-400",
+    "CWE-407"
+  ],
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.10"
+        },
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-6chv-gv3h-cvcj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6chv-gv3h-cvcj",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-6chv-gv3h-cvcj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:e89737f0caa14524fa7a041167d1cefb8f083585c2628bf553d07872dc0e9d1a",
+  "note": null
+}

@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-7423-r5wh-26x7",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-235",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nPortainer provides a browser-based `kubectl` shell for Kubernetes environments. When a user opens one, the server creates a short-lived shell Pod for that user, then rewrites the incoming WebSocket request so it targets that Pod and forwards it to the Portainer Agent for execution.\r\n\r\nThe rewrite appended the server-chosen `namespace`, `podName`, `containerName` and `command` values to the caller's own query string instead of replacing them. Because the Agent resolves each of these parameters by taking the *first* occurrence, a caller who supplied their own copies of those parameters won the collision, and the exec was directed at a Pod and command of their choosing rather than at their own shell Pod.\r\n\r\nOn Agent-managed and Edge-Agent-managed Kubernetes environments the exec is carried out by the Portainer Agent using its own in-cluster service account, which Portainer's published Agent manifest binds to the `cluster-admin` role. Redirecting the exec therefore ran the attacker's command under that identity rather than under the user's own Kubernetes credentials, so the cluster's native RBAC never constrained it.\r\n\r\nThe minimum actor is an authenticated Portainer user holding the standard role with ordinary access to a single Agent-managed Kubernetes environment. No Portainer administrator role, no Kubernetes credential of any kind, no access to the target namespace, no non-default setting and no victim interaction are required. Environments managed through Portainer's local Kubernetes connection are not affected by this path, because it passes the Pod coordinates as explicit arguments rather than through the query string.\r\n\r\n## Severity\r\n\r\n**Medium**\r\n\r\nExploitation is a single authenticated request with no user interaction, no elevated Portainer role and no unusual configuration - the attacker only needs the standard role on one affected environment, and supplies duplicate query parameters. Portainer's own security properties are not directly affected: the attacker gains no Portainer administrator rights, reads nothing from Portainer's own database, and does not degrade the service. The impact falls on the subsequent system - the managed Kubernetes cluster - and there it is total. Because the redirected exec executes under the Agent's `cluster-admin`-bound service account, the attacker obtains arbitrary command execution in any Pod in any namespace, which includes reading every Secret in the cluster, altering or destroying any workload, taking control of the Portainer Agent Pod itself, and pivoting to whatever those credentials in turn unlock. Native Kubernetes RBAC offers no mitigation here, precisely because the request never carries the user's identity.\r\n\r\n## Affected Versions\r\n\r\nThe two constructs behind this issue - appending rather than replacing the forwarded Pod coordinates, and performing the exec under the Agent's own service account - were both introduced with the `kubectl` shell feature in 2.9.0 and were unchanged until this fix. This is not a regression.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The affected code is materially identical in each, and the fix is the same in both.\r\n\r\nFixes are included in the following releases:\r\n\r\n| Branch       | First vulnerable | Fixed in   |\r\n|--------------|------------------|------------|\r\n| 2.39.x (LTS) | 2.39.0           | **2.39.6** |\r\n| 2.45.x (LTS) | all prior        | **2.45.0** |\r\n\r\nPortainer releases prior to 2.39.0 are end-of-life and will not receive a fix. Users on end-of-life versions should upgrade to a supported LTS branch.\r\n\r\nThe 2.40.x - 2.44.x short-term-support lines are affected and do not receive a dedicated patch release; those lines reach end of life on the release of 2.45.0, and users on them should upgrade to 2.45.0. In particular, 2.44.0 predates this fix and does **not** contain it.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediately upgrade can reduce exposure by:\r\n\r\n- **Disable the `kubectl` shell for non-administrators (Business Edition).** Business Edition exposes a setting that turns the Kubernetes shell off for non-admin users, which removes the minimum actor for this issue entirely. Community Edition has no equivalent switch, so this workaround is not available there.\r\n- **Remove standard-role access to Agent-managed Kubernetes environments.** On Community Edition this is the only effective in-product measure: restrict those environments to administrators until the fix is applied. It will prevent legitimate non-admin use of those environments.\r\n- **Reduce the Agent's cluster privileges where your workloads permit it.** The published manifest grants the Agent `cluster-admin`. Narrowing that binding limits the blast radius of any path that executes under the Agent identity, at the cost of Portainer features that depend on cluster-wide access - test before applying.\r\n- **Audit for prior use.** Review Kubernetes API audit logs for `pods/exec` calls made by the Agent's service account that do not correspond to a legitimate user shell session, and rotate any Secrets that a cluster-wide reader could have obtained.\r\n\r\nNone of these replace the fix.\r\n\r\n## Affected Code\r\n\r\nThe rewrite lives in the Kubernetes shell WebSocket handler, in the function that provisions the per-user shell Pod and re-points the request at the Agent's Pod-exec endpoint. It seeded a query-parameter set from the caller's own URL and then added the server-chosen values to it:\r\n\r\n```\r\n// api/http/handler/websocket/shell_pod.go - websocketShellPodExec\r\nq := r.URL.Query()\r\n\r\nq.Add(\"namespace\", shellPod.Namespace)\r\nq.Add(\"podName\", shellPod.PodName)\r\nq.Add(\"containerName\", shellPod.ContainerName)\r\nq.Add(\"command\", shellPod.ShellExecCommand)\r\n\r\nr.URL.RawQuery = q.Encode()\r\n```\r\n\r\n`Add` appends, so any caller-supplied value for the same parameter remained in the query string ahead of the server's. The Agent then read each parameter through a helper that returns the first occurrence, so the caller's value was the one that took effect.\r\n\r\nThe fix replaces each of the four parameters instead of appending, so the server-chosen Pod coordinates and command always override anything the caller supplied. The change is applied identically in Community Edition and Business Edition, and the 2.39.x backport is identical to the fix on the current line - there is no divergence between editions or branches. A regression test in each edition asserts that caller-supplied copies of these parameters are discarded.\r\n\r\nThe delegated-credential behaviour is unchanged by this fix: the exec on Agent-managed environments continues to run under the Agent's service account, which is why constraining the exec target is what closes this issue.\r\n\r\n## Impact\r\n\r\n- **Arbitrary command execution in any Pod in the cluster.** The attacker chooses the namespace, Pod, container and command, and the Agent executes it with cluster-wide privileges.\r\n- **Disclosure of all cluster Secrets.** A `cluster-admin`-bound identity can read every Secret in every namespace, including service-account tokens, registry credentials, database passwords and TLS private keys.\r\n- **Full compromise of the Portainer Agent.** The Agent runs as a Pod in the same cluster and is itself a valid exec target, so the component whose authorization failed can be inspected and controlled directly.\r\n- **Modification and destruction of managed workloads.** Anything reachable through an in-Pod shell with cluster-wide credentials can be altered, restarted or deleted, including workloads belonging to teams and namespaces the attacker was never granted.\r\n- **Onward reach beyond the cluster.** Credentials recovered from cluster Secrets frequently authenticate to cloud APIs, registries and databases outside it, extending the compromise past the Kubernetes boundary.\r\n\r\n## Timeline\r\n\r\n- 2026-07-30: Reported via GitHub Security Advisory by **D0HY30N**.\r\n- 2026-08-11: Fix merged to `develop` and backported to `release/2.39`.\r\n- 2026-08-13: 2.39.6-LTS released with the fix.\r\n- 2026-08-27: 2.45.0-LTS released with the fix.\r\n\r\n## Credit\r\n\r\n- **D0HY30N** - identified the full chain: that the forwarded Pod coordinates were appended rather than replaced, that the Agent resolves the first occurrence of each parameter, and that the resulting exec runs under the Agent's `cluster-admin`-bound service account. The report included negative controls demonstrating that the equivalent direct request is correctly denied for the same user.\r\n\r\n",
+    "ghsa_id": "GHSA-7423-r5wh-26x7",
+    "html_url": "https://github.com/portainer/portainer/security/advisories/GHSA-7423-r5wh-26x7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7423-r5wh-26x7"
+      }
+    ],
+    "published_at": "2026-10-22T05:02:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Kubernetes shell query parameter confusion allows command execution in any Pod on Agent-managed environments",
+    "updated_at": "2026-10-22T05:02:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.39.6",
+        "vulnerable_version_range": ">= 2.39.0, < 2.39.6"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/portainer/portainer"
+        },
+        "patched_versions": "2.45.0",
+        "vulnerable_version_range": ">= 2.40.0, < 2.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "portainer/portainer"
+}

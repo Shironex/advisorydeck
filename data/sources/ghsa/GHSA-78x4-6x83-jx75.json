@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-78x4-6x83-jx75",
+  "repo": {
+    "cve_id": "CVE-2026-25118",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-598"
+    ],
+    "description": "### Summary\r\n\r\nThe Immich application is vulnerable to credential disclosure when a user authenticates to a shared album. During the authentication process, the application transmits the album password within the URL query parameters in a GET request to `/api/shared-links/me`. This exposes the password in browser history, proxy and server logs, and referrer\r\nheaders, allowing unintended disclosure of authentication credentials. The impact of this vulnerability is the potential compromise of shared album access and unauthorized exposure of sensitive user data.\r\n\r\n### Details\r\n\r\nThe application transmits and exposes sensitive authentication credentials and user data\r\nduring the shared album authentication process. Specifically, the `/api/shared-links/me endpoint` accepts the album password as a query parameter within the request URL and subsequently returns it in the HTTP response body alongside sensitive information about the album owner.\r\n\r\nExample:\r\n```\r\nGET /api/shared-links/me?password=admin@44&slug=private\r\n```\r\n\r\nThis behavior results in multiple layers of data exposure. The inclusion of the password in the request URI causes it to appear in browser history, reverse proxy logs, and referrer headers, while the server response further discloses sensitive details including user identifiers, email address, and more. As a result, an unauthenticated attacker with network access, access to logs, or control of intermediate systems could obtain the album password which leads to gaining access to album media content, and related personal data, compromising the confidentiality of private content and user information.\r\n\r\n### PoC\r\n\r\n#### Steps to reproduce\r\n\r\n1. Login as an admin to the Immich application.\r\n2. Click on Sharing > Create album.\r\n3. Fill in the album details including a title, description, and select an already uploaded\r\nimage.\r\n4. Click on the “Share” button in the top right corner.\r\n5. Click on “Create Link”.\r\n6. Enter the details for the custom URL and password.\r\n7. Click on “Create Link”.\r\n8. This will show the QR code and the URL generated to access the album.\r\n9. Visit the link in an incognito browser window (without any previous session cookies.)\r\n10. Open the network tab in the developer mode in the browser.\r\n11. Visit the link and enter the password to authenticate to the Album.\r\n12. Observe how the request transmits the password as a query parameter in the GET\r\nrequest URL.\r\n\r\n#### Proof of Concept (Image)\r\n\r\n![PoC Image](https://www.zyenra.com/assets/img/private/68b329da9893e34099c7d8ad5cb9c940/immich-application-password-in-get-query-parameter.png)\r\n\r\n\r\n### Recommendations\r\n\r\nThe /api/shared-links/me endpoint should be refactored to use the POST method and handle authentication credentials within the HTTP request body transmitted over HTTPS. The application must not include the password field in either the request URL or the API response. Upon successful authentication, the server should return only the\r\nnecessary access token required for session validation. All sensitive fields, including password, userId, email, and owner information, should be excluded from API responses to prevent unnecessary exposure of personal or security-relevant data\r\n",
+    "ghsa_id": "GHSA-78x4-6x83-jx75",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-78x4-6x83-jx75",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-78x4-6x83-jx75"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-25118"
+      }
+    ],
+    "published_at": "2026-04-02T19:45:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Insecure transmission of shared link password",
+    "updated_at": "2026-04-08T14:59:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "immich-server"
+        },
+        "patched_versions": ">= 2.6.0",
+        "vulnerable_version_range": "< v2.5.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

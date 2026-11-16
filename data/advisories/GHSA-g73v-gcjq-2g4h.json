@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-g73v-gcjq-2g4h",
+  "aliases": [],
+  "title": "AMQP message conversion can repeatedly disconnect AMQP 0-9-1 consumers",
+  "summary": "## 1. Summary\r\n\r\nA producer that speaks AMQP 1.0 can publish a well formed message whose application properties contain a nested map with a key longer than 255 bytes. RabbitMQ accepts and stores this message. The failure happens later, on the consumer side: to deliver the message to an AMQP 0.9.1 consumer, the broker converts the message into AMQP 0.9.1 properties, which produces a field table whose key cannot be represented in AMQP 0.9.1 (field table keys are shortstr, maximum 255 bytes). Encoding the delivery then raises `content_properties_shortstr_overflow` inside the connection's writer process, which tears the connection down. The consumer sees `INTERNAL_ERROR` (541) and never receives the message.\r\n\r\nThe message is not removed by the failed delivery. Unless an operator purges the queue or consumes the message with a different protocol, every subsequent AMQP 0.9.1 consumer that reaches it is disconnected in the same way, with no limit on the number of attempts. This turns a single small publish into a persistent denial of service for the AMQP 0.9.1 consumer population of that queue.\r\n\r\nTwo properties of the issue raise it above a queue level nuisance:\r\n\r\n1. The producer does not need any permission on the destination queue. Publish authorization is evaluated against the exchange, as documented, so a user whose only permission is `write` on a shared exchange can plant the message in any queue bound to that exchange, including queues owned by other users or tenants that the producer cannot read, write or configure. I verified this with a user restricted to `write=^poc\\.shared$`.\r\n2. Each failed delivery writes failure output to the broker log. I measured 1293 bytes of broker log per victim reconnect cycle (541 bytes for the connection itself, 752 bytes for the failure). A consumer that reconnects automatically, or an attacker who opens connections in a loop, therefore converts one publish into unbounded broker log growth, which is a node level resource problem rather than a per queue one.\r\n\r\nThe documented conversion rules state the opposite behaviour: entries that fail the `shortstr` condition are not converted, and the message remains deliverable with that entry omitted. The top level conversion applies exactly that rule. Only the nested map case is missing the check, which is why the message is stored in a state the broker cannot deliver.\r\n\r\n## 2. Affected versions\r\n\r\nVerified by building and running the source tree in this repository:\r\n\r\n* branch main, commit 169a13dc8a, version reported as 4.2.0+beta.4.1143.g169a13dc8a, Erlang/OTP 29.\r\n\r\nThe same unguarded nested map conversion exists unchanged in the maintained release branches of this repository. I checked each branch for the expression that performs the nested conversion:\r\n\r\n```\r\norigin/v4.0.x: 2 occurrences of to_091(unwrap(K), V)\r\norigin/v4.1.x: 2 occurrences of to_091(unwrap(K), V)\r\norigin/v4.2.x: 2 occurrences of to_091(unwrap(K), V)\r\norigin/v4.3.x: 2 occurrences of to_091(unwrap(K), V)\r\n```\r\n\r\nNative AMQP 1.0 support, and with it this conversion module, was introduced in RabbitMQ 4.0, so 4.0 and later are affected.\r\n\r\n## 3. Root cause\r\n\r\n### 3.1 The conversion\r\n\r\nAn AMQP 1.0 message published by a client is stored in its original format. When an AMQP 0.9.1 consumer receives it, `mc_amqpl` converts the message sections into AMQP 0.9.1 properties. The entry point for the delivery path is:\r\n\r\n* `deps/rabbit/src/rabbit_channel.erl:2769` `outgoing_content/2`\r\n* `deps/rabbit/src/rabbit_channel.erl:2771` `Mc2 = mc:convert(mc_amqpl, Mc1)`\r\n\r\nFor application properties, `mc_amqpl` maps each entry to an AMQP 0.9.1 header, but only if the key satisfies the shortstr condition:\r\n\r\n* `deps/rabbit/src/mc_amqpl.erl:153-155`\r\n\r\n```erlang\r\n({{utf8, K}, V})\r\n  when ?IS_SHORTSTR_LEN(K) ->\r\n    {true, to_091(K, V)};\r\n```\r\n\r\nThe same guard exists for message annotations:\r\n\r\n* `deps/rabbit/src/mc_amqpl.erl:168-175`\r\n\r\nThe values themselves are converted by `to_091/2`. For maps, t...",
+  "published_at": "2026-10-25T16:24:37.000Z",
+  "modified_at": "2026-10-25T16:24:37.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.7"
+        },
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.12"
+        },
+        {
+          "introduced": "4.1.0",
+          "fixed": "4.1.17"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-g73v-gcjq-2g4h",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-g73v-gcjq-2g4h",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-g73v-gcjq-2g4h",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6085b39292e4901c9bfa0969b0125ca478bdd56c68f4efa058ef9546e1038672",
+  "note": null
+}

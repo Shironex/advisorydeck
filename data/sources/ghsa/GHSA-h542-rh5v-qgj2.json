@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-h542-rh5v-qgj2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nA shell command injection vulnerability exists in Dokploy's patch repository handling functionality.\r\n\r\nAn authenticated user with access to an application or Docker Compose service can control the `repoPath` parameter used by the `readRepoDirectories` API endpoint. This value is later concatenated into a shell command and executed through local or remote command execution functions.\r\n\r\nThe vulnerability affects Dokploy v0.29.11 (commit: 1c4414165d4aedbf6e28afab7a94c8fb7c053373).\r\n\r\nThe issue may allow an authenticated attacker to execute arbitrary shell commands on the Dokploy host or configured remote server under the privileges of the corresponding Dokploy execution context.\r\n\r\nCWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')\r\n\r\n---\r\n\r\n### Details\r\n\r\nThe vulnerable data flow consists of three stages: Source, Processing, and Sink.\r\n\r\n\r\n### Source\r\n\r\nThe `repoPath` parameter is controlled by the client through the patch repository workflow.\r\n\r\nAffected frontend components:\r\n\r\n    apps/dokploy/components/dashboard/application/patches/show-patches.tsx\r\n\r\n    apps/dokploy/components/dashboard/application/patches/patch-editor.tsx\r\n\r\n\r\nThe frontend sends the value through:\r\n\r\n    api.patch.readRepoDirectories.useQuery({\r\n        id,\r\n        type,\r\n        repoPath\r\n    })\r\n\r\n\r\n### Processing\r\n\r\nThe backend endpoint is implemented in:\r\n\r\n    apps/dokploy/server/api/routers/patch.ts\r\n\r\n\r\nThe `readRepoDirectories` procedure accepts `repoPath` directly from the client request:\r\n\r\n    readRepoDirectories(input.repoPath, serverId)\r\n\r\n\r\nAlthough the endpoint performs service permission checks, the backend does not recompute the repository path from trusted server-side information.\r\n\r\nThe application does not verify that the supplied `repoPath` belongs to the expected patch repository directory.\r\n\r\nThe user-controlled value is passed directly to:\r\n\r\n    readPatchRepoDirectory(input.repoPath, serverId)\r\n\r\n\r\n### Sink\r\n\r\nThe vulnerable function is located in:\r\n\r\n    packages/server/src/services/patch-repo.ts\r\n\r\n\r\nThe application constructs a shell command using the user-controlled path:\r\n\r\n    const command = `cd \"${repoPath}\" && git ls-tree -r --name-only HEAD`;\r\n\r\n\r\nThe command is executed through shell-based APIs.\r\n\r\nLocal execution:\r\n\r\n    child_process.exec(command, ...)\r\n\r\n\r\nRemote execution:\r\n\r\n    conn.exec(command, ...)\r\n\r\n\r\nBecause attacker-controlled input reaches a shell command execution sink without strict validation, canonicalization, or parameterized execution, shell metacharacters contained in `repoPath` may be interpreted by the shell.\r\n\r\nThis results in a shell command injection vulnerability (CWE-78).\r\n\r\n\r\n---\r\n\r\n### Affected Code Path\r\n\r\nFrontend:\r\n\r\n    apps/dokploy/components/dashboard/application/patches/show-patches.tsx\r\n\r\n    apps/dokploy/components/dashboard/application/patches/patch-editor.tsx\r\n\r\n\r\nBackend API:\r\n\r\n    apps/dokploy/server/api/routers/patch.ts\r\n\r\n\r\nCommand execution logic:\r\n\r\n    packages/server/src/services/patch-repo.ts\r\n\r\n    packages/server/src/utils/process/execAsync.ts\r\n\r\n\r\nExecution functions:\r\n\r\n    child_process.exec()\r\n\r\n    SSH conn.exec()\r\n\r\n\r\n---\r\n\r\n### Proof of Concept\r\n\r\nThe vulnerability was verified in a local validation environment.\r\n\r\nNo destructive commands were executed and no production systems were tested.\r\n\r\n\r\nFor the local execution path, we used the marker-only path:\r\n\r\n    C:\\proof\\USER_CONTROLLED_MARKER\r\n\r\n\r\nDokploy generated:\r\n\r\n    cd \"C:\\proof\\USER_CONTROLLED_MARKER\" && git ls-tree -r --name-only HEAD\r\n\r\n\r\nFor the remote execution path, we used:\r\n\r\n    /proof/USER_CONTROLLED_MARKER\r\n\r\n\r\nwith a non-null `serverId`.\r\n\r\n\r\nDokploy generated:\r\n\r\n    cd \"/proof/USER_CONTROLLED_MARKER\" && git ls-tree -r --name-only HEAD\r\n\r\n\r\nThese tests demonstrate that `repoPath` supplied by the client is directly incorporated into a shell command before execution. Since the value is not passed as a parameterized argument or validated against an expected directory, shell metacharacters may alter command execution behavior.\r\n\r\n---\r\n\r\n### Reproduction Steps\r\n\r\n1. Deploy Dokploy v0.29.11 locally.\r\n\r\n2. Authenticate to Dokploy as a user with access to an application or Docker Compose service.\r\n\r\n3. Trigger the `patch.readRepoDirectories` workflow.\r\n\r\n4. Provide a valid service `id` and `type`, together with a caller-controlled `repoPath`.\r\n\r\n5. Observe that:\r\n\r\n   - The backend accepts `repoPath` from the request.\r\n   - The backend does not reconstruct the repository path from trusted server-side state.\r\n   - The supplied value is passed to `readPatchRepoDirectory()`.\r\n   - The function creates a shell command using string concatenation.\r\n   - The command is executed through shell-based APIs.\r\n\r\n\r\n---\r\n\r\n### Impact\r\n\r\nAn authenticated attacker with access to the affected patch repository functionality may execute arbitrary shell commands.\r\n\r\nPossible affected locations include:\r\n\r\n- The Dokploy host through local execution.\r\n- Configured remote servers managed by Dokploy through remote execution.\r\n\r\n\r\nPotential impacts include:\r\n\r\n- Unauthorized modification of deployed applications.\r\n- Exposure of sensitive deployment information.\r\n- Compromise of the Dokploy execution environment.\r\n- Further compromise of managed infrastructure depending on deployment configuration.\r\n\r\n\r\n\r\n\r\n---\r\n\r\n### Suggested Fix\r\n\r\n1. Do not accept `repoPath` from the client.\r\n\r\nThe backend should only accept trusted identifiers such as service `id` and `type`, then reconstruct the repository path internally.\r\n\r\n\r\n2. Avoid constructing shell commands using string concatenation.\r\n\r\nFor local execution, replace shell-based execution with parameterized process execution APIs.\r\n\r\nExample:\r\n\r\n    execFile(\"git\", [\r\n      \"-C\",\r\n      repoPath,\r\n      \"ls-tree\",\r\n      \"-r\",\r\n      \"--name-only\",\r\n      \"HEAD\"\r\n    ])\r\n\r\n\r\n3. For remote execution:\r\n\r\n- Avoid passing attacker-controlled strings directly to remote shells.\r\n- Canonicalize and validate repository paths.\r\n- Ensure the path remains inside the expected patch repository directory.\r\n- Reject unsafe path values.\r\n\r\n\r\n4. Add regression tests to ensure:\r\n\r\n- Client-controlled repository paths cannot reach command execution sinks.\r\n- Patch repository operations do not rely on shell string concatenation.\r\n\r\n\r\n---\r\n",
+    "ghsa_id": "GHSA-h542-rh5v-qgj2",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-h542-rh5v-qgj2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h542-rh5v-qgj2"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:41Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "[CWE-78] Authenticated Shell Command Injection via Patch Repository Path in Dokploy",
+    "updated_at": "2026-11-12T08:16:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

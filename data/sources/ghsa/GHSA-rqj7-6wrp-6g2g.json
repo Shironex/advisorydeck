@@ -1,0 +1,103 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-59227",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "## Summary\n\n`POST /api/v1/images/edit` performed no authorization beyond requiring a verified account. Every other image-editing surface in Open WebUI enforces the global image-edit switch and the per-user image-generation permission - the `/api/v1/images/generations` route, the built-in `edit_image` tool, and the chat image-edit middleware - but the direct edit route enforced neither. A verified non-admin user could therefore invoke server-side image editing, reaching the configured image-edit provider with the administrator's credentials, even when the administrator had globally disabled image editing (`ENABLE_IMAGE_EDIT=False`) or denied that user image-generation permission. The image-editing UI is surfaced only to administrators (Playground), so the route additionally exposed an admin-only capability to any verified user.\n\n## Impact\n\nAn authenticated, non-admin user can:\n\n- bypass the global `ENABLE_IMAGE_EDIT=False` administrator control;\n- bypass a denied per-user/group `features.image_generation` permission;\n- cause the server to send billable image-edit requests to the configured provider (OpenAI-compatible, Gemini, or ComfyUI) using administrator-configured credentials (`IMAGES_EDIT_OPENAI_API_KEY` for the OpenAI engine).\n\nNo cross-user data is exposed and the provider credentials are never returned to the caller; the impact is the control/permission bypass and the associated billable resource consumption.\n\n## Affected Versions\n\n`>= 0.8.11, < 0.10.0` (the `/api/v1/images/edit` route was introduced in 0.8.11 and was ungated from the outset). Fixed in **v0.10.0**.\n\n## Details\n\n`/api/v1/images/generations` enforces `ENABLE_IMAGE_GENERATION` (403 if globally disabled) and `features.image_generation` (403 for non-admins without the permission). The `edit_image` built-in tool and the chat image-edit middleware likewise gate on `ENABLE_IMAGE_EDIT` and `features.image_generation`. The direct `POST /api/v1/images/edit` route ran on `Depends(get_verified_user)` alone and proceeded straight to provider dispatch, applying none of these controls.\n\n## Proof of Concept\n\nAs a verified non-admin user, with image editing globally disabled (`ENABLE_IMAGE_EDIT=False`) or `features.image_generation` denied for the user:\n\n```http\nPOST /api/v1/images/edit\nAuthorization: Bearer <non_admin_user_token>\nContent-Type: application/json\n\n{\"image\":\"data:image/png;base64,<png>\",\"prompt\":\"edit\",\"model\":\"gpt-image-1\"}\n```\n\nThe request reaches the configured image-edit provider and returns an edited image despite the disabled control/permission.\n\n## Patch\n\nThe direct route is split from its shared implementation (mirroring `generate_images`/`image_generations`): a thin `/edit` route now enforces `ENABLE_IMAGE_EDIT` and the per-user `features.image_generation` permission before delegating to the shared `image_edits()` implementation. The internal callers (the `edit_image` tool and the chat middleware) call the implementation directly and already gate themselves, so they are unaffected.",
+    "ghsa_id": "GHSA-rqj7-6wrp-6g2g",
+    "html_url": "https://github.com/advisories/GHSA-rqj7-6wrp-6g2g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rqj7-6wrp-6g2g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59227"
+      }
+    ],
+    "published_at": "2026-07-24T16:58:48Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-rqj7-6wrp-6g2g",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-59227",
+      "https://github.com/open-webui/open-webui/pull/26009",
+      "https://github.com/open-webui/open-webui/commit/e038bab66dec8d17212eec35b5cb6d6b785a4200",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.10.0",
+      "https://github.com/advisories/GHSA-rqj7-6wrp-6g2g"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: POST /api/v1/images/edit bypasses the global image-edit switch and the per-user image-generation permission",
+    "updated_at": "2026-07-24T16:58:48Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.10.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": ">= 0.8.11, < 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-rqj7-6wrp-6g2g",
+  "repo": {
+    "cve_id": "CVE-2026-59227",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\n`POST /api/v1/images/edit` performed no authorization beyond requiring a verified account. Every other image-editing surface in Open WebUI enforces the global image-edit switch and the per-user image-generation permission - the `/api/v1/images/generations` route, the built-in `edit_image` tool, and the chat image-edit middleware - but the direct edit route enforced neither. A verified non-admin user could therefore invoke server-side image editing, reaching the configured image-edit provider with the administrator's credentials, even when the administrator had globally disabled image editing (`ENABLE_IMAGE_EDIT=False`) or denied that user image-generation permission. The image-editing UI is surfaced only to administrators (Playground), so the route additionally exposed an admin-only capability to any verified user.\r\n\r\n## Impact\r\n\r\nAn authenticated, non-admin user can:\r\n\r\n- bypass the global `ENABLE_IMAGE_EDIT=False` administrator control;\r\n- bypass a denied per-user/group `features.image_generation` permission;\r\n- cause the server to send billable image-edit requests to the configured provider (OpenAI-compatible, Gemini, or ComfyUI) using administrator-configured credentials (`IMAGES_EDIT_OPENAI_API_KEY` for the OpenAI engine).\r\n\r\nNo cross-user data is exposed and the provider credentials are never returned to the caller; the impact is the control/permission bypass and the associated billable resource consumption.\r\n\r\n## Affected Versions\r\n\r\n`>= 0.8.11, < 0.10.0` (the `/api/v1/images/edit` route was introduced in 0.8.11 and was ungated from the outset). Fixed in **v0.10.0**.\r\n\r\n## Details\r\n\r\n`/api/v1/images/generations` enforces `ENABLE_IMAGE_GENERATION` (403 if globally disabled) and `features.image_generation` (403 for non-admins without the permission). The `edit_image` built-in tool and the chat image-edit middleware likewise gate on `ENABLE_IMAGE_EDIT` and `features.image_generation`. The direct `POST /api/v1/images/edit` route ran on `Depends(get_verified_user)` alone and proceeded straight to provider dispatch, applying none of these controls.\r\n\r\n## Proof of Concept\r\n\r\nAs a verified non-admin user, with image editing globally disabled (`ENABLE_IMAGE_EDIT=False`) or `features.image_generation` denied for the user:\r\n\r\n```http\r\nPOST /api/v1/images/edit\r\nAuthorization: Bearer <non_admin_user_token>\r\nContent-Type: application/json\r\n\r\n{\"image\":\"data:image/png;base64,<png>\",\"prompt\":\"edit\",\"model\":\"gpt-image-1\"}\r\n```\r\n\r\nThe request reaches the configured image-edit provider and returns an edited image despite the disabled control/permission.\r\n\r\n## Patch\r\n\r\nThe direct route is split from its shared implementation (mirroring `generate_images`/`image_generations`): a thin `/edit` route now enforces `ENABLE_IMAGE_EDIT` and the per-user `features.image_generation` permission before delegating to the shared `image_edits()` implementation. The internal callers (the `edit_image` tool and the chat middleware) call the implementation directly and already gate themselves, so they are unaffected.",
+    "ghsa_id": "GHSA-rqj7-6wrp-6g2g",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-rqj7-6wrp-6g2g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rqj7-6wrp-6g2g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59227"
+      }
+    ],
+    "published_at": "2026-06-29T23:29:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "POST /api/v1/images/edit bypasses the global image-edit switch and the per-user image-generation permission",
+    "updated_at": "2026-07-07T15:00:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.10.0",
+        "vulnerable_version_range": ">= 0.8.11, < 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

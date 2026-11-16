@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45667",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\nGET `/api/v1/memories/ef` is accessible without authentication and executes `request.app.state.EMBEDDING_FUNCTION(...)`. This allows any unauthenticated caller to trigger embedding generation which can lead to direct cost exposure if a paid provider is used.\nCode reference: `backend/open_webui/routers/memories.py` (@router.get(\"/ef\") -> calls `request.app.state.EMBEDDING_FUNCTION(\"hello world\"))`.\n\n\n### Details\nGET `/api/v1/memories/ef` is reachable without authentication and triggers request.app.state.EMBEDDING_FUNCTION(\"hello world\"). This crosses an intended security boundary by allowing unauthenticated users to invoke potentially expensive embedding computation and/or paid upstream embedding APIs.\n\n### PoC\n1. Start Open WebUI in default configuration (no special env hardening; default ENABLE_MEMORIES is true).\n2. From an unauthenticated client (no cookies/Authorization header), call:\n      curl -i http://\\<host\\>:\\<port\\>/api/v1/memories/ef\n   3. Observe the server performs embedding generation and returns a response like:\n   - HTTP 200 with JSON containing the result.\n\nHow it can be abused / attacker actions:\n\n- Send repeated requests to `/api/v1/memories/ef` to:\n  - consume CPU/GPU resources (DoS)\n  - generate sustained outbound usage to embedding providers if configured (cost + rate-limit exhaustion)\n  - degrade latency/availability for legitimate users\n \n### Impact\nIf embeddings are configured to use paid/remote providers (OpenAI/Azure/etc), an attacker can generate unlimited requests and incur charges.\n\n## Resolution\n\nFixed in commit [e5035ea31](https://github.com/open-webui/open-webui/commit/e5035ea31e179977e805a7032c979ff59a71860a), first released in **v0.8.0** (Feb 2026). The `/api/v1/memories/ef` route was removed entirely. It was a diagnostic/debug-style endpoint that hard-coded `\"hello world\"` through the embedding function without any authentication dependency; there was no legitimate caller that depended on it, so deletion was the cleaner fix than retrofitting auth. Users on `>= 0.8.0` are not affected.",
+    "ghsa_id": "GHSA-m69w-p7m4-585j",
+    "html_url": "https://github.com/advisories/GHSA-m69w-p7m4-585j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m69w-p7m4-585j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45667"
+      }
+    ],
+    "published_at": "2026-05-14T20:28:02Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-m69w-p7m4-585j",
+      "https://github.com/open-webui/open-webui/commit/e5035ea31e179977e805a7032c979ff59a71860a",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.8.0",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45667",
+      "https://github.com/advisories/GHSA-m69w-p7m4-585j"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: Unauthenticated endpoint can trigger embedding generation (cost/DoS)",
+    "updated_at": "2026-05-19T16:00:44Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.8.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.7.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-m69w-p7m4-585j",
+  "repo": {
+    "cve_id": "CVE-2026-45667",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nGET `/api/v1/memories/ef` is accessible without authentication and executes `request.app.state.EMBEDDING_FUNCTION(...)`. This allows any unauthenticated caller to trigger embedding generation which can lead to direct cost exposure if a paid provider is used.\r\nCode reference: `backend/open_webui/routers/memories.py` (@router.get(\"/ef\") -> calls `request.app.state.EMBEDDING_FUNCTION(\"hello world\"))`.\r\n\r\n\r\n### Details\r\nGET `/api/v1/memories/ef` is reachable without authentication and triggers request.app.state.EMBEDDING_FUNCTION(\"hello world\"). This crosses an intended security boundary by allowing unauthenticated users to invoke potentially expensive embedding computation and/or paid upstream embedding APIs.\r\n\r\n### PoC\r\n1. Start Open WebUI in default configuration (no special env hardening; default ENABLE_MEMORIES is true).\r\n2. From an unauthenticated client (no cookies/Authorization header), call:\r\n      curl -i http://\\<host\\>:\\<port\\>/api/v1/memories/ef\r\n   3. Observe the server performs embedding generation and returns a response like:\r\n   - HTTP 200 with JSON containing the result.\r\n\r\nHow it can be abused / attacker actions:\r\n\r\n- Send repeated requests to `/api/v1/memories/ef` to:\r\n  - consume CPU/GPU resources (DoS)\r\n  - generate sustained outbound usage to embedding providers if configured (cost + rate-limit exhaustion)\r\n  - degrade latency/availability for legitimate users\r\n \r\n### Impact\r\nIf embeddings are configured to use paid/remote providers (OpenAI/Azure/etc), an attacker can generate unlimited requests and incur charges.\r\n\r\n## Resolution\r\n\r\nFixed in commit [e5035ea31](https://github.com/open-webui/open-webui/commit/e5035ea31e179977e805a7032c979ff59a71860a), first released in **v0.8.0** (Feb 2026). The `/api/v1/memories/ef` route was removed entirely. It was a diagnostic/debug-style endpoint that hard-coded `\"hello world\"` through the embedding function without any authentication dependency; there was no legitimate caller that depended on it, so deletion was the cleaner fix than retrofitting auth. Users on `>= 0.8.0` are not affected.",
+    "ghsa_id": "GHSA-m69w-p7m4-585j",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-m69w-p7m4-585j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m69w-p7m4-585j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45667"
+      }
+    ],
+    "published_at": "2026-05-11T19:07:10Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated endpoint can trigger embedding generation (cost/DoS)",
+    "updated_at": "2026-05-13T04:51:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.8.0",
+        "vulnerable_version_range": "<= 0.7.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

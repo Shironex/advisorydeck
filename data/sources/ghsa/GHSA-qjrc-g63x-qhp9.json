@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qjrc-g63x-qhp9",
+  "repo": {
+    "cve_id": "CVE-2026-72885",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nThis Dokploy dockerfile builder is vulnerable to command injection due to unfiltered input `dockerContextPath` being passed into a shell statement leading to command injection.\r\n\r\n### Details\r\n- Affected Code in docker-file builder `packages/server/src/utils/builders/docker-file.ts`\r\n- In line 87, the variable dockerContextPath gets passed into the command for building an image with a dockerfile.This command is later executed with the aid of  `execAsync()` allowing shell command execution.\r\n\r\n```typescript\r\n//line 87\r\ncommand += `\r\necho \"Building ${appName}\" ;\r\ncd ${dockerContextPath} || { \r\n  echo \"❌ The path ${dockerContextPath} does not exist\" ;\r\n  exit 1;\r\n}\r\n\r\n${joinedSecrets} docker ${commandArgs.join(\" \")} || { \r\n  echo \"❌ Docker build failed\" ;\r\n  exit 1;\r\n}\r\necho \"✅ Docker build completed.\" ;\r\n```\r\n-  The variable `dockerContextPath` is unfiltered.Let’s trace the flow. It starts from here-: \r\n\r\n```typescript\r\n//Line 32\r\nconst dockerContextPath =\r\n\t\t\tgetDockerContextPath(application) || defaultContextPath;\r\n\r\n```\r\n- The method `getDockerContextPath` is a function in `packages/server/src/utils/filesystem/directory.ts`. It grabs the key `dockerContextPath` from  application and adds it to a path without filtering the characters.\r\n\r\n```typescript\r\nexport const getDockerContextPath = (application: Application) => {\r\n\tconst { APPLICATIONS_PATH } = paths(!!application.serverId);\r\n\tconst { appName, dockerContextPath } = application;\r\n\r\n\tif (!dockerContextPath) {\r\n\t\treturn null;\r\n\t}\r\n\t\r\nreturn path.join(APPLICATIONS_PATH, appName, \"code\",dockerContextPath);\r\n```\r\n\r\n- `dockerContextPath` is unfiltered and accepts strings  with special characters as seen in the schema in apps/dokploy/components/dashboard/application/build/show.tsx.\r\n\r\n```typescript\r\n// Line 83\r\ndockerContextPath: z.string().nullable().default(\"\")\r\n```\r\n\r\n### PoC\r\n- Upload a zip file archive with a valid dockerfile\r\n- Set the dockerContextPath with a payload like this “default$(echo `id`)” to echo the output in the log.\r\n\r\n   \r\n<img width=\"624\" height=\"300\" alt=\"image\" src=\"https://github.com/user-attachments/assets/6f25d263-a6a7-45b1-8d4c-cc9d625380e9\" />\r\n\r\n-  Deploy it and check “Deployment” tab to see the value of the payload\r\n\r\n<img width=\"624\" height=\"319\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f3a6d74e-59d1-4090-a807-f593c8694653\" />\r\n\r\n\r\n\r\n### Impact\r\n- It allows an authenticated attacker to gain remote code execution on a Dokploy server leading to unauthorized access to a server.",
+    "ghsa_id": "GHSA-qjrc-g63x-qhp9",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qjrc-g63x-qhp9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qjrc-g63x-qhp9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72885"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:18Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Authenticated Command Injection in Dokploy Dockerfile Builder",
+    "updated_at": "2026-08-18T23:07:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "0.27.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

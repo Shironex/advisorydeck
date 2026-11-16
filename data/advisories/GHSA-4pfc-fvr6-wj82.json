@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-4pfc-fvr6-wj82",
+  "aliases": [],
+  "title": "S3 credential redaction never fires: redact.ts requires double quotes, shell-quote never emits them (CWE-532)",
+  "summary": "## Summary\r\n\r\n`redactRcloneCredentials()` - added in #4648 and shipped in **v0.29.9** - never fires on the backup path it was written for. The S3 **access key** and **secret access key** are still written in plaintext to `docker service logs dokploy` on **every backup run**, on the current release (**v0.29.13**).\r\n\r\nThe cause is a format mismatch between the code that *builds* the rclone command and the code that *redacts* it.\r\n\r\n## Details\r\n\r\n**The builder** - `packages/server/src/utils/backups/utils.ts` - quotes values with the `shell-quote` library:\r\n\r\n```js\r\n`--s3-access-key-id=${quote([accessKey])}`\r\n`--s3-secret-access-key=${quote([secretAccessKey])}`\r\n```\r\n\r\n**The redactor** - `packages/server/src/utils/backups/redact.ts` - matches only **double-quoted** values:\r\n\r\n```js\r\n/(--s3-access-key-id=)\"[^\"]*\"/g\r\n/(--s3-secret-access-key=)\"[^\"]*\"/g\r\n```\r\n\r\n**`shell-quote`'s `quote()` never emits double quotes.** It returns safe values bare, and uses *single* quotes or backslash escapes when escaping is required:\r\n\r\n| input | `quote([value])` output |\r\n| --- | --- |\r\n| `AKIAIOSF••••••••••••` | `AKIAIOSF••••••••••••` (bare) |\r\n| `wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY` | bare |\r\n| `abc+def/ghi=` | `abc+def/ghi\\=` |\r\n| `has space` | `'has space'` (single quotes) |\r\n\r\nBecause the producer never emits the double-quoted form the regex requires, the redaction cannot match - for **any** credential value. The credentials then reach the application logger here:\r\n\r\n```js\r\nlogger.info({ rcloneCommand: redactRcloneCredentials(rcloneCommand), ... })  // \"Executing backup command\"\r\n```\r\n\r\n### Why CI does not catch it\r\n\r\n`apps/dokploy/__test__/backups/redact-credentials.test.ts` asserts against hand-written, already-double-quoted strings, e.g.\r\n\r\n```js\r\n'rclone rcat --s3-access-key-id=\"AKIAIOSF••••••••••••\" --s3-secret-access-key=\"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"'\r\n```\r\n\r\nThe test never exercises the output of `getS3Credentials()`, so it passes while the production path leaks. A test driven through the real builder would fail immediately.\r\n\r\n## PoC\r\n\r\n1. Configure an S3 backup destination and a compose/postgres backup schedule.\r\n2. Trigger the backup.\r\n3. On the host:\r\n\r\n```bash\r\n# quoted form (what the redactor matches)  -> 0\r\ndocker service logs dokploy --since 10m 2>&1 | grep -c -- '--s3-secret-access-key=\"'\r\n# unquoted form (what is actually emitted) -> 1\r\ndocker service logs dokploy --since 10m 2>&1 | grep -cE -- '--s3-secret-access-key=[^\"]'\r\n# evidence of redaction                    -> 0\r\ndocker service logs dokploy --since 10m 2>&1 | grep -c 'REDACTED'\r\n```\r\n\r\nThe `Executing backup command` INFO line contains `rcloneCommand:` with both credentials in plaintext.\r\n\r\nObserved on **v0.29.13** (latest at time of writing), Ubuntu 24.04, single-manager Swarm, compose-postgres backup to an S3-compatible endpoint.\r\n\r\n## Impact\r\n\r\n**CWE-532 - insertion of sensitive information into log file.** Long-lived object-storage credentials for the backup destination are written to container logs on every backup run.\r\n\r\nSeverity is **low**: reading these logs requires privileged host access (docker/root), and such an actor can already read the same credentials from Dokploy's database, so the incremental access is small. The practical risk is **propagation and persistence** - container logs are routinely shipped to aggregators whose read access is far broader than host root, and with Docker's default `json-file` driver and no rotation policy they persist indefinitely. Credentials leaked this way also survive a rotation of the underlying secret only until the next backup run re-logs the new one, which makes remediation awkward for operators.\r\n\r\n## Suggested fix\r\n\r\n1. **Make the patterns quote-agnostic** - accept bare, single-quoted and double-quoted values:\r\n   `(--s3-(?:access-key-id|secret-access-key)=)(\"[^\"]*\"|'[^']*'|\\S+)`\r\n2. **Better - redact before quoting.** Construct the redacted string from the *unquoted* inputs rather than regex-ing t...",
+  "published_at": "2026-11-12T08:16:30.000Z",
+  "modified_at": "2026-11-12T08:16:30.000Z",
+  "severity": {
+    "level": "low",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-532"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-4pfc-fvr6-wj82",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4pfc-fvr6-wj82",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-4pfc-fvr6-wj82",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:4ee19699fa47609b6e9ca79ae4edbe16934233a6bd0913ed91838c58408aa187",
+  "note": null
+}

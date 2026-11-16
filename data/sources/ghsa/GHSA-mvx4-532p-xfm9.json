@@ -1,0 +1,105 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-59226",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285",
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "**Title:** Scheduled automations continue after pending-user deactivation and stored model ACL revocation\n\n### Summary\n\nOpen WebUI documents `pending` as a zero-access role used for new sign-ups and deactivated users, and normal HTTP routes enforce that with `get_verified_user()` (which rejects `pending`), while automation create/update/run routes additionally require the `features.automations` permission. Two paths missed that lifecycle gate, so a deactivated (`pending`) account could keep acting through the background automation scheduler:\n\n1. **Scheduler did not re-gate the owner.** When a stored automation became due, `execute_automation()` rehydrated the owner with `Users.get_user_by_id(...)` and re-entered the chat completion pipeline without re-checking that the owner was still `user`/`admin` or still held `features.automations`. A still-active automation therefore kept running after its owner was deactivated.\n2. **Model ACL only enforced for exact role `user`.** `check_model_access()` applied private-model grants only when `user.role == \"user\"`, so a `pending` principal fell through a branch that denies a normal non-owner `user`.\n\nNet effect: a deactivated account could continue scheduled chat generation through the background worker, consuming the operator's configured model-provider credentials and reaching a stored automation model ID that its current role/ACL state would no longer permit through normal routes.\n\n### Impact\n\nA `pending`/deactivated account continues to execute due scheduled automations after its access has been revoked, consuming the operator's provider credentials, quota and shared capacity, and bypassing the private-model ACL for the automation's stored model ID. Exploitation requires a previously created active automation and a later transition to `pending` (deactivation or approval rollback), so it is bounded and not interactive. It does not grant unauthenticated access, account takeover, code execution, or cross-user data exfiltration.\n\n### Patched\n\nIn 0.10.0:\n\n- `execute_automation()` aborts and records an error unless the rehydrated owner is still `user` or `admin` and (for non-admins) still holds `features.automations`, so a deactivated or de-permissioned owner's due automation no longer runs.\n- `check_model_access()` enforces model ACLs for every non-admin role rather than only the exact role `user`, so a `pending` or otherwise unrecognised role no longer falls through.\n\n### Credits\n\n@rexpository",
+    "ghsa_id": "GHSA-mvx4-532p-xfm9",
+    "html_url": "https://github.com/advisories/GHSA-mvx4-532p-xfm9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mvx4-532p-xfm9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59226"
+      }
+    ],
+    "published_at": "2026-07-24T16:55:30Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-mvx4-532p-xfm9",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-59226",
+      "https://github.com/open-webui/open-webui/pull/26047",
+      "https://github.com/open-webui/open-webui/commit/920b655f4689e2118de928fbc936f6ebd4fed396",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.10.0",
+      "https://github.com/advisories/GHSA-mvx4-532p-xfm9"
+    ],
+    "severity": "low",
+    "summary": "Open WebUI: Scheduled automations continue after pending-user deactivation and stored model ACL revocation",
+    "updated_at": "2026-07-24T16:55:33Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.10.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": ">= 0.9.0, < 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-mvx4-532p-xfm9",
+  "repo": {
+    "cve_id": "CVE-2026-59226",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285",
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "**Title:** Scheduled automations continue after pending-user deactivation and stored model ACL revocation\r\n\r\n### Summary\r\n\r\nOpen WebUI documents `pending` as a zero-access role used for new sign-ups and deactivated users, and normal HTTP routes enforce that with `get_verified_user()` (which rejects `pending`), while automation create/update/run routes additionally require the `features.automations` permission. Two paths missed that lifecycle gate, so a deactivated (`pending`) account could keep acting through the background automation scheduler:\r\n\r\n1. **Scheduler did not re-gate the owner.** When a stored automation became due, `execute_automation()` rehydrated the owner with `Users.get_user_by_id(...)` and re-entered the chat completion pipeline without re-checking that the owner was still `user`/`admin` or still held `features.automations`. A still-active automation therefore kept running after its owner was deactivated.\r\n2. **Model ACL only enforced for exact role `user`.** `check_model_access()` applied private-model grants only when `user.role == \"user\"`, so a `pending` principal fell through a branch that denies a normal non-owner `user`.\r\n\r\nNet effect: a deactivated account could continue scheduled chat generation through the background worker, consuming the operator's configured model-provider credentials and reaching a stored automation model ID that its current role/ACL state would no longer permit through normal routes.\r\n\r\n### Impact\r\n\r\nA `pending`/deactivated account continues to execute due scheduled automations after its access has been revoked, consuming the operator's provider credentials, quota and shared capacity, and bypassing the private-model ACL for the automation's stored model ID. Exploitation requires a previously created active automation and a later transition to `pending` (deactivation or approval rollback), so it is bounded and not interactive. It does not grant unauthenticated access, account takeover, code execution, or cross-user data exfiltration.\r\n\r\n### Patched\r\n\r\nIn 0.10.0:\r\n\r\n- `execute_automation()` aborts and records an error unless the rehydrated owner is still `user` or `admin` and (for non-admins) still holds `features.automations`, so a deactivated or de-permissioned owner's due automation no longer runs.\r\n- `check_model_access()` enforces model ACLs for every non-admin role rather than only the exact role `user`, so a `pending` or otherwise unrecognised role no longer falls through.\r\n\r\n### Credits\r\n\r\n@rexpository",
+    "ghsa_id": "GHSA-mvx4-532p-xfm9",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-mvx4-532p-xfm9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mvx4-532p-xfm9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59226"
+      }
+    ],
+    "published_at": "2026-06-29T23:19:39Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Scheduled automations continue after pending-user deactivation and stored model ACL revocation",
+    "updated_at": "2026-07-07T14:58:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.10.0",
+        "vulnerable_version_range": ">= 0.9.0, < 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

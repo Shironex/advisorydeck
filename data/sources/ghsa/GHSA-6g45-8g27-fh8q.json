@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6g45-8g27-fh8q",
+  "repo": {
+    "cve_id": "CVE-2026-109289",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "# Deactivated users keep terminal command execution via an already open terminal WebSocket\r\n\r\n## Summary\r\nWhen an administrator deactivates a user by setting their role to pending, Open WebUI refuses that user's later HTTP requests and new WebSocket handshakes. A terminal WebSocket the user had already opened stayed connected and kept forwarding their commands to the terminal server. Nothing re-checked the user's access once the connection was established, so deactivation did not cut off an open terminal.\r\n\r\n## Preconditions\r\n- An administrator has configured at least one terminal server connection (none exist by default) and granted the user access to it.\r\n- The user has a terminal session open in the Open WebUI interface at the moment they are deactivated.\r\n- No other knowledge is needed. The user only keeps the already open terminal tab.\r\n\r\nDeployments without a configured terminal server are not affected.\r\n\r\n## Impact\r\nA deactivated user who kept a terminal open can keep running commands on the terminal server as before, including reading and writing files there, until the connection closes for some other reason. The access is the same the user held before deactivation, so exploitation needs no skill, only an open tab at the right moment. Deactivation therefore does not give an administrator an immediate way to cut off a terminal user. Accounts that never had terminal access gain nothing.\r\n\r\n## Fix\r\nFixed in commit e8bd0661d. Every open terminal session now re-checks the user's access every ten seconds: the token is still valid, the user still exists and holds an approved role, the terminal server is still configured and enabled, and the user still has access to it. The session is closed when any check fails. After upgrading, a revoked user loses an open terminal within about ten seconds.\r\n\r\n## Root cause\r\n- Component: the terminal proxy WebSocket route (`/api/v1/terminals/{server_id}/api/terminals/{session_id}`) in `backend/open_webui/routers/terminals.py`.\r\n- Affected setup: every release from 0.8.8 (where the terminal WebSocket proxy was introduced) up to and including 0.11.3.\r\n\r\nThe proxy authenticated the user and checked their access to the terminal server only once, on the first message of the connection, and then relayed every later frame in both directions. The role change handling that disconnects a user's live Socket.IO sessions does not reach this raw WebSocket, and no periodic check existed. So a connection opened while the user was allowed stayed usable after that permission was withdrawn.\r\n\r\n## Proof of concept\r\nReproduced by the reporter on Open WebUI 0.11.3 with the official Open Terminal container:\r\n1. Give an ordinary user access to a configured terminal server.\r\n2. Sign in as that user, open the terminal in the Open WebUI interface and run a command, for example `whoami; hostname; date -u`.\r\n3. As an administrator, change the user's role to `pending`.\r\n4. Without reloading the page or reconnecting, send `date -u; echo post_deactivation_write > /tmp/owui-proof; cat /tmp/owui-proof` through the same terminal. It runs and prints `post_deactivation_write` after the recorded role change.\r\n5. Reload the browser. Open WebUI now shows \"Account Activation Pending\" for the same account.\r\n\r\nIndependently confirmed on real 0.11.3 and 0.11.4 backends, with a stand-in echo server in place of the terminal server. On 0.11.3, commands sent 1 and 12 seconds after the role change both reached the terminal server. On 0.11.4, the proxy closed the connection within the ten-second check interval and later commands were no longer forwarded.\r\n\r\n## Credits\r\n@zyakir13 reported the issue with a live demonstration against a running instance.",
+    "ghsa_id": "GHSA-6g45-8g27-fh8q",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-6g45-8g27-fh8q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6g45-8g27-fh8q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109289"
+      }
+    ],
+    "published_at": "2026-09-27T19:22:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Deactivated users keep terminal command execution via an already open terminal WebSocket",
+    "updated_at": "2026-10-28T20:46:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.8.8, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

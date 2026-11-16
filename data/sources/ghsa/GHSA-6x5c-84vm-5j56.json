@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6x5c-84vm-5j56",
+  "repo": {
+    "cve_id": "CVE-2026-47164",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284"
+    ],
+    "description": "## Summary\r\n\r\nA vulnerability in Vaultwarden's SSO login flow allowed an attacker who controlled an IdP identity asserting the victim's email address to bind that identity to the victim's existing Vaultwarden account and authenticate as the victim.\r\n\r\nThe IdP's `email_verified` claim was checked in the new-user creation branch but not in the existing-user binding branch of the SSO login handler. Combined with the default `SSO_SIGNUPS_MATCH_EMAIL=true`, this allowed an email match alone to be treated as sufficient authority for linking a new SSO identity to a pre-existing Vaultwarden account.\r\n\r\n## Affected versions\r\n\r\nAll Vaultwarden versions with SSO support up to and including 1.35.8. Versions 1.36.0 and up are fixed.\r\n\r\n## Root cause\r\n\r\nThe SSO login handler resolves the incoming IdP identity in three steps:\r\n\r\n1. Look up an existing `SsoUser` by stable identifier (issuer + subject).\r\n2. If none, fall back to looking up a local user by the IdP-supplied email.\r\n3. If a local user is found, complete the login and persist a new SSO binding.\r\n\r\nThe `email_verified` gate was applied only on the new-user branch (step 3 with no local match). On the existing-user branch, the IdP-supplied email was trusted as proof of ownership without consulting the `email_verified` claim. An IdP identity could therefore claim a victim's email - verified or not - and the resulting login flow would proceed against the victim's account.\r\n\r\n## Attack chain\r\n\r\n1. The attacker registers an identity at the configured IdP whose `email` claim equals the victim's Vaultwarden email. The IdP may set `email_verified` to `false` or omit it.\r\n2. The attacker initiates SSO login at Vaultwarden and authenticates at the IdP as the attacker's identity.\r\n3. `sso_login` finds no `SsoUser` by identifier, falls back to lookup by email, and matches the victim's existing local account.\r\n4. With no `email_verified` check on this branch, the flow proceeds to the 2FA gate. If the victim has no Vaultwarden 2FA configured, a session for the victim's account is issued to the attacker.\r\n5. A new SSO binding linking the attacker's IdP subject to the victim's user UUID is persisted, providing repeat access.\r\n\r\n## Impact\r\n\r\n- Account takeover of SSO-eligible victims without Vaultwarden 2FA whose email matches an IdP identity the attacker can obtain.\r\n- Full read of the victim's encrypted vault material (`Key`, `PrivateKey`, ciphers), enabling offline brute-force of the master password.\r\n- Authenticated session actions: device registration, emergency-access grant creation, cipher modification and deletion.\r\n- Potential org-level privilege escalation if the victim holds Owner privileges in any organization.\r\n- Persistent SSO binding remains attached to the victim's account after the session expires.\r\n\r\n## Preconditions\r\n\r\n- SSO is enabled on the Vaultwarden instance.\r\n- `SSO_SIGNUPS_MATCH_EMAIL=true` (default).\r\n- The victim has an existing Vaultwarden account whose email matches an IdP identity the attacker can obtain, and no prior SSO binding exists for that account.\r\n- The victim does not have Vaultwarden 2FA enabled - 2FA blocks the final session issuance but does not prevent the IdP binding from being attempted.\r\n- The configured IdP allows registering an identity with the victim's email. Realistic for self-service, multi-tenant, or weakly governed IdPs; unrealistic for IdPs that strongly enforce domain ownership.\r\n\r\n## Fix\r\n\r\nThe patched version applies the `email_verified` gate to the existing-user binding branch, mirroring the check already enforced on the new-user branch. An IdP that does not assert `email_verified=true` (or that sets it to `false`) is now rejected at SSO login regardless of which branch the identity resolution lands on.\r\n\r\n## Operator guidance\r\n\r\nThe fix relies on the IdP truthfully reporting `email_verified`. Operators whose IdP cannot strongly enforce email ownership (self-service registration without verification, multi-tenant deployments without domain controls, or instances with custom claim mappings) should set `SSO_SIGNUPS_MATCH_EMAIL=false` to require explicit action before binding a new SSO identity to an existing local account.\r\n\r\n## References\r\n\r\n- OIDC Core 1.0 §5.1 - `email_verified` claim semantics\r\n- Bitwarden upstream SSO trust model: invite-acceptance flow in `AccountController.cs`\r\n\r\n## Credits\r\n\r\nIndependently reported by:\r\n\r\n- [@ch1nhpd](https://github.com/ch1nhpd) (2026-03-22)\r\n- [@Atomics-hub](https://github.com/Atomics-hub) (2026-04-29)\r\n\r\nIndividual roles are listed in the Credits section of this advisory.",
+    "ghsa_id": "GHSA-6x5c-84vm-5j56",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-6x5c-84vm-5j56",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6x5c-84vm-5j56"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47164"
+      }
+    ],
+    "published_at": "2026-05-19T21:27:33Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSO Email Auto-Link Can Bind an Existing Local Account to an Attacker-Controlled IdP Identity",
+    "updated_at": "2026-05-19T21:27:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.36.0",
+        "vulnerable_version_range": "<=1.35.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

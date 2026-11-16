@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-pfp2-jhgq-6hg5",
+  "repo": {
+    "cve_id": "CVE-2026-47158",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-352"
+    ],
+    "description": "## Summary\r\n\r\nA cross-site request forgery / session fixation vulnerability in Vaultwarden's SSO authorization flow allowed an unauthenticated attacker to hijack any SSO user's login and obtain a fully authenticated session, leading to account takeover.\r\n\r\nThe OAuth `state` parameter accepted by the authorize endpoint was not bound to the initiating browser session. Combined with a PKCE flow under attacker-controlled parameters and a cleanup gap on failed token exchange, an attacker could pre-create an authorization context, induce a victim to complete IdP authentication against it, and then redeem the resulting tokens themselves.\r\n\r\n## Affected versions\r\n\r\nAll Vaultwarden versions with SSO support up to and including 1.35.8. Versions 1.36.0 and up are not vulnerable.\r\n\r\n## Root cause\r\n\r\nThree design decisions combined to produce the vulnerability:\r\n\r\n1. **No session binding at `/connect/authorize`.** The endpoint accepted arbitrary client-supplied `state` and `code_challenge` values without authentication, cookies, or any other browser-session anchor.\r\n2. **`SsoAuth` keyed by the client-supplied `state`.** The server-side record holding the OIDC flow context was primary-keyed on a value the caller controls, allowing an attacker to fixate a row and have a subsequent IdP callback bearing that `state` populate it.\r\n3. **No cleanup of `SsoAuth` on failed token exchange.** When `exchange_code` propagated an IdP error (e.g. from a mismatched PKCE verifier), the row was left intact, preserving the victim's authorization code for later redemption.\r\n\r\n## Attack chain\r\n\r\n1. The attacker generates a PKCE `code_challenge`/`code_verifier` pair and a `state` value, then calls `/connect/authorize` with these. An `SsoAuth` row is stored keyed by the attacker's `state`, and the IdP authorization URL is returned.\r\n2. The attacker sends the IdP URL to the victim. The victim authenticates with the IdP - if an IdP session is already active, no interaction beyond the click is required.\r\n3. The IdP redirects the victim's browser to `/connect/oidc-signin` with their real authorization code. The server stores this code in the attacker-fixated `SsoAuth` row without verifying that the callback originated from the same browser that initiated the flow.\r\n4. The victim's browser is redirected to `sso-connector.html`, where the Bitwarden client automatically attempts token exchange. Because the client does not hold the attacker's verifier, the exchange fails at the IdP. The `SsoAuth` row is not deleted.\r\n5. The attacker calls `/connect/token` with the fixated `state` (which doubles as `code` in this implementation) and their own `code_verifier`. The exchange succeeds, the IdP returns the victim's identity, and access and refresh tokens for the victim's account are issued to the attacker.\r\n\r\n## Impact\r\n\r\n- Full account takeover of any SSO user without two-factor authentication.\r\n- Access to the victim's encrypted vault material (`PrivateKey`, `Key`, ciphers), enabling offline brute-force of the master password.\r\n- Account squatting / identity linking when `SSO_SIGNUPS_MATCH_EMAIL` is enabled (the default).\r\n- Disclosure of the victim's email, name, and SSO subject/issuer even when 2FA blocks the final session issuance.\r\n\r\n## Preconditions\r\n\r\n- SSO must be enabled on the Vaultwarden instance.\r\n- The victim must hold (or be able to create, under default settings) a Vaultwarden account linked by email to the IdP identity.\r\n- The victim must authenticate with the IdP when redirected (or already hold an active IdP session).\r\n- 2FA on the victim's account blocks final session issuance but does not prevent the rest of the chain.\r\n\r\n## Fix\r\n\r\nThe patched version binds the SSO authorization flow to the initiating browser so that an attacker-initiated `SsoAuth` row cannot be populated by a different browser's IdP callback. Server-side state cleanup on failed token exchange has also been tightened.\r\n\r\n## Workarounds for unpatched instances\r\n\r\n- Enforce 2FA for all SSO users. Blocks final session issuance but does not prevent the identity leak or account linking under default signup settings.\r\n- Restrict SSO to known domains via `SSO_ALLOWED_ORGS` / `SIGNUPS_DOMAINS_WHITELIST` to limit the targetable user pool.\r\n- Apply rate limits to `/connect/authorize` and `/connect/token` at a reverse proxy layer.\r\n\r\n## References\r\n\r\n- RFC 6749 §10.12 - Cross-Site Request Forgery\r\n- OAuth 2.0 Security Best Current Practice §4.10 - Session Fixation\r\n- OAuth 2.0 for Browser-Based Apps - Login CSRF\r\n\r\n## Credits\r\n\r\nIndependently reported between February and April 2026 by:\r\n\r\n- @Sijisu (2026-02-28)\r\n- @ddd (2026-04-11)\r\n- @santhsecurity (2026-04-25)\r\n\r\nIndividual roles are listed in the Credits section of this advisory.",
+    "ghsa_id": "GHSA-pfp2-jhgq-6hg5",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-pfp2-jhgq-6hg5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pfp2-jhgq-6hg5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47158"
+      }
+    ],
+    "published_at": "2026-05-19T21:27:43Z",
+    "references": [],
+    "severity": "high",
+    "summary": "CSRF in SSO Authorization Flow",
+    "updated_at": "2026-05-19T21:27:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.36.0",
+        "vulnerable_version_range": "<1.35.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

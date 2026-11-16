@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-vqmc-jp8m-qx86",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nThe `/listen-deployment?logPath=...` WebSocket only verifies the session is valid (plus the org of serverId for remote servers). It never checks the relationship between `logPath` and the caller's granted services. Any organization member streams (`tail -f`) deployment logs of every service, including services in projects they cannot even open in the UI. Build logs routinely echo environment variables, secrets, and connection strings.\r\n\r\n### Details\r\n\r\n`apps/dokploy/server/wss/listen-deployment.ts`:\r\n\r\n- Line 34: `validateRequest(req)` - identity only.\r\n- Line 44: `readValidDirectory(logPath, serverId)` - blocks traversal outside `/etc/dokploy` (charset whitelist plus resolved prefix) but does not gate on accessedServices.\r\n- Lines 49-52: session check runs after path validation (wrong order - an unauthenticated client gets a path-validity oracle through close code 4000 vs no code).\r\n- Lines 58-64: org check applies to a remote serverId only; local services (the majority) get no further check.\r\n- Execution: `spawn(\"tail\", [\"-n\", \"+1\", \"-f\", logPath])` (line 127, local) or an SSH tail for remote.\r\n\r\nThe logPath follows the standard format `/etc/dokploy/logs/<appName>/<appName>-<timestamp>.log`. The appName leaks through several sources: container names, monitoring, service listings when visible.\r\n\r\n### PoC\r\n\r\nVerified on a live v0.30.0 instance. Attacker: member with NO access to the victim project (project absent from accessedProjects, environment absent from accessedEnvironments, service absent from accessedServices - the UI refuses to open the service page):\r\n\r\n```js\r\nconst ws = new WebSocket(\r\n  `wss://<host>/listen-deployment?logPath=/etc/dokploy/logs/<appName>/<appName>-<timestamp>.log`\r\n);\r\nws.binaryType = \"arraybuffer\";\r\nws.onmessage = (e) => console.log(typeof e.data === \"string\" ? e.data : new TextDecoder().decode(e.data));\r\n```\r\n\r\nNo command needs to be sent - the server starts `tail -n +1 -f` on connect and pushes the whole file.\r\n\r\nOutput the attacker received while reading the log of a real production application they have zero access to:\r\n\r\n![deployment log leak](https://storage.googleapis.com/dokploy-poc-evidence/dokploy-0.30.0/image-1.png)\r\n\r\n### Impact\r\n\r\nAny member reads deployment logs of every service in the organization: build output that frequently echoes environment variables and secrets, internal image names, runtime errors carrying data. Combined with the terminal advisory, the v0.30.0 WebSocket layer lacks consistent service scoping for both terminals and logs.\r\n\r\n### Affected versions\r\n\r\nAll through v0.30.0.\r\n\r\n### Remediation\r\n\r\nExtract the appName from logPath (the directory component directly under LOGS_PATH), resolve the owning service, and call checkServiceAccess(ctx, serviceId, \"read\") - or at minimum verify the service is in accessedServices. Authenticate before validating or reading the path. Consider rate limiting and audit logging for WebSocket connections.\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N (6.8 Medium) - CWE-862.",
+    "ghsa_id": "GHSA-vqmc-jp8m-qx86",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-vqmc-jp8m-qx86",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vqmc-jp8m-qx86"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "/listen-deployment WebSocket has no service permission check - any member streams deployment logs of every service, including projects they have zero access to",
+    "updated_at": "2026-11-12T08:16:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

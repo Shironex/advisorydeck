@@ -1,0 +1,104 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44560",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Unauthorized File and Knowledge Base Content Access via RAG Vector Search\n\n## Affected Component\n\nRAG source resolution in chat completion pipeline:\n- `backend/open_webui/retrieval/utils.py` (lines 963-965, 1063-1068, 1126-1131 in `get_sources_from_items`)\n\n## Affected Versions\n\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with RAG functionality.\n\n## Description\n\nThe `get_sources_from_items` function resolves file and knowledge base references into vector search queries during chat completion. Three of the five code paths perform vector store queries without any authorization check, allowing users to extract content from files and knowledge bases they do not have access to.\n\n| Path | Lines | Access Check |\n|------|-------|-------------|\n| `type: \"file\"`, full-context | 1044-1050 | ✅ `has_access_to_file` |\n| `type: \"file\"`, non-full-context (default) | 1063-1068 | ❌ None |\n| `type: \"collection\"` | 1070-1118 | ✅ Present |\n| `type: \"text\"` with `collection_name` | 963-965 | ❌ None |\n| Bare `collection_name`/`collection_names` | 1126-1131 | ❌ None |\n\nThe three unprotected paths pass user-supplied collection names directly to `query_collection()`, which queries the vector store without any authorization. Collection names follow predictable formats: `file-<file_id>` for files and the knowledge base UUID for knowledge bases.\n\n## CVSS 3.1 Breakdown\n\n| Metric | Value | Rationale |\n|--------|-------|-----------|\n| Attack Vector | Network (N) | Exploited remotely via chat completion API |\n| Attack Complexity | Low (L) | Single API call with a known resource ID |\n| Privileges Required | Low (L) | Requires a valid user account |\n| User Interaction | None (N) | No victim interaction required |\n| Scope | Unchanged (U) | Impact within the application's data boundary |\n| Confidentiality | High (H) | Full content of private files/knowledge bases extractable |\n| Integrity | None (N) | No data modification |\n| Availability | None (N) | No denial of service |\n\n## Attack Scenario\n\n1. User A uploads a private document and uses it in RAG (the document is embedded into the vector store as collection `file-<file_id>`).\n2. User A shares a chat or model referencing the file with User B, or User B otherwise obtains the file ID through a legitimate interaction.\n3. User A later revokes User B's access to the file.\n4. User B sends a chat completion request referencing the revoked file:\n   ```json\n   POST /api/chat/completions\n   {\n     \"model\": \"any-accessible-model\",\n     \"messages\": [{\"role\": \"user\", \"content\": \"What does this document say about pricing?\"}],\n     \"files\": [{\"type\": \"file\", \"id\": \"<revoked_file_id>\"}]\n   }\n   ```\n5. The non-full-context path (default) constructs collection name `file-<id>` and queries the vector store with no access check.\n6. Matching chunks are injected into the LLM context, and the response contains the victim's private file content.\n\nThe same attack works via `{\"type\": \"text\", \"collection_name\": \"<knowledge_base_id>\"}` for knowledge bases.\n\n## Impact\n\n- Access revocation is ineffective for RAG content - users who previously had access can continue extracting file and knowledge base content indefinitely\n- Private document content can be systematically extracted through targeted queries\n- Breaks the access control model for files and knowledge bases at the RAG layer\n\n## Preconditions\n\n- Attacker must know the file ID or knowledge base ID (UUID) of the target resource\n- The target file/knowledge base must have been processed into the vector store\n- Attacker must have a valid user account",
+    "ghsa_id": "GHSA-h36f-rqpx-j5wx",
+    "html_url": "https://github.com/advisories/GHSA-h36f-rqpx-j5wx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h36f-rqpx-j5wx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44560"
+      }
+    ],
+    "published_at": "2026-05-08T20:03:09Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-h36f-rqpx-j5wx",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44560",
+      "https://github.com/advisories/GHSA-h36f-rqpx-j5wx"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI has Unauthorized File and Knowledge Base Content Access via RAG Vector Search",
+    "updated_at": "2026-05-15T23:53:34Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-h36f-rqpx-j5wx",
+  "repo": {
+    "cve_id": "CVE-2026-44560",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Unauthorized File and Knowledge Base Content Access via RAG Vector Search\r\n\r\n## Affected Component\r\n\r\nRAG source resolution in chat completion pipeline:\r\n- `backend/open_webui/retrieval/utils.py` (lines 963-965, 1063-1068, 1126-1131 in `get_sources_from_items`)\r\n\r\n## Affected Versions\r\n\r\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with RAG functionality.\r\n\r\n## Description\r\n\r\nThe `get_sources_from_items` function resolves file and knowledge base references into vector search queries during chat completion. Three of the five code paths perform vector store queries without any authorization check, allowing users to extract content from files and knowledge bases they do not have access to.\r\n\r\n| Path | Lines | Access Check |\r\n|------|-------|-------------|\r\n| `type: \"file\"`, full-context | 1044-1050 | ✅ `has_access_to_file` |\r\n| `type: \"file\"`, non-full-context (default) | 1063-1068 | ❌ None |\r\n| `type: \"collection\"` | 1070-1118 | ✅ Present |\r\n| `type: \"text\"` with `collection_name` | 963-965 | ❌ None |\r\n| Bare `collection_name`/`collection_names` | 1126-1131 | ❌ None |\r\n\r\nThe three unprotected paths pass user-supplied collection names directly to `query_collection()`, which queries the vector store without any authorization. Collection names follow predictable formats: `file-<file_id>` for files and the knowledge base UUID for knowledge bases.\r\n\r\n## CVSS 3.1 Breakdown\r\n\r\n| Metric | Value | Rationale |\r\n|--------|-------|-----------|\r\n| Attack Vector | Network (N) | Exploited remotely via chat completion API |\r\n| Attack Complexity | Low (L) | Single API call with a known resource ID |\r\n| Privileges Required | Low (L) | Requires a valid user account |\r\n| User Interaction | None (N) | No victim interaction required |\r\n| Scope | Unchanged (U) | Impact within the application's data boundary |\r\n| Confidentiality | High (H) | Full content of private files/knowledge bases extractable |\r\n| Integrity | None (N) | No data modification |\r\n| Availability | None (N) | No denial of service |\r\n\r\n## Attack Scenario\r\n\r\n1. User A uploads a private document and uses it in RAG (the document is embedded into the vector store as collection `file-<file_id>`).\r\n2. User A shares a chat or model referencing the file with User B, or User B otherwise obtains the file ID through a legitimate interaction.\r\n3. User A later revokes User B's access to the file.\r\n4. User B sends a chat completion request referencing the revoked file:\r\n   ```json\r\n   POST /api/chat/completions\r\n   {\r\n     \"model\": \"any-accessible-model\",\r\n     \"messages\": [{\"role\": \"user\", \"content\": \"What does this document say about pricing?\"}],\r\n     \"files\": [{\"type\": \"file\", \"id\": \"<revoked_file_id>\"}]\r\n   }\r\n   ```\r\n5. The non-full-context path (default) constructs collection name `file-<id>` and queries the vector store with no access check.\r\n6. Matching chunks are injected into the LLM context, and the response contains the victim's private file content.\r\n\r\nThe same attack works via `{\"type\": \"text\", \"collection_name\": \"<knowledge_base_id>\"}` for knowledge bases.\r\n\r\n## Impact\r\n\r\n- Access revocation is ineffective for RAG content - users who previously had access can continue extracting file and knowledge base content indefinitely\r\n- Private document content can be systematically extracted through targeted queries\r\n- Breaks the access control model for files and knowledge bases at the RAG layer\r\n\r\n## Preconditions\r\n\r\n- Attacker must know the file ID or knowledge base ID (UUID) of the target resource\r\n- The target file/knowledge base must have been processed into the vector store\r\n- Attacker must have a valid user account",
+    "ghsa_id": "GHSA-h36f-rqpx-j5wx",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-h36f-rqpx-j5wx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h36f-rqpx-j5wx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44560"
+      }
+    ],
+    "published_at": "2026-05-05T11:19:13Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthorized File and Knowledge Base Content Access via RAG Vector Search",
+    "updated_at": "2026-05-07T15:06:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

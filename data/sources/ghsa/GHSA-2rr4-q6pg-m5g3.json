@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-2rr4-q6pg-m5g3",
+  "repo": {
+    "cve_id": "CVE-2026-109283",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# Revoked users keep signing in via token exchange when roles are only in the ID token\r\n\r\n## Summary\r\nThe OAuth token exchange endpoint lets a user who already has a linked OAuth account swap a provider access token for an Open WebUI session. Since 0.11.1 it applies the OAuth role policy, but it only reads roles from the provider's userinfo response, and it only refuses a user when a roles claim is found. With an identity provider that sends roles only in the ID token (Microsoft Entra ID app roles are the common case), token exchange sees no roles and keeps the user's existing role, so a user whose provider role no longer satisfies the policy, and who is correctly refused at browser login, can still get a working session.\r\n\r\n## Preconditions\r\n- `ENABLE_OAUTH_TOKEN_EXCHANGE=true` (default `false`).\r\n- `ENABLE_OAUTH_ROLE_MANAGEMENT=true` (default `false`), with `OAUTH_ALLOWED_ROLES` (default `user,admin`) not containing `*`.\r\n- The identity provider puts the roles claim only in the ID token and not in the userinfo response.\r\n- The attacker already has an Open WebUI account linked to their provider identity, and can still obtain a valid access token from the provider (their provider account is active, only their role changed).\r\n\r\nDeployments with either setting off, or whose provider returns roles in userinfo, are not affected.\r\n\r\n## Impact\r\nA user the operator meant to lock out through the OAuth role policy keeps signing in through token exchange and keeps the role they held before, together with everything that role can reach. The attacker gains nothing beyond their previous access: an empty roles claim can neither grant admin nor change the role. Exploitation needs the non-default configuration above and a previously provisioned account. Browser SSO login is not affected and refuses the user as intended.\r\n\r\n## Fix\r\nFixed in 10d1cfe63, released in 0.11.4. Token exchange now also reads the roles claim from the exchanged token, and when role management is on and no roles claim can be read at all, it refuses the exchange.\r\n\r\n## Root cause\r\n- Component: the OAuth token exchange endpoint (`POST /api/v1/auths/oauth/{provider}/token/exchange`) and the OAuth role policy it calls.\r\n- Affected builds: 0.11.1 through 0.11.3, the releases that added the role policy to token exchange.\r\n\r\nThe role policy was written for browser login, where the ID token claims are merged into the user data before the policy runs, so \"no roles claim\" there means the provider genuinely sent none and keeping the current role is the documented behaviour. Token exchange never receives an ID token and builds the user data from userinfo alone, so for providers that only put roles in the ID token the policy always saw an empty claim and fell through to keeping the existing role instead of refusing.\r\n\r\n## Proof of concept\r\nReproduced on the 0.11.3 and 0.11.4 PyPI packages with a local OIDC provider that puts `roles` only in the ID token, `ENABLE_OAUTH_TOKEN_EXCHANGE=true`, `ENABLE_OAUTH_ROLE_MANAGEMENT=true` and an `OAUTH_ALLOWED_ROLES` list.\r\n\r\n1. Sign in once through SSO while holding an allowed role, so the account is linked.\r\n2. At the provider, change the user's role to one outside the allowed list.\r\n3. Browser SSO login: refused with 403 on both versions.\r\n4. Obtain an access token from the provider and send `POST /api/v1/auths/oauth/{provider}/token/exchange` with `{\"token\": \"<access token>\"}`.\r\n5. On 0.11.3 the request returns 200 with a session token that works on `GET /api/v1/auths/`. On 0.11.4 it returns 403.\r\n\r\nControl: a user still holding an allowed role is allowed on both versions.\r\n\r\n## Credits\r\n- `manus-pi`: reported the role policy bypass on token exchange for providers that send roles only in the ID token.",
+    "ghsa_id": "GHSA-2rr4-q6pg-m5g3",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-2rr4-q6pg-m5g3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2rr4-q6pg-m5g3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109283"
+      }
+    ],
+    "published_at": "2026-09-27T16:14:42Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Revoked users keep signing in via token exchange when roles are only in the ID token",
+    "updated_at": "2026-10-28T20:46:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.1, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

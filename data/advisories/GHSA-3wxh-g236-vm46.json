@@ -1,0 +1,64 @@
+{
+  "id": "GHSA-3wxh-g236-vm46",
+  "aliases": [],
+  "title": "LDAP authentication failures allow unauthenticated log amplification",
+  "summary": "### Summary\r\n\r\nAn unauthenticated client can amplify RabbitMQ's broker logs by sending a failed AMQP PLAIN login when `rabbitmq_auth_backend_ldap` is enabled with a `user_dn_pattern` containing `${username}`.\r\n\r\nAfter OpenLDAP rejects the bind, the LDAP backend returns the constructed user DN as the format-string element of `{refused, Format, Args}`. RabbitMQ's core authentication path then passes that attacker-influenced DN to Erlang formatting functions. A short username such as `~10000n` expands into 10,000 newlines at each of two refusal sinks.\r\n\r\nThis is not an authentication bypass, an LDAP protocol flaw, or remote code execution. The demonstrated impact is unauthenticated availability degradation through log, disk, formatting, and per-connection memory amplification.\r\n\r\n### Environment and affected versions\r\n\r\nThe end-to-end validation used:\r\n\r\n- A RabbitMQ source build on Erlang 27.3.4.17\r\n- An isolated AMQP listener\r\n- The bundled `rabbitmq_auth_backend_ldap` plugin\r\n- A real OpenLDAP service\r\n- `user_dn_pattern = cn=${username},dc=dast,dc=local`\r\n\r\nThe complete LDAP-to-format chain was separately confirmed in RabbitMQ tags `v3.13.7`, `v4.0.9`, `v4.1.8`, `v4.2.9`, and `v4.3.6`, and on current `main`. No fixed release was identified. These are verified affected snapshots; an exact first affected release was not established.\r\n\r\n### Workarounds\r\n\r\nDisable the LDAP plugin and switch to another authN backend.\r\n\r\n### Root cause\r\n\r\nIn RabbitMQ 4.3.6, `with_login/5` in `deps/rabbitmq_auth_backend_ldap/src/rabbit_auth_backend_ldap.erl` returns the rejected bind DN as a format string:\r\n\r\n```erlang\r\n{error, invalidCredentials} ->\r\n    ?L1(\"bind returned \\\"invalid credentials\\\": ~ts\",\r\n        [scrub_dn(UserDN, env(log))]),\r\n    {refused, UserDN, []};\r\n```\r\n\r\n`check_user_login/3` in `deps/rabbit/src/rabbit_access_control.erl` formats it for the authentication warning:\r\n\r\n```erlang\r\n{refused, _, Msg, Args} ->\r\n    ?LOG_WARNING(\"User '~ts' failed to authenticate: ~ts\",\r\n                 [Username, rabbit_misc:format(Msg, Args)],\r\n                 #{domain => ?RMQLOG_DOMAIN_USER})\r\n```\r\n\r\n`auth_fail/5` in `deps/rabbit/src/rabbit_reader.erl` formats the same value for the authentication event and protocol error:\r\n\r\n```erlang\r\nnotify_auth_result(Username, user_authentication_failure,\r\n  [{error, rabbit_misc:format(Msg, Args)}], State),\r\nAmqpError = rabbit_misc:amqp_error(\r\n              access_refused, \"~ts login refused: ~ts\",\r\n              [AuthName, io_lib:format(Msg, Args)], none),\r\n```\r\n\r\nRFC 4514 DN escaping does not remove `~`, so Erlang interprets `~10000n` as a no-argument newline directive with field width 10,000.\r\n\r\n### Demonstrated impact\r\n\r\nOne invalid login with username `~10000n` changed the broker log from 139,235 bytes to 1,199,691 bytes. The 1,060,456-byte increase contained 20,004 lines. The warning and subsequent AMQP error each contained 10,000 attacker-generated newlines, and the logger prefixed each line with metadata.\r\n\r\nAn ordinary invalid username did not cause comparable expansion. A `~1000n` control produced a 106,455-byte increase, confirming that output scales with the field width. The client received the normal `ACCESS_REFUSED` response in every case.\r\n\r\nWidths of 100,000 and 1,000,000 exceeded the connection process's heap allowance before a full amplified message reached the log. Those trials temporarily increased broker RSS by approximately 11 MiB and 14 MiB. They did not demonstrate a broker-wide crash or a full-width log write, so neither is claimed.\r\n\r\nRepeated stable-width requests can consume log storage and logging throughput at a large amplification ratio. No confidentiality impact was observed. The CVSS vector uses `AT:P` because the LDAP plugin and username-based DN pattern must be configured.\r\n\r\n### Proof of concept\r\n\r\n**Warning:** run this only in a disposable environment with adequate log space. The trigger deliberately amplifies logs. Do not increase the field width or repeat it again...",
+  "published_at": "2026-10-25T16:28:08.000Z",
+  "modified_at": "2026-10-25T16:28:08.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-134",
+    "CWE-400",
+    "CWE-770"
+  ],
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.7"
+        },
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.12"
+        },
+        {
+          "introduced": "4.1.0",
+          "fixed": "4.1.17"
+        },
+        {
+          "introduced": "3.13.0",
+          "fixed": "3.13.21"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-3wxh-g236-vm46",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3wxh-g236-vm46",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-3wxh-g236-vm46",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6fb6efb153ac7b737e78cab927d352aa846b2af6d42966b84510aed6ddab6f43",
+  "note": null
+}

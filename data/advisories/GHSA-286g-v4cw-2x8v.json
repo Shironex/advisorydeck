@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-286g-v4cw-2x8v",
+  "aliases": [],
+  "title": "Incomplete fix of GHSA-7r6p-v9gw-pwc8: listen-deployment.ts is named in that advisory but was never remediated - any authenticated member can stream host SSH private keys",
+  "summary": "### Summary\r\n\r\n**This is not a new vulnerability and I am not claiming it as one.** GHSA-7r6p-v9gw-pwc8 already names `apps/dokploy/server/wss/listen-deployment.ts` in its \"Vulnerable handlers\" list. What is new is that the fix skipped that file, and it is still unauthorized at `v0.30.2` - four weeks after publication.\r\n\r\nAny authenticated organization member - with no role, no service grant and no docker permission - can open `/listen-deployment` and stream the contents of any file under `/etc/dokploy`, including the SSH private key Dokploy uses to reach the Docker host, Traefik certificate private keys, other applications' `.env` files and compose files. Recovering the host SSH key is host compromise.\r\n\r\nNote also that GHSA-7r6p-v9gw-pwc8 records its affected range as `<= 0.29.8`, which reads as \"fixed after 0.29.8\". For this handler that is not the case, so users reading that advisory would conclude they are patched when they are not.\r\n\r\n### Details\r\n\r\nCommit `68f5afae` (2026-07-19), *\"fix(security): authorize docker/terminal WebSocket handlers\"*, introduced `apps/dokploy/server/wss/authorize.ts` and applied it to exactly four handlers:\r\n\r\n```\r\napps/dokploy/__test__/wss/authorize.test.ts          | 80 ++++++++++\r\napps/dokploy/server/wss/authorize.ts                 | 69 ++++++++\r\napps/dokploy/server/wss/docker-container-logs.ts     |  6 ++\r\napps/dokploy/server/wss/docker-container-terminal.ts |  6 ++\r\napps/dokploy/server/wss/docker-stats.ts              |  6 ++\r\napps/dokploy/server/wss/terminal.ts                  |  6 ++\r\n```\r\n\r\n`listen-deployment.ts` is not among them, despite being registered on the adjacent line of `server.ts` (`:51` vs `:52`). It has received **zero commits since the advisory was published**:\r\n\r\n```\r\n$ git log --since=2026-07-19 -- apps/dokploy/server/wss/listen-deployment.ts\r\n(no output)\r\n```\r\n\r\nAt `v0.30.2`, grepping that file for `checkPermission|hasPermission|checkServiceAccess|canAccess|role|accessedServices` returns nothing. Its only check remains authentication:\r\n\r\n```ts\r\nconst { user, session } = await validateRequest(req);\r\n...\r\nif (!user || !session) { ws.close(); return; }\r\n```\r\n\r\nCompare the guarded sibling, `docker-container-logs.ts:79-82`:\r\n\r\n```ts\r\nif (!(await canAccessDockerOverWss(user, session, serverId, serviceId))) {\r\n  ws.close(4003, \"Not authorized\");\r\n  return;\r\n}\r\n```\r\n\r\nOn the local branch (no `serverId`) `listen-deployment` has not even an organization check. The remote branch does compare `server.organizationId !== session.activeOrganizationId`, so only the local path is fully unscoped.\r\n\r\n**What the one remaining check permits.** `readValidDirectory` (`packages/server/src/wss/utils.ts:39-55`) is well built - charset allowlist, `path.resolve` before comparison, `resolvedBase + path.sep` to defeat the sibling-prefix bug. It is **not** bypassable and this is not a traversal report. But it constrains the path only to `BASE_PATH`, and `paths()` (`packages/server/src/constants/index.ts:96-119`) places `SSH_PATH`, `CERTIFICATES_PATH`, `APPLICATIONS_PATH` and `COMPOSE_PATH` *under* that same base.\r\n\r\n`tail -n +1 -f <path>` prints the whole file before following, so the socket returns full contents. `spawn(\"tail\", [\"-n\",\"+1\",\"-f\", logPath])` uses an argv array with no shell - there is **no command injection here** and I claim none.\r\n\r\n**Suggested fix.** Apply the guard the other four handlers received. Since deployment logs belong to a service, the natural call is the service-scoped branch `canAccessDockerOverWss` already implements:\r\n\r\n```ts\r\nif (!(await canAccessDockerOverWss(user, session, serverId, serviceId))) {\r\n  ws.close(4003, \"Not authorized\");\r\n  return;\r\n}\r\n```\r\n\r\nThat needs a `serviceId` (or `applicationId`/`deploymentId`) parameter with the log path resolved from it server-side, rather than accepting a caller-supplied absolute path at all - which removes the file-scope problem entirely. More durably: authorization here is applied by enumerating handlers rather than at...",
+  "published_at": "2026-11-12T08:16:00.000Z",
+  "modified_at": "2026-11-12T08:16:00.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862",
+    "CWE-1188"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-286g-v4cw-2x8v",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-286g-v4cw-2x8v",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-286g-v4cw-2x8v",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

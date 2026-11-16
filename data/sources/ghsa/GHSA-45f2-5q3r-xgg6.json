@@ -1,0 +1,59 @@
+{
+  "global": null,
+  "id": "GHSA-45f2-5q3r-xgg6",
+  "repo": {
+    "cve_id": "CVE-2026-110796",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-306"
+    ],
+    "description": "### Summary\r\n\r\nZITADEL’s hosted login UIs allowed an unauthenticated attacker who knows only a victim’s login name to register an attacker-controlled passkey (or other authenticator) on the victim’s account, then complete login as that user. Enrollment was accepted on an identify-only login session/request-after the username was submitted, but before any password or other primary factor was verified.\r\n\r\n### Impact\r\n\r\nAn attacker who knows a valid login name can take over the corresponding account without knowing the password, using an existing passkey, completing MFA, or interacting with the victim.\r\n\r\nThis affects applications that authenticate users through ZITADEL’s hosted **Login V2** and/or legacy **Login V1** UI (OIDC/SAML). Existing passwords or second factors on the account do not prevent enrollment of the additional attacker-controlled authenticator.\r\n\r\nLegitimate passkey registration via emailed init/registration codes is unaffected in intent; the vulnerability was that login flows accepted enrollment without that proof of possession (or a prior authentication).\r\n\r\n### Affected Versions\r\n\r\nSystems running one of the following versions are affected:\r\n\r\n* **4.x:** `4.0.0` through `4.16.1` (including RC versions)\r\n* **3.x:** `3.0.0` through `3.4.13` (including RC versions)\r\n\r\n### Patches\r\n\r\nThe vulnerability has been addressed in the latest releases. Login V2 now requires a verified primary factor (or a legitimate onboarding/user-verification path) before authenticator enrollment. Login V1 no longer allows passwordless setup from an auth request and only accepts the emailed init-code registration path.\r\n\r\n* **4.x**: Upgrade to $\\ge$ [4.16.2](https://github.com/zitadel/zitadel/releases/tag/v4.16.2)\r\n* **3.x**: Upgrade to $\\ge$ [3.4.14](https://github.com/zitadel/zitadel/releases/tag/v3.4.14)\r\n\r\n### Workarounds\r\n\r\nThe recommended solution is to upgrade to a patched version. There is no configuration that fully closes this gap on unpatched versions.\r\n\r\n### Questions\r\n\r\nIf you have any questions or comments about this advisory, please email us at [security@zitadel.com](mailto:security@zitadel.com)\r\n\r\n### Credits\r\n\r\nThanks to:\r\n\r\n- Michael Wollner from Deutsche Telekom AG ([@Ibonok](https://github.com/Ibonok)) for reporting the Login V2 issue\r\n- Lucas Dodgson from InfoGuard Labs ([@lucasdodgson](https://github.com/lucasdodgson)) for independently reporting the Login V1 and Login V2 issues\r\n- [Dor Konis](http://github.com/dkonis), [Feras Daragma](http://github.com/FerasTr) and [Peleg Wasserman](http://github.com/pelegw) from GE Vernova\r\n- Adam Korczynski from Ada Logics ([@AdamKorcz](https://github.com/AdamKorcz)) for reporting the Login V2 issue with the help of Anthropic",
+    "ghsa_id": "GHSA-45f2-5q3r-xgg6",
+    "html_url": "https://github.com/zitadel/zitadel/security/advisories/GHSA-45f2-5q3r-xgg6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-45f2-5q3r-xgg6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-110796"
+      }
+    ],
+    "published_at": "2026-07-29T08:36:23Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated account takeover via passkey enrollment on Login V1 and Login V2",
+    "updated_at": "2026-10-15T13:42:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "ZITADEL"
+        },
+        "patched_versions": "4.16.2",
+        "vulnerable_version_range": "4.0.0 - 4.16.1"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "ZITADEL"
+        },
+        "patched_versions": "3.4.14",
+        "vulnerable_version_range": "3.0.0 - 3.4.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "zitadel/zitadel"
+}

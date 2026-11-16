@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-cqp4-qqvg-3787",
+  "repo": {
+    "cve_id": "CVE-2026-45665",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\nA Stored Cross-Site Scripting (XSS) vulnerability exists in the Banner component due to an improper sanitization order (specifically, DOMPurify is executed before the marked library).\r\n\r\nThis vulnerability allows a compromised or malicious administrator to plant a malicious payload in the global banner. Crucially, this vector enables Privilege Escalation, as the malicious banner is rendered for all users, including the Super Admin (Primary Admin).\r\n\r\nConsequently, the payload successfully bypasses the existing security mechanism. An attacker can leverage this to steal the Super Admin's session token\r\n\r\n### Details\r\nRoot Cause: The code attempts to sanitize the input using DOMPurify.sanitize() before parsing it with marked.parse().\r\n\r\nDOMPurify cleans the raw input. Since [Link](javascript:alert(javascript:alert(localStorage.token))) is valid text (not HTML), it passes through DOMPurify unchanged.\r\nmarked handles the text and converts it into a clickable HTML link: <a href=\"javascript:alert(javascript:alert(localStorage.token))\">Link</a>.\r\nThis resulting unsafe HTML is rendered directly via {@html ...} without further checks.\r\n\r\n`src/lib/components/common/Banner.svelte` (Line 103)\r\n```svelte\r\n{@html marked.parse(DOMPurify.sanitize((banner?.content ?? '').replace(/\\n/g, '<br>')))}\r\n```\r\n### POC\r\n1. **Attacker Action:** Log in as a compromised Admin account and navigate to **Settings > Interface > UI > Banners**.\r\n2. **Injection:** Add a new banner and enter the following payload in the content field. This payload creates a link that alerts the user's session token when clicked.\r\n    ```markdown\r\n    [Click for Security Update](javascript:alert(localStorage.token))\r\n    ```\r\n3. **Execution:** Click **Save**. The malicious banner is now stored and active.\r\n4. **Victim Action (Privilege Escalation):** The **Primary Admin** logs in and sees the banner on the main dashboard. Believing it to be a system notification, they click the link.\r\n    **Victim Dashboard View:**\r\n    \r\n<img width=\"880\" height=\"245\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b70d7f65-ab34-4634-9e78-2a8a7eda1439\" />\r\n\r\n5. **Result:** The JavaScript executes immediately within the Primary Admin's session, exposing their full-access token.\r\n\r\n### Impact\r\nExtend permissions and damage to the entire system. You need administrator privileges to create banners, but this vulnerability is important because it can attack primary administrators and other administrators.\r\n\r\nDestination: Other Administrators /Primary Administrators.\r\nAttack Vector: Corrupting all administrator accounts (even those with limited scope if future granular privileges exist or simply credentials are compromised) could allow an attacker to set traps for the default administrator.\r\nThe result: Unlike self-XSS or simple administrator configuration changes, this allows you to capture active sessions for the most privileged users and bypass authentication controls such as MFA (because the session is already active).\r\n\r\n### Recommended Patch\r\nModify `src/lib/components/common/Banner.svelte` (Line 103):\r\n\r\n```\r\n{@html DOMPurify.sanitize(marked.parse((banner?.content ?? '').replace(/\\n/g, '<br>')))}\r\n```\r\n\r\n## Resolution\r\n\r\nFixed in **v0.8.0**. [`src/lib/components/common/Banner.svelte:103`](https://github.com/open-webui/open-webui/blob/main/src/lib/components/common/Banner.svelte#L103) now applies the sanitization in the correct order: `DOMPurify.sanitize(marked.parse(...))`. `marked.parse` runs first and converts `[text](javascript:...)` markdown into the corresponding HTML link element; `DOMPurify.sanitize` then strips the `javascript:` URL and any other dangerous attributes/elements before the result reaches `{@html ...}`.\r\n\r\nUsers on `>= 0.8.0` are not affected.",
+    "ghsa_id": "GHSA-cqp4-qqvg-3787",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-cqp4-qqvg-3787",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cqp4-qqvg-3787"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45665"
+      }
+    ],
+    "published_at": "2026-05-11T18:42:11Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored XSS in Banner Component via Improper Sanitization Order",
+    "updated_at": "2026-05-13T04:49:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.8.0",
+        "vulnerable_version_range": "<=0.7.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

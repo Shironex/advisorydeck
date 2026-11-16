@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-h8q2-p3w4-m3mr",
+  "aliases": [],
+  "title": "Dokploy Drop deployment ZIP traversal can overwrite global Traefik dynamic routing configuration",
+  "summary": "### Summary\r\n\r\nDokploy 0.29.13 Drop deployments extract attacker-supplied ZIP entries under an application code directory, but the path validation only checks that the resolved path remains under Dokploy's global base path.\r\n\r\nAs a result, a member user assigned to one application can upload a ZIP entry such as:\r\n\r\n```text\r\n../../../traefik/dynamic/member-drop-hijack.yml\r\n```\r\n\r\nThe entry escapes the assigned application's code directory and writes a global Traefik dynamic configuration file.\r\n\r\nIn my proof, that file defines a higher-priority router for another hostname. Traefik loads the written file and routes traffic for the victim hostname to the attacker's backend.\r\n\r\n### Details\r\n\r\nRelevant source locations in Dokploy 0.29.13:\r\n\r\n- `packages/server/src/utils/builders/drop.ts:24`: the expected extraction base is `<APPLICATIONS_PATH>/<appName>/code`.\r\n- `packages/server/src/utils/builders/drop.ts:56`: the ZIP entry name becomes `filePath`.\r\n- `packages/server/src/utils/builders/drop.ts:68`: `fullPath = path.join(outputPath, filePath)`.\r\n- `packages/server/src/utils/builders/drop.ts:69`: validation calls `readValidDirectory(fullPath, application.serverId)`.\r\n- `packages/server/src/wss/utils.ts:47-55`: `readValidDirectory` checks containment under global `BASE_PATH`, not under the application code directory.\r\n- `packages/server/src/utils/builders/drop.ts:98`: the ZIP entry is written to `fullPath`.\r\n\r\nThe validation prevents escaping out of `/etc/dokploy`, but it does not prevent escaping from one application's code directory into sibling Dokploy-managed areas such as `/etc/dokploy/traefik/dynamic`.\r\n\r\nThis is not a Docker mount feature or an expected file-publishing behavior. The proof writes a global reverse-proxy routing file outside the member's assigned application directory and changes routing for another hostname.\r\n\r\n### PoC\r\n\r\nUse the attached PoC:\r\n\r\n- `poc/drop_zip_traefik_hijack_probe.py`\r\n\r\nRun:\r\n\r\n```bash\r\npython poc/drop_zip_traefik_hijack_probe.py\r\n```\r\n\r\nThe PoC sets up two local backend containers and a local Traefik instance using Dokploy's dynamic configuration directory.\r\n\r\nThe sequence is:\r\n\r\n1. A victim router initially routes `victim.example.test` to the victim backend.\r\n2. A default member assigned to one application uploads a Drop ZIP with a traversal entry targeting the global Traefik dynamic config directory.\r\n3. The uploaded file defines a higher-priority router for the same hostname.\r\n4. Traefik loads the new dynamic file.\r\n5. Requests for the victim hostname are routed to the attacker's backend.\r\n\r\nObserved result:\r\n\r\n```text\r\nscope=Dokploy v0.29.13 official release image\r\nattacker_role=default member assigned to one application\r\noperator_config_verdict=no unsafe setting; Drop deployment and Traefik file provider are standard Dokploy paths\r\npre_write_http_status=200\r\npre_write_victim_marker_present=True\r\npre_write_marker_present=False\r\ndrop_upload_status=200\r\nwritten_global_config_present=True\r\npost_write_http_status=200\r\npost_write_victim_marker_present=False\r\npost_write_marker_present=True\r\npost_write_body='DOKPLOY_DROP_TRAEFIK_ROUTING_HIJACK'\r\ntraefik_loaded_router=True\r\nverdict=cross_service_routing_hijack_confirmed\r\n```\r\n\r\nExpected result:\r\n\r\nDrop ZIP extraction should reject entries that escape the assigned application's code directory.\r\n\r\nActual result:\r\n\r\nThe ZIP entry is accepted, a global Traefik dynamic config file is written, and routing for another hostname is hijacked.\r\n\r\n### Impact\r\n\r\nA member with access to one application can write outside that application and modify global Traefik dynamic routing configuration.\r\n\r\nThis can redirect traffic for another service or hostname to an attacker-controlled backend. Depending on deployment topology, this may expose credentials, sessions, service traffic, or cause service integrity and availability impact.\r\n\r\n### Attachments\r\n\r\n- `poc/drop_zip_traefik_hijack_probe.py`\r\n- `poc/traefik-owner-victim.yml`\r\n- `evidence/evidence_run.txt`\r\n-...",
+  "published_at": "2026-11-12T08:16:33.000Z",
+  "modified_at": "2026-11-12T08:16:33.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:H/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-73",
+    "CWE-284"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-h8q2-p3w4-m3mr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-h8q2-p3w4-m3mr",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-h8q2-p3w4-m3mr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-6jfq-prw2-7rwp",
+  "repo": {
+    "cve_id": "CVE-2026-57214",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\nA stored Cross-Site Scripting (XSS) vulnerability in the RabbitMQ management UI allows any user with permissions to declare a queue or exchange to execute arbitrary JavaScript in the browser of any user viewing the Queues or Exchanges page. \r\n\r\n### Details\r\nThe vulnerability exists because the value of the `x-internal-purpose` queue/exchange argument is rendered directly into an HTML `title` attribute without proper escaping.\r\n\r\nThe attack flow is as follows:\r\n1.  **Source (Payload acceptance):** An attacker declares a queue or exchange with a malicious `x-internal-purpose` argument. The RabbitMQ server code in `deps/rabbit/src/rabbit_amqqueue.erl` does not validate this unknown argument, so it is accepted and stored as-is in the queue's metadata.\r\n\r\n2.  **API (Unsanitized transport):** When the management UI requests the list of queues from `GET /api/queues`, the server includes the full, unsanitized arguments map in the JSON response.\r\n\r\n3.  **Sink (Unescaped rendering):** The UI's JavaScript in `deps/rabbitmq_management/priv/www/js/formatters.js` uses the `_link_to` function to create links for the queue list. This function concatenates the `x-internal-purpose` value directly into the link's `title` attribute, without using an HTML-escaping function.\r\n\r\n\r\n    ```javascript\r\n    // File: deps/rabbitmq_management/priv/www/js/formatters.js\r\n    function _link_to(name, url, highlight, args) {\r\n        if (highlight == undefined) highlight = true;\r\n        var title = null;\r\n        if (args != undefined && args['x-internal-purpose'] != undefined) {\r\n            var purpose = args['x-internal-purpose'];\r\n            // 'purpose' is not escaped before concatenation\r\n            title = 'This is used internally by the ' + purpose + ' mechanism.';\r\n        }\r\n        return '<a href=\"' + url + '\"' +\r\n            (title ? ' title=\"' + title + '\"' : '') + '>' +\r\n            '</a>';\r\n    }\r\n    ```\r\n    An attacker can provide a payload for `purpose` that starts with a double quote (`\"`) to break out of the `title` attribute and close the `<a>` tag, then inject an `<img>` tag with an `onerror` handler that executes arbitrary JavaScript.\r\n\r\n4.  **Permissive CSP:** The default Content-Security-Policy (CSP) found in `deps/rabbitmq_management/Makefile` includes `'unsafe-inline'`, which permits the execution of injected inline event handlers, making the XSS payload execution possible.\r\n\r\n\r\n### Impact\r\nThe XSS payload is persisted on the server and will execute for any user who views the page until the malicious queue or exchange is deleted creating a stored XSS vulnerability.\r\n",
+    "ghsa_id": "GHSA-6jfq-prw2-7rwp",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-6jfq-prw2-7rwp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6jfq-prw2-7rwp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-57214"
+      }
+    ],
+    "published_at": "2026-06-18T04:47:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored XSS in RabbitMQ management UI",
+    "updated_at": "2026-06-24T13:21:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.5",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

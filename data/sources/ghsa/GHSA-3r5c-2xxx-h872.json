@@ -1,0 +1,54 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-58511",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 2.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "## Summary\n\nThe `ToHook()` function in `services/webhook/general.go` decrypts the webhook's `HeaderAuthorizationEncrypted` field and returns the plaintext authorization header in the API response. Any repository admin can read the full plaintext value of webhook authorization headers (Bearer tokens, Basic auth credentials, API keys) set by other admins.\n\nThe authorization header is stored encrypted in the database using the server's `SecretKey`, but `ToHook()` decrypts it before serializing it into the API response - converting a write-only secret into a readable credential.\n\n## Vulnerable Code\n\n**File:** `services/webhook/general.go:407-420`\n\n```go\nfunc ToHook(repoLink string, w *webhook_model.Webhook) (*api.Hook, error) {\n    // ...\n    authorizationHeader, err := w.HeaderAuthorization()  // DECRYPTS from DB\n    if err != nil {\n        return nil, err\n    }\n    return &api.Hook{\n        // ...\n        AuthorizationHeader: authorizationHeader,  // PLAINTEXT in response\n        // ...\n    }, nil\n}\n```\n\n**Decryption function:** `models/webhook/webhook.go:209-216`\n\n```go\nfunc (w Webhook) HeaderAuthorization() (string, error) {\n    if w.HeaderAuthorizationEncrypted == \"\" {\n        return \"\", nil\n    }\n    return secret.DecryptSecret(setting.SecretKey, w.HeaderAuthorizationEncrypted)\n}\n```\n\n## Affected Endpoints\n\nAll call `ToHook()`:\n- `GET /api/v1/repos/{owner}/{repo}/hooks` (requires repo admin)\n- `GET /api/v1/repos/{owner}/{repo}/hooks/{id}` (requires repo admin)\n- `GET /api/v1/admin/hooks` (requires site admin)\n- `GET /api/v1/orgs/{org}/hooks` (requires org admin)\n- `GET /api/v1/user/hooks` (requires authenticated user)\n\n## Steps to Reproduce\n\n1. Admin A creates a webhook with a sensitive authorization header.\n2. Admin B (different repo admin) lists webhooks via `GET /api/v1/repos/{owner}/{repo}/hooks`.\n3. The API response includes the full plaintext authorization header set by Admin A.\n\n## Impact\n\n- Cross-admin secret exposure on shared repositories\n- Credential harvesting if a repo admin's Gitea token is stolen\n- External service compromise via leaked Bearer tokens and API keys\n- Undermines the intentional encryption-at-rest protection\n\n## Suggested Fix\n\nThe authorization header should be write-only. Return a masked/redacted version or a boolean `has_authorization_header` flag instead.\n\n## References\n\n- Vulnerable function: `services/webhook/general.go:392-425`\n- Decryption function: `models/webhook/webhook.go:209-216`\n- Verified against commit 19f0169",
+    "ghsa_id": "GHSA-3r5c-2xxx-h872",
+    "html_url": "https://github.com/advisories/GHSA-3r5c-2xxx-h872",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3r5c-2xxx-h872"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-58511"
+      }
+    ],
+    "published_at": "2026-07-21T21:52:49Z",
+    "references": [
+      "https://github.com/go-gitea/gitea/security/advisories/GHSA-3r5c-2xxx-h872",
+      "https://github.com/go-gitea/gitea/releases/tag/v1.27.0",
+      "https://github.com/advisories/GHSA-3r5c-2xxx-h872"
+    ],
+    "severity": "low",
+    "summary": "Gitea: Webhook Authorization Header Returned in Plaintext via API",
+    "updated_at": "2026-07-21T21:52:52Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "1.27.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "code.gitea.io/gitea"
+        },
+        "vulnerable_version_range": "< 1.27.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3r5c-2xxx-h872",
+  "repo": null,
+  "repository": null
+}

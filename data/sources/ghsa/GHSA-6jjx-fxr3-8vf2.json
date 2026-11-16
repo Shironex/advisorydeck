@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-6jjx-fxr3-8vf2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "# Cross-owner metadata write via POST /duplicates/resolve\r\n\r\n## Summary\r\n\r\nAny registered user can write to another user's asset rows. The authorization check on\r\n`POST /duplicates/resolve` asks whether the caller owns *any* asset carrying a given duplicate-group UUID,\r\nand the caller can make that true for herself with one ordinary update to her own asset. Once inside the\r\ngroup, the merge writes attacker-chosen description, rating, favourite flag, GPS coordinates and tag\r\nassociations onto assets she does not own.\r\n\r\nConfirmed on the released `v3.1.0` image, `sourceCommit 8aa95c67`. Still present on main at `a9a99cff`.\r\n\r\n## The asymmetry\r\n\r\nThree functions in `server/src/repositories/duplicate.repository.ts`:\r\n\r\n```ts\r\nasync delete(userId: string, id: string)       // line 158, .where('ownerId', '=', userId)\r\nasync deleteAll(userId: string, ids: string[]) // line 168, .where('ownerId', '=', userId)\r\nasync get(duplicateId: string)                 // line 115, no ownerId predicate, no userId parameter\r\n```\r\n\r\n`get` is the read that feeds the write path. It filters on `duplicateId`, `deletedAt` and `stackId` and\r\nnothing else, so it returns every user's assets in the group.\r\n\r\nYour own commit `d4f29ab6a`, \"validate duplicate group ownership before dismissal\" from 2026-05-04, added\r\n`requireAccess` to `delete` and `deleteAll`. Both of those already had `ownerId` in their SQL, so the check\r\nwas belt over braces. `resolve` landed earlier in `8c6adf715` and shipped in v2.7.0. It got the same\r\n`requireAccess` call but has no SQL backstop, so there the check is the entire control surface.\r\n\r\nAnd that check is satisfiable by the caller. `Permission.DuplicateDelete` routes to\r\n`access.duplicate.checkOwnerAccess`, which is `where duplicateId in (...) and ownerId = :userId`. It asks\r\nwhether you own anything in the group, not whether you may write the rows you are about to write.\r\n`duplicateId` is an ordinary field on the bulk asset update DTO, so one `PUT /assets` on your own asset\r\njoins any group you can name.\r\n\r\n`resolveGroup` then checks `Permission.AssetDelete` on `idsToTrash`, `Permission.AssetShare` on `idsToKeep`\r\nfor the album side effect, and `Permission.TagAsset` on the merged tags. It checks nothing at all on\r\n`idsToKeep` before:\r\n\r\n```ts\r\nawait this.assetRepository.updateAllExif(idsToKeep, exifUpdate);\r\nawait this.assetRepository.updateAll(idsToKeep, { duplicateId: null, ...assetUpdate });\r\n```\r\n\r\nThe `AssetShare` check on `idsToKeep` is the tell. Someone asked whether the caller may act on the keeper,\r\napplied the answer to the album add, and did not carry it twenty lines down to the two writes.\r\n\r\n## Learning the group UUID\r\n\r\n`mapAsset` masks `isFavorite` for non-owners at `asset-response.dto.ts:227` and then emits `duplicateId`\r\nunmasked at line 240. So a plain viewer on a shared album reads it straight out of `POST /search/metadata`\r\nwith an `albumIds` filter, alongside `ownerId`. A partner can enumerate the sharer's whole library the same\r\nway. No out-of-band knowledge is involved.\r\n\r\n## Proof\r\n\r\nLab at v3.1.0, two ordinary accounts, victim shares one album with mallory as viewer.\r\n\r\nMallory reads the victim's `duplicateId` from the album search, stamps it on her own asset, and resolves:\r\n\r\n```\r\nPUT  /assets   ids=[mallory asset Z]  duplicateId=1111...      -> 204\r\nPOST /duplicates/resolve  keep=[victim asset X]  trash=[Z]     -> 200 success:true\r\n```\r\n\r\nVictim asset X before and after, fetched as the victim:\r\n\r\n```\r\nCHANGED exif.description: 'CANARY-VICTIM-DESC-7f3a' -> 'CANARY-VICTIM-DESC-7f3a\\nPWNED-BY-MALLORY-9c2e'\r\nCHANGED isFavorite: False -> True\r\nCHANGED rating: 1 -> 5\r\nCHANGED latitude/longitude: null -> 41.8902 / 12.4922, city Rome, country Italy\r\nsame    ownerId: b49f54bd-...  the asset is still the victim's\r\n```\r\n\r\nOnly ids mallory legitimately holds are used, her own and the one visible in the shared album.\r\n\r\nNegative controls:\r\n\r\n- Direct write, `PUT /assets` on the victim asset: `400 Not found or no asset.update access`. The ordinary\r\n  path is properly closed.\r\n- Resolving a group she never joined: `400 Not found or no duplicate.delete access`. The membership gate\r\n  does work, it is just the wrong question.\r\n- An unrelated account handed the UUID out of band gets the same write, so the album share is the discovery\r\n  channel and not an authorization prerequisite.\r\n\r\n## Limits, stated up front\r\n\r\nThe full metadata merge only fires when `idsToKeep.length === 1`, per commit `cc8d3b410`, so the group has\r\nto resolve to exactly one visible victim asset plus the planted one. The caller must also name every member\r\n`get` returns or the call fails validation before writing anything. That is not much of a barrier in\r\npractice: `get` excludes trashed, stacked and archived assets, so a victim who trashes one of a pair leaves\r\na single visible member, and `cleanupSingletonGroups` only runs when the owner opens the duplicates page.\r\nProbing is free because a wrong guess writes nothing.\r\n\r\nMulti-keeper groups still let the attacker null `duplicateId` on the victim's assets, quietly emptying their\r\nduplicate review queue.\r\n\r\nThis is integrity only. Nothing is read that the attacker could not already read, ownership does not\r\ntransfer, and the attacker cannot trash the victim's assets because the `AssetDelete` check holds.\r\n\r\n## Suggested fix\r\n\r\nGive `get` a `userId` and require the caller to own every asset in the group, or run\r\n`checkAccess(Permission.AssetUpdate)` over `idsToKeep` and drop the ids that fail before `updateAllExif`,\r\n`updateAll` and `replaceAssetTags`.\r\n\r\n## Severity\r\n\r\nCVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N, 6.0 Medium.\r\n\r\nCWE-639 Authorization Bypass Through User-Controlled Key, with CWE-862 Missing Authorization alongside.\r\n",
+    "ghsa_id": "GHSA-6jjx-fxr3-8vf2",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-6jjx-fxr3-8vf2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6jjx-fxr3-8vf2"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:06Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-owner metadata write via POST /duplicates/resolve",
+    "updated_at": "2026-11-10T18:45:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-rq4j-mp2m-85qp",
+  "aliases": [],
+  "title": "Shared-link archive downloads can bypass edited-asset enforcement and include original files",
+  "summary": "# Shared-link archive downloads can bypass edited-asset enforcement and include original files\r\n\r\n## Summary\r\n\r\nCurrent Immich enforces a shared-link privacy boundary on single-asset media routes: when a request is authenticated through a shared link, `AssetMediaService.downloadOriginal()` and `viewThumbnail()` force `dto.edited = true` before fetching files. Existing tests explicitly cover that a shared-link request for an edited asset should not return the unedited version even if the request asks for `edited=false`.\r\n\r\nThe archive download endpoint does not apply the same server-side rule. `DownloadService.downloadArchive()` accepts the caller-controlled `DownloadArchiveDto.edited` value and passes `dto.edited ?? false` to `assetRepository.getForOriginals()`. Later it selects `editedPath` only when `dto.edited` is true; otherwise it adds `originalPath` to the ZIP.\r\n\r\nAs a result, anyone with a download-enabled shared link for an edited image can directly call `POST /download/archive` with `edited:false` or with the field omitted and receive the original unedited file in the ZIP, even though the single-file shared-link download path deliberately returns the edited file. This can disclose content that the owner cropped, rotated, mirrored, or otherwise edited before sharing.\r\n\r\nThe normal web UI currently sends `edited:true` when it calls `/download/archive`, but the backend route is public to shared-link callers and must enforce the same shared-link semantics independently of the client.\r\n\r\n## Affected Component\r\n\r\n- Repository: `immich-app/immich`\r\n- Component: server archive download path\r\n- Latest release checked: `v3.0.1`, published 2026-07-02\r\n- `v3.0.1` tag commit checked: `f77c8a4699aec043ec4a1b404559a7a291d592dc`\r\n- Current default branch checked: `main` at `6f45521610783ddf744db306e6dac5e9f59f035a`\r\n\r\nRelevant files:\r\n\r\n- `server/src/services/download.service.ts`\r\n- `server/src/services/asset-media.service.ts`\r\n- `server/src/dtos/download.dto.ts`\r\n- `server/src/services/asset-media.service.spec.ts`\r\n- `web/src/lib/utils/asset-utils.ts`\r\n\r\n## Vulnerable Path\r\n\r\nSingle-asset shared-link downloads force edited output:\r\n\r\n```ts\r\nasync downloadOriginal(auth: AuthDto, id: string, dto: AssetDownloadOriginalDto): Promise<ImmichFileResponse> {\r\n  await this.requireAccess({ auth, permission: Permission.AssetDownload, ids: [id] });\r\n\r\n  if (auth.sharedLink) {\r\n    dto.edited = true;\r\n  }\r\n\r\n  const { originalPath, originalFileName, editedPath } = await this.assetRepository.getForOriginal(\r\n    id,\r\n    dto.edited ?? false,\r\n  );\r\n\r\n  const path = editedPath ?? originalPath!;\r\n  ...\r\n}\r\n```\r\n\r\nThe existing unit test describes this intended behavior:\r\n\r\n```ts\r\nit('should not return the unedited version if requested using a shared link', async () => {\r\n  const fullsizeEdited = AssetFileFactory.create({ type: AssetFileType.FullSize, isEdited: true });\r\n  const editedAsset = AssetFactory.from().edit({ action: AssetEditAction.Crop }).file(fullsizeEdited).build();\r\n  ...\r\n  await expect(\r\n    sut.downloadOriginal(AuthFactory.from().sharedLink().build(), editedAsset.id, { edited: false }),\r\n  ).resolves.toEqual(\r\n    new ImmichFileResponse({\r\n      path: fullsizeEdited.path,\r\n      ...\r\n    }),\r\n  );\r\n});\r\n```\r\n\r\nBy contrast, archive download uses the request body value directly:\r\n\r\n```ts\r\nasync downloadArchive(auth: AuthDto, dto: DownloadArchiveDto): Promise<ImmichReadStream> {\r\n  await this.requireAccess({ auth, permission: Permission.AssetDownload, ids: dto.assetIds });\r\n\r\n  const zip = this.storageRepository.createZipStream();\r\n  const assets = await this.assetRepository.getForOriginals(dto.assetIds, dto.edited ?? false);\r\n  ...\r\n  let realpath = dto.edited && editedPath ? editedPath : originalPath;\r\n  ...\r\n  zip.addFile(realpath, filename);\r\n}\r\n```\r\n\r\nThe DTO makes `edited` optional:\r\n\r\n```ts\r\nconst DownloadArchiveSchema = AssetIdsSchema.extend({\r\n  edited: z.boolean().optional().describe('Download edited asset if available'),...",
+  "published_at": "2026-11-10T18:45:29.000Z",
+  "modified_at": "2026-11-10T18:45:29.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "immich",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-rq4j-mp2m-85qp",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rq4j-mp2m-85qp",
+      "url": "https://github.com/immich-app/immich/security/advisories/GHSA-rq4j-mp2m-85qp",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d5bce4ee46e4bd74e1a92196c18fd71a95c362002946bc459d3654314aa2988f",
+  "note": null
+}

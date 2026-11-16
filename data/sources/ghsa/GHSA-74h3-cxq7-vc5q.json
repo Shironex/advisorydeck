@@ -1,0 +1,107 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-59216",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639",
+      "CWE-862",
+      "CWE-94"
+    ],
+    "description": "## Summary\n\nAn authenticated low-privilege user can execute arbitrary code-interpreter Python and tools inside **another** user's authenticated session. The Socket.IO event-caller (`get_event_call`) delivers `execute:python` / `execute:tool` events to a **client-supplied** `session_id` after only checking that the session is connected, never that it belongs to the requester. Combined with `ydoc:document:join`, which exposes the live socket ids of everyone in a shared note's collaboration room to any read-access participant, an attacker can target a victim's session and run attacker-chosen code/tools in the victim's browser context. When the victim is an administrator, that hijacked context reaches the admin-only Functions API, whose source is executed server-side, yielding remote code execution as the server process (root in the default container).\n\n## Affected component\n\n- `backend/open_webui/socket/main.py` - `get_event_call()` / `__event_caller__`\n- `backend/open_webui/main.py` - chat-completion metadata (`session_id` taken from the request body)\n\n## Root cause\n\nThe event-caller routes to a caller-controlled session id with no ownership check:\n\n```python\n# backend/open_webui/socket/main.py - get_event_call()\nasync def __event_caller__(event_data):\n    session_id = request_info['session_id']\n    if session_id not in SESSION_POOL:                 # only checks the session is connected\n        return {'error': 'Client session disconnected.'}\n    return await sio.call('events', {...}, to=session_id, ...)   # delivered to that sid\n```\n\n`session_id` originates from the request body and is never validated against the authenticated user:\n\n```python\n# backend/open_webui/main.py\nmetadata = {\n    'user_id': user.id,                               # server-derived (trustworthy)\n    'session_id': form_data.pop('session_id', None),  # client-controlled\n    ...\n}\n```\n\n`SESSION_POOL[session_id]` is the user record of whoever owns that socket. Because the caller checks only membership (`in SESSION_POOL`), a request carrying another user's `session_id` causes `execute:python` / `execute:tool` to be delivered to that other user's browser.\n\n## Reachability\n\n- `execute:python` / `execute:tool` are emitted from the code-interpreter and tool-call paths (`utils/middleware.py`, `tools/builtin.py`), all routed through `get_event_call`.\n- The victim's live `session_id` is disclosed to any read-access participant of a shared note via `ydoc:document:join`.\n- `POST /api/v1/chat/completions` requires only `get_verified_user` (the default user role). The attacker uses their own account and a model / Direct Connection they control to choose the payload.\n\n## Impact\n\n- **Any victim:** arbitrary code-interpreter Python and tool execution in the victim's authenticated session - the attacker acts with the victim's identity and origin (full session/account compromise).\n- **Admin victim:** the hijacked admin context reaches `POST /api/v1/functions/create`, whose source is `exec()`'d server-side → remote code execution as the server process (root in the default container).\n\nThe Functions API is intended administrator code-execution; the vulnerability here is the cross-user delivery that lets an attacker drive another user's session - including an admin's - into it. The primitive is a full session compromise even against non-admin victims.\n\n## Proof of Concept\n\nThe reporter's `exploit.py` reproduced on `ghcr.io/open-webui/open-webui:0.9.6` and a build of the `v0.9.6` tag, confirming blind server-side RCE out-of-band (callback returns `uid=0(root)`), using only a low-privilege `user` account that shared a note with an admin victim. Preconditions: code interpreter enabled; attacker shares a note with the victim; victim opens it while online; admin victim required for server RCE.\n\n## Fix\n\n`get_event_call` must verify the target session belongs to the requesting user before delivering, not merely that it is connected:\n\n```python\nsession = SESSION_POOL.get(session_id)\nif session is None or session.get('id') != request_info.get('user_id'):\n    return {'error': 'Client session disconnected.'}\n```\n\n`user_id` in the request metadata is server-derived from the authenticated user, so it is trustworthy. Restricting `ydoc:document:join` so it does not disclose other participants' socket ids is recommended as defence-in-depth.\n\n## Affected / Patched\n\n- Affected: `< 0.10.0` (last affected release 0.9.6)\n- Patched: v0.10.0. `get_event_call` now verifies the target session belongs to the requesting user before delivering (`session is None or session.get('id') != request_info.get('user_id')`), using the server-derived `user_id` from the request metadata. The recommended `ydoc:document:join` sid-disclosure restriction is defence-in-depth and independent of this fix; the ownership check closes the cross-user delivery regardless of whether the victim's sid is known.",
+    "ghsa_id": "GHSA-74h3-cxq7-vc5q",
+    "html_url": "https://github.com/advisories/GHSA-74h3-cxq7-vc5q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-74h3-cxq7-vc5q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59216"
+      }
+    ],
+    "published_at": "2026-07-24T17:01:53Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-74h3-cxq7-vc5q",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-59216",
+      "https://github.com/open-webui/open-webui/pull/25763",
+      "https://github.com/open-webui/open-webui/commit/386ac958144dbbbf0aa6e268070d72b681a318aa",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.10.0",
+      "https://github.com/advisories/GHSA-74h3-cxq7-vc5q"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: Cross-user code-interpreter and tool execution via unvalidated Socket.IO event-caller session_id",
+    "updated_at": "2026-07-24T17:01:54Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.10.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-74h3-cxq7-vc5q",
+  "repo": {
+    "cve_id": "CVE-2026-59216",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-639",
+      "CWE-862",
+      "CWE-94"
+    ],
+    "description": "## Summary\r\n\r\nAn authenticated low-privilege user can execute arbitrary code-interpreter Python and tools inside **another** user's authenticated session. The Socket.IO event-caller (`get_event_call`) delivers `execute:python` / `execute:tool` events to a **client-supplied** `session_id` after only checking that the session is connected, never that it belongs to the requester. Combined with `ydoc:document:join`, which exposes the live socket ids of everyone in a shared note's collaboration room to any read-access participant, an attacker can target a victim's session and run attacker-chosen code/tools in the victim's browser context. When the victim is an administrator, that hijacked context reaches the admin-only Functions API, whose source is executed server-side, yielding remote code execution as the server process (root in the default container).\r\n\r\n## Affected component\r\n\r\n- `backend/open_webui/socket/main.py` - `get_event_call()` / `__event_caller__`\r\n- `backend/open_webui/main.py` - chat-completion metadata (`session_id` taken from the request body)\r\n\r\n## Root cause\r\n\r\nThe event-caller routes to a caller-controlled session id with no ownership check:\r\n\r\n```python\r\n# backend/open_webui/socket/main.py - get_event_call()\r\nasync def __event_caller__(event_data):\r\n    session_id = request_info['session_id']\r\n    if session_id not in SESSION_POOL:                 # only checks the session is connected\r\n        return {'error': 'Client session disconnected.'}\r\n    return await sio.call('events', {...}, to=session_id, ...)   # delivered to that sid\r\n```\r\n\r\n`session_id` originates from the request body and is never validated against the authenticated user:\r\n\r\n```python\r\n# backend/open_webui/main.py\r\nmetadata = {\r\n    'user_id': user.id,                               # server-derived (trustworthy)\r\n    'session_id': form_data.pop('session_id', None),  # client-controlled\r\n    ...\r\n}\r\n```\r\n\r\n`SESSION_POOL[session_id]` is the user record of whoever owns that socket. Because the caller checks only membership (`in SESSION_POOL`), a request carrying another user's `session_id` causes `execute:python` / `execute:tool` to be delivered to that other user's browser.\r\n\r\n## Reachability\r\n\r\n- `execute:python` / `execute:tool` are emitted from the code-interpreter and tool-call paths (`utils/middleware.py`, `tools/builtin.py`), all routed through `get_event_call`.\r\n- The victim's live `session_id` is disclosed to any read-access participant of a shared note via `ydoc:document:join`.\r\n- `POST /api/v1/chat/completions` requires only `get_verified_user` (the default user role). The attacker uses their own account and a model / Direct Connection they control to choose the payload.\r\n\r\n## Impact\r\n\r\n- **Any victim:** arbitrary code-interpreter Python and tool execution in the victim's authenticated session - the attacker acts with the victim's identity and origin (full session/account compromise).\r\n- **Admin victim:** the hijacked admin context reaches `POST /api/v1/functions/create`, whose source is `exec()`'d server-side → remote code execution as the server process (root in the default container).\r\n\r\nThe Functions API is intended administrator code-execution; the vulnerability here is the cross-user delivery that lets an attacker drive another user's session - including an admin's - into it. The primitive is a full session compromise even against non-admin victims.\r\n\r\n## Proof of Concept\r\n\r\nThe reporter's `exploit.py` reproduced on `ghcr.io/open-webui/open-webui:0.9.6` and a build of the `v0.9.6` tag, confirming blind server-side RCE out-of-band (callback returns `uid=0(root)`), using only a low-privilege `user` account that shared a note with an admin victim. Preconditions: code interpreter enabled; attacker shares a note with the victim; victim opens it while online; admin victim required for server RCE.\r\n\r\n## Fix\r\n\r\n`get_event_call` must verify the target session belongs to the requesting user before delivering, not merely that it is connected:\r\n\r\n```python\r\nsession = SESSION_POOL.get(session_id)\r\nif session is None or session.get('id') != request_info.get('user_id'):\r\n    return {'error': 'Client session disconnected.'}\r\n```\r\n\r\n`user_id` in the request metadata is server-derived from the authenticated user, so it is trustworthy. Restricting `ydoc:document:join` so it does not disclose other participants' socket ids is recommended as defence-in-depth.\r\n\r\n## Affected / Patched\r\n\r\n- Affected: `< 0.10.0` (last affected release 0.9.6)\r\n- Patched: v0.10.0. `get_event_call` now verifies the target session belongs to the requesting user before delivering (`session is None or session.get('id') != request_info.get('user_id')`), using the server-derived `user_id` from the request metadata. The recommended `ydoc:document:join` sid-disclosure restriction is defence-in-depth and independent of this fix; the ownership check closes the cross-user delivery regardless of whether the victim's sid is known.",
+    "ghsa_id": "GHSA-74h3-cxq7-vc5q",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-74h3-cxq7-vc5q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-74h3-cxq7-vc5q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-59216"
+      }
+    ],
+    "published_at": "2026-07-02T13:20:56Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cross-user code-interpreter and tool execution via unvalidated Socket.IO event-caller session_id",
+    "updated_at": "2026-07-07T14:47:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.10.0",
+        "vulnerable_version_range": "< 0.10.0 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

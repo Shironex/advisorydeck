@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-8rch-pggc-942j",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\n`ai.deploy` checks that the caller can create services in the given project, but never checks that `serverId` belongs to the caller's organization. The compose row is stored with whatever `serverId` was sent, and `compose.deploy` then runs the supplied docker-compose on that server.\r\n\r\nTested on dokploy.com: as a member of org B, I passed the `serverId` of a server attached to org A. The compose deployed and ran on org A's host. I bind-mounted `/` and wrote a file to `/tmp` on the host, running as root.\r\n\r\nOn cloud `serverId` is required, so this is the normal path, not an edge case.\r\n\r\n## Details\r\n\r\n`routers/ai.ts:341-366`:\r\n\r\n```ts\r\nawait checkServiceAccess(ctx, environment.projectId, \"create\");\r\n// serverId never checked against the organization\r\nconst compose = await createComposeByTemplate({ ...input, serverId: input.serverId, ... });\r\n```\r\n\r\n`createComposeByTemplate` inserts the row as-is (`services/compose.ts:97`). `configFiles` also go to `createMount` with a raw `filePath` that is not confined to the app directory.\r\n\r\nServer IDs are not guessable, but they show up in normal API responses (`serverId` is on service/network rows) and in the other missing-authorization endpoints I reported separately.\r\n\r\n## Steps to reproduce\r\n\r\nVerified on dokploy.com.\r\n\r\n1. As a member with service create access on a project in org B:\r\n\r\n```\r\nPOST /api/trpc/ai.deploy?batch=1\r\n{\"0\":{\"json\":{\r\n  \"environmentId\": \"<own environment id>\",\r\n  \"serverId\": \"<victim org's server id>\",\r\n  \"name\": \"x\", \"id\": \"x\", \"description\": \"\",\r\n  \"dockerCompose\": \"services:\\n  app:\\n    image: alpine\\n    volumes:\\n      - /:/host\\n    command: [\\\"sh\\\",\\\"-c\\\",\\\"id > /host/tmp/pwned\\\"]\",\r\n  \"envVariables\": \"\"\r\n}}}\r\n```\r\n\r\n2. Call `compose.deploy` on the returned compose. The container runs on the victim's server; with the `/` bind mount, the file lands on the host as root.\r\n\r\n## Suggested fix\r\n\r\n- Check `serverId` against the caller's organization in `ai.deploy` (worth auditing every endpoint that takes `serverId`, same pattern).\r\n- Reject mount `filePath` values outside the app directory.",
+    "ghsa_id": "GHSA-8rch-pggc-942j",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-8rch-pggc-942j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8rch-pggc-942j"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:35Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "`ai.deploy` does not validate serverId - members can deploy to other organizations' servers",
+    "updated_at": "2026-11-12T08:15:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

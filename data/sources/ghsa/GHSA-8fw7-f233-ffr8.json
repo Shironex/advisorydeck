@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-8fw7-f233-ffr8",
+  "repo": {
+    "cve_id": "CVE-2026-35032",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Impact\r\nAa vulnerability chain in Jellyfin has been discovered that potentially allows any authenticated user (with default permissions) to achieve SSRF, arbitrary file read, database exfiltration, and admin privilege escalation.\r\n\r\nThe LiveTV M3U tuner endpoint (`POST /LiveTv/TunerHosts`) does not validate the tuner URL, allowing:\r\n- Local file read via non-HTTP paths (`M3uParser.cs:54` calls `AsyncFile.OpenRead` with unsanitized input)\r\n- SSRF via HTTP URLs (`M3uParser.cs:57-66` fetches any URL)\r\n\r\nThis is exploitable by any authenticated user because `EnableLiveTvManagement` defaults to true for all new users.\r\n\r\nThe exploit chain is as follows:\r\n1. SSRF: Add M3U tuner pointing to attacker-controlled server\r\n2. Serve crafted M3U with channel pointing to jellyfin.db\r\n3. Stream the \"channel\" to exfiltrate the database\r\n4. Extract admin session tokens from the database\r\n5. Use stolen token to make the attacker's account admin, permitting numerous other actions.\r\n\r\n### Patches\r\nThis issue has been fixed in 10.11.7 (and backported to master) via improved sanitization of the affected API endpoint and the removal of the `EnableLiveTvManagement` permission on new users by default.\r\n\r\n### Workarounds\r\nDisable Live TV Management privileges on all users.\r\n\r\n### References\r\nProof-of-concept provided by @LTe to be released alongside this GHSA: https://github.com/LTe/jellyfin-exploit-livetv\r\n\r\nAlso independently reported by [@GerhardBotha97](https://github.com/GerhardBotha97).\r\n",
+    "ghsa_id": "GHSA-8fw7-f233-ffr8",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-8fw7-f233-ffr8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8fw7-f233-ffr8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35032"
+      }
+    ],
+    "published_at": "2026-04-14T21:13:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Potential SSRF + Arbitrary file read via LiveTV M3U tuner ",
+    "updated_at": "2026-04-15T02:07:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "10.11.7",
+        "vulnerable_version_range": "<10.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

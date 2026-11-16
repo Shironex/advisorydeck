@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-c94j-8wgf-2q9q",
+  "repo": {
+    "cve_id": "CVE-2026-24839",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1021"
+    ],
+    "description": "### Summary\r\nThe Dokploy web interface is vulnerable to Clickjacking attacks due to missing frame-busting headers. This allows attackers to embed Dokploy pages in malicious iframes and trick authenticated users into performing unintended actions.\r\n\r\n### Details\r\nThe web server does not set `X-Frame-Options` header or `Content-Security-Policy` with `frame-ancestors` directive in HTTP responses. This allows the Dokploy interface to be loaded within an iframe on any external website.\r\n\r\nAffected endpoints include:\r\n- Port 80 (TCP HTTP)\r\n- Port 3000 (TCP HTTP)\r\n- Port 8081 (TCP SSL/HTTP)\r\n\r\nThe vulnerability was identified using WhiteHack security scanner.\r\n\r\n### PoC\r\n1. Create an HTML file with the following content:\r\n```html\r\n<!DOCTYPE html>\r\n<html>\r\n<head><title>Clickjacking PoC</title></head>\r\n<body>\r\n  <h1>Click the button below to win a prize!</h1>\r\n  <div style=\"position: relative;\">\r\n    <iframe src=\"https://[DOKPLOY_INSTANCE]:3000\" \r\n            style=\"opacity: 0.1; width: 1000px; height: 600px;\">\r\n    </iframe>\r\n    <button style=\"position: absolute; top: 200px; left: 300px;\">\r\n      Click me!\r\n    </button>\r\n  </div>\r\n</body>\r\n</html>\r\n```\r\n\r\n2. Host this file on an attacker-controlled server\r\n3. Trick an authenticated Dokploy user into visiting the page\r\n4. User's clicks will interact with the hidden Dokploy interface\r\n\r\n### Impact\r\nAn attacker can trick authenticated administrators into:\r\n- Modifying deployment configurations\r\n- Deleting applications or services\r\n- Changing security settings\r\n- Creating or modifying users\r\n\r\nThis is a UI Redressing attack that requires user interaction but no authentication from the attacker's side.",
+    "ghsa_id": "GHSA-c94j-8wgf-2q9q",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-c94j-8wgf-2q9q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c94j-8wgf-2q9q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24839"
+      }
+    ],
+    "published_at": "2026-01-27T20:27:17Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Clickjacking vulnerability - Missing X-Frame-Options and CSP frame-ancestors headers",
+    "updated_at": "2026-01-27T22:46:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "dokploy",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.26.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

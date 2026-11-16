@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-jrg5-2gj5-h827",
+  "aliases": [],
+  "title": "Non-admin organisation member can gain root on the host via an unrestricted host bind-mount",
+  "summary": "### Summary\r\nA low-privilege organization member can get root on the Docker host that runs Dokploy. A member who can create a service, but who is denied Docker access (`canAccessToDocker = false`) and has no SSH or Traefik access, can attach a host bind-mount (`type: \"bind\"`, `hostPath: \"/\"`) to its own service and deploy it. The resulting container runs as `uid=0(root)` with the entire host filesystem mounted read-write. The `mounts.create` endpoint checks only whether the member may create volumes and manage the service. It does not check whether the member may mount host paths into the container.\r\n\r\n### Details\r\nDokploy defines each tRPC route using a procedure type (`apps/dokploy/server/api/trpc.ts`). A `protectedProcedure` is available to any authenticated user, including a `member`, while an `adminProcedure` requires an owner or admin. Members also have permission flags such as `canCreateServices`, `canAccessToDocker`, and `canAccessToSSHKeys`. Dokploy checks these flags on routes that expose the corresponding features.\r\n\r\n`mounts.create` is a `protectedProcedure`. Before creating the mount, it calls `checkServicePermissionAndAccess` (`apps/dokploy/server/api/routers/mount.ts:77`):\r\n\r\n```ts\r\ncreate: protectedProcedure.input(apiCreateMount).mutation(async ({ input, ctx }) => {\r\n    await checkServicePermissionAndAccess(ctx, input.serviceId, { /* ... */ });\r\n    const mount = await createMount(input);\r\n});\r\n```\r\n\r\n`checkServicePermissionAndAccess` (`packages/server/src/services/permission.ts:242`) checks the generic `volume:create` permission and whether the member has access to the service. It does not distinguish a Docker-managed volume from a bind-mount of an arbitrary host path. The base member role has `volume:create` permission for services it can access. A member with `canCreateServices` is also automatically granted access to each service it creates, so it passes both checks. The mount schema (`packages/server/src/db/schema/mount.ts`) does not restrict the mount type or host path:\r\n\r\n```ts\r\ntype: z.enum([\"bind\", \"volume\", \"file\"]),\r\nhostPath: z.string().optional(),\r\n```\r\n\r\nThe member can therefore create a mount with `type: \"bind\"` and `hostPath: \"/\"`. When the service is deployed, Dokploy adds it to the Swarm service as `type=bind src=/ dst=/host ro=false`. The container runs as root with the host filesystem mounted read-write at `/host`. It can read or modify any host file, including `/etc/shadow` and `/var/run/docker.sock`. Either the writable host filesystem or access to the Docker socket is enough to take full control of the host. This path never checks whether the member has Docker, SSH, or Traefik access.\r\n\r\nThe `compose` router has the same problem. `compose.create` checks whether the member may create a service in the project. `compose.update` and `compose.deploy` check whether the member may manage that compose service. These routes do not inspect the submitted `composeFile` for settings that expose the host. A member can use `privileged: true`, `/:/host`, or a Docker-socket mount to get the same result. This was also confirmed on a live instance (`../pocs/compose_chain.py`).\r\n\r\nFix: require a separate permission for container settings that expose the host. For callers who are not owners or admins, reject `type: \"bind\"` and any `hostPath` unless the caller has permission to create host mounts. Apply this check to both `mounts.create` and `mounts.update`. Dokploy should also parse compose files before they are created, updated, or deployed. Unless the caller has the required permission, reject host bind-mounts, Docker-socket mounts, `privileged`, added capabilities, host namespaces, devices, and similar settings. Client-side controls and the generic `volume:create` permission are not sufficient.\r\n\r\n### PoC\r\n\r\n[poc.py](https://github.com/user-attachments/files/28923031/poc.py) (Python 3, standard library only) reproduces the full attack against an instance you own. It bootstraps or signs in as the owner,...",
+  "published_at": "2026-11-12T08:17:17.000Z",
+  "modified_at": "2026-11-12T08:17:17.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-269",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jrg5-2gj5-h827",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jrg5-2gj5-h827",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jrg5-2gj5-h827",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

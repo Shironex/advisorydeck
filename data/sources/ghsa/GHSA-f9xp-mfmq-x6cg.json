@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-f9xp-mfmq-x6cg",
+  "repo": {
+    "cve_id": "CVE-2026-109290",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1021",
+      "CWE-79"
+    ],
+    "description": "# Any authenticated user can steal another user's session token via script embedded in a DOCX preview\r\n\r\n## Summary\r\nAny authenticated user who can upload a DOCX attachment can embed active content in it that runs in the browser of anyone who previews the file, in the Open WebUI page origin. The preview renders a document-supplied HTML part and keeps document-supplied link targets without restriction, so embedded script reads the viewer's session token from local storage. When the viewer is an administrator, replaying that token grants full administrative control of the instance with no password.\r\n\r\n## Preconditions\r\n- An approved account (role `user` or higher) able to upload DOCX attachments. New sign-ups start as `pending` by default (`DEFAULT_USER_ROLE=pending`) and cannot upload until an administrator approves them.\r\n- The victim must open the shared chat, open the attachment and switch to the Preview view (one user interaction).\r\n- No non-default configuration is required. The behaviour is present out of the box on affected versions.\r\n\r\n## Impact\r\nThe embedded script executes in the Open WebUI origin in the viewer's authenticated session and can read the session token. A stolen administrator token replays directly against the API without a password, giving the attacker the full administrator capability set (enumerating all users, changing roles, reading all chats and documents, creating API keys, changing instance settings). A low-privileged attacker thereby escalates to full instance control through one previewed document. Instances where DOCX preview is never used by higher-privileged users are not affected in practice.\r\n\r\n## Fix\r\nFixed in v0.11.4 by #29699. The DOCX preview no longer renders embedded HTML parts (the renderer is told not to inline document-supplied HTML sub-documents), and after rendering any link target that does not resolve to http, https, mailto or tel is removed. Upgrading to v0.11.4 or later fully resolves the issue with no further configuration.\r\n\r\n## Root cause\r\nThe affected component is the DOCX preview (`src/lib/components/common/DocxPreview.svelte`), present from v0.11.1 onward. It rendered uploaded documents through the preview renderer on its main path with the renderer's default behaviour, which inlines a document-supplied HTML part into a same-origin frame and preserves document-supplied link targets verbatim. Sanitization existed only on a fallback branch that the normal render path did not reach, so a crafted document embedding an HTML part, or a link with a script scheme, executed in the page origin when previewed.\r\n\r\n## Proof of concept\r\nA crafted `.docx` containing a body-level OOXML altChunk pointing to an internal HTML part, and a hyperlink with a script scheme, was rendered with the affected version's option set and the fixed version's option set using the shipped renderer. Under the affected options the HTML part was inlined into a same-origin frame and the script-scheme link target was preserved and executed. Under the fixed options the embedded part was skipped and the unsafe link target was removed, so neither path executed.\r\n\r\n## Credits\r\n@Observerkay: reported the stored XSS in the DOCX preview via the OOXML altChunk mechanism, with an end-to-end token-theft to administrator-takeover proof of concept.",
+    "ghsa_id": "GHSA-f9xp-mfmq-x6cg",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-f9xp-mfmq-x6cg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f9xp-mfmq-x6cg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109290"
+      }
+    ],
+    "published_at": "2026-09-27T19:29:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Any authenticated user can steal another user's session token via script embedded in a DOCX preview",
+    "updated_at": "2026-10-28T20:47:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.11.1, <= 0.11.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

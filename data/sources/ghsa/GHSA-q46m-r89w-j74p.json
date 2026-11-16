@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q46m-r89w-j74p",
+  "repo": {
+    "cve_id": "CVE-2026-109572",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Terminal users can manage Terminals policies and other users' terminals via the terminal proxy\r\n\r\n## Summary\r\nA regular user who has been given access to a Terminals connection could send requests through Open WebUI's terminal proxy to the Terminals administrator API. Open WebUI forwarded any requested path and attached the administrator-configured shared key, so Terminals treated the request as an administrator request. The user could read and change terminal policies and list and stop other users' terminals, without ever seeing the key.\r\n\r\n## Preconditions\r\n- An administrator has added a Terminals (orchestrator) connection that uses bearer authentication (the default authentication type for terminal connections) with the Terminals API key.\r\n- The attacker has a normal verified account and has been granted access to that connection.\r\n- The connection is not pinned to a named policy. Connections pinned to a policy route requests into that policy's own terminal and do not reach the administrator API.\r\n- The connected Terminals server is older than 0.2.4. Terminals 0.2.4 refuses administrator requests that carry a user identity, which blocks this path independently.\r\n- Deployments without a Terminals connection are not affected.\r\n\r\n## Impact\r\nUnder the preconditions above the attack needs one authenticated request per action and no interaction from anyone else. The attacker could list all active terminals with their owners' user ids, policy, instance name, host, port and activity; stop another user's running terminal; read the Terminals status and configuration; and create and change terminal policies. Changing a policy was observed to take effect on other users: environment variables set by the attacker appeared in a second user's terminal when it next started on a connection pinned to that policy. Stopped terminals are started again on the next access. Open WebUI's own data is not exposed through this path.\r\n\r\n## Fix\r\nFixed in 51bb8cb142f72503e861eeee25ae4dc73c26c36b, released in 0.11.4. The terminal proxy now refuses to forward requests to the Terminals administrator paths (policies, status and terminal lifecycle). Terminals 0.2.4 additionally rejects administrator requests that arrive on behalf of a user.\r\n\r\n## Root cause\r\n- Component: `backend/open_webui/routers/terminals.py`, the `/api/v1/terminals/{server_id}/{path}` proxy.\r\n- Affected setup: every build from 0.8.6 through 0.11.3 with a Terminals connection configured.\r\n\r\nThe proxy was built to let users reach their own terminal through the orchestrator, and it forwarded whatever path the user asked for with the server's shared key attached. Terminals protects its administrator API with that same key, so the proxy never separated user traffic from administrator traffic and a user could choose an administrator path.\r\n\r\n## Proof of concept\r\nTested against Terminals 0.2.3 with the Docker backend and a bearer connection using the shared key, with two ordinary users. A direct request to Terminals without the key returns 401. Through Open WebUI 0.11.3, using only the attacker's own session:\r\n\r\n```\r\nGET  /api/v1/terminals/<server_id>/api/v1/policies                   -> 200\r\nPUT  /api/v1/terminals/<server_id>/api/v1/policies/poc-low-user      -> 200, policy created\r\nGET  /api/v1/terminals/<server_id>/api/v1/terminals                  -> 200, lists the victim's terminal\r\nPOST /api/v1/terminals/<server_id>/api/v1/terminals/stop\r\n     {\"user_id\":\"<victim>\",\"policy_id\":\"default\",\"context_id\":\"default\"}\r\n                                                                     -> 200 {\"matched\":1,\"stopped\":1,\"skipped_active\":0}\r\n```\r\n\r\nThe victim's terminal container was removed. Rewriting a policy with an `env` value and then having a second user open a connection pinned to that policy started a container carrying the attacker's value. On 0.11.4 every request above returns 403. The proxy was exercised directly with the connection configuration and user identity supplied by the test harness.\r\n\r\n## Credits\r\n- @dhlife09\r\n- @ye11oc4t\r\n- @jiwhan8655\r\n- @Dog-Parka",
+    "ghsa_id": "GHSA-q46m-r89w-j74p",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-q46m-r89w-j74p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q46m-r89w-j74p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109572"
+      }
+    ],
+    "published_at": "2026-09-28T16:36:41Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Terminal users can manage Terminals policies and other users' terminals via the terminal proxy",
+    "updated_at": "2026-10-28T20:47:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": ">= 0.8.6, < 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

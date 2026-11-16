@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-r766-rf9f-588h",
+  "aliases": [],
+  "title": "Host and :authority values with dot segments or slashes escape a {host}-based root",
+  "summary": "### Summary\r\n\r\nA site whose root uses the request host (`root /srv/sites/{host}`) lets the client choose the document root. HTTP/1.1 accepts `Host: ..`, and the HTTP/2 and HTTP/3 servers accept `/` and `\\` in `:authority`, so `../../etc` moves the root anywhere on the filesystem. `file_server` serves files and `php_fastcgi` runs `.php` files outside the intended tree.\r\n\r\n### Details\r\n\r\nWhat reaches Caddy, per protocol (Go 1.27, quic-go v0.63.0):\r\n\r\n| Host value | HTTP/1.1 (`Host` or absolute-form) | HTTP/2 `:authority` | HTTP/3 `:authority` |\r\n|---|---|---|---|\r\n| `.`, `..`, `...` | accepted | accepted | accepted |\r\n| contains `/`, `\\` or a space | 400 | accepted | accepted |\r\n| contains NUL | 400 | stream error | stream error |\r\n\r\n`httpguts.ValidHostHeader` covers only HTTP/1. The HTTP/2 and HTTP/3 servers check `:authority` with `ValidHeaderFieldValue` alone, which rejects control bytes but allows `/`, `\\` and spaces. The expanded root then goes through `FastAbs`, which cleans the dot segments instead of rejecting them. On Windows, `FastAbs` calls `GetFullPathNameW`, which also trims trailing dots and spaces from the last segment, so `...` can resolve like `.` and `.. ` like `..`.\r\n\r\nFix: `Server.serveHTTP` applies `httpguts.ValidHostHeader` to every protocol, and responds 400 when the host, port stripped, is made only of dots. Hosts such as `example.com.` keep working. Patch: public PR from `dunglas:caddyhttp-reject-path-like-host`.\r\n\r\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-YKIEF8GR.\r\n\r\n### Proof of concept\r\n\r\n```caddyfile\r\n{\r\n\tservers {\r\n\t\tprotocols h1 h2c\r\n\t}\r\n}\r\n\r\n:8080 {\r\n\troot /srv/sites/{host}\r\n\tfile_server\r\n}\r\n```\r\n\r\n```console\r\n# HTTP/1.1: the root becomes /srv, serving /srv/secret.txt\r\ncurl -H 'Host: ..' http://localhost:8080/secret.txt\r\n\r\n# HTTP/2: curl sends the Host value as :authority; the root becomes /etc\r\ncurl --http2-prior-knowledge -H 'Host: ../../etc' http://localhost:8080/passwd\r\n```\r\n\r\nBoth return 200 on master. The same works over TLS with HTTP/2 and HTTP/3.\r\n\r\n### Impact\r\n\r\nOn catch-all or on-demand TLS sites with a host-derived root, unauthenticated clients read any file the Caddy process can read and, with `php_fastcgi` or FrankenPHP, run any `.php` file on the filesystem. Sites that list their host names are not affected.",
+  "published_at": "2026-11-04T00:59:13.000Z",
+  "modified_at": "2026-11-04T01:02:03.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "caddy",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.11.8"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-r766-rf9f-588h",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-r766-rf9f-588h",
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-r766-rf9f-588h",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:39202f8906e9e889d13154d2da7e42366c2f6b1af781efcdd7022a82d896fdca",
+  "note": null
+}

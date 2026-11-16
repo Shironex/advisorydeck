@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-cq5q-r4h3-c83v",
+  "aliases": [],
+  "title": "SSRF: Custom notification endpoint takes arbitrary URL + headers - no URL/host validation",
+  "summary": "# Dokploy - Authenticated SSRF via Custom Notification endpoint (no URL validation, attacker-controlled headers)\r\n\r\n## Affected component\r\n`packages/server/src/utils/notifications/utils.ts:253` (`sendCustomNotification`)\r\n`packages/server/src/db/schema/notification.ts:544-559` (`apiCreateCustom`)\r\n\r\n## Repository\r\ngithub.com/Dokploy/dokploy (master, current as of 2026-05-26)\r\n\r\n## Reporter\r\nBerkan SAL (@Uhudsavasindankacanokcu2) - berkansal4545@gmail.com\r\n\r\n## Severity\r\nHigh (Cloud / multi-tenant deployment)\r\nMedium (single-tenant self-hosted)\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N = 8.1 (High)\r\n- AV:N  network reachable\r\n- AC:L  trivial reproduction (single tRPC mutation)\r\n- PR:L  org admin role needed (any organisation; trivial to obtain in cloud)\r\n- UI:N  no victim interaction\r\n- C:H  arbitrary outbound HTTP POST from the Dokploy server reaches Vault / Redis / Postgres / Docker socket proxy / neighbour-org services\r\n- I:H  attacker controls request headers (`X-Vault-Token: …`, `Authorization: …`, `Cookie: …`) AND request body (the notification payload), giving write-side state mutation\r\n- A:N\r\n\r\n## Summary\r\n\r\nDokploy lets an org admin create twelve types of outbound notifications. One of them - `Custom` - takes an **arbitrary endpoint URL** AND an **arbitrary header map** AND delivers the notification payload as a POST body. The Zod schema for this provider is:\r\n\r\n```ts\r\n// packages/server/src/db/schema/notification.ts:544\r\nexport const apiCreateCustom = notificationsSchema\r\n  .pick({ /* … */ })\r\n  .extend({\r\n    endpoint: z.string().min(1),                          // ← NO url(), NO host check\r\n    headers: z.record(z.string(), z.string()).optional(), // ← attacker-controlled headers\r\n  });\r\n```\r\n\r\nThe dispatcher is `sendCustomNotification()`:\r\n\r\n```ts\r\n// packages/server/src/utils/notifications/utils.ts:253\r\nconst response = await fetch(connection.endpoint, {\r\n  method: \"POST\",\r\n  headers,                       // user-supplied headers merged on top of {Content-Type: application/json}\r\n  body: JSON.stringify(payload),\r\n});\r\n```\r\n\r\nThere is **no** SSRF guard anywhere in the chain - no loopback / private-IP / link-local / IPv6-ULA blocklist, no DNS-resolution pin, no scheme restriction. The string `\"http://127.0.0.1:6379/\"` is a valid `endpoint`. Same for `\"http://[::1]:8200/v1/secret/data/prod\"` with `headers = { \"X-Vault-Token\": \"…\" }`.\r\n\r\nThe same gap exists in all twelve providers (`Slack`, `Telegram`, `Discord`, `Email`, `Resend`, `Gotify`, `Ntfy`, `Mattermost`, `Custom`, `Lark`, `Teams`, `Pushover`) - eleven of them gate on `z.string().min(1)` or `z.string().url()` only - but Custom is the most powerful one because the attacker also controls the HTTP method-agnostic headers map, which is what turns a blind SSRF into a header-driven RCE-class primitive.\r\n\r\n## Vulnerable code (verbatim)\r\n\r\n```ts\r\n// packages/server/src/utils/notifications/utils.ts:237-271\r\nexport const sendCustomNotification = async (\r\n  connection: typeof custom.$inferInsert,\r\n  payload: Record<string, any>,\r\n) => {\r\n  try {\r\n    const headers: Record<string, string> = {\r\n      \"Content-Type\": \"application/json\",\r\n      ...(connection.headers || {}),\r\n    };\r\n    const body = JSON.stringify(payload);\r\n    const response = await fetch(connection.endpoint, {\r\n      method: \"POST\",\r\n      headers,\r\n      body,\r\n    });\r\n    ...\r\n  }\r\n};\r\n```\r\n\r\n```ts\r\n// packages/server/src/db/schema/notification.ts (the entire family - none validate the URL)\r\napiCreateSlack       webhookUrl: z.string().min(1)\r\napiCreateTelegram    botToken/chatId - not URL-controlled\r\napiCreateDiscord     webhookUrl: z.string().min(1)\r\napiCreateGotify      serverUrl:  z.string().min(1)\r\napiCreateNtfy        serverUrl:  z.string().min(1)\r\napiCreateMattermost  webhookUrl: z.string().url()                  // only checks URL syntax\r\napiCreateCustom      endpoint:   z.string().min(1)  + headers map  ← MOST DANGEROUS\r\napiCreateLark        webhookUrl: z.string().min(1)\r\napiCreateTe...",
+  "published_at": "2026-11-12T08:17:24.000Z",
+  "modified_at": "2026-11-12T08:17:24.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-20",
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-cq5q-r4h3-c83v",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cq5q-r4h3-c83v",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-cq5q-r4h3-c83v",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-9g87-8gwq-4xqp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "# Shared-link upload runs as the link owner, so the livePhotoVideoId owner check can never fail\r\n\r\n## Summary\r\n\r\nAn anonymous visitor holding an upload-enabled share link can hide any video belonging to the link owner,\r\nand then read that video's metadata and stream it in full through the same anonymous key, including videos\r\nthat were never shared and on links where downloads are disabled.\r\n\r\nThe guard that should stop this exists and is bypassed rather than absent. For a share-key request the\r\nauthenticated principal *is* the link owner, so the comparison it makes can never be true.\r\n\r\nConfirmed on the released `v3.1.0` image, `sourceCommit 8aa95c67`. Byte-identical on main at `a9a99cff`.\r\n\r\n## Mechanism\r\n\r\n`server/src/services/auth.service.ts` resolves a share key to the owner:\r\n\r\n```ts\r\nasync validateSharedLinkKey(key: string | string[]): Promise<AuthDto> {\r\n  ...\r\n  return { user: sharedLink.user, sharedLink };\r\n}\r\n```\r\n\r\nSo `auth.user.id === sharedLink.userId` for an anonymous caller. Every downstream\r\n`something.ownerId !== auth.user.id` guard silently evaluates to false.\r\n\r\n`POST /assets` accepts share keys, at `asset-media.controller.ts:52`:\r\n\r\n```ts\r\n@Authenticated({ permission: Permission.AssetUpload, sharedLink: true })\r\n```\r\n\r\nand passes `auth.user.id` into `onBeforeLink` in `server/src/utils/asset.util.ts:145`:\r\n\r\n```ts\r\nif (motionAsset.ownerId !== userId) {\r\n  throw new BadRequestException('Live photo video does not belong to the user');\r\n}\r\n\r\nif (motionAsset && motionAsset.visibility === AssetVisibility.Timeline) {\r\n  await assetRepository.update({ id: livePhotoVideoId, visibility: AssetVisibility.Hidden });\r\n  await eventRepository.emit('AssetHide', { assetId: motionAsset.id, userId });\r\n}\r\n```\r\n\r\nThe error string shows the restriction was intended. `livePhotoVideoId` is a plain field on the upload form,\r\nso the caller picks the target.\r\n\r\n## Proof\r\n\r\nSame target asset, same request, only the principal differs. This is the whole finding in two lines.\r\n\r\n```\r\nlogged-in outsider  -> 400 \"Live photo video does not belong to the user\"\r\nanonymous share key -> 201, owner's video flipped to Hidden\r\n```\r\n\r\nAfter the anonymous request, on the same key with no Authorization header:\r\n\r\n```\r\nGET /assets/VID           400 before  ->  200 after, full metadata\r\nGET /assets/VID/video/playback  404 before  ->  200 after, bytes identical to the owner's file\r\n```\r\n\r\nThe owner's timeline loses the asset. A second video left untouched stays visible throughout, so this is\r\ntargeted and not a side effect of the upload.\r\n\r\nNegative controls:\r\n\r\n- `allowUpload=false` on the link: 401, target unchanged.\r\n- No key at all: 401.\r\n- A real logged-in outsider account against the same targets: 400, as quoted above. That is what proves the\r\n  vacuous comparison rather than assuming it.\r\n\r\n## Relationship to GHSA-hvq7-hq9r-8gjr\r\n\r\nThat advisory is properly fixed and I want to say so plainly. Commit `6ba17bb86` deleted the\r\n`Permission.AssetShare` case from `checkSharedLinkAccess` outright, so a share key now falls through to\r\n`default: return new Set<string>()` and gets no `AssetShare` access at all. The same commit removed\r\n`sharedLink: true` from `PUT /shared-links/:id/assets` and the album asset-add routes.\r\n\r\n`POST /assets` kept `sharedLink: true`, and it reaches a pre-existing owner asset by UUID through\r\n`livePhotoVideoId`. So this is not a regression of that fix and not the same sink. It is the same\r\nprincipal-level root cause on a route the route-by-route hardening did not visit.\r\n\r\n## Secondary observation, the checksum pre-handler\r\n\r\n`AssetUploadInterceptor` answers the `x-immich-checksum` header before `requireUploadAccess` runs, and\r\nreturns the owner's asset UUID for any bytes the owner already holds. It works on read-only links too, where\r\nnone of the above applies. The payload is narrow, \"does this library contain a file with this hash and what\r\nis its id\", but it is the only leg that reaches the much larger population of links without uploads enabled.\r\nWorth fixing separately by moving the lookup behind the access check.\r\n\r\n## Limits, stated up front\r\n\r\nOnly videos are reachable. `onBeforeLink` rejects anything else three lines earlier with \"Live photo video\r\nmust be a video\", so photos cannot be targeted.\r\n\r\nHiding is reversible by the owner and does emit an `on_asset_hidden` notification, so this is not silent or\r\npermanent.\r\n\r\nFor assets not visible through the link, the attacker needs the UUID, which is a v4 and not guessable. The\r\nonly in-band discovery primitive is the checksum oracle, and that requires already holding the exact bytes.\r\nSo the confidentiality half is largely circular for arbitrary targets and I am not claiming library\r\nenumeration. The guaranteed reach is every video whose UUID the link already exposes.\r\n\r\nOriginal-file download stays closed. `GET /assets/{id}/original` returns 404 through a share key. The proven\r\nread is metadata plus playback.\r\n\r\n## Suggested fix\r\n\r\nPass a principal that is not the owner into `onBeforeLink` for share-key auth, or require that\r\n`livePhotoVideoId` reference an asset already attached to `auth.sharedLink`. Move the interceptor's checksum\r\nlookup behind `requireUploadAccess`.\r\n\r\n## Severity\r\n\r\nCVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N, 6.9 Medium.\r\n\r\nIf you treat the share key as a credential, CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N gives 5.3, also\r\nMedium, and I have no argument with that reading.\r\n\r\nCWE-639 Authorization Bypass Through User-Controlled Key, with CWE-863 for the vacuous comparison and\r\nCWE-284 to keep it visibly related to GHSA-hvq7.\r\n",
+    "ghsa_id": "GHSA-9g87-8gwq-4xqp",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-9g87-8gwq-4xqp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9g87-8gwq-4xqp"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:05Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Shared-link upload runs as the link owner, so the livePhotoVideoId owner check can never fail",
+    "updated_at": "2026-11-10T18:45:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

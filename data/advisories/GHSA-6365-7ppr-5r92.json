@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-6365-7ppr-5r92",
+  "aliases": [],
+  "title": "Connection created for the wrong upstream for forward_auth + reverse_proxy",
+  "summary": "### Summary\r\nWe have found an issue where Caddy is using the wrong connection when a handler has both `forward_auth` and `reverse_proxy`. Occasionally users were mentioning requests returning with 404 for not apparent reason. Unfortunately enabling detailed Caddy logs did not help as these were not correct, insisting their upstreams were returning 404 for endpoints which are known to exist. Only `tcpdump` showed the real issue; the request meant for the `forward_auth` endpoint was being sent on the wrong connection which did not have the expected endpoints and thus replied with 404.\r\n\r\nFor our setup we have downgraded to 2.10.2 which is not affected.\r\n\r\n### Details\r\nCommit 8aca108d2c9d9e9ff3a39ff00684ea58df1338f6 seems to be the cause as the parent 156ce99d3a46be8cefe8502b2c30b757e4deb79f does not exhibit this behavior. \r\n\r\n### PoC\r\nThe issue only happened sporadically and seemingly also fixed itself sometimes when connections were likely closed. To reproduce reliably we need to make the race condition window larger by adding a sleep. We can apply it to both commits to confirm it is not the source of any issue:\r\n\r\nFor 8aca108d2c9d9e9ff3a39ff00684ea58df1338f6 (to make the race more likely):\r\n```diff\r\ndiff --git a/modules/caddyhttp/reverseproxy/httptransport.go b/modules/caddyhttp/reverseproxy/httptransport.go\r\nindex 0c4d26ee..428589c5 100644\r\n--- a/modules/caddyhttp/reverseproxy/httptransport.go\r\n+++ b/modules/caddyhttp/reverseproxy/httptransport.go\r\n@@ -268,6 +268,7 @@ func (h *HTTPTransport) NewTransport(caddyCtx caddy.Context) (*http.Transport, e\r\n        }\r\n \r\n        dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {\r\n+               time.Sleep(2 * time.Millisecond) // make race more likely\r\n                // The network is usually tcp, and the address is the host in http.Request.URL.Host\r\n                // and that's been overwritten in directRequest\r\n                // However, if proxy is used according to http.ProxyFromEnvironment or proxy providers,\r\n```\r\n\r\nFor 156ce99d3a46be8cefe8502b2c30b757e4deb79f (where it will *NOT* cause issues):\r\n```diff\r\ndiff --git a/modules/caddyhttp/reverseproxy/httptransport.go b/modules/caddyhttp/reverseproxy/httptransport.go\r\nindex 3031bda4..ba05d20f 100644\r\n--- a/modules/caddyhttp/reverseproxy/httptransport.go\r\n+++ b/modules/caddyhttp/reverseproxy/httptransport.go\r\n@@ -267,6 +267,7 @@ func (h *HTTPTransport) NewTransport(caddyCtx caddy.Context) (*http.Transport, e\r\n        }\r\n \r\n        dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {\r\n+               time.Sleep(2 * time.Millisecond) // make race more likely\r\n                // For unix socket upstreams, we need to recover the dial info from\r\n                // the request's context, because the Host on the request's URL\r\n                // will have been modified by directing the request, overwriting\r\n```\r\n\r\nNow, to reproduce we use this Caddyfile:\r\n```Caddyfile\r\n{\r\n\tauto_https disable_redirects\r\n\tadmin off\r\n\tlog default {\r\n\t\tlevel ERROR\r\n\t}\r\n}\r\n\r\n:18888 {\r\n\t@svc path /svc/*\r\n\thandle @svc {\r\n\t\tforward_auth localhost:16060 {\r\n\t\t\turi /verify?id=x&sig=y\r\n\t\t\ttransport http {\r\n\t\t\t\tkeepalive_idle_conns_per_host 1000\r\n\t\t\t}\r\n\t\t}\r\n\t\turi strip_prefix /svc\r\n\t\treverse_proxy localhost:18080 {\r\n\t\t\ttransport http {\r\n\t\t\t\tkeepalive_idle_conns_per_host 1000\r\n\t\t\t}\r\n\t\t}\r\n\t}\r\n\r\n\thandle {\r\n\t\trespond \"not found\" 404\r\n\t}\r\n}\r\n```\r\n\r\nAnd then we have a program which causes it to happen:\r\n- Listens on the expected `forward_auth` endpoint\r\n- Listens on the expected `reverse_proxy` endpoint, counting if it receives a `/verify` (which it definitely should not)\r\n- Requests `/svc/ping` from Caddy which we expect to hit the `forward_auth` with a `/verify` and then the `reverse_proxy` with a `/ping`\r\n\r\n```go\r\npackage main\r\n\r\nimport (\r\n\t\"context\"\r\n\t\"io\"\r\n\t\"log/slog\"\r\n\t\"net/http\"\r\n\t\"os\"\r\n\t\"os/signal\"\r\n\t\"sync\"\r\n\t\"sync/atomic\"\r\n\t\"time\"\r\n)\r\n\r\nconst (\r\n\tauthAddr = \"127.0.0.1:16060\"                 /...",
+  "published_at": "2026-07-10T17:08:10.000Z",
+  "modified_at": "2026-07-10T17:08:11.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "caddy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.11.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-6365-7ppr-5r92",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6365-7ppr-5r92",
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-6365-7ppr-5r92",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b85e0a10a197970d83468b384ab135b28256d0ef220fecd9f1b85f87f81fe304",
+  "note": null
+}

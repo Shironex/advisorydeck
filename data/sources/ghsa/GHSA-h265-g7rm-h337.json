@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-h265-g7rm-h337",
+  "repo": {
+    "cve_id": "CVE-2026-26012",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A regular organization member can retrieve **all ciphers within an organization**, regardless of collection permissions.\r\nThe endpoint `/ciphers/organization-details` is accessible to any organization member and internally uses `Cipher::find_by_org` to retrieve all ciphers. These ciphers are returned with `CipherSyncType::Organization` **without enforcing collection-level access control**.\r\n\r\n## Attack Preconditions\r\n\r\n* The attacker is a member of the target organization (User, Manager, Admin, or Owner).\r\n* The organization contains one or more collections to which the attacker does **not** have access.\r\n\r\n## Attack Scenario\r\n\r\n1. The attacker (a regular organization member) joins the organization.\r\n2. The attacker calls `/ciphers/organization-details` for the organization, including collections they do not have permission to access.\r\n3. The response contains **all ciphers in the organization**, ignoring collection restrictions, allowing the attacker to obtain other members’ data (encrypted cipher data, keys, and attachment metadata).\r\n\r\n## Potential Impact\r\n\r\n* Collection-based access separation within the organization is bypassed, significantly reducing data confidentiality.\r\n* Access to encrypted cipher data, keys, and attachment metadata may directly lead to data disclosure if client-side decryption is possible.\r\n",
+    "ghsa_id": "GHSA-h265-g7rm-h337",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-h265-g7rm-h337",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h265-g7rm-h337"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-26012"
+      }
+    ],
+    "published_at": "2026-02-11T20:56:42Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Full Cipher Enumeration Ignoring Organization Collection Permissions",
+    "updated_at": "2026-02-12T02:10:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.35.3",
+        "vulnerable_version_range": "<= 1.35.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

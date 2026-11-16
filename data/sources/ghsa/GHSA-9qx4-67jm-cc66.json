@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-9qx4-67jm-cc66",
+  "repo": {
+    "cve_id": "CVE-2026-35455",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\n\r\nStored Cross-Site Scripting (XSS) in the 360° panorama viewer allows any authenticated user to execute arbitrary JavaScript in the browser of any other user who views the malicious panorama with the OCR overlay enabled. The attacker uploads an equirectangular image containing crafted text; OCR extracts it, and the panorama viewer renders it via `innerHTML` without sanitization. This enables session hijacking (via persistent API key creation), private photo exfiltration, and access to GPS location history and face biometric data.\r\n\r\n### Details\r\n\r\nThe `photo-sphere-viewer-adapter.svelte` component builds OCR tooltip content by interpolating `box.text` directly into an HTML template string, which is then passed to the `@photo-sphere-viewer` MarkersPlugin as `tooltip.content`. The MarkersPlugin renders this value via `innerHTML`.\r\n\r\n**Vulnerable code** - [`web/src/lib/components/asset-viewer/photo-sphere-viewer-adapter.svelte:141`](https://github.com/immich-app/immich/blob/main/web/src/lib/components/asset-viewer/photo-sphere-viewer-adapter.svelte#L141):\r\n\r\n```js\r\nconst content = `<div class=\"${OCR_TOOLTIP_HTML_CLASS}\" style=\"font-size: ${fontSize}px; width: ${width}px; height: ${height}px; transform: ${transform}; transform-origin: 0 0;\">${box.text}</div>`;\r\n```\r\n\r\n`box.text` originates from the PaddleOCR pipeline, which stores raw model output without sanitization in [`server/src/services/ocr.service.ts:84`](https://github.com/immich-app/immich/blob/main/server/src/services/ocr.service.ts#L84):\r\n\r\n```ts\r\ntext: rawText,\r\n```\r\n\r\nThe regular (non-panorama) photo viewer is **not affected** - it uses Svelte's `{ocrBox.text}` template syntax ([`ocr-bounding-box.svelte:63`](https://github.com/immich-app/immich/blob/main/web/src/lib/components/asset-viewer/ocr-bounding-box.svelte#L63)), which auto-escapes HTML. Only the panorama code path bypasses this safe component and manually constructs HTML via template literal.\r\n\r\nThe application's Content Security Policy is disabled by default. When enabled via the bundled `helmet.json`, it includes `script-src 'unsafe-inline'`, which permits inline event handlers.\r\n\r\n### PoC\r\n\r\n**Prerequisites:** An Immich instance with the default configuration (ML/OCR enabled, CSP disabled).\r\n\r\nUpload this image:\r\n![xss_panorama.jpg](https://github.com/user-attachments/assets/01f83fb7-28b7-4e05-b13f-c5caefea0f6a)\r\n\r\nWait for the OCR to run, try to copy the password from the OCR. Watch the alert popup:\r\n\r\n<img width=\"883\" height=\"283\" alt=\"image\" src=\"https://github.com/user-attachments/assets/d31841a7-c281-449a-bc1f-fd5ae2955b03\" />\r\n\r\n### Impact\r\n\r\nAny authenticated user who can upload images (default for all users) can attack any other user who views their panorama with the OCR overlay. Sharing a malicious panorama via a shared album is sufficient and then the victim clicking the OCR toggle and a detected text region.\r\n\r\nFound by [aisafe.io](https://aisafe.io).",
+    "ghsa_id": "GHSA-9qx4-67jm-cc66",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-9qx4-67jm-cc66",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9qx4-67jm-cc66"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35455"
+      }
+    ],
+    "published_at": "2026-04-08T14:55:23Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored XSS via OCR Text in 360° Panorama Viewer",
+    "updated_at": "2026-04-08T14:55:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "immich-server"
+        },
+        "patched_versions": "2.7.0",
+        "vulnerable_version_range": "2.6.x"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

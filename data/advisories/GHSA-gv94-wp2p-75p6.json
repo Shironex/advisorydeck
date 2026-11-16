@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-gv94-wp2p-75p6",
+  "aliases": [],
+  "title": "Full-read SSRF via ai.getModels / ai.testConnection - any authenticated user, no role check",
+  "summary": "# Full-read SSRF via `ai.getModels` / `ai.testConnection` - any authenticated user, no role check\n\n## Summary\n\nThe AI-provider tRPC procedures `ai.getModels` and `ai.testConnection` are gated only by `protectedProcedure` (valid session; **no role or permission check** - every other procedure in the same router uses `adminProcedure`) and pass a fully user-controlled `apiUrl` into server-side HTTP requests with no URL validation, scheme allowlist, or private-IP filtering. Any authenticated user - including the lowest-privilege default `member` organization role - can make the Dokploy server send requests to arbitrary internal URLs and read the responses.\n\n- `ai.getModels`: GET to `` `${apiUrl}/models` `` (or `/api/tags` when the URL contains `ollama`, `/models?key=` for `gemini`). On success the parsed model list is returned to the caller; on any non-2xx the **raw upstream body is reflected verbatim** in the error (`Failed to fetch models: <body>`) - full-read exfiltration of any content type.\n- `ai.testConnection`: POST to `` `${apiUrl}/chat/completions` `` via the AI SDK (openai-compatible branch), upstream error text reflected in the error message.\n- Full path control despite the fixed suffixes: a `#` fragment in `apiUrl` (`http://internal/secret#`) is stripped client-side by the URL parser, so the request line is exactly `GET /secret`.\n\n## Affected\n\n`Dokploy/dokploy` canary branch @ `c225188e` (2026-09-01). Confirmed live-exploitable on the published Docker image `dokploy/dokploy:canary` digest `sha256:269864cddc363f530b55d8607ace8ea89ad5a63de20ef1059f26ef6fdf0f6d8b` (built 2026-09-01); identical vulnerable code in `/app/.next/server/chunks/6355.js` of that image. Self-hosted default deployments (docker compose / install.sh), stock roles, no enterprise license. Pre-condition: any valid account - a freshly invited `member` suffices (standard collaboration flow). Class untouched by the 2026-07-21 advisory batch (all 60 published Dokploy advisories reviewed: command-injection / access-control / credential classes only; no CWE-918).\n\n## Root cause\n\n`apps/dokploy/server/api/routers/ai.ts:52` - `getModels: protectedProcedure` with input `z.object({ apiUrl: z.string().min(1), apiKey: z.string() })` (no URL validation), then:\n- `ai.ts:61` (ollama branch) `fetch(\\`${input.apiUrl}/api/tags\\`, …)` / `ai.ts:127` (default branch) `fetch(\\`${input.apiUrl}/models\\`, { headers })` - sink; `ai.ts:131-133` reflects `await response.text()` in the thrown error for non-2xx.\n- Provider/path chosen by substring matching in `getProviderName()` (`packages/server/src/utils/ai/select-ai-provider.ts:12-26`) - attacker steers the suffix via URL content (`\":11434\"`/`\"ollama\"` → `/api/tags`; default → `/models`).\n- `ai.ts:286-318` - `testConnection: protectedProcedure` builds `selectAIProvider({ apiUrl: input.apiUrl, apiKey: input.apiKey })` and calls `generateText()`, which POSTs to `${apiUrl}/chat/completions`; AI SDK upstream error text is returned in the tRPC error message.\n- `protectedProcedure` (`apps/dokploy/server/api/trpc.ts:161`) asserts only that a session exists - no `checkPermission`, no org-role gate. Sibling procedures in the same router (`one`/`create`/`update`/`getAll`/`delete`/`saveCustomProviders`) use `adminProcedure`, showing the intended privilege level.\n- No SSRF guard exists anywhere on this path (no scheme allowlist, no DNS/private-range check, no redirect policy), unlike hardened fetch paths elsewhere in the codebase.\n\n## Reproduction\n\nLab: `dokploy/dokploy:canary` (digest above) via docker compose, plus a benign in-network canary HTTP service serving sentinel strings (never contacted by the client directly).\n\n1. Owner invites Bob with `role: \"member\"`; Bob accepts (`organization.inviteMember` → `/api/auth/organization/accept-invitation`), `member.role='member'`, no custom permissions.\n2. Bob runs, with his session cookie:\n```http\nGET /api/trpc/ai.getModels?batch=1&input={\"0\":{\"json\":{\"apiUrl\":\"http://canary-lab:8899\",\"apiKey\"...",
+  "published_at": "2026-11-12T08:15:49.000Z",
+  "modified_at": "2026-11-12T08:15:49.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-gv94-wp2p-75p6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-gv94-wp2p-75p6",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-gv94-wp2p-75p6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

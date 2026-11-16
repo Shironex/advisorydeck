@@ -1,0 +1,102 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-70494",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "## Summary\nA user granted write access to a shared chat folder could permanently delete chats and messages belonging to the folder's owner. Deleting a folder cascades into the owner's chats and the entire subfolder subtree, and the deletion handler required only write access on subfolders instead of ownership. Root folders were restricted to the owner or an admin, subfolders were not.\n\n## Preconditions\nThe Folders Sharing permission (`user.permissions.sharing.folders`) must be enabled; it is off by default. The victim must have shared a folder with the attacker at write access. `features.folders` and the `chat.delete` permission are enabled by default and are both required. Deployments that leave folder sharing disabled are not affected, and neither are single-user instances.\n\n## Impact\nPermanent, irreversible destruction of another user's chat history within and beneath a shared folder. With `delete_contents=false` the same request instead force-moved the owner's chats out of the folder, an unauthorized relocation rather than a deletion. The write grant on the shared root folder is inherited by every descendant, so the attacker could destroy subfolders that were never explicitly shared with them. Nothing outside the shared folder's subtree is reachable, and no data is disclosed that write access did not already expose.\n\n## Fix\nFixed in 0.11.0 by https://github.com/open-webui/open-webui/pull/27003. Folder deletion is now restricted to the folder owner or an admin for root folders and subfolders alike, replacing the previous root/subfolder split with a single check. Upgrading fully resolves the issue; no configuration change is required. Owners and admins are unaffected, and a write-collaborator can still create, rename and add to shared folders and delete subfolders they own.\n\n## Root cause\nAffected component: `backend/open_webui/routers/folders.py`, the `DELETE /api/v1/folders/{id}` handler. Affected setup: any release from 0.10.0 onward that has folder sharing enabled.\n\nThe cascade that follows the authorization check is bound to the folder owner's id, not the caller's, so whoever passes the check deletes the owner's data. The check itself branched on whether the folder had a parent: root folders demanded ownership or admin, while subfolders accepted any write grant. Because write grants propagate down the folder tree, that branch handed every collaborator deletion rights over the owner's subtree, which is broader than what the sharing model grants write access.\n\n## Credits\n@legobattman, who reported the issue and its remediation.",
+    "ghsa_id": "GHSA-3cg5-48j3-v4gv",
+    "html_url": "https://github.com/advisories/GHSA-3cg5-48j3-v4gv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3cg5-48j3-v4gv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-70494"
+      }
+    ],
+    "published_at": "2026-08-04T20:58:12Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-3cg5-48j3-v4gv",
+      "https://github.com/open-webui/open-webui/pull/27003",
+      "https://github.com/open-webui/open-webui/commit/915ef7d0798d3175819cedbb2f62d7bf0db78c98",
+      "https://github.com/open-webui/open-webui/releases/tag/v0.11.0",
+      "https://github.com/advisories/GHSA-3cg5-48j3-v4gv"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: A folder write-collaborator can permanently delete the owner's chats by deleting a shared subfolder",
+    "updated_at": "2026-08-04T20:58:12Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.11.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": ">= 0.10.0, < 0.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3cg5-48j3-v4gv",
+  "repo": {
+    "cve_id": "CVE-2026-70494",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "# A folder write-collaborator can permanently delete the owner's chats by deleting a shared subfolder\r\n\r\n## Summary\r\nA user granted write access to a shared chat folder could permanently delete chats and messages belonging to the folder's owner. Deleting a folder cascades into the owner's chats and the entire subfolder subtree, and the deletion handler required only write access on subfolders instead of ownership. Root folders were restricted to the owner or an admin, subfolders were not.\r\n\r\n## Preconditions\r\nThe Folders Sharing permission (`user.permissions.sharing.folders`) must be enabled; it is off by default. The victim must have shared a folder with the attacker at write access. `features.folders` and the `chat.delete` permission are enabled by default and are both required. Deployments that leave folder sharing disabled are not affected, and neither are single-user instances.\r\n\r\n## Impact\r\nPermanent, irreversible destruction of another user's chat history within and beneath a shared folder. With `delete_contents=false` the same request instead force-moved the owner's chats out of the folder, an unauthorized relocation rather than a deletion. The write grant on the shared root folder is inherited by every descendant, so the attacker could destroy subfolders that were never explicitly shared with them. Nothing outside the shared folder's subtree is reachable, and no data is disclosed that write access did not already expose.\r\n\r\n## Fix\r\nFixed in 0.11.0 by https://github.com/open-webui/open-webui/pull/27003. Folder deletion is now restricted to the folder owner or an admin for root folders and subfolders alike, replacing the previous root/subfolder split with a single check. Upgrading fully resolves the issue; no configuration change is required. Owners and admins are unaffected, and a write-collaborator can still create, rename and add to shared folders and delete subfolders they own.\r\n\r\n## Root cause\r\nAffected component: `backend/open_webui/routers/folders.py`, the `DELETE /api/v1/folders/{id}` handler. Affected setup: any release from 0.10.0 onward that has folder sharing enabled.\r\n\r\nThe cascade that follows the authorization check is bound to the folder owner's id, not the caller's, so whoever passes the check deletes the owner's data. The check itself branched on whether the folder had a parent: root folders demanded ownership or admin, while subfolders accepted any write grant. Because write grants propagate down the folder tree, that branch handed every collaborator deletion rights over the owner's subtree, which is broader than what the sharing model grants write access.\r\n\r\n## Credits\r\n@legobattman, who reported the issue and its remediation.",
+    "ghsa_id": "GHSA-3cg5-48j3-v4gv",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-3cg5-48j3-v4gv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3cg5-48j3-v4gv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-70494"
+      }
+    ],
+    "published_at": "2026-08-02T21:21:29Z",
+    "references": [],
+    "severity": "high",
+    "summary": "A folder write-collaborator can permanently delete the owner's chats by deleting a shared subfolder",
+    "updated_at": "2026-08-04T20:56:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.0",
+        "vulnerable_version_range": ">= 0.10.0, < 0.11.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

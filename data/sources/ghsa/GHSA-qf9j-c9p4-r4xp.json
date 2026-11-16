@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qf9j-c9p4-r4xp",
+  "repo": {
+    "cve_id": "CVE-2026-72883",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nThe WebSocket handlers for server terminal, Docker container terminal, Docker container logs, and Docker stats check only that the connecting user belongs to the same organization as the target server. They do not enforce service-level or server-level access restrictions. Any member of an organization can open a root terminal to any server in that organization, bypassing Dokploy's granular RBAC controls.\r\n\r\n### Details\r\n\r\nThe WebSocket handlers at:\r\n- `apps/dokploy/server/wss/terminal.ts:84-175`\r\n- `apps/dokploy/server/wss/docker-container-terminal.ts:30-150`\r\n- `apps/dokploy/server/wss/docker-container-logs.ts`\r\n- `apps/dokploy/server/wss/docker-stats.ts`\r\n\r\nAll follow the same pattern:\r\n\r\n1. Call `validateRequest(req)` to verify the session is valid.\r\n2. Fetch the server row and compare `server.organizationId !== session.activeOrganizationId`.\r\n3. Proceed to open the SSH/Docker connection.\r\n\r\nStep 2 only validates organization membership. There is no call to `checkServiceAccess` to verify that the user has been granted access to the specific server via `accessedServerIds` or to the specific service via `accessedServices`.\r\n\r\nThe correct authorization function exists at `packages/server/src/services/permission.ts:258` and is used by the tRPC API endpoints, but is not called in any WebSocket handler.\r\n\r\n### PoC\r\n\r\n1. Create an organization with an admin and a member account. Do not grant the member any explicit server or service access.\r\n2. As the admin, note a `serverId` from any server attached to the organization.\r\n3. From the member account, connect via wscat:\r\n\r\n```bash\r\nwscat -c \"ws://<target>:3000/terminal?serverId=<server_id>\" \\\r\n  --header \"Cookie: better-auth.session_token=<member_session>\"\r\n```\r\n\r\n4. Result: `Connected` - the WebSocket upgrade succeeds.\r\n\r\n5. The Dokploy server logs confirm the connection passed authentication and attempted to execute Docker commands:\r\n```\r\ncmd: 'docker service scale test-test-9xyx0o=1'\r\nstderr: 'service test-test-9xyx0o not found'\r\n```\r\n\r\nThe disconnection was caused by the Docker service not existing on the target, not by an authorization rejection. The member's connection passed all RBAC checks.\r\n\r\n### Impact\r\n\r\nAny member of an organization can access terminal, logs, and stats for any server or service in that organization, regardless of their configured access restrictions. This grants unrestricted root shell access on managed servers to members who were intentionally restricted to specific services. The `accessedServices` and `accessedServerIds` RBAC controls are rendered ineffective for WebSocket-based access.",
+    "ghsa_id": "GHSA-qf9j-c9p4-r4xp",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qf9j-c9p4-r4xp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qf9j-c9p4-r4xp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72883"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:54Z",
+    "references": [],
+    "severity": "high",
+    "summary": "WebSocket Terminal Missing Service-Level Access Control",
+    "updated_at": "2026-08-10T19:28:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "≤ 0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

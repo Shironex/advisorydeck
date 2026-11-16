@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-j3pv-r5wg-235m",
+  "repo": {
+    "cve_id": "CVE-2026-72875",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nThe `settings.readTraefikFile` endpoint is vulnerable to OS Command Injection (CWE-78). Although the path is validated against directory traversal, it does not reject shell metacharacters. An authenticated user with `traefikFiles.read` permissions can exploit this to execute arbitrary shell commands on a remote managed server.\r\n\r\n### Details\r\nThe exposed route is `settings.readTraefikFile` (`apps/dokploy/server/api/routers/settings.ts`). It passes the user-controlled path directly into `readConfigInPath` (`packages/server/src/utils/traefik/application.ts`).\r\n\r\nThe schema used by the route is `apiReadTraefikConfig` (`packages/server/src/db/schema/user.ts`). It blocks `../`, `..\\\\`, and null bytes, but does not reject shell metacharacters such as `;`, `&&`, `|`, or command substitution.\r\n\r\nFor remote reads, `readConfigInPath` executes:\r\n`execAsyncRemote(serverId, \"cat ${configPath}\")`\r\n\r\nThis means a payload like `<MAIN_TRAEFIK_PATH>/traefik.yml;printf DOKPLOY_POC` passes validation and reaches the shell unchanged.\r\n\r\n### PoC\r\n**Preconditions:**\r\n- Authenticated user with `traefikFiles.read` permission.\r\n- Ability to target a remote server in the same organization.\r\n\r\n**Reproduction Steps:**\r\n1. Start Dokploy locally.\r\n2. Send a request to the `settings.readTraefikFile` endpoint with the following payload as the `path`:\r\n   `<MAIN_TRAEFIK_PATH>/traefik.yml;printf DOKPLOY_POC`\r\n3. The server will interpolate the path into the `cat` command and execute it over SSH on the remote server:\r\n   `cat <MAIN_TRAEFIK_PATH>/traefik.yml;printf DOKPLOY_POC`\r\n4. The safe PoC marker string `DOKPLOY_POC` will be printed, proving arbitrary command execution.\r\n\r\n### Impact\r\nAn attacker with nominally read-only Traefik file access can execute arbitrary shell commands on a remote managed server. This converts a configuration-read feature into Remote Code Execution (RCE), leading to full compromise of the deployment host and any workloads or secrets reachable from it.",
+    "ghsa_id": "GHSA-j3pv-r5wg-235m",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j3pv-r5wg-235m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j3pv-r5wg-235m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72875"
+      }
+    ],
+    "published_at": "2026-07-21T23:26:01Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Remote Code Execution (RCE) via Command Injection in settings.readTraefikFile",
+    "updated_at": "2026-08-10T18:58:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.28.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

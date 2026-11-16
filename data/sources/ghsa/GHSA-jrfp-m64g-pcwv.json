@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54018",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe SafePlaywrightURLLoader implements a validate_url function to prevent SSRF attacks by checking the IP address of the user-provided URL. However, this validation is performed only on the initial URL.\n\nSince Playwright automatically follows HTTP redirects (301/302) by default, an attacker can bypass the validation by providing a safe URL that redirects to a restricted internal network address (e.g., localhost, Docker container network, or Cloud Metadata).\n\nThis allows the application to access internal services despite ENABLE_RAG_LOCAL_WEB_FETCH being set to False\n\n### Details\nRoot Cause\n\nThe application validates the initial user-provided URL using self._safe_process_url_sync(url). This correctly resolves the domain and ensures it does not point to a private IP.\n\nThe application then calls page.goto(url). By default, Playwright automatically follows HTTP redirects (301/302).\n\nThe Bypass: If the destination server returns a redirect to an internal IP (e.g., 127.0.0.1 or 169.254.169.254), the browser follows it without re-validating the new destination. The initial validation is bypassed because it only checked the first URL, not the entire redirect chain.\n\n```python\nfor url in self.urls:\n    try:\n        self._safe_process_url_sync(url)  \n        page = browser.new_page()\n        response = page.goto(url, timeout=self.playwright_timeout)  #this\n        if response is None:\n            raise ValueError(...)\n        text = self.evaluator.evaluate(page, browser, response)\n```\n\n### PoC\n(This PoC uses Docker to easily demonstrate internal network access (accessing a container by service name). However, the vulnerability is NOT tied to Docker.)\n\n1. Ensure the Open WebUI is configured with the following environment variables. The vulnerability is specific to the Playwright engine.\n2. ENABLE_RAG_LOCAL_WEB_FETCH=False (Default)\n3. RAG_WEB_LOADER_ENGINE=playwright\n4. Setup and run attack server\n5. In Open WebUI, use the \"Web Search\" or \"URL Loader\" feature.\n6. Input the attacker's URL (e.g., http://attacker-ip/).\n\n```python\n# attack_server.py\nfrom flask import Flask, redirect\napp = Flask(__name__)\n\n@app.route('/')\ndef attack():\n    # Redirect to the Open WebUI container's internal port\n    return redirect(\"http://open-webui:8080/api/version\", code=302)\n\nif __name__ == '__main__':\n    app.run(host='0.0.0.0', port=80)\n```\n<img width=\"580\" height=\"192\" alt=\"image\" src=\"https://github.com/user-attachments/assets/4600dbb5-a81d-4e58-b787-afe04fe59d6e\" />\n\nThe Playwright browser follows the redirect to the internal address (http://open-webui:8080/api/version)\n\n### Impact\n+ Cloud Environments: Access to Instance Metadata Service (IMDS) to steal cloud credentials.\n+ Intranet/On-Premise: Scanning internal networks and accessing unauthenticated internal tools.\n+ Container Environments: Accessing other containers within the same network.\n\n### Recommended Patch\nimplement a request interceptor using Playwright's page.route. This ensures all requests, including redirects, are validated before connection.\n\napply the following logic to both lazy_load and alazy_load methods:\n\n```python\n# async context\nasync def intercept_route(route):\n    try:\n        await run_in_threadpool(validate_url, route.request.url)\n        await route.continue_()\n    except Exception:\n        await route.abort()\n\nawait page.route(\"**/*\", intercept_route)\nresponse = await page.goto(url, timeout=self.playwright_timeout)\n```",
+    "ghsa_id": "GHSA-jrfp-m64g-pcwv",
+    "html_url": "https://github.com/advisories/GHSA-jrfp-m64g-pcwv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrfp-m64g-pcwv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54018"
+      }
+    ],
+    "published_at": "2026-06-17T17:55:44Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-jrfp-m64g-pcwv",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54018",
+      "https://github.com/advisories/GHSA-jrfp-m64g-pcwv",
+      "https://github.com/open-webui/open-webui",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/open-webui/PYSEC-2026-2743.yaml",
+      "https://pypi.org/project/open-webui"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI: SSRF Protection Bypass in Playwright Web Loader via HTTP Redirects",
+    "updated_at": "2026-07-20T21:07:59Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-jrfp-m64g-pcwv",
+  "repo": {
+    "cve_id": "CVE-2026-54018",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nThe SafePlaywrightURLLoader implements a validate_url function to prevent SSRF attacks by checking the IP address of the user-provided URL. However, this validation is performed only on the initial URL.\r\n\r\nSince Playwright automatically follows HTTP redirects (301/302) by default, an attacker can bypass the validation by providing a safe URL that redirects to a restricted internal network address (e.g., localhost, Docker container network, or Cloud Metadata).\r\n\r\nThis allows the application to access internal services despite ENABLE_RAG_LOCAL_WEB_FETCH being set to False\r\n\r\n### Details\r\nRoot Cause\r\n\r\nThe application validates the initial user-provided URL using self._safe_process_url_sync(url). This correctly resolves the domain and ensures it does not point to a private IP.\r\n\r\nThe application then calls page.goto(url). By default, Playwright automatically follows HTTP redirects (301/302).\r\n\r\nThe Bypass: If the destination server returns a redirect to an internal IP (e.g., 127.0.0.1 or 169.254.169.254), the browser follows it without re-validating the new destination. The initial validation is bypassed because it only checked the first URL, not the entire redirect chain.\r\n\r\n```python\r\nfor url in self.urls:\r\n    try:\r\n        self._safe_process_url_sync(url)  \r\n        page = browser.new_page()\r\n        response = page.goto(url, timeout=self.playwright_timeout)  #this\r\n        if response is None:\r\n            raise ValueError(...)\r\n        text = self.evaluator.evaluate(page, browser, response)\r\n```\r\n\r\n### PoC\r\n(This PoC uses Docker to easily demonstrate internal network access (accessing a container by service name). However, the vulnerability is NOT tied to Docker.)\r\n\r\n1. Ensure the Open WebUI is configured with the following environment variables. The vulnerability is specific to the Playwright engine.\r\n2. ENABLE_RAG_LOCAL_WEB_FETCH=False (Default)\r\n3. RAG_WEB_LOADER_ENGINE=playwright\r\n4. Setup and run attack server\r\n5. In Open WebUI, use the \"Web Search\" or \"URL Loader\" feature.\r\n6. Input the attacker's URL (e.g., http://attacker-ip/).\r\n\r\n```python\r\n# attack_server.py\r\nfrom flask import Flask, redirect\r\napp = Flask(__name__)\r\n\r\n@app.route('/')\r\ndef attack():\r\n    # Redirect to the Open WebUI container's internal port\r\n    return redirect(\"http://open-webui:8080/api/version\", code=302)\r\n\r\nif __name__ == '__main__':\r\n    app.run(host='0.0.0.0', port=80)\r\n```\r\n<img width=\"580\" height=\"192\" alt=\"image\" src=\"https://github.com/user-attachments/assets/4600dbb5-a81d-4e58-b787-afe04fe59d6e\" />\r\n\r\nThe Playwright browser follows the redirect to the internal address (http://open-webui:8080/api/version)\r\n\r\n### Impact\r\n+ Cloud Environments: Access to Instance Metadata Service (IMDS) to steal cloud credentials.\r\n+ Intranet/On-Premise: Scanning internal networks and accessing unauthenticated internal tools.\r\n+ Container Environments: Accessing other containers within the same network.\r\n\r\n### Recommended Patch\r\nimplement a request interceptor using Playwright's page.route. This ensures all requests, including redirects, are validated before connection.\r\n\r\napply the following logic to both lazy_load and alazy_load methods:\r\n\r\n```python\r\n# async context\r\nasync def intercept_route(route):\r\n    try:\r\n        await run_in_threadpool(validate_url, route.request.url)\r\n        await route.continue_()\r\n    except Exception:\r\n        await route.abort()\r\n\r\nawait page.route(\"**/*\", intercept_route)\r\nresponse = await page.goto(url, timeout=self.playwright_timeout)\r\n```\r\n",
+    "ghsa_id": "GHSA-jrfp-m64g-pcwv",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-jrfp-m64g-pcwv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrfp-m64g-pcwv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54018"
+      }
+    ],
+    "published_at": "2026-06-11T19:09:33Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF Protection Bypass in Playwright Web Loader via HTTP Redirects",
+    "updated_at": "2026-06-11T19:09:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.6",
+        "vulnerable_version_range": "<=0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

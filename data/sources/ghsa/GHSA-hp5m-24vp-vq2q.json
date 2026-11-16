@@ -1,0 +1,109 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44556",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-862"
+    ],
+    "description": "## Summary\n\nThe /responses endpoint in the OpenAI router accepts any authenticated user and forwards requests directly to upstream LLM providers without enforcing per-model access control. While the primary chat completion endpoint (generate_chat_completion) checks model ownership, group membership, and AccessGrants before allowing a request, the /responses proxy only validates that the user has a valid session via get_verified_user.\n\nThis allows any authenticated user - regardless of role or group assignment - to interact with any model configured on the instance by sending a POST request to /api/openai/responses with an arbitrary model ID.\n\n## Impact\n\nAs per OWASP TOP 10 LLM:\n\n- **Model Denial of Service (OWASP LLM04):** An unauthorized user can submit resource-intensive requests to expensive models (e.g., o1-pro, GPT-4o) that were explicitly restricted by the administrator. In shared deployments, this can exhaust API budgets or rate limits, causing total service disruption for all legitimate users.\n\n- **Model Theft (OWASP LLM10):** If the instance proxies access to fine-tuned or self-hosted models, unauthorized users can freely interact with them, enabling capability extraction or model distillation without authorization.\n\n- **Access Policy Bypass:** Administrators lose the ability to enforce cost-tier restrictions, team-based model assignments, or compliance boundaries through the existing access control system.\n\nThe endpoint is a raw passthrough proxy and does not resolve workspace model configurations (system prompts, knowledge bases, RAG pipelines). Therefore, workspace-specific confidential data is not directly exposed through this vector.\n\nPR: https://github.com/open-webui/open-webui/pull/23481",
+    "ghsa_id": "GHSA-hp5m-24vp-vq2q",
+    "html_url": "https://github.com/advisories/GHSA-hp5m-24vp-vq2q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hp5m-24vp-vq2q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44556"
+      }
+    ],
+    "published_at": "2026-05-08T19:45:53Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-hp5m-24vp-vq2q",
+      "https://github.com/open-webui/open-webui/pull/23481",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44556",
+      "https://github.com/advisories/GHSA-hp5m-24vp-vq2q"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI's responses passthrough endpoint lacks access control authorization",
+    "updated_at": "2026-05-15T23:52:39Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hp5m-24vp-vq2q",
+  "repo": {
+    "cve_id": "CVE-2026-44556",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe /responses endpoint in the OpenAI router accepts any authenticated user and forwards requests directly to upstream LLM providers without enforcing per-model access control. While the primary chat completion endpoint (generate_chat_completion) checks model ownership, group membership, and AccessGrants before allowing a request, the /responses proxy only validates that the user has a valid session via get_verified_user.\r\n\r\nThis allows any authenticated user - regardless of role or group assignment - to interact with any model configured on the instance by sending a POST request to /api/openai/responses with an arbitrary model ID.\r\n\r\n## Impact\r\n\r\nAs per OWASP TOP 10 LLM:\r\n\r\n- **Model Denial of Service (OWASP LLM04):** An unauthorized user can submit resource-intensive requests to expensive models (e.g., o1-pro, GPT-4o) that were explicitly restricted by the administrator. In shared deployments, this can exhaust API budgets or rate limits, causing total service disruption for all legitimate users.\r\n\r\n- **Model Theft (OWASP LLM10):** If the instance proxies access to fine-tuned or self-hosted models, unauthorized users can freely interact with them, enabling capability extraction or model distillation without authorization.\r\n\r\n- **Access Policy Bypass:** Administrators lose the ability to enforce cost-tier restrictions, team-based model assignments, or compliance boundaries through the existing access control system.\r\n\r\nThe endpoint is a raw passthrough proxy and does not resolve workspace model configurations (system prompts, knowledge bases, RAG pipelines). Therefore, workspace-specific confidential data is not directly exposed through this vector.\r\n\r\nPR: https://github.com/open-webui/open-webui/pull/23481",
+    "ghsa_id": "GHSA-hp5m-24vp-vq2q",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-hp5m-24vp-vq2q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hp5m-24vp-vq2q"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44556"
+      }
+    ],
+    "published_at": "2026-05-05T11:18:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "responses passthrough endpoint lacks access control authorization",
+    "updated_at": "2026-05-07T14:51:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

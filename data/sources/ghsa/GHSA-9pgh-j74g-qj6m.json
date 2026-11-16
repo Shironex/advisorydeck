@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44566",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-434"
+    ],
+    "description": "# **CONFIDENTIAL**\n\n# KL-CAN-2024-002\n\n## Vulnerability Details\n\n| # | Field | Value |\n|---|-------|-------|\n| 1 | **Discoverer** | Jaggar Henry & Sean Segreti of KoreLogic, Inc. |\n| 2 | **Date Submitted** | 2024.03.12 |\n| 3 | **Title** | Open WebUI Arbitrary File Upload + Path Traversal |\n| 5 | **Affected Vendor** | Open WebUI |\n| 6 | **Affected Product(s)** | Open WebUI (Formerly Ollama WebUI) |\n| 7 | **Affected Version(s)** | 0.1.105 |\n| 8 | **Platform/OS** | Debian GNU/Linux 12 (bookworm) |\n| 9 | **Vector** | HTTP web interface |\n| 10 | **CWE** | CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal'), CWE-434: Unrestricted Upload of File with Dangerous Type |\n\n---\n\n## 4. High-level Summary\n\nAttacker controlled files can be uploaded to arbitrary locations on the web server's filesystem by abusing a path traversal vulnerability.\n\n---\n\n## 11. Technical Analysis\n\nWhen attaching files to a prompt by clicking the plus sign (+) on the left of the message input box when using the Open WebUI HTTP interface, the file is uploaded to a static upload directory.\n\nThe name of the file is derived from the original HTTP upload request and is not validated or sanitized. This allows for users to upload files with names containing dot-segments in the file path and traverse out of the intended uploads directory. Effectively, users can upload files anywhere on the filesystem the user running the web server has permission.\n\nThis can be visualized by examining the python code for the `/rag/api/v1/doc` API route:\n\n```python\n@app.post(\"/doc\")\ndef store_doc(\n    collection_name: Optional[str] = Form(None),\n    file: UploadFile = File(...),\n    user=Depends(get_current_user),\n):\n    # \"https://www.gutenberg.org/files/1727/1727-h/1727-h.htm\"\n\n    print(file.content_type)\n    try:\n        filename = file.filename\n        file_path = f\"{UPLOAD_DIR}/{filename}\"\n        contents = file.file.read()\n        with open(file_path, \"wb\") as f:\n            f.write(contents)\n            f.close()\n```\n\nThe `file` variable is a representation of the multipart form data contained within the HTTP POST request. The `filename` variable is derived from the uploaded file name and is not validated before writing the file contents to disk.\n\nThis can be used to upload malicious models. These models are often distributed as pickled python objects and can be leveraged to execute arbitrary python bytecode once deserialized. Alternatively, an attacker can leverage existing services, such as SSH, to upload an attacker controlled `authorized_keys` file to remotely connect to the machine.\n\n---\n\n## 12. Proof-of-Concept\n\nExecute the following cURL command:\n\n```bash\nTARGET_URI='https://redacted.com'; JWT='redacted'; LOCAL_FILE='/tmp/file_to_upload.txt'\\\ncurl -H \"Authorization: Bearer $JWT\" -F \"file=$LOCAL_FILE;filename=../../../../../../../../../../tmp/pwned.txt\" \"$TARGET_URI/rag/api/v1/doc\"\n```\n\nVerify the file `pwned.txt` exists in the `/tmp/` directory on the machine hosting the web server:\n\n```console\nollama@webserver:~$ cat /tmp/pwned.txt \nkorelogic\nollama@webserver:~$\n```",
+    "ghsa_id": "GHSA-9pgh-j74g-qj6m",
+    "html_url": "https://github.com/advisories/GHSA-9pgh-j74g-qj6m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9pgh-j74g-qj6m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44566"
+      }
+    ],
+    "published_at": "2026-05-08T22:38:09Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-9pgh-j74g-qj6m",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44566",
+      "https://github.com/advisories/GHSA-9pgh-j74g-qj6m"
+    ],
+    "severity": "high",
+    "summary": "Open WebUI Vulnerable to Arbitrary File Upload and Path Traversal",
+    "updated_at": "2026-05-19T15:57:33Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.1.124",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.1.123"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-9pgh-j74g-qj6m",
+  "repo": {
+    "cve_id": "CVE-2026-44566",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-434"
+    ],
+    "description": "** CONFIDENTIAL **\r\n\r\n-----------------------------------------------\r\nKL-CAN-2024-002\r\n-----------------------------------------------\r\n\r\nVulnerability Details\r\n---------------------\r\n1. Discoverer: Jaggar Henry & Sean Segreti of KoreLogic, Inc.\r\n2. Date Submitted: 2024.03.12\r\n3. Title: Open WebUI Arbitrary File Upload + Path Traversal\r\n4. High-level Summary:\r\n     Attacker controlled files can be uploaded to arbitrary \r\n     locations on the web server's filesystem by abusing a\r\n     path traversal vulnerability.\r\n5. Affected Vendor: Open WebUI\r\n6. Affected Product(s): Open WebUI (Formerly Ollama WebUI)\r\n7. Affected Version(s): 0.1.105\r\n8. Platform/OS: Debian GNU/Linux 12 (bookworm)\r\n9. Vector: HTTP web interface\r\n10. CWE: CWE-22: Improper Limitation of a Pathname to a Restricted Directory ('Path Traversal'), CWE-434: Unrestricted Upload of File with Dangerous Type\r\n11. Technical Analysis:\r\n   When attaching files to a prompt by clicking the\r\n   plus sign (+) on the left of the message input box\r\n   when using the Open WebUI HTTP interface, the file\r\n   is uploaded to a static upload directory.\r\n\r\n   The name of the file is derived from the original\r\n   HTTP upload request and is not validated or sanitized.\r\n   This allows for users to upload files with names\r\n   containing dot-segments in the file path and traverse\r\n   out of the intended uploads directory. Effectively, users\r\n   can upload files anywhere on the filesystem the\r\n   user running the web server has permission.\r\n\r\n   This can be visualized by examining the python code \r\n   for the \"/rag/api/v1/doc\" API route:\r\n\r\n      @app.post(\"/doc\")\r\n      def store_doc(\r\n          collection_name: Optional[str] = Form(None),\r\n          file: UploadFile = File(...),\r\n          user=Depends(get_current_user),\r\n      ):\r\n          # \"https://www.gutenberg.org/files/1727/1727-h/1727-h.htm\"\r\n\r\n          print(file.content_type)\r\n          try:\r\n              filename = file.filename\r\n              file_path = f\"{UPLOAD_DIR}/{filename}\"\r\n              contents = file.file.read()\r\n              with open(file_path, \"wb\") as f:\r\n                  f.write(contents)\r\n                  f.close()\r\n\r\n   The \"file\" variable is a representation of the multipart\r\n   form data contained within the HTTP POST request. The\r\n   \"filename\" variable is derived from the uploaded file name\r\n   and is not validated before writing the file contents\r\n   to disk.\r\n\r\n    This can be used to upload malicious models. These models\r\n    are often distributed as pickled python objects and can\r\n    be leveraged to execute arbitrary python bytecode once\r\n    deserialized. Alternatively, an attacker can leverage existing\r\n    services, such as SSH, to upload an attacker controlled\r\n    \"authorized_keys\" file to remotely connect to the machine.\r\n\r\n12. Proof-of-Concept:\r\n   \r\n   Execute the following cURL command:\r\n\r\n      TARGET_URI='https://redacted.com'; JWT='redacted'; LOCAL_FILE='/tmp/file_to_upload.txt'\\\r\n      curl -H \"Authorization: Bearer $JWT\" -F \"file=$LOCAL_FILE;filename=../../../../../../../../../../tmp/pwned.txt\" \"$TARGET_URI/rag/api/v1/doc\"\r\n\r\n   Verify the file \"pwned.txt\" exists in the /tmp/ directory on\r\n   the machine hosting the web server:\r\n\r\n      ollama@webserver:~$ cat /tmp/pwned.txt \r\n      korelogic\r\n      ollama@webserver:~$\r\n\r\n13. Mitigation Recommendation: Please accept Github invitation from KoreLogicSecurityDisclosures and view the pull request at https://github.com/KoreLogicSecurityDisclosures/open-webui/pull/1.\r\n\r\n",
+    "ghsa_id": "GHSA-9pgh-j74g-qj6m",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-9pgh-j74g-qj6m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9pgh-j74g-qj6m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44566"
+      }
+    ],
+    "published_at": "2026-05-05T15:44:20Z",
+    "references": [],
+    "severity": "high",
+    "summary": "KL-CAN-2024-002",
+    "updated_at": "2026-05-07T15:20:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.1.124",
+        "vulnerable_version_range": "<=0.1.123"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

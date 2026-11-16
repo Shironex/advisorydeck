@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-98hr-q8q8-5j23",
+  "aliases": [],
+  "title": "Rootless privilege escalation",
+  "summary": "### Summary\r\n\r\nUsing the rootless containers, it is trivially easy to get root; this negates most of the security benefits and importantly misleads the user into thinking that rootless is safe which might lead to them securing it less / giving it more access to things under the bad assumption that it is safe.\r\n\r\n### Details\r\n\r\nThis is caused by:\r\n1. Rootless containers allow the node user to run `sudo` for a few commands\r\n2. In /etc/sudoers, the commands allowed do not restrict their arguments or anything, allowing for arbitrary usage of them\r\n3. `service`, permitted by sudo without a password, allows arbitrary code execution due to path traversal\r\n\r\nA possible quick fix for this would be only allowing sudo to run `service` with specific arguments rather than arbitrary invocations of it.\r\n\r\n### Proof of concept\r\n\r\nStart running `louislam/uptime-kuma:next-rootless` as a docker container named `uptime`. Then:\r\n```bash\r\n$ docker exec -it uptime sudo /usr/sbin/service ../../bin/sh\r\n```\r\n\r\n### Impact\r\n\r\nAnyone running rootless can be rooted, this negates the security benefits of rootless, and can be extra dangerous if users were extra-permissive with uptime kuma's permissions specifically because it was rootless",
+  "published_at": "2026-10-27T03:01:23.000Z",
+  "modified_at": "2026-10-27T03:01:23.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "uptime-kuma",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.5.6"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-98hr-q8q8-5j23",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-98hr-q8q8-5j23",
+      "url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-98hr-q8q8-5j23",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adcbb12db4bcf21478f9629d13d6408bc1dc76c3c6b71312b9f8803c090eeb39",
+  "note": null
+}

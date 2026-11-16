@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-rwpf-vrr8-6g7c",
+  "aliases": [],
+  "title": "SSH private keys disclosed in full by sshKey.all and sshKey.one - the redactServerSshKey fix from #4857 never reached the sshKey router",
+  "summary": "### Summary\n\n`sshKey.all` and `sshKey.one` return the `privateKey` column verbatim to any caller holding `sshKeys:read`.\n\nPR #4857 (merged 2026-07-20, shipped v0.29.13) established that returning SSH private key material to a caller who merely has read access on a resource is a vulnerability, and added `redactServerSshKey` for it. That helper is applied in exactly two places, both in the `server` router. The `sshKey` router - where the keys actually live - was never touched, so the same disclosure is still reachable one endpoint over.\n\nVerified against `canary` as of 2026-08-07 and confirmed byte-identical in the v0.29.14 release. Also reproduced live against a self-hosted v0.29.1 instance.\n\n### Details\n\n`apps/dokploy/server/api/routers/ssh-key.ts:84-89` - no `columns` projection, so every column including `privateKey` is returned for every key in the organization:\n\n```ts\nall: withPermission(\"sshKeys\", \"read\").query(async ({ ctx }) => {\n\treturn await db.query.sshKeys.findMany({\n\t\twhere: eq(sshKeys.organizationId, ctx.session.activeOrganizationId),\n\t\torderBy: desc(sshKeys.createdAt),\n\t});\n}),\n```\n\n`ssh-key.ts:71-83` - `one` returns the record raw. The organization check is present; redaction is not. `findSSHKeyById` (`packages/server/src/services/ssh-key.ts:56-69`) is a bare `findFirst` with no projection:\n\n```ts\none: withPermission(\"sshKeys\", \"read\")\n\t.input(apiFindOneSshKey)\n\t.query(async ({ input, ctx }) => {\n\t\tconst sshKey = await findSSHKeyById(input.sshKeyId);\n\t\tif (sshKey.organizationId !== ctx.session.activeOrganizationId) {\n\t\t\tthrow new TRPCError({ code: \"UNAUTHORIZED\", ... });\n\t\t}\n\t\treturn sshKey;\n\t}),\n```\n\n`allForApps` (`ssh-key.ts:90-99`) already does the right thing, so the safe pattern exists in the same file:\n\n```ts\nallForApps: protectedProcedure.query(async ({ ctx }) => {\n\treturn await db.query.sshKeys.findMany({\n\t\tcolumns: { sshKeyId: true, name: true },\n\t\twhere: eq(sshKeys.organizationId, ctx.session.activeOrganizationId),\n\t\torderBy: desc(sshKeys.createdAt),\n\t});\n}),\n```\n\nWorth noting the asymmetry runs backwards from what an access-control review would expect: the **projected** endpoint is a plain `protectedProcedure`, while the two **unprojected** ones are the permission-gated ones. The gate is on the endpoints that leak.\n\n`redactServerSshKey` is defined at `packages/server/src/services/server.ts:63-75` and has exactly two call sites repo-wide - `apps/dokploy/server/api/routers/server.ts:109` (`server.one`) and `:447` (`server.remove`). There are zero occurrences in `ssh-key.ts`.\n\n### Impact\n\nTwo things make this materially worse than the `server.one` case that #4857 fixed.\n\n**1. An API key is a full user session, not a scoped token.** The better-auth `apiKey()` plugin is configured at `packages/server/src/lib/auth.ts:418-422` with `enableMetadata` and `references` only - no `permissions` block. The `x-api-key` path resolves the key straight to its user and org membership (`auth.ts:489-566`). So a single `GET /api/sshKey.all` with one API key returns every SSH private key in the organization in one response. For most self-hosters those keys are root on the deploy hosts, which makes one leaked API key equivalent to root on the whole fleet.\n\n**2. The documentation states the opposite.** https://docs.dokploy.com/docs/core/ssh-keys says, verbatim:\n\n> Once you create a SSH Key you will not be able to read the Private Key anymore.\n\nThat is true of the UI and false at the API layer, and the page draws no UI/API distinction. A self-hoster reading that page would reasonably conclude the key is write-only after creation, and would treat an API key as less dangerous than it is.\n\n### Suggested fix\n\nEither works; the first is smaller.\n\n- Add a `columns` projection to `sshKey.all`, and to `sshKey.one`'s use of `findSSHKeyById`, mirroring `allForApps`. Any caller that genuinely needs the private key (the deploy path) should read it through a service function rather than through a permission-gated read endpoint.\n- Or reu...",
+  "published_at": "2026-11-12T08:16:23.000Z",
+  "modified_at": "2026-11-12T08:16:23.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-522"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-rwpf-vrr8-6g7c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rwpf-vrr8-6g7c",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-rwpf-vrr8-6g7c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

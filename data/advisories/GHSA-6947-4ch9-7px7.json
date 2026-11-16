@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-6947-4ch9-7px7",
+  "aliases": [],
+  "title": "Deployment history exposes registry passwords from rollback snapshots",
+  "summary": "## Summary\r\n\r\nA member with deployment-history access may inspect an assigned application's rollbacks. That response should not contain plaintext credentials for its image registries.\r\n\r\nCommit `c968a275` removed registry passwords from service-level API responses, but changed `createRollback()` to fetch all three registry records with credentials and persist them inside `rollback.fullContext`.\r\n\r\nThe ordinary deployment-history query joins the complete rollback row and returns it to any member with `deployment:read` on the application. The application deployment page polls this query, so the response discloses the plaintext registry, build-registry, and rollback-registry passwords without requiring registry permission.\r\n\r\n## Details\r\n\r\n`createRollback()` resolves `registryId`, `buildRegistryId`, and `rollbackRegistryId` through `findRegistryByIdWithCredentials()` and writes the resulting objects to the JSON `fullContext` column. The deployment-history query then joins the complete rollback row and returns it.\r\n\r\n```ts\r\nconst deploymentsList = await db.query.deployments.findMany({\r\n  where: eq(deployments[`${input.type}Id`], input.id),\r\n  with: { rollback: true },\r\n});\r\nreturn deploymentsList;\r\n```\r\n\r\nNo rollback columns or nested `fullContext` fields are excluded before serialization.\r\n\r\n## Steps to reproduce\r\n\r\n1. Configure an application with rollback enabled and a private rollback registry, then deploy it so Dokploy creates a rollback snapshot.\r\n2. Grant a member service access to the application. The base member role includes `deployment:read` but no `registry` permission.\r\n3. As that member, send the authenticated GET request to `/api/trpc/deployment.allByType` shown below.\r\n\r\n```http\r\nGET /api/trpc/deployment.allByType?input={\"json\":{\"id\":\"APPLICATION_ID\",\"type\":\"application\"}}\r\nCookie: better-auth.session_token=MEMBER_SESSION\r\n```\r\n\r\n4. Inspect the response.\r\n\r\n```json\r\n{\r\n  \"rollback\": {\r\n    \"fullContext\": {\r\n      \"rollbackRegistry\": {\r\n        \"username\": \"registry-user\",\r\n        \"password\": \"PLAINTEXT-REGISTRY-PASSWORD\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nA service reader can obtain reusable private-registry credentials. Depending on their scope, the member can pull proprietary images, extract secrets embedded in image layers, overwrite mutable tags, or publish malicious images later consumed by deployments.\r\n\r\n## Recommendation\r\n\r\nDo not persist registry credentials in `fullContext`. Store registry IDs and resolve credentials only inside rollback execution. Exclude `fullContext` from every deployment/rollback response and remove credential-bearing values from existing rollback rows.",
+  "published_at": "2026-11-12T08:15:22.000Z",
+  "modified_at": "2026-11-12T08:15:22.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:H/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6947-4ch9-7px7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6947-4ch9-7px7",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-6947-4ch9-7px7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:105a569026b648a235a31d98e44e370849cb45744743da0d57e589a4e00444ae",
+  "note": null
+}

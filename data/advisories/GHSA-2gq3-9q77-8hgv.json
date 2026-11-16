@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-2gq3-9q77-8hgv",
+  "aliases": [],
+  "title": "Authenticated Command Injection via unescaped backup.prefix in database/service backup commands leads to RCE as root",
+  "summary": "### Summary\r\nThe `prefix` field of a Backup (used to namespace backup files within an S3-compatible destination) is validated only as a non-empty string, with no restriction on shell metacharacters, and is interpolated directly into the rclone command line used to upload backups and to prune old ones. The value sits inside a double-quoted rclone argument (or, in the retention-cleanup path, with no quoting at all), so an authenticated organization member with permission to configure backups for a service can inject arbitrary shell commands that execute as root on the Dokploy host (or configured remote server) as soon as a backup runs - manually or on its schedule.\r\n\r\n### Details\r\n\r\nField definition: `packages/server/src/db/schema/backups.ts` - `prefix: text(\"prefix\").notNull()`, validated as `z.string().min(1)` with no character restriction (unlike branch-name fields elsewhere in the schema, which do carry a restrictive regex).\r\n\r\n`normalizeS3Path()` (`packages/server/src/utils/backups/utils.ts`) only trims whitespace and strips leading/trailing slashes - it does not escape or reject shell metacharacters:\r\n```ts\r\nexport const normalizeS3Path = (prefix: string) => {\r\n\tconst normalizedPrefix = prefix.trim().replace(/^\\/+|\\/+$/g, \"\");\r\n\treturn normalizedPrefix ? `${normalizedPrefix}/` : \"\";\r\n};\r\n```\r\nVulnerable sink (identical pattern for every backup type - PostgreSQL, MySQL, MariaDB, MongoDB, libSQL, Compose, and the web-server backup), shown for `packages/server/src/utils/backups/postgres.ts:34-40`:\r\n```ts\r\nconst { prefix } = backup;\r\nconst bucketDestination = `${appName}/${normalizeS3Path(prefix)}${backupFileName}`;\r\n...\r\nconst rcloneDestination = `:s3:${destination.bucket}/${bucketDestination}`;\r\nconst rcloneCommand = `rclone rcat ${rcloneFlags.join(\" \")} \"${rcloneDestination}\"`;\r\n```\r\nThe whole destination path - including the unescaped `prefix` - sits inside a single pair of double quotes as one rclone argument. Bash still performs `$(...)`/backtick command substitution inside double-quoted strings, so it expands and executes any such sequence in `prefix` while constructing that argument, before `rclone` is ever invoked.\r\n\r\nAn even more direct sink exists in the retention-cleanup path that runs automatically after every successful backup, `packages/server/src/utils/backups/index.ts:139-149` (`keepLatestNBackups`):\r\n```ts\r\nconst backupFilesPath = `:s3:${destination.bucket}/${appName}/${normalizeS3Path(backup.prefix)}`;\r\nconst rcloneList = `rclone lsf ${rcloneFlags.join(\" \")} --include \"...\" ${backupFilesPath}`;\r\nconst rcloneDelete = `rclone delete ${rcloneFlags.join(\" \")} ${backupFilesPath}{}`;\r\nconst rcloneCommand = `${rcloneList} | ${sortAndPickUnwantedBackups} ${rcloneDelete}`;\r\n```\r\nHere `backupFilesPath` is interpolated with no quoting at all.\r\n\r\nBoth are ultimately executed via `execAsync`/`execAsyncRemote` (`child_process.exec` under `/bin/sh -c`, or the equivalent over SSH for a remote server).\r\n\r\nThe authorization gate on creating/updating/running a backup is `checkServicePermissionAndAccess(ctx, serviceId, { backup: [\"create\"] })` - the default `member` organization role already includes `backup: [\"read\",\"create\",\"update\",\"delete\",\"restore\"]` for any service that member has access to, so no admin/owner role is required.\r\n\r\n### PoC\r\n\r\nTested against the running Dokploy application through the real web UI:\r\n\r\n1. Added an S3-compatible Destination (any credentials work for this PoC - the injected command executes while the rclone command line is being constructed, regardless of whether the destination is actually reachable).\r\n2. On an existing PostgreSQL service, created a Backup pointing at that destination, with the \"Prefix Destination\" field set to:\r\n```\r\n$(touch /tmp/backup_pwn_marker)\r\n```\r\n\r\n<img width=\"1920\" height=\"889\" alt=\"poc3-01-malicious-prefix-field\" src=\"https://github.com/user-attachments/assets/1735a8b4-563e-43d2-93b2-ef244431a3dd\" />\r\n\r\n3. Triggered the backup manually from the UI.\r\n\r\n<img width=\"...",
+  "published_at": "2026-11-12T08:16:38.000Z",
+  "modified_at": "2026-11-12T08:16:38.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-2gq3-9q77-8hgv",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2gq3-9q77-8hgv",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-2gq3-9q77-8hgv",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

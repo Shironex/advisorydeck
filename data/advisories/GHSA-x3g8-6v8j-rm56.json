@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-x3g8-6v8j-rm56",
+  "aliases": [],
+  "title": "OS command injection via libsql appName missing APP_NAME_REGEX validation",
+  "summary": "## Summary\nThe libsql database service is the only database type whose `appName` field is not validated by `APP_NAME_REGEX`. `appName` flows unquoted into `docker service`/`docker ps` shell commands executed via `execAsync`/`execAsyncRemote`, allowing OS command injection on the Dokploy host.\n\n## Root Cause\n`apiCreateLibsql` types `appName` as `z.string().min(1)` (apps/dokploy/server/api/routers/libsql.ts:118) - every other database (postgres/mysql/mariadb/mongo/redis) applies `.regex(APP_NAME_REGEX)` (added to all DBs except libsql by commit `960892fd8`). The value is passed through `cleanAppName` (schema/utils.ts:66 = `.trim().replace(/ /g,\"-\").toLowerCase()`), which does NOT strip `$ ( ) ; | \\``. It then reaches `getServiceContainerCommand` - `docker ps ... --filter \"...service.name=${appName}\"` (double-quoted → `$(...)` fires) - and unquoted `docker service` commands.\n\n## Impact\nCommand execution on the Dokploy control-plane host (Docker socket → app→host escape) or a managed remote server = RCE.\n\n## Proof of Concept\nAs a member with `canCreateServices` (else admin/owner), create a libsql service with `appName` containing a `$(...)` payload (see payload note below), then trigger a service/backup operation that runs the appName-bearing docker command.\n\n## Attack Chain\n1. Entry: tRPC `libsql.create` (`checkServiceAccess \"create\"`) - routers/libsql.ts:53. Guard: `apiCreateLibsql` schema. Bypass proof: `appName: z.string().min(1)` (libsql.ts:118) - the lone DB missing `.regex(APP_NAME_REGEX)`.\n2. Normalization: `buildAppName` → `cleanAppName`. Guard: `cleanAppName`. Bypass proof: it only trims/space-replaces/lowercases; does not strip `$ ( ) ;` (confirmed schema/utils.ts:66).\n3. Sink: `getServiceContainerCommand` `docker ps ... --filter \"...service.name=${appName}\"` (double-quoted) and unquoted `docker service scale ${appName}` → `execAsync`/`execAsyncRemote` (shell). Guard: none. Bypass proof: `$(...)` fires inside double quotes.\n4. Impact: RCE on host/remote server.\n\n## Bypass Evidence\n`cleanAppName` confirmed to leave metacharacters intact. `$(...)` executes inside double quotes (verified `bash -c 'echo \"x$(id -u)\"'`). No advisory covers libsql `appName` (CVE-2026-72862/72878 libsql references target `dockerImage`/`database`, not `appName`). Missing regex confirmed on the v0.29.14 release tag. **Payload note:** `${IFS}` does NOT work here because `cleanAppName` lowercases (IFS→ifs); use a literal TAB/newline for word-splitting or a no-argument command such as `$(reboot)`/`$(id)`.\n\n## Affected Versions\n`<= 0.29.14` (libsql `appName` lacks the regex on the release tag and at HEAD).\n\n## Suggested Fix\nAdd `.regex(APP_NAME_REGEX)` to the libsql `appName` schema for parity with the other database types.\n\n---\nReported by **zx (Jace)** - GitHub: @manus-use",
+  "published_at": "2026-11-12T08:16:20.000Z",
+  "modified_at": "2026-11-12T08:16:20.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-x3g8-6v8j-rm56",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-x3g8-6v8j-rm56",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-x3g8-6v8j-rm56",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ea8333eec3fcf00aa7b6338c0dc3314e9398cb50464e68f9bae2bf5e5f84fb80",
+  "note": null
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-vh5m-fc9v-m84g",
+  "aliases": [],
+  "title": "SSRF filter bypass (regex not applied post-resolution)",
+  "summary": "### Summary\r\nThe internal-IP SSRF filter can be bypassed in specific non-default configuration. \r\n\r\nWhen an operator disables non-global-IP block (`HTTP_REQUEST_BLOCK_NON_GLOBAL_IPS=false`) and instead relies on `HTTP_REQUEST_BLOCK_REGEX` to keep the server's outbound HTTP client (icon fetching, etc.) away from internal ranges, the regex is **never applied to resolved IP addresses**. An unauthenticated attacker can therefore reach a regex-blocked internal IP by supplying a hostname that resolves to that IP but does not textually match the regex,via unauthenticated `/icons/<host>/icon.png` endpoint.\r\n\r\nDefault installs are **not** affected.\r\n\r\nThis is a residual gap in the same fixes implemented for CVE-2026-47160 / GHSA-72vh-x5jq-m82g (fixed in 1.36.0). That fix closed decimal/hex/octal IP-format bypass which affected the _default_ config. This report is a distinct gap, the regex is not applied post-resolution, that affects _regex-reliance_ config and is present in 1.36.0 and earlier. It is fixed in 1.37.0.\r\n\r\n### Details\r\nThe pre-connect and post-resolution filters are asymmetric.\r\n\r\n`should_block_host()` (src/http_client.rs:135) applies **both** checks to an IP\r\nhost - `should_block_ip()` and `should_block_address_regex()`. But\r\n`post_resolve()` (src/http_client.rs:273) applies **only** `should_block_ip()`:\r\n\r\n    // src/http_client.rs:273 @ tag 1.36.0\r\n    fn post_resolve(name: &str, ip: IpAddr) -> Result<(), CustomHttpClientError> {\r\n        if should_block_ip(ip) {\r\n            Err(CustomHttpClientError::NonGlobalIp { domain: Some(name.to_string()), ip })\r\n        } else {\r\n            Ok(())\r\n        }\r\n    }\r\n\r\n`should_block_ip()` (src/http_client.rs:61) short-circuits to `false` for every\r\nIP when the non-global-IP block is disabled:\r\n\r\n    fn should_block_ip(ip: IpAddr) -> bool {\r\n        if !CONFIG.http_request_block_non_global_ips() {   // default: true\r\n            return false;\r\n        }\r\n        !is_global(ip)\r\n    }\r\n\r\nSo with `http_request_block_non_global_ips=false`, the regex\r\n(`http_request_block_regex`, src/config.rs:703) is the *only* protection for\r\ninternal ranges - yet `resolve_domain()` (src/http_client.rs:241) only runs it\r\nagainst the domain string in `pre_resolve()` (src/http_client.rs:257), never\r\nagainst the resolved IP in `post_resolve()`.\r\n\r\nFor a URL whose host is a domain name, the flow is:\r\n\r\n  1. pre_resolve() -> should_block_host(Host::Domain(name)) -> regex tested\r\n     against the **domain string** only. A hostname that does not textually\r\n     contain the target IP does not match an IP-pattern regex -> pass.\r\n  2. DNS resolves the name to an internal IP.\r\n  3. post_resolve(name, ip) -> should_block_ip(ip) -> false (flag disabled)\r\n     -> regex is never applied to the IP -> allowed.\r\n\r\nThe request then proceeds to the internal IP. In contrast, the same IP supplied\r\nas a literal is caught, because should_block_host() (used for IP-literal hosts\r\nat src/api/icons.rs:123) does apply the regex.\r\n\r\nEntry point: `icon_internal` (src/api/icons.rs:111, `#[get(\"/<host>/icon.png\")]`)\r\nis unauthenticated and drives this outbound fetch through the shared reqwest\r\nclient + custom DNS resolver. Other outbound requests that use the shared\r\nresolver (push relay, HIBP, Duo, version check) were also affected, but their\r\ndestinations are fixed or administrator-configured, so the attacker-reachable\r\nentry point is the unauthenticated icon endpoint.\r\n\r\nAffected source (line numbers per tag 1.36.0, src/http_client.rs unless noted):\r\n  - post_resolve            :273   (root cause - only should_block_ip)\r\n  - should_block_ip         :61    (flag short-circuit)\r\n  - should_block_address_regex :69\r\n  - should_block_host       :135   (correct: both checks)\r\n  - resolve_domain          :241   (pre_resolve + per-IP post_resolve)\r\n  - pre_resolve             :257   (regex on domain string only)\r\n  - icon_internal route     :111   (src/api/icons.rs, unauthenticated)\r\n\r\nSuggested fix (applied in 1.37.0): route the r...",
+  "published_at": "2026-10-03T20:04:31.000Z",
+  "modified_at": "2026-10-03T20:04:31.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "vaultwarden",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.37.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-vh5m-fc9v-m84g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vh5m-fc9v-m84g",
+      "url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-vh5m-fc9v-m84g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adc9ec2d08be2e4c7c4f4842c8084643f143511898bbd8e8bafa89596c76cdc2",
+  "note": null
+}

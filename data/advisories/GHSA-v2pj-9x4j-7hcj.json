@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-v2pj-9x4j-7hcj",
+  "aliases": [],
+  "title": "Cross-organization SSH key attachment in Dokploy server update",
+  "summary": "### Summary\r\nDokploy allows an authenticated user to update a server object with an arbitrary `sshKeyId`. The update path verifies that the target server belongs to the active organization, but it does not verify that the supplied SSH key belongs to the same organization. As a result, a user can attach another organization's SSH key to a server they control.\r\n\r\nThis is similar with **CVE-2025-22609**. In the original vulnerability, a missing authorization check allowed an authenticated user to attach an existing private key from the Coolify instance to their own server and then use terminal access to execute commands on an SSH target that accepted that key.\r\n\r\n### Details\r\n1. The server update route authorizes the server, but not the supplied SSH key.\r\n\r\n```ts\r\nconst server = await findServerById(input.serverId);\r\nif (server.organizationId !== ctx.session.activeOrganizationId) {\r\n  throw new TRPCError({\r\n    code: \"UNAUTHORIZED\",\r\n    message: \"You are not authorized to update this server\",\r\n  });\r\n}\r\n\r\nconst currentServer = await updateServerById(input.serverId, {\r\n  ...input,\r\n});\r\n```\r\n\r\nThe source is attacker-controlled `sshKeyId` in the `server.update` mutation input. The route only checks `server.organizationId`; it does not load the referenced SSH key and compare `sshKey.organizationId` with `ctx.session.activeOrganizationId`.\r\n\r\n2. The service writes the supplied fields directly.\r\n\r\n```ts\r\nconst result = await db\r\n  .update(server)\r\n  .set({\r\n    ...serverData,\r\n  })\r\n  .where(eq(server.serverId, serverId))\r\n  .returning()\r\n  .then((res) => res[0]);\r\n```\r\n\r\nThe sink is the server table update. Because `sshKeyId` is included in the accepted update schema, a foreign key to another organization's SSH key can be persisted on an attacker-controlled server.\r\n\r\n3. Terminal access later trusts the server's SSH key relation.\r\n\r\n```ts\r\nconst { ipAddress: host, port, username, sshKey, sshKeyId } = server;\r\n\r\nif (!sshKeyId) {\r\n  throw new Error(\"No SSH key available for this server\");\r\n}\r\n\r\nconnectionDetails = {\r\n  host,\r\n  port,\r\n  username,\r\n  privateKey: sshKey?.privateKey,\r\n};\r\n```\r\n\r\nThe impact sink is terminal SSH connection setup. Once the cross-organization key is attached, terminal code uses `server.sshKey.privateKey` for the SSH session.\r\n\r\n### How to reproduce\r\n1. Prepare two organizations in the same Dokploy instance.\r\n2. In the victim organization, create an SSH key.\r\n3. In the attacker organization, create or select a server object.\r\n4. As a user in the attacker organization, call the `server.update` mutation for the attacker-owned server and set `sshKeyId` to the victim organization's SSH key ID.\r\n5. Query the updated server.\r\n\r\n- Expected secure behavior: the mutation rejects the request because the SSH key belongs to a different organization.\r\n- Observed vulnerable behavior: the mutation succeeds and the attacker-owned server row references the victim organization's SSH key. In the reproduced latest-source run, the resulting state was:\r\n\r\n```json\r\n{\r\n  \"serverOrganizationId\": \"org-attacker\",\r\n  \"attachedSshKeyId\": \"victim-key-id\",\r\n  \"attachedSshKeyOrganizationId\": \"org-victim\",\r\n  \"vulnerable\": true\r\n}\r\n```\r\n\r\n### Example PoC\r\n```\r\nimport { db } from \"@dokploy/server/db\";\r\nimport {\r\n  member,\r\n  organization,\r\n  server,\r\n  sshKeys,\r\n  user,\r\n} from \"@dokploy/server/db/schema\";\r\nimport { eq } from \"drizzle-orm\";\r\nimport { appRouter } from \"./server/api/root\";\r\n\r\nconst now = new Date();\r\nconst orgA = \"org-attacker\";\r\nconst orgB = \"org-victim\";\r\nconst attackerUser = \"user-attacker\";\r\nconst victimUser = \"user-victim\";\r\nconst victimKey = \"victim-key-id\";\r\nconst attackerServer = \"attacker-server-id\";\r\n\r\nasync function main() {\r\n  await db.delete(server);\r\n  await db.delete(sshKeys);\r\n  await db.delete(member);\r\n  await db.delete(organization);\r\n  await db.delete(user);\r\n\r\n  await db.insert(user).values([\r\n    {\r\n      id: attackerUser,\r\n      email: \"attacker@example.test\",\r\n      emailVerified: true,\r\n      updated...",
+  "published_at": "2026-11-12T08:17:14.000Z",
+  "modified_at": "2026-11-12T08:17:14.000Z",
+  "severity": {
+    "level": "critical",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-v2pj-9x4j-7hcj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v2pj-9x4j-7hcj",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-v2pj-9x4j-7hcj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

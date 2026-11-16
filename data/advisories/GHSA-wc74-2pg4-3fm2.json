@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wc74-2pg4-3fm2",
+  "aliases": [],
+  "title": "Unverified profile email change hijacks pending organization invitations",
+  "summary": "## Summary\r\n\r\nA signed-in user may edit profile data, but may not assert ownership or verification of an email address they do not control. Invitation acceptance relies on that email identity, so this crosses the account-verification boundary.\r\n\r\nThe authenticated `user.update` contract is derived from the database insert schema. It accepts both `email` and `emailVerified`, then spreads the request directly into the caller's user row.\r\n\r\nAn attacker can replace their email with the unregistered address of a pending invitation without proving control of that mailbox. An already verified account retains `emailVerified=true`. Alternatively the same request can assign that flag directly. `user.getInvitations` then discloses pending invitations for the claimed address, including their IDs and roles, and Better Auth permits the attacker to accept them.\r\n\r\n## Details\r\n\r\nThe authenticated `user.update` contract is derived from the database insert schema. It accepts both `email` and `emailVerified`, then spreads the request directly into the caller's user row.\r\n\r\n```ts\r\n\t// ...\r\n\tupdate: protectedProcedure\r\n\t\t.input(apiUpdateUser)\r\n\t\t.mutation(async ({ input, ctx }) => {\r\n\t\t\tif (input.password || input.currentPassword) {\r\n\t\t\t\tconst currentAuth = await db.query.account.findFirst({\r\n\t\t\t\t\twhere: eq(account.userId, ctx.user.id),\r\n\t\t\t\t});\r\n\t\t\t\tconst correctPassword = bcrypt.compareSync(\r\n\t\t\t\t\tinput.currentPassword || \"\",\r\n\t\t\t\t\tcurrentAuth?.password || \"\",\r\n\t\t\t\t);\r\n\r\n\t// ...\r\n\t\t\t\t\t);\r\n\t\t\t}\r\n\r\n\t\t\ttry {\r\n\t\t\t\tconst result = await updateUser(ctx.user.id, input);\r\n\t\t\t\tawait audit(ctx, {\r\n\t\t\t\t\taction: \"update\",\r\n\t\t\t\t\tresourceType: \"user\",\r\n\t\t\t\t\tresourceId: ctx.user.id,\r\n\t\t\t\t\tresourceName: ctx.user.email,\r\n\t// ...\r\n\t\t\t\tthrow new TRPCError({\r\n\t\t\t\t\tcode: \"BAD_REQUEST\",\r\n\t\t\t\t\tmessage:\r\n\t\t\t\t\t\terror instanceof Error ? error.message : \"Failed to update user\",\r\n\t\t\t\t});\r\n\t\t\t}\r\n\t\t}),\r\n```\r\n\r\n## Steps to reproduce\r\n\r\nStarting with any authenticated attacker account and a pending invitation for an unregistered address.\r\n\r\n```http\r\nPOST /api/trpc/user.update\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=ATTACKER_SESSION\r\n\r\n{\"json\":{\"email\":\"new-admin@victim.example\",\"emailVerified\":true}}\r\n```\r\n\r\nOn a subsequent authenticated request, enumerate the claimed address's invitations.\r\n\r\n```http\r\nGET /api/trpc/user.getInvitations\r\nCookie: better-auth.session_token=ATTACKER_SESSION\r\n```\r\n\r\nAccept the returned ID.\r\n\r\n```http\r\nPOST /api/auth/organization/accept-invitation\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=ATTACKER_SESSION\r\n\r\n{\"invitationId\":\"VICTIM_INVITATION_ID\"}\r\n```\r\n\r\nThe attacker receives the role stored in the invitation. Re-authenticate before the last two requests if the deployment caches session user fields.\r\n\r\n## Impact\r\n\r\nAn authenticated user who knows or guesses an address with a pending invitation can join the victim organization with the invitation's role. Hijacking an owner or administrator invitation exposes tenant secrets and managed-host functions, which can lead to host command execution.\r\n\r\n## Recommendation\r\n\r\nRemove `email` and `emailVerified` from `apiUpdateUser`. Change email only through a dedicated flow that verifies the new mailbox before updating the account. Never accept `emailVerified` from a profile request.",
+  "published_at": "2026-11-12T08:14:36.000Z",
+  "modified_at": "2026-11-12T08:14:36.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:N/VI:H/VA:L/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-915"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wc74-2pg4-3fm2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wc74-2pg4-3fm2",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-wc74-2pg4-3fm2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

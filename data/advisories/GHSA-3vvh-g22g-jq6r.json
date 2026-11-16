@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-3vvh-g22g-jq6r",
+  "aliases": [],
+  "title": "Channel members can post messages shown as a webhook via client-supplied message metadata",
+  "summary": "# Channel members can post messages shown as a webhook via client-supplied message metadata\r\n\r\n## Summary\r\nAny member who can post in a channel can make their message appear as if a real webhook of that channel posted it. The server stored the metadata the client sent with a message without checking it. The channel then showed the message under the webhook's name and role, with no webhook token required.\r\n\r\n## Preconditions\r\nChannels are enabled (`ENABLE_CHANNELS`, default `False`). The channel has at least one webhook. The attacker is a member with write access to the channel. The attacker knows the webhook's id. Any member can read it from a message the webhook posted, so it is not a secret. Instances with channels disabled, or without channel webhooks, are not affected.\r\n\r\n## Impact\r\nA member can post, edit and pin messages that other members see as coming from a trusted webhook, such as an alerting or ops bot. That makes social engineering inside the channel easy. The stored author is still the attacker's account. The attacker cannot change the webhook's real messages, read anything new or act with the webhook's token.\r\n\r\n## Fix\r\nFixed in #32421. The server now drops any message metadata sent by the client, both when a message is posted and when it is edited, so only the server sets it. Upgrading is enough.\r\n\r\n## Root cause\r\nComponent: the channel message post and edit endpoints in `backend/open_webui/routers/channels.py`. Affected setup: every build with channel webhooks, from 0.7.0. The message form accepted an arbitrary metadata object from the client and stored it as is. The message list and the pinned list then trusted that metadata to decide who the message was from. A webhook id in the metadata was enough for the message to be shown as that webhook.\r\n\r\n## Proof of concept\r\n1. Admin creates a webhook \"Ops Bot\" in a channel, and the webhook posts a message.\r\n2. Alice, a channel member, reads the webhook id from that message.\r\n3. Alice posts a message with `meta.webhook = {\"id\": \"<webhook id>\", \"name\": \"Ops Bot\"}` and pins it.\r\n4. Bob opens the channel. The message and the pinned list show it as `Ops Bot` with role `webhook`, while the stored author is Alice.\r\n\r\nRun by the reporter on 0.11.3.\r\n\r\n## Credits\r\n@Tarekinh0 (reporter)",
+  "published_at": "2026-10-18T19:50:50.000Z",
+  "modified_at": "2026-10-18T19:50:50.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-290",
+    "CWE-345",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "open-webui",
+      "ranges": [
+        {
+          "introduced": "0.7.0",
+          "fixed": "0.12.2"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-3vvh-g22g-jq6r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3vvh-g22g-jq6r",
+      "url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-3vvh-g22g-jq6r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:a7ecff22e932ee1faed8df1aca8f9961b36ee3458745e633ba8330acac84fa4e",
+  "note": null
+}

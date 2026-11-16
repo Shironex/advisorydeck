@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-j2hf-x4q5-47j3",
+  "repo": {
+    "cve_id": "CVE-2026-35031",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-187",
+      "CWE-20",
+      "CWE-22"
+    ],
+    "description": "### Impact\r\nA vulnerability chain in Jellyfin has been discovered which potentially allows a non-admin user with SubtitleManagement permission to achieve remote code execution as root.\r\n\r\nThe subtitle upload endpoint (`POST /Videos/{itemId}/Subtitles`) does not validate the Format field, allowing path traversal via the file extension. This enables arbitrary file write, which chains into potential arbitrary file read (via `.strm` files), database extraction, admin privilege escalation, and ultimately RCE via ld.so.preload.\r\n\r\nThis vulnerability requires an administrator or a user to have been explicitly granted the \"Upload Subtitles\" permission.\r\n\r\n### Patches\r\nThis issue has been fixed in 10.11.7 (and backported to `master`) via improved sanitization of the affected API endpoint.\r\n\r\n### Workarounds\r\nDo not grant non-administrator users Subtitle upload permissions to reduce attack surface.\r\n\r\n### References\r\n\r\nProof of concept provided by @odgrso via private report document.\r\nProof-of-concept provided by @LTe to be released alongside this GHSA: https://github.com/LTe/jellyfin-subtitiles-exploit\r\n\r\nThis bug was also reported in parallel by GHSL team member [@anticomputer (Bas)](https://github.com/anticomputer) though without the exploit chaining (GHSL-2026-051).",
+    "ghsa_id": "GHSA-j2hf-x4q5-47j3",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-j2hf-x4q5-47j3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j2hf-x4q5-47j3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35031"
+      }
+    ],
+    "published_at": "2026-04-14T21:13:43Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Potential RCE via subtitle upload path traversal + .strm chain",
+    "updated_at": "2026-04-14T21:13:44Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "10.11.7",
+        "vulnerable_version_range": "<10.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

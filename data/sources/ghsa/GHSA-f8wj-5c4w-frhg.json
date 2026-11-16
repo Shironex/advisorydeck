@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-f8wj-5c4w-frhg",
+  "repo": {
+    "cve_id": "CVE-2026-43917",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\nMultiple tRPC endpoints in Dokploy accept resource IDs but fail to verify that the resource belongs to the caller's active organization. While adjacent endpoints in the same router correctly check `ctx.session.activeOrganizationId`, these endpoints skip the check entirely, allowing any authenticated user to access, modify, or delete resources belonging to other organizations.\r\n\r\n## Root Cause\r\n\r\nThe `protectedProcedure` middleware only verifies the user is authenticated - it does NOT enforce organization scoping. Each endpoint must individually verify the resource's org matches the session's `activeOrganizationId`. Many endpoints inconsistently skip this check.\r\n\r\n## Affected Endpoints (25+)\r\n\r\n### deployment.ts (3 vulnerable / 3 correctly secured)\r\n- `allByType` (line 72): Queries deployments by type ID without org check\r\n- `killProcess` (line 86): Kills deployment process without org check  \r\n- `removeDeployment` (line 112): Deletes deployment without org check\r\n\r\n### rollbacks.ts (1 vulnerable / 1 correctly secured)\r\n- `delete` (line 11): `removeRollbackById()` without org check (while `rollback` at line 27 correctly checks org)\r\n\r\n### backup.ts (11+ vulnerable)\r\n- `create`, `one`, `update`, `remove`: All lack org checks\r\n- `manualBackupPostgres/MySql/Mariadb/Mongo/Compose/WebServer`: All lack org checks\r\n- `listBackupFiles`: Lists by destinationId without org check\r\n\r\n### volume-backups.ts (6 vulnerable)\r\n- `list`, `one`, `delete`, `update`, `runManually`, `restoreVolumeBackupWithLogs`: All lack org checks\r\n\r\n### cluster.ts (4+ vulnerable)\r\n- `getNodes`, `removeWorker`, `addWorker`, `addManager`: Use serverId without org validation\r\n\r\n### mount.ts (1 vulnerable / 3 correctly secured)\r\n- `create` (line 21): No org check (while `remove`, `one`, `update` all correctly check org)\r\n\r\n## Contrast\r\n\r\nCorrectly secured endpoints follow this pattern (e.g., `mount.ts:27-37`):\r\n```typescript\r\nconst organizationId = await findMountOrganizationId(input.mountId);\r\nif (organizationId !== ctx.session.activeOrganizationId) {\r\n  throw new TRPCError({ code: \"UNAUTHORIZED\" });\r\n}\r\n```\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker creates account in Organization A\r\n2. Obtains resource ID from Organization B\r\n3. Calls `deployment.killProcess({ deploymentId: \"org-b-id\" })` → kills Org B's production deployment\r\n4. Calls `cluster.addWorker({ serverId: \"org-b-server-id\" })` → obtains Org B's Docker Swarm join token\r\n\r\n## Impact\r\n\r\n- **Confidentiality:** Cross-org deployment info, backup configs, server details, Swarm join tokens\r\n- **Integrity:** Cross-org deployment/backup/rollback deletion and modification  \r\n- **Availability:** Cross-org deployment kill, backup schedule manipulation\r\n\r\n## Recommended Fix\r\n\r\nAdd `organizationId !== ctx.session.activeOrganizationId` validation after every `find*ById()` call, following the existing pattern used by the correctly secured endpoints.",
+    "ghsa_id": "GHSA-f8wj-5c4w-frhg",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-f8wj-5c4w-frhg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f8wj-5c4w-frhg"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-43917"
+      }
+    ],
+    "published_at": "2026-05-11T18:37:35Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-Organization IDOR: Multiple tRPC endpoints missing activeOrganizationId validation",
+    "updated_at": "2026-05-11T18:37:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.19.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

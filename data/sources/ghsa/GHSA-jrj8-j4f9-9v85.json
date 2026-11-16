@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-jrj8-j4f9-9v85",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\r\n\r\nShared links grant read access to the album owner profile, including the email and display name.\r\nThis is an unintended information disclosure that is not mentioned in the share interface and in the share API endpoint.\r\n\r\n### Details\r\n\r\nThe disclosed album object:\r\n```json\r\n\"owner\":\r\n   {\r\n        \"id\":\"5f923502-f20a-43a5-ae61-4a54fb27ff43\",\r\n        \"email\":\"test@example.com\",\r\n        \"name\":\"my name\",\r\n        \"profileImagePath\":\"\",\r\n        \"avatarColor\":\"red\",\r\n        \"profileChangedAt\":\"2033-12-25T13:41:35.964796+00:00\"\r\n   },\r\n```\r\n\r\nThis is part of the album object returned when accessing a shared link via `/api/shared-links/me?key=iSDdFj8e...`.\r\n\r\n### Proof of Concept\r\n\r\n1. Create a shared link without a password (metadata can be disabled)\r\n2. Open the link in a private window/new browser/another device\r\n3. Observe the network traffic requests that contain the owner metadata in the album object\r\n\r\n### Impact\r\n\r\nThis discloses personal profile information to anyone who has received the share link.\r\nThe relevant personal identifiable information are limited to email address, name and profile picture.\r\n",
+    "ghsa_id": "GHSA-jrj8-j4f9-9v85",
+    "html_url": "https://github.com/immich-app/immich/security/advisories/GHSA-jrj8-j4f9-9v85",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrj8-j4f9-9v85"
+      }
+    ],
+    "published_at": "2026-11-10T18:45:32Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Album Owner Information Disclosure via Shared Links",
+    "updated_at": "2026-11-10T18:45:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "immich-app/immich"
+        },
+        "patched_versions": "v3.4.0",
+        "vulnerable_version_range": "<= v3.3.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "immich-app/immich"
+}

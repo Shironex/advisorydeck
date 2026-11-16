@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-945r-hp2m-928m",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77",
+      "CWE-78"
+    ],
+    "description": "# OS Command Injection via `filePath` in `mount.deleteFileMount` → HOST RCE\r\n\r\n## Summary\r\n\r\nDeleting a **file mount** runs `rm -rf <path>` where the path is built by interpolating the mount's user-controlled `filePath` **unquoted** into a shell command executed by `execAsync`. `filePath` is stored with no shell-safe validation (`z.string().optional()`), so an authenticated user who can create and delete a mount on a service they own obtains **arbitrary command execution in the Docker-privileged host context → root on the node**.\r\n\r\nUnlike the DB `changePassword` family, this sink has **no running-container precondition**  the command runs as soon as the mount is deleted  which makes it the easiest to trigger.\r\n\r\n\r\n\r\n## VULN  Unquoted `rm -rf ${filePath}` on file-mount deletion → HOST RCE\r\n\r\n### The sink and its tell-tale asymmetry\r\n\r\n`packages/server/src/services/mount.ts:280-295`  `deleteFileMount`:\r\n```js\r\nexport const deleteFileMount = async (mountId: string) => {\r\n  const mount = await findMountById(mountId);\r\n  if (!mount.filePath) return;\r\n  const basePath = await getBaseFilesPath(mountId);\r\n  const fullPath = path.join(basePath, mount.filePath);       // <- attacker-controlled tail\r\n  try {\r\n    const serverId = await getServerId(mount);\r\n    if (serverId) {\r\n      const command = `rm -rf ${quote([fullPath])}`;          // REMOTE branch: quote()  safe\r\n      await execAsyncRemote(serverId, command);\r\n    } else {\r\n      await removeFileOrDirectory(fullPath);                  // LOCAL branch: UNQUOTED  vulnerable\r\n    }\r\n  } catch {}\r\n};\r\n```\r\n`packages/server/src/utils/filesystem/directory.ts:38-45`  `removeFileOrDirectory`:\r\n```js\r\nexport const removeFileOrDirectory = async (path: string) => {\r\n  try {\r\n    await execAsync(`rm -rf ${path}`);   // <- no quoting, default shell → command injection\r\n  } catch (error) { /* … */ }\r\n};\r\n```\r\nThe **remote** branch (and the sibling `updateFileMount`, which uses `` `… > ${quote([fullPath])}` ``) correctly wrap the value with `shell-quote`'s `quote()`. The **local** branch  the default single-node install driving its own host  passes `fullPath` straight into `rm -rf ${path}`. `path.join` preserves `$()`, backticks, `;`, spaces, so the shell metacharacters survive into the command string.\r\n\r\n### The unvalidated field\r\n\r\n`packages/server/src/db/schema/mount.ts:112` (picked in `apiCreateMount`, `:132`):\r\n```js\r\nfilePath: z.string().optional(),      // no regex, no metacharacter filtering\r\n```\r\n\r\n### Reachability\r\n\r\n| Step | tRPC procedure | Guard (`apps/dokploy/server/api/routers/mount.ts`) |\r\n|---|---|---|\r\n| Create the file mount | `mount.create` | `:80` `checkServicePermissionAndAccess(ctx, serviceId, { volume: [\"create\"] })` |\r\n| Delete it → fires `rm -rf` | `mount.remove` | `:106` `checkServicePermissionAndAccess(ctx, serviceId, { volume: [\"delete\"] })` |\r\n\r\nBoth `volume:[\"create\"]` and `volume:[\"delete\"]` are granted to the free-tier `memberRole` (`lib/access-control.ts`); owner/admin always qualify. The mount must reference a service the caller can access (`serviceId`), which they satisfy with a service they created.\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker owns any service (e.g. an application)  has `volume:[\"create\"]`/`[\"delete\"]` on it by default.\r\n2. `mount.create` with:\r\n   ```json\r\n   { \"serviceId\": \"<svc>\", \"type\": \"file\", \"filePath\": \"x$(id>/tmp/pwned)\", \"mountPath\": \"/x\", \"content\": \"\" }\r\n   ```\r\n   `filePath` is accepted verbatim (no regex).\r\n3. `mount.remove` with `{ \"mountId\": \"<id>\" }`.\r\n4. `deleteFileMount` runs `rm -rf /var/lib/dokploy/applications/<app>/files/x$(id>/tmp/pwned)`. The host shell expands `$(id>/tmp/pwned)` → the command executes on the **host**; `/tmp/pwned` is written with the app user's identity.\r\n5. Docker-socket access → `docker run -v /:/host --privileged alpine chroot /host …` → **root on the node**. On remote-managed servers the string is shipped via `execAsyncRemote` and runs there.\r\n\r\n## Proof of Concept\r\n\r\nDeterministic marker harness (`poc-mount-filepath.mjs`): reproduces the exact `fullPath = path.join(basePath, filePath)` composition and the `removeFileOrDirectory` sink (`execAsync(\\`rm -rf ${path}\\`)`), side-effect-free (marker file in a throwaway temp dir):\r\n```\r\nfilePath = x$(id>MARKER)        → INJECTED  (marker contains the host `id` output)\r\nfilePath = x`id>MARKER`         → INJECTED\r\nfilePath = config.json (benign) → safe (no marker)\r\n```\r\n\r\n## Recommended Fix\r\n\r\nThe remote branch already shows the correct pattern  apply it to the local branch. In `removeFileOrDirectory` (and every unquoted `rm -rf ${…}` in `utils/filesystem/directory.ts`):\r\n```js\r\n// unsafe:\r\nawait execAsync(`rm -rf ${path}`);\r\n// safe  no shell:\r\nimport { execFile } from \"node:child_process\";\r\nawait promisify(execFile)(\"rm\", [\"-rf\", path]);\r\n// or, if a shell is required, quote for the outer layer:\r\nawait execAsync(`rm -rf ${quote([path])}`);\r\n```\r\nDefense in depth: validate `filePath` (and `mountPath`) with an allowlist regex at the schema layer, rejecting shell metacharacters and path-traversal (`..`).\r\n\r\n## Verification\r\n\r\n- Static: `mount.remove` → `deleteMount` → `deleteFileMount` → local branch `removeFileOrDirectory` → `rm -rf ${path}` (unquoted); `filePath` schema has no regex; remote branch/`updateFileMount` use `quote()` (the asymmetry).\r\n- Dynamic: deterministic harness fires the marker for `$()` and backtick payloads; benign control does not. No running container required.\r\n- Fix commit `ccd2e83` does not touch `utils/filesystem/directory.ts`; sink live on `canary` @ v0.29.14.\r\n\r\n## Severity\r\n\r\n**Critical  CVSS 9.9** · `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\r\n\r\n\r\n## CVE ID\r\n\r\nRequest via the GitHub private advisory flow.\r\n\r\n## Weaknesses\r\n\r\nCWE-78 (OS Command Injection), CWE-77. (The unvalidated `filePath` also enables CWE-22 path traversal as a secondary effect.)\r\n\r\n## Credits\r\n\r\nReported by the H3xKatana. Local sandbox research; coordinated private disclosure; side-effect-free PoC (marker files only).\r\n\r\n---\r\n*Affected: all versions including `canary` @ v0.29.14 (latest). Patched: none. Sibling of CVE-2026-72869 outside the `ccd2e83` fix scope.*\r\n",
+    "ghsa_id": "GHSA-945r-hp2m-928m",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-945r-hp2m-928m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-945r-hp2m-928m"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:15Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "OS Command Injection via filePath in mount.deleteFileMount → HOST RCE",
+    "updated_at": "2026-11-12T08:16:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

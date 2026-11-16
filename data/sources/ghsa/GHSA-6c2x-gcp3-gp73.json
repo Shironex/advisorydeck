@@ -1,0 +1,106 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44557",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "# Global Knowledge Base Enumeration via knowledge-bases Meta-Collection\n\n## Affected Component\n\nRetrieval collection access validation:\n- `backend/open_webui/routers/retrieval.py` (lines 2330-2355, `_validate_collection_access`)\n- `backend/open_webui/routers/retrieval.py` (query endpoints, e.g. `POST /query/doc`)\n\n## Affected Versions\n\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with the knowledge base subsystem.\n\n## Description\n\nThe `_validate_collection_access` function uses an incomplete allowlist that only enforces ownership checks for collections matching `user-memory-*` and `file-*` patterns. All other collection names pass through unchecked - including the system-level `knowledge-bases` meta-collection, which stores the IDs, names, and descriptions of every knowledge base on the instance.\n\nAny authenticated user can query this meta-collection directly via the retrieval query endpoints to obtain a global index of all knowledge bases across all users.\n\n```python\n# retrieval.py:2330-2355 - incomplete collection allowlist\ndef _validate_collection_access(user, collection_name, ...):\n    if collection_name.startswith('user-memory-'):\n        # Check user-memory ownership\n        ...\n    elif collection_name.startswith('file-'):\n        # Check file access\n        ...\n    # Everything else (including \"knowledge-bases\") passes through unchecked\n```\n\nThis finding is the enabler for the KB destruction (`process/web`), KB content injection (`process/file`), and RAG vector search access bypass findings - all of which require knowing a target KB's UUID. Without this enumeration, UUIDs are random and practically unguessable; with it, UUIDs across the entire instance are trivially obtained.\n\n## CVSS 3.1 Breakdown\n\n| Metric | Value | Rationale |\n|--------|-------|-----------|\n| Attack Vector | Network (N) | Exploited remotely via API call |\n| Attack Complexity | Low (L) | Single API call |\n| Privileges Required | Low (L) | Requires any authenticated user account |\n| User Interaction | None (N) | No victim interaction required |\n| Scope | Unchanged (U) | Impact within the knowledge base boundary |\n| Confidentiality | Low (L) | Discloses KB metadata (IDs, names, descriptions) across all users |\n| Integrity | None (N) | No direct data modification |\n| Availability | None (N) | No denial of service |\n\n## Attack Scenario\n\n1. Attacker (any authenticated user) sends:\n   ```\n   POST /api/v1/retrieval/query/doc\n   {\n     \"collection_name\": \"knowledge-bases\",\n     \"query\": \"confidential\"\n   }\n   ```\n2. `_validate_collection_access` does not recognize the `knowledge-bases` prefix and lets the request pass.\n3. The vector search returns the most relevant documents from the meta-collection - knowledge base records including their UUIDs, names, and descriptions - across all users on the instance.\n4. Attacker varies the query to enumerate more KBs: `\"project\"`, `\"internal\"`, `\"private\"`, etc.\n5. Attacker now has a full target list for subsequent attacks (destruction, poisoning, content extraction).\n\n## Impact\n\n- **Information disclosure:** KB names and descriptions may reveal sensitive project names, internal initiatives, or user activities\n- **Enabler for other attacks:** Unlocks the following findings by supplying the required target UUIDs:\n  - KB destruction/poisoning via `process/web`\n  - Cross-user content injection via `process/file`\n  - RAG vector search access bypass in `retrieval/utils.py`\n- Transforms these from theoretical (requires UUID guessing) to trivially exploitable (UUIDs enumerable)\n\n## Preconditions\n\n- Attacker must have a valid user account",
+    "ghsa_id": "GHSA-6c2x-gcp3-gp73",
+    "html_url": "https://github.com/advisories/GHSA-6c2x-gcp3-gp73",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6c2x-gcp3-gp73"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44557"
+      }
+    ],
+    "published_at": "2026-05-08T19:51:33Z",
+    "references": [
+      "https://github.com/open-webui/open-webui/security/advisories/GHSA-6c2x-gcp3-gp73",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44557",
+      "https://github.com/advisories/GHSA-6c2x-gcp3-gp73"
+    ],
+    "severity": "medium",
+    "summary": "Open WebUI vulnerable to Global Knowledge Base Enumeration via knowledge-bases Meta-Collection",
+    "updated_at": "2026-05-15T23:53:00Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.9.0",
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "vulnerable_version_range": "<= 0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-6c2x-gcp3-gp73",
+  "repo": {
+    "cve_id": "CVE-2026-44557",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# Global Knowledge Base Enumeration via knowledge-bases Meta-Collection\r\n\r\n## Affected Component\r\n\r\nRetrieval collection access validation:\r\n- `backend/open_webui/routers/retrieval.py` (lines 2330-2355, `_validate_collection_access`)\r\n- `backend/open_webui/routers/retrieval.py` (query endpoints, e.g. `POST /query/doc`)\r\n\r\n## Affected Versions\r\n\r\nCurrent main branch (commit `6fdd19bf1`) and likely all versions with the knowledge base subsystem.\r\n\r\n## Description\r\n\r\nThe `_validate_collection_access` function uses an incomplete allowlist that only enforces ownership checks for collections matching `user-memory-*` and `file-*` patterns. All other collection names pass through unchecked - including the system-level `knowledge-bases` meta-collection, which stores the IDs, names, and descriptions of every knowledge base on the instance.\r\n\r\nAny authenticated user can query this meta-collection directly via the retrieval query endpoints to obtain a global index of all knowledge bases across all users.\r\n\r\n```python\r\n# retrieval.py:2330-2355 - incomplete collection allowlist\r\ndef _validate_collection_access(user, collection_name, ...):\r\n    if collection_name.startswith('user-memory-'):\r\n        # Check user-memory ownership\r\n        ...\r\n    elif collection_name.startswith('file-'):\r\n        # Check file access\r\n        ...\r\n    # Everything else (including \"knowledge-bases\") passes through unchecked\r\n```\r\n\r\nThis finding is the enabler for the KB destruction (`process/web`), KB content injection (`process/file`), and RAG vector search access bypass findings - all of which require knowing a target KB's UUID. Without this enumeration, UUIDs are random and practically unguessable; with it, UUIDs across the entire instance are trivially obtained.\r\n\r\n## CVSS 3.1 Breakdown\r\n\r\n| Metric | Value | Rationale |\r\n|--------|-------|-----------|\r\n| Attack Vector | Network (N) | Exploited remotely via API call |\r\n| Attack Complexity | Low (L) | Single API call |\r\n| Privileges Required | Low (L) | Requires any authenticated user account |\r\n| User Interaction | None (N) | No victim interaction required |\r\n| Scope | Unchanged (U) | Impact within the knowledge base boundary |\r\n| Confidentiality | Low (L) | Discloses KB metadata (IDs, names, descriptions) across all users |\r\n| Integrity | None (N) | No direct data modification |\r\n| Availability | None (N) | No denial of service |\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker (any authenticated user) sends:\r\n   ```\r\n   POST /api/v1/retrieval/query/doc\r\n   {\r\n     \"collection_name\": \"knowledge-bases\",\r\n     \"query\": \"confidential\"\r\n   }\r\n   ```\r\n2. `_validate_collection_access` does not recognize the `knowledge-bases` prefix and lets the request pass.\r\n3. The vector search returns the most relevant documents from the meta-collection - knowledge base records including their UUIDs, names, and descriptions - across all users on the instance.\r\n4. Attacker varies the query to enumerate more KBs: `\"project\"`, `\"internal\"`, `\"private\"`, etc.\r\n5. Attacker now has a full target list for subsequent attacks (destruction, poisoning, content extraction).\r\n\r\n## Impact\r\n\r\n- **Information disclosure:** KB names and descriptions may reveal sensitive project names, internal initiatives, or user activities\r\n- **Enabler for other attacks:** Unlocks the following findings by supplying the required target UUIDs:\r\n  - KB destruction/poisoning via `process/web`\r\n  - Cross-user content injection via `process/file`\r\n  - RAG vector search access bypass in `retrieval/utils.py`\r\n- Transforms these from theoretical (requires UUID guessing) to trivially exploitable (UUIDs enumerable)\r\n\r\n## Preconditions\r\n\r\n- Attacker must have a valid user account",
+    "ghsa_id": "GHSA-6c2x-gcp3-gp73",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-6c2x-gcp3-gp73",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6c2x-gcp3-gp73"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44557"
+      }
+    ],
+    "published_at": "2026-05-05T11:18:53Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Global Knowledge Base Enumeration via knowledge-bases Meta-Collection",
+    "updated_at": "2026-05-07T14:53:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      },
+      {
+        "package": {
+          "ecosystem": "docker",
+          "name": "openwebui/open-webui"
+        },
+        "patched_versions": ">=0.9.0",
+        "vulnerable_version_range": "<=0.8.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

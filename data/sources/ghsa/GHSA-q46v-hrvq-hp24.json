@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-q46v-hrvq-hp24",
+  "repo": {
+    "cve_id": "CVE-2026-67407",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:L/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Affected product\r\nRabbitMQ - internal authorization backend + `rabbitmq_mqtt` plugin topic permissions\r\n\r\n## Summary\r\nThe CVE-2026-44838 fix made `expand_topic_permission/2` escape regex metacharacters in expanded topic-permission variables (`escape_regex(V)`), but `escape_regex_char/1` escapes `\\ ^ $ . | ? * + ( ) [ ] { }` and **omits `-`**. When a topic permission template places `{client_id}` inside a `[...]` character class (e.g. `^[{client_id}]-sensors$`), an MQTT client using `client_id = a-z` expands the regex to `^[a-z]-sensors$`, turning the class into a range and broadening topic authorization to `b-sensors`, `m-sensors`, etc. The repository's own OAuth2 scope-expansion code explicitly escapes `-` for exactly this reason.\r\n\r\n## Affected code\r\n- `deps/rabbit/src/rabbit_auth_backend_internal.erl` → `escape_regex_char/1` (no `$-`).\r\n- `deps/rabbitmq_mqtt/src/rabbit_mqtt_processor.erl` → injects user-controlled `client_id` into the topic variable map; read and write checks share the same backend expansion.\r\n\r\n## Steps to reproduce\r\nUsing the provided reproduction materials, With `set_topic_permissions ... '^[{client_id}]-sensors$'`:\r\n- `mosquitto_pub -i 'a-z' -t 'b-sensors'` → PUBACK (bypass);\r\n- `mosquitto_pub -i 'x' -t 'b-sensors'` → denied (control).\r\n\r\n(Runtime-confirmed on official `rabbitmq:4.3.2-management`; a single benign placeholder message was published.)\r\n\r\n## Impact\r\nA low-privileged authenticated MQTT user controlling its `client_id` can broaden topic authorization (read and write) when templates embed `{client_id}` in a `[...]` class. Narrower than the original raw-regex injection (requires that template shape), but RabbitMQ supports regex topic permissions and its OAuth2 tests already treat this range class as security-relevant.\r\n\r\n## Suggested remediation\r\nAdd `$-` to `escape_regex_char/1`, matching the OAuth2 implementation. Add a regression test (analogous to OAuth2 `crafted_value_cannot_form_range_inside_char_class`): `expand_topic_permission(<<\"^[{client_id}]-sensors$\">>, #{<<\"client_id\">> => <<\"a-z\">>})` should yield `<<\"^[a\\\\-z]-sensors$\">>`, and `b-sensors` must be denied.\r\n\r\n## Credit\r\nReported as part of an incomplete-patch measurement study (responsible disclosure).",
+    "ghsa_id": "GHSA-q46v-hrvq-hp24",
+    "html_url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-q46v-hrvq-hp24",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q46v-hrvq-hp24"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-67407"
+      }
+    ],
+    "published_at": "2026-07-23T01:00:54Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Incomplete fix for CVE-2026-44838: `escape_regex_char/1` does not escape `-`, leaving room for an MQTT topic permission bypass",
+    "updated_at": "2026-07-29T15:09:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.3.3",
+        "vulnerable_version_range": ">= 4.3.2, < 4.3.3"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.2.9",
+        "vulnerable_version_range": ">= 4.2.0, < 4.2.9"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.1.14",
+        "vulnerable_version_range": ">= 4.1.0, < 4.1.14"
+      },
+      {
+        "package": {
+          "ecosystem": "rabbitmq",
+          "name": "rabbitmq-server"
+        },
+        "patched_versions": "4.0.23",
+        "vulnerable_version_range": ">= 4.0.0, < 4.0.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "rabbitmq/rabbitmq-server"
+}

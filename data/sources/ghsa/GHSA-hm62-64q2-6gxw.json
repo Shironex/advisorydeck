@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-hm62-64q2-6gxw",
+  "repo": {
+    "cve_id": "CVE-2026-109296",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "# Any authenticated user can reach disabled model provider backends via an explicit backend index\r\n\r\n## Summary\r\n\r\nSeveral Ollama and OpenAI-compatible model listing routes accept a caller-supplied backend index and use it to select a connection directly from the administrator-configured provider list. No check is performed on whether the caller is permitted to reach that connection. Any account with the `user` role can therefore make the server issue requests to a provider backend it was never granted, including one the administrator has explicitly disabled, and can read back that backend's version string. Two of the affected routes send the request with the connection's configured API key attached.\r\n\r\n## Preconditions\r\n\r\n- More than one model provider connection configured, either Ollama backends or OpenAI-compatible connections. A deployment with a single connection loses nothing here, because the caller can only select a connection that is already the one in use.\r\n- An account with the `user` role. `DEFAULT_USER_ROLE` defaults to `pending`, so an administrator must have approved the account or the deployment must be configured to grant `user` on signup. Administrator privileges are not required, and the affected behaviour is intended for administrators.\r\n- No other knowledge is required. The index is a small integer and valid values can be found by trial.\r\n- `BYPASS_MODEL_ACCESS_CONTROL` defaults to `false`. With the default, the catalogue returned by the affected routes is filtered by per-model access control, so no model names are disclosed. With the flag set to `true`, the catalogues of enabled connections are already visible to every account through the routes that take no index, but a disabled connection's catalogue is only reachable through the index, and so is sending inference to it.\r\n\r\n## Impact\r\n\r\nA non-administrator can direct the server to contact a provider backend outside the set it is entitled to use. This covers backends the administrator has switched off, which the equivalent routes that take no index correctly skip, and backends that serve only models the account has no access to. On two of the affected routes the outbound request carries that connection's configured API key, so the backend accepts it as an authorised call. The key itself is never returned to the caller.\r\n\r\nThe version string of any configured backend, including a disabled one, is returned to the caller verbatim. The routes that return a model catalogue disclose nothing under default configuration, because the upstream response is filtered by per-model access control before it is returned. An out-of-range index previously produced a different response from a valid one, which revealed how many connections are configured.\r\n\r\nWith `BYPASS_MODEL_ACCESS_CONTROL` enabled, the same missing check applied to the inference routes, so a non-administrator could send generation and embedding requests to a disabled backend and consume its capacity, rather than only listing it.\r\n\r\nNothing is written or deleted on any backend, no credential is disclosed to the caller, and no other account's data is exposed. The reachable destinations are limited to the connections the administrator configured, so no request can be steered to an address of the caller's choosing.\r\n\r\n## Fix\r\n\r\nFixed in [#29619](https://github.com/open-webui/open-webui/pull/29619), completing an earlier change that shipped in 0.11.1. Selecting a provider connection by explicit index now requires an administrator on the affected listing routes, whether the index is given as a path segment or as a query parameter, matching the model management routes alongside them. The per-model backend check on the inference routes is no longer skipped when per-model access control is bypassed. The 0.11.1 change gated only the path form, so 0.11.1 to 0.11.3 remained reachable through the query parameter. Upgrading to 0.11.4 fully resolves the issue with no configuration change.\r\n\r\n## Root cause\r\n\r\nThe affected surface is the Ollama tag listing, version and OpenAI-format model listing routes, and the OpenAI-compatible model listing route. Each is available to any verified account and accepts the backend index both as a trailing path segment and as a query parameter on the form that takes no index. Every released version before 0.11.4 carries the code.\r\n\r\nAn earlier fix introduced a check that a caller-supplied index must point at a backend actually serving the requested model, and applied it to the routes that run inference. The listing routes were not covered, because they name no model and therefore had nothing for that check to compare against. The question they needed answering was different, namely whether the caller may address a specific connection at all, and no control existed for it. The same earlier check also stepped aside entirely when per-model access control was bypassed. That left the inference routes open in that configuration for the one case per-model access control does not describe: an administrator having disabled the backend.\r\n\r\n## Proof of concept\r\n\r\nTwo provider connections were configured through the administrator API, with index 1 marked disabled and holding a distinct API key. The backends were local HTTP servers standing in for real providers, recording every request they received along with its `Authorization` header. A second account was created with the `user` role.\r\n\r\nAs that account, requesting the tag listing, version and model listing routes with index 1, in both the path and query forms, returned HTTP 200. The disabled backend recorded each request, and the tag listing and OpenAI-compatible model listing arrived carrying the administrator's configured key for that connection. The version route returned the disabled backend's version string to the caller verbatim. An index beyond the end of the list produced a server error where a valid index produced a success, giving the number of configured connections.\r\n\r\nWith `BYPASS_MODEL_ACCESS_CONTROL` set to `true`, the same account sent a chat completion to index 1 and the disabled backend served it.\r\n\r\nAfter the fix, every indexed listing request returns HTTP 401 and the indexed chat completion returns HTTP 403, and the disabled backend records nothing. Administrator access and the routes that take no index are unchanged.\r\n\r\n## Credits\r\n\r\nReported by @ahkarl13.",
+    "ghsa_id": "GHSA-hm62-64q2-6gxw",
+    "html_url": "https://github.com/open-webui/open-webui/security/advisories/GHSA-hm62-64q2-6gxw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hm62-64q2-6gxw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-109296"
+      }
+    ],
+    "published_at": "2026-09-27T19:33:41Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Any authenticated user can reach disabled model provider backends via an explicit backend index",
+    "updated_at": "2026-10-28T20:47:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "open-webui"
+        },
+        "patched_versions": "0.11.4",
+        "vulnerable_version_range": "< 0.11.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "open-webui/open-webui"
+}

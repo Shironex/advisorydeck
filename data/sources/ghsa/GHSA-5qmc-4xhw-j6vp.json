@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-5qmc-4xhw-j6vp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-116",
+      "CWE-74"
+    ],
+    "description": "### Summary\r\n\r\nAny authenticated Dokploy user can inject arbitrary Traefik router rules by setting their application domain's `host` or `path` to a value containing backtick or pipe characters. Because Traefik routing rules are applied globally, the injected rule can match traffic destined for **other users' applications** on the same Dokploy instance, enabling cross-tenant traffic interception.\r\n\r\n### Details\r\n\r\n**File:** `packages/server/src/utils/traefik/domain.ts`\r\n\r\n**Vector A - `host` field via `toPunycode()` catch fallback (line ~84, ~92):**\r\n\r\n```typescript\r\nconst toPunycode = (host: string): string => {\r\n    try {\r\n        return new URL(`http://${host}`).hostname;\r\n    } catch {\r\n        return host;   // ← unsanitized original returned on parse error\r\n    }\r\n};\r\n\r\n// line ~92\r\nrule: `Host(\\`${punycodeHost}\\`)${\r\n  path !== null && path !== \"/\"\r\n    ? ` && PathPrefix(\\`${path}\\`)`\r\n    : \"\"\r\n}`,\r\n```\r\n\r\nThe backtick character (`\\``) is a WHATWG \"forbidden domain code point,\" so `new URL(\"http://evil\\`host\")` throws a `TypeError`. The `catch` block returns the **raw, unmodified `host` string** - including the injected backtick. That string is then interpolated directly into the Traefik router rule.\r\n\r\n**Vector B - `path` field, zero sanitization (line ~92):**\r\n\r\nThe `path` field is interpolated with no validation:\r\n```typescript\r\n` && PathPrefix(\\`${path}\\`)`\r\n```\r\n\r\n**Validation in `packages/server/src/db/validations/domain.ts`:**\r\n\r\n```typescript\r\nhost: z.string().min(1).refine(val => val === val.trim(), ...),\r\npath: z.string().min(1).optional(),\r\n```\r\n\r\nOnly `min(1)` and trim-check. No character allowlist. Backticks, pipes, and parentheses all pass validation and reach the Traefik config.\r\n\r\n### PoC\r\n\r\n1. Log in to Dokploy as any user with at least one application.\r\n2. Navigate to your application → Domains → Add Domain.\r\n3. Set Host to:\r\n   ```\r\n   victim.example.com`) || Host(`admin.internal\r\n   ```\r\n4. Save and deploy.\r\n5. Dokploy writes this Traefik router rule to the config file:\r\n   ```\r\n   Host(`victim.example.com`) || Host(`admin.internal`)\r\n   ```\r\n6. Traefik reloads and begins routing all `admin.internal` traffic to the attacker's container.\r\n\r\n**Path vector (simpler):**\r\nSet Host = `victim.example.com`, Path = `` /app`) || Host(`internal.service ``\r\nResult: `` Host(`victim.example.com`) && PathPrefix(`/app`) || Host(`internal.service`) ``\r\n\r\n**Expected:** Domain fields with special characters are rejected at validation.\r\n**Actual:** The injected string is written into the Traefik YAML config file and takes effect on next Traefik reload.\r\n\r\n### Impact\r\n\r\n- Any authenticated Dokploy user can intercept and read HTTPS/HTTP traffic intended for other applications on the same instance.\r\n- Enables theft of session tokens, API keys, and any data passing through the shared Traefik proxy.\r\n- In single-user self-hosted deployments: self-harm only. In multi-user/team deployments: full cross-tenant traffic hijack.\r\n\r\n### Recommended Fix\r\n\r\nAdd a character allowlist to the `host` and `path` fields in `packages/server/src/db/validations/domain.ts`:\r\n\r\n```typescript\r\nhost: z.string().min(1)\r\n  .regex(/^[a-zA-Z0-9.\\-*]+$/, \"Invalid domain characters\")\r\n  .refine(val => val === val.trim(), ...),\r\n\r\npath: z.string().min(1)\r\n  .regex(/^[a-zA-Z0-9\\/\\-._~!$&'()*+,;=:@%]+$/, \"Invalid path characters\")\r\n  .optional(),\r\n```\r\n\r\nAlternatively, remove the `catch` fallback in `toPunycode()` - reject domains that fail WHATWG URL parsing instead of passing them through.\r\n\r\n**Disclosure method:** Static code review of `main` branch (v0.29.8), confirmed 2026-07-05. Not dynamically tested.\r\n",
+    "ghsa_id": "GHSA-5qmc-4xhw-j6vp",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-5qmc-4xhw-j6vp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5qmc-4xhw-j6vp"
+      }
+    ],
+    "published_at": "2026-11-12T08:16:54Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Traefik rule injection via unsanitized host and path fields - cross-tenant traffic hijack",
+    "updated_at": "2026-11-12T08:16:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

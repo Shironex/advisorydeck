@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hg9j-j5mc-phf5",
+  "repo": {
+    "cve_id": "CVE-2026-72873",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\r\nAn authenticated organization member with only `service:read` access to an application can retrieve Git provider secrets that belong to a different user in the same organization. The `application.one` API returns the full nested GitHub provider object, including `githubClientSecret`, `githubPrivateKey`, and `githubWebhookSecret`, even when the response explicitly marks the provider as unauthorized for the caller.\r\n\r\n### Details\r\nThe issue is caused by loading provider secrets into the application object before authorization is enforced at the provider level, and then returning that object without redaction.\r\n\r\nRelevant code paths:\r\n- /dokploy-0.28.8/apps/dokploy/server/api/routers/application.ts#L123\r\n- /dokploy-0.28.8/packages/server/src/services/application.ts#L94\r\n- /dokploy-0.28.8/packages/server/src/services/permission.ts#L76\r\n- /dokploy-0.28.8/packages/server/src/db/schema/git-provider.ts#L19\r\n- /dokploy-0.28.8/packages/server/src/db/schema/github.ts#L7\r\n\r\nThe vulnerable flow is:\r\n\r\n1. `GET /api/trpc/application.one?...` reaches `applicationRouter.one(...)` in [application.ts](/dokploy-0.28.8/apps/dokploy/server/api/routers/application.ts#L123).\r\n2. The route only checks service access with:\r\n   ```ts\r\n   await checkServiceAccess(ctx, input.applicationId, \"read\");\r\n   ```\r\n3. It then loads the full application object via `findApplicationById(...)` in [application.ts](/dokploy-0.28.8/packages/server/src/services/application.ts#L94), which eagerly includes:\r\n   ```ts\r\n   with: {\r\n     gitlab: true,\r\n     github: true,\r\n     bitbucket: true,\r\n     gitea: true,\r\n   }\r\n   ```\r\n4. The route later checks whether the caller owns the linked provider:\r\n   ```ts\r\n   const gitProvider = await findGitProviderById(gitProviderId);\r\n   if (gitProvider.userId !== ctx.session.userId) {\r\n     hasGitProviderAccess = false;\r\n     unauthorizedProvider = application.sourceType;\r\n   }\r\n   ```\r\n5. Despite detecting that the caller is unauthorized, the route returns:\r\n   ```ts\r\n   return {\r\n     ...application,\r\n     hasGitProviderAccess,\r\n     unauthorizedProvider,\r\n   };\r\n   ```\r\n   This does not redact the nested provider object that already contains secrets.\r\n\r\nThis becomes a cross-tenant secret disclosure because the provider has its own owner at /dokploy-0.28.8/packages/server/src/db/schema/git-provider.ts#L19, while the application response is available to any member with service-level read access. The API therefore leaks one user's Git provider secrets to another user who can only read the service.\r\n\r\nConfirmed exposed GitHub fields:\r\n- `githubClientSecret`\r\n- `githubPrivateKey`\r\n- `githubWebhookSecret`\r\n\r\nThe same design pattern also exists in the compose detail flow via:\r\n- /dokploy-0.28.8/apps/dokploy/server/api/routers/compose.ts#L121\r\n- /dokploy-0.28.8/packages/server/src/services/compose.ts#L115\r\n\r\n### PoC\r\nTested on Dokploy `v0.28.8`.\r\n\r\nPrerequisites:\r\n- A Dokploy organization with at least two users.\r\n- `Victim user`: owns a GitHub provider and has linked it to an application.\r\n- `Reader user`: has only `service:read` access to that application.\r\n- The reader must not have Git provider access.\r\n\r\nLab setup used during verification:\r\n- Victim provider owner: `victim@gmail.com`\r\n- Low-privileged reader: `reader@gmail.com / Reader@1234`\r\n- Application ID: `OWx0vDYnZihtF61OfqfzM`\r\n- Linked provider:\r\n  - `githubId = victimgh1`\r\n  - `gitProviderId = victimgp1`\r\n\r\nReproduction steps:\r\n\r\n1. Log in as the low-privileged reader:\r\n   ```http\r\n   POST /api/auth/sign-in/email HTTP/1.1\r\n   Host: 127.0.0.1:3000\r\n   Content-Type: application/json\r\n\r\n   {\"email\":\"reader@gmail.com\",\"password\":\"Reader@1234\"}\r\n   ```\r\n2. Copy the `better-auth.session_token` from the `Set-Cookie` response header.\r\n3. Request the application detail endpoint with the reader session:\r\n   ```http\r\n   GET /api/trpc/application.one?batch=1&input=%7B%220%22%3A%7B%22json%22%3A%7B%22applicationId%22%3A%22OWx0vDYnZihtF61OfqfzM%22%7D%7D%7D HTTP/1.1\r\n   Host: 127.0.0.1:3000\r\n   Accept: application/json\r\n   Cookie: better-auth.session_token=<reader-session>\r\n   ```\r\n4. Inspect the JSON response.\r\n\r\nObserved result:\r\n- The response contains:\r\n  - `hasGitProviderAccess: false`\r\n  - `unauthorizedProvider: \"github\"`\r\n- But the same response still includes the full nested GitHub secret object:\r\n  ```json\r\n  \"github\": {\r\n    \"githubId\": \"victimgh1\",\r\n    \"githubAppName\": \"victim-app\",\r\n    \"githubAppId\": 1337,\r\n    \"githubClientId\": \"victim-client-id\",\r\n    \"githubClientSecret\": \"victim-client-secret-123\",\r\n    \"githubInstallationId\": \"424242\",\r\n    \"githubPrivateKey\": \"-----BEGIN PRIVATE KEY-----\\\\nVICTIM_PRIVATE_KEY\\\\n-----END PRIVATE KEY-----\",\r\n    \"githubWebhookSecret\": \"victim-webhook-secret\",\r\n    \"gitProviderId\": \"victimgp1\"\r\n  }\r\n  ```\r\n\r\nWeb UI confirmation:\r\n- When the reader opens the application page in the browser, Dokploy shows the warning:\r\n  - `This application is connected to a github repository through a git provider that you don't have access to`\r\n- However, the browser still receives the secrets in the underlying `application.one` API response.\r\n\r\nBurp verification chain:\r\n1. `POST /api/auth/sign-in/email`\r\n2. `GET /api/trpc/application.one?batch=1&input=...`\r\n\r\n### Impact\r\nThis is an authenticated sensitive secret disclosure and multi-tenant isolation failure.\r\n\r\nImpacted parties:\r\n- Any Dokploy organization where different users share visibility to the same service.\r\n- Any user who connects personal or organization Git provider credentials to a service that other members can read.\r\n\r\nSecurity impact:\r\n- Low-privileged service readers can exfiltrate Git provider credentials owned by another user.\r\n- Exposed GitHub App private keys and client secrets may enable repository access, webhook forgery, token exchange, or takeover of GitHub integration workflows tied to the stolen provider.\r\n- The vulnerability breaks the expected separation between service visibility and provider ownership.\r\n\r\n### Remediations\r\n- Do not serialize provider secrets into service detail responses.\r\n- Redact all secret/token/private-key fields before returning nested provider objects.\r\n- Enforce provider ownership or provider-specific authorization before loading provider details.\r\n- Return only minimal non-sensitive metadata when a caller can read the service but does not own the linked provider.\r\n- Apply the same fix pattern to both application and compose detail endpoints.",
+    "ghsa_id": "GHSA-hg9j-j5mc-phf5",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-hg9j-j5mc-phf5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hg9j-j5mc-phf5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72873"
+      }
+    ],
+    "published_at": "2026-07-21T23:25:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-tenant Git provider secrets are disclosed to low-privileged service readers via `application.one`",
+    "updated_at": "2026-08-10T18:55:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.28.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

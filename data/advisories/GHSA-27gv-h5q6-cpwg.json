@@ -1,0 +1,63 @@
+{
+  "id": "GHSA-27gv-h5q6-cpwg",
+  "aliases": [],
+  "title": "RabbitMQ policymaker RCE through federation-management nonmember RPC and distribution reflection",
+  "summary": "## Summary\r\n\r\nA RabbitMQ management user with the `policymaker` tag can escalate from vhost policy management to arbitrary BEAM function execution without administrator credentials, Erlang cookie knowledge, or local operating-system access\r\n\r\nThe chain combines:\r\n\r\n1. Policymaker-accessible global-parameter names are converted into new Erlang atoms, allowing the attacker to intern `evil@attacker` and `oracle@attacker`\r\n2. The federation-management restart resource accepts an existing node atom and calls `rpc:call/5` from `resource_exists/2` without validating cluster membership\r\n3. Two concurrent requests initiate two outbound distribution handshakes to attacker nodes\r\n4. OTP 27's legacy cookie digest can be reflected between those connections because it is not bound to peer identity, connection direction, or the complete transcript\r\n5. The authenticated connection can address `rex` with attacker-controlled module, function, arguments, external PID, and correlation tag\r\n\r\nThe proof invokes only `erlang:md5(Nonce)` and verifies the exact returned digest. A request changing only the function to nonexistent `erlang:md6/1` returns a correlated `undef` response without the positive digest\r\n\r\nThis is an authenticated policymaker RCE, not an administrator-only, unauthenticated, or pre-authentication issue\r\n\r\n## Preconditions\r\n\r\n- Valid management credentials with the `policymaker` tag\r\n- Permission for the selected vhost\r\n- `rabbitmq_federation` and `rabbitmq_federation_management` enabled\r\n- Global-parameter and federation-link management routes reachable\r\n- Broker DNS resolves the attacker-controlled hostname used in the node names\r\n- Broker egress reaches attacker-controlled TCP 4369 EPMD\r\n- Broker egress reaches two attacker-controlled distribution ports returned by EPMD\r\n- Plain OTP 27 distribution using the tested handshake behavior\r\n- Both target-originated handshakes use the same RabbitMQ cookie\r\n\r\nThe attacker does not need:\r\n\r\n- Administrator credentials\r\n- The Erlang cookie value\r\n- Local shell or filesystem access\r\n- Existing cluster membership\r\n- Plugin or code-path write access\r\n- Access to the RabbitMQ data directory\r\n\r\n## Root cause\r\n\r\n### 1. Global-parameter names create node atoms\r\n\r\nThe management global-parameter route passes its raw path name to `rabbit_runtime_parameters:set_global/3`, which executes:\r\n\r\n```erlang\r\nset_global(Name, Term, ActingUser) ->\r\n    NameAsAtom = rabbit_data_coercion:to_atom(Name),\r\n    ...\r\n```\r\n\r\nThe proof sends:\r\n\r\n```text\r\nPUT /api/global-parameters/evil@attacker\r\nPUT /api/global-parameters/oracle@attacker\r\n```\r\n\r\nThe `policymaker` tag is authorized for global parameters, so both attacker node identities become existing atoms\r\n\r\n### 2. Federation resource lookup performs nonmember RPC\r\n\r\nThe vulnerable extension route is:\r\n\r\n```text\r\nDELETE /api/federation-links/vhost/:vhost/:id/:node/restart\r\n```\r\n\r\nFor DELETE, `rabbit_federation_mgmt:is_authorized/2` calls:\r\n\r\n```erlang\r\nrabbit_mgmt_util:is_authorized_policies(ReqData, Context)\r\n```\r\n\r\nA policymaker with access to the vhost is accepted\r\n\r\nCowboy calls `resource_exists/2` before `delete_resource/2`. For any nonempty route ID, `resource_exists/2` invokes `lookup/2`:\r\n\r\n```erlang\r\nlookup(Id, ReqData) ->\r\n    try get_node(ReqData) of\r\n        Node ->\r\n            case rpc:call(\r\n                   Node,\r\n                   rabbit_federation_status,\r\n                   lookup,\r\n                   [Id],\r\n                   infinity) of\r\n                ...\r\n            end\r\n    catch\r\n        error:badarg -> false\r\n    end.\r\n```\r\n\r\nThe node guard is only:\r\n\r\n```erlang\r\nget_node(ReqData) ->\r\n    binary_to_existing_atom(\r\n      rabbit_mgmt_util:id(node, ReqData), utf8).\r\n```\r\n\r\nThere is no `rabbit_nodes:is_member(Node)` check before the RPC\r\n\r\nThe HTTP responses can be 404 because the attacker node does not implement `rabbit_federation_status:lookup/1`. The outbound EPMD lookup and distribution handshake already occurred before the respo...",
+  "published_at": "2026-08-18T03:16:37.000Z",
+  "modified_at": "2026-08-18T03:16:37.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.3,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:L/VI:L/VA:N/SC:L/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "rabbitmq",
+      "ranges": [
+        {
+          "introduced": "3.13.0",
+          "fixed": "3.13.19"
+        },
+        {
+          "introduced": "4.0.0",
+          "fixed": "4.0.24"
+        },
+        {
+          "introduced": "4.1.0",
+          "fixed": "4.1.15"
+        },
+        {
+          "introduced": "4.2.0",
+          "fixed": "4.2.10"
+        },
+        {
+          "introduced": "4.3.0",
+          "fixed": "4.3.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-27gv-h5q6-cpwg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-27gv-h5q6-cpwg",
+      "url": "https://github.com/rabbitmq/rabbitmq-server/security/advisories/GHSA-27gv-h5q6-cpwg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:e6f0354b1969c7baff3b49970ce1fd715ebcc1a6a7f64fdf42517defa66377d3",
+  "note": null
+}

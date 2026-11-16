@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-q2x3-gch7-6g53",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862"
+    ],
+    "description": "## Summary\n\nThe better-auth `apiKey` plugin's own HTTP endpoint `POST /api/auth/api-key/create` is enabled. It accepts client-supplied `metadata`, and Dokploy trusts `metadata.organizationId` to pick the organization context for the key. The tRPC wrapper `user.createApiKey` checks that the caller is a member of that organization; the native endpoint does not. Any authenticated user can mint a key bound to an organization they do not belong to. `validateRequest` then builds a session with `activeOrganizationId` set to that organization and `role` defaulting to `\"member\"` even though no membership row exists. Every `protectedProcedure` that scopes data only by `ctx.session.activeOrganizationId` then serves the foreign organization's data.\n\n## Affected version\n\n- Verified on: Dokploy v0.30.10 (self-hosted)\n- Code unchanged on `canary` at d64ebedd0\n\n## Code\n\n- `packages/server/src/lib/auth.ts:488-491`: `apiKey({ enableMetadata: true, references: \"user\" })`, and `/api-key/*` is not in `disabledPaths` (`auth.ts:73-83`).\n- `packages/server/src/lib/auth.ts:592-635`: `organizationId` taken from key metadata; `member` lookup may return null; `role: member?.role || \"member\"` (line 634) and `activeOrganizationId: organizationId` are set regardless.\n- Example data endpoint: `apps/dokploy/server/api/routers/tag.ts:50-57` (`tag.all`, `protectedProcedure`, filters only by `activeOrganizationId`).\n\n## Preconditions\n\n- Attacker has any account on the instance (here: a plain member of organization B only).\n- Attacker knows the victim organization id (org ids are not secret in the sense of being access-controlled; how hard they are to obtain was not assessed).\n\n## Reproduction (local test instance only)\n\n```\n# user B: member of \"E2E Second Org\" only, not a member of \"My Organization\" (<orgA>)\ncurl -s -b memberB.jar -H \"origin: http://127.0.0.1:13000\" -H 'content-type: application/json' \\\n  -d '{\"name\":\"x\",\"metadata\":{\"organizationId\":\"<orgA>\"}}' \\\n  http://127.0.0.1:13000/api/auth/api-key/create\n# -> {\"id\":\"...\",\"key\":\"<key>\",\"metadata\":{\"organizationId\":\"<orgA>\"},...}\n\n# control: the tRPC path rejects the same request\ncurl ... -d '{\"name\":\"x\",\"metadata\":{\"organizationId\":\"<orgA>\"}}' http://127.0.0.1:13000/api/user.createApiKey\n# -> 403 \"You are not a member of this organization\"\n\n# owner of orgA creates a tag \"sec-canary-tag-myorg\"; then, with B's foreign key:\ncurl -s -H \"x-api-key: <key>\" http://127.0.0.1:13000/api/tag.all\n```\n\n## Observed result\n\n- Native endpoint returned a key with `metadata.organizationId = <orgA>`.\n- `tag.all` with that key returned orgA's tag (`sec-canary-tag-myorg`, `organizationId: <orgA>`). B's own session returns `[]` for `tag.all`.\n- Procedures that call `checkPermission`/`findMemberByUserId` (e.g. `project.all`, `server.all`) returned `Permission denied`, so exposure is limited to procedures that rely on `activeOrganizationId` alone.\n- Native keys get better-auth's default rate limit (10 requests / 24h per key), but the attacker can mint new keys at will.\n\n## Impact\n\nConfirmed on a fresh v0.30.10 instance with a key minted this way (attacker = plain member of org B only):\n\n- Read: `tag.all` (victim tags), `customRole.membersByRole?roleName=owner|admin|member` (every victim member's email, first/last name, userId), `organization.active` (victim org row).\n- Write: `network.create` inserted a network row into the victim org and created a real Docker network on the host (`docker network ls` shows it). Source review shows `network.remove/recreate/resync/import` are reachable the same way (not exercised).\n- From source review only (not exercised): git providers the victim shared with the org are listed by `gitProvider.getAll` / `github.githubProviders` etc., and `github.getGithubRepositories` / `gitlab.getGitlabRepositories` / `gitea.*` / `bitbucket.*` would use the victim's provider credentials to list private repos and branches.\n- Procedures that look up the member row (`withPermission`, `checkPermission`, `findMemberByUserId`, e.g. `project.all`, `server.all`, env vars, apps, databases) return \"Permission denied\", so exposure is limited to `protectedProcedure`s that scope only by `activeOrganizationId`.\n\n## Suggested fix (tested)\n\n1. Add `/api-key/create` and `/api-key/update` to `disabledPaths`, as done for SCIM in GHSA-j8v8-g9cx-5qf4. Keys are created via tRPC `user.createApiKey`, which calls `auth.createApiKey` server-side and is unaffected.\n2. In `validateRequest`, reject the key when no `member` row exists for `(key.userId, metadata.organizationId)` instead of defaulting `role` to `\"member\"`. This also kills keys already minted this way, and keys of users later removed from the org.\n\nPatch against `canary` d64ebedd0:\n\n```diff\ndiff --git a/packages/server/src/lib/auth.ts b/packages/server/src/lib/auth.ts\nindex e07693d35..8acd8be77 100644\n--- a/packages/server/src/lib/auth.ts\n+++ b/packages/server/src/lib/auth.ts\n@@ -80,6 +80,10 @@ const createBetterAuth = () =>\n \t\t\t\"/scim/list-provider-connections\",\n \t\t\t\"/scim/get-provider-connection\",\n \t\t\t\"/scim/delete-provider-connection\",\n+\t\t\t// API keys are minted via tRPC (user.createApiKey), which checks org membership.\n+\t\t\t// The native routes accept client-set metadata.organizationId.\n+\t\t\t\"/api-key/create\",\n+\t\t\t\"/api-key/update\",\n \t\t\t...(!IS_CLOUD ? [\"/verify-email\"] : []),\n \t\t],\n \t\tsecret: betterAuthSecret,\n@@ -611,6 +615,13 @@ export const validateRequest = async (request: IncomingMessage) => {\n \t\t\t\t},\n \t\t\t});\n \n+\t\t\tif (!member) {\n+\t\t\t\treturn {\n+\t\t\t\t\tsession: null,\n+\t\t\t\t\tuser: null,\n+\t\t\t\t};\n+\t\t\t}\n+\n \t\t\t// When accessing from DB, use actual column names\n \t\t\tconst userFromDb = apiKeyRecord.user as typeof apiKeyRecord.user & {\n \t\t\t\tfirstName: string;\n@@ -631,8 +642,8 @@ export const validateRequest = async (request: IncomingMessage) => {\n \t\t\t\t\tcreatedAt: userFromDb.createdAt,\n \t\t\t\t\tupdatedAt: userFromDb.updatedAt,\n \t\t\t\t\ttwoFactorEnabled: userFromDb.twoFactorEnabled,\n-\t\t\t\t\trole: member?.role || \"member\",\n-\t\t\t\t\townerId: member?.organization.ownerId || apiKeyRecord.user.id,\n+\t\t\t\t\trole: member.role,\n+\t\t\t\t\townerId: member.organization.ownerId,\n \t\t\t\t\tenableEnterpriseFeatures: userFromDb.enableEnterpriseFeatures,\n \t\t\t\t\tisValidEnterpriseLicense: userFromDb.isValidEnterpriseLicense,\n \t\t\t\t},\n```\n\nVerified by building v0.30.10 with the equivalent patch and upgrading the vulnerable instance in place: native `/api/auth/api-key/create` and `/update` return 404; a cross-org key minted before the upgrade returns 401; legitimate keys (pre-existing and newly created via `user.createApiKey`), session auth, `project.all`, `network.create` in the user's own org, and `user.deleteApiKey` keep working.\n",
+    "ghsa_id": "GHSA-q2x3-gch7-6g53",
+    "html_url": "https://github.com/Dokploy/dokploy/security/advisories/GHSA-q2x3-gch7-6g53",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q2x3-gch7-6g53"
+      }
+    ],
+    "published_at": "2026-11-12T08:15:03Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-organization API key via better-auth /api/auth/api-key/create (client-set metadata.organizationId)",
+    "updated_at": "2026-11-12T08:15:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "dokploy"
+        },
+        "patched_versions": "0.31.1",
+        "vulnerable_version_range": "< 0.31.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "Dokploy/dokploy"
+}
