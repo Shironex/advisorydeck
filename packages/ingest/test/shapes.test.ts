@@ -9,7 +9,13 @@ import {
 } from '@advisorydeck/contract';
 import { describe, expect, it } from 'vitest';
 import { pickRanges } from '../src/advisories.ts';
-import { cveFacts, ghsaFacts, type Catalogue, type RecordFacts } from '../src/normalize.ts';
+import {
+  cveFacts,
+  ghsaFacts,
+  ghsaRanges,
+  type Catalogue,
+  type RecordFacts,
+} from '../src/normalize.ts';
 import { trimCve, trimGhsa, type GhsaRecord } from '../src/records.ts';
 import { buildSourceIndex } from '../src/source-index.ts';
 
@@ -56,6 +62,7 @@ const extra: CatalogEntry[] = [
     { type: 'ghsa-repo', repo: 'MariaDB/server' },
     { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'MariaDB', products: ['server'] },
   ]),
+  product('nextcloud', [{ type: 'ghsa-repo', repo: 'nextcloud/security-advisories' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -180,5 +187,38 @@ describe('a lower and an upper bound joined by a space', () => {
       { introduced: '2.0.0', fixed: '2.9.3' },
       { introduced: '2.10.0', fixed: '2.10.1' },
     ]);
+  });
+});
+
+describe('lower bounds with a patched list (G3)', () => {
+  it('Nextcloud: three lower bounds pair with three patched versions', () => {
+    const facts = repoGhsa(
+      'repo-nextcloud.json',
+      'GHSA-f99w-3pm7-v4cv',
+      'nextcloud/security-advisories',
+    );
+    expect(rangesOf(facts, 'nextcloud')).toEqual(matcherRanges('nextcloud', 'GHSA-f99w-3pm7-v4cv'));
+  });
+
+  it('lower bounds that do not pair with the patched list are unknown, not affected forever', () => {
+    // GHSA-5j59-xgg2-r9c4 (vercel/next.js) as published: four lower bounds, ten patches.
+    const reading = ghsaRanges({
+      package: { ecosystem: 'npm', name: 'next' },
+      vulnerable_version_range: '>= 13.3, >= 14, >=15, >=16',
+      patched_versions:
+        '13.5.11, 14.2.35, 15.0.7, 15.1.11, 15.2.8, 15.3.8, 15.4.10, 15.5.9, 16.0.10, 16.1.1',
+    });
+    expect(reading.ranges).toBeUndefined();
+    expect(reading.note).toContain('do not pair');
+  });
+
+  it('lower bounds with no patch yet stay open', () => {
+    expect(
+      ghsaRanges({
+        package: { ecosystem: 'nextcloud', name: 'Server' },
+        vulnerable_version_range: '>= 32.0.0, >= 33.0.0',
+        patched_versions: 'TBD',
+      }).ranges,
+    ).toEqual([{ introduced: '32.0.0' }, { introduced: '33.0.0' }]);
   });
 });

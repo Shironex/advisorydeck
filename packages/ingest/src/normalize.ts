@@ -7,7 +7,9 @@ import {
   compareSemverLike,
   compactHyphenRange,
   dedupeRanges,
+  isBounded,
   isRangeExpression,
+  pairLowerBounds,
   parseRangeExpression,
   perBranchUpperBounds,
   singlePatchedVersion,
@@ -315,6 +317,18 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
   }
   const parsed = parseRangeExpression(expression);
   if (parsed === undefined) return { ranges: undefined };
+  if (parsed.length > 1 && !parsed.some(isBounded)) {
+    // Several lower bounds and no fix in them: either nothing is patched yet (keep the open
+    // ranges) or a patched list says where each branch is fixed.
+    if (!/[0-9]/.test(patchedRaw)) return { ranges: parsed };
+    const paired = pairLowerBounds(parsed, branchFixes);
+    return paired === undefined
+      ? {
+          ranges: undefined,
+          note: `lower bounds "${expression}" do not pair with the patched versions "${patchedRaw}": versions unknown`,
+        }
+      : { ranges: paired };
+  }
   const only = parsed.length === 1 ? parsed[0] : undefined;
   if (only === undefined) return { ranges: parsed };
   const open = only.fixed === undefined && only.last_affected === undefined;

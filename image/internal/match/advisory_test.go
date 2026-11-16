@@ -33,6 +33,8 @@ import (
 //     GHSA-w8hw-w9fx-j79w), read as one range per branch.
 //   - mysql.json, mariadb.json: hyphen ranges without spaces (CVE-2026-101801 8.4.0-8.4.12,
 //     GHSA-m5gf-432r-g5jw 10.6.1-10.6.27), read as ranges rather than one prerelease.
+//   - nextcloud.json: lower bounds next to a patched list of the same length
+//     (GHSA-f99w-3pm7-v4cv), paired into one range per branch.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`

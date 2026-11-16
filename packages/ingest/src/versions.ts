@@ -216,6 +216,33 @@ export function perBranchUpperBounds(ranges: readonly VersionRange[]): VersionRa
   });
 }
 
+/**
+ * Pairs open lower bounds with a patched list of the same length (Nextcloud: `>= 32.0.0,
+ * >= 33.0.0, >= 34.0.0` patched `32.0.12, 33.0.6, 34.0.1`): both sorted, each fix must lie after
+ * its lower bound and before the next one. Undefined when they do not pair that way.
+ */
+export function pairLowerBounds(
+  lowers: readonly VersionRange[],
+  fixes: readonly string[] | undefined,
+): VersionRange[] | undefined {
+  if (fixes === undefined || fixes.length !== lowers.length || lowers.some(isBounded)) {
+    return undefined;
+  }
+  const starts = lowers.map((r) => r.introduced);
+  if (starts.some((s) => compareSemverLike(s, s) === undefined)) return undefined;
+  starts.sort((a, b) => compareSemverLike(a, b) ?? 0);
+  const paired: VersionRange[] = [];
+  for (const [i, introduced] of starts.entries()) {
+    const fixed = fixes[i] ?? '';
+    const next = starts[i + 1];
+    const after = compareSemverLike(fixed, introduced);
+    const before = next === undefined ? -1 : compareSemverLike(fixed, next);
+    if (after === undefined || after <= 0 || before === undefined || before >= 0) return undefined;
+    paired.push({ introduced, fixed });
+  }
+  return paired;
+}
+
 /** Major and minor of a dotted numeric version (8.2.2 gives 8 and 2), or undefined. */
 export function branchOf(version: string): { major: number; minor: number } | undefined {
   const match = /^(\d+)\.(\d+)/.exec(version);
