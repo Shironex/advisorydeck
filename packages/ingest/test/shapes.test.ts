@@ -51,6 +51,11 @@ const extra: CatalogEntry[] = [
     { type: 'ghsa-repo', repo: 'php/php-src' },
     { type: 'cve-cna', assigner: 'php', vendor: 'PHP Group', products: ['PHP'] },
   ]),
+  product('mysql', [{ type: 'cve-cna', assigner: 'oracle', products: ['MySQL Server'] }]),
+  product('mariadb', [
+    { type: 'ghsa-repo', repo: 'MariaDB/server' },
+    { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'MariaDB', products: ['server'] },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -140,6 +145,29 @@ describe('one upper bound per branch on separate entries (G1)', () => {
       { introduced: '8.7.0', fixed: '8.7.1' },
       // "< 8.8.0" next to "< 8.7.1": only the 8.8.0 prereleases are left for it.
       { introduced: '8.8.0-0', fixed: '8.8.0' },
+    ]);
+  });
+});
+
+describe('hyphen ranges without spaces (G2)', () => {
+  it('MySQL: 8.4.0-8.4.12 is a range, so 8.4.5 is affected', () => {
+    expect(rangesOf(cve('CVE-2026-101801'), 'mysql')).toEqual(
+      matcherRanges('mysql', 'CVE-2026-101801'),
+    );
+  });
+
+  it('MariaDB: hyphen ranges and a lone version next to a patched list', () => {
+    const facts = repoGhsa('repo-mariadb.json', 'GHSA-m5gf-432r-g5jw', 'MariaDB/server');
+    expect(rangesOf(facts, 'mariadb')).toEqual(matcherRanges('mariadb', 'GHSA-m5gf-432r-g5jw'));
+  });
+
+  it('MariaDB: the CVE record with ordinary bounds is unchanged', () => {
+    expect(rangesOf(cve('CVE-2026-102523'), 'mariadb')).toEqual([
+      { introduced: '10.11.1', fixed: '10.11.19' },
+      { introduced: '11.4.1', fixed: '11.4.13' },
+      { introduced: '11.8.1', fixed: '11.8.9' },
+      { introduced: '12.3.1', fixed: '12.3.3' },
+      { introduced: '13.0.1', fixed: '13.0.2' },
     ]);
   });
 });
