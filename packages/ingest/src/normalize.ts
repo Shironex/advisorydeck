@@ -9,6 +9,7 @@ import {
   compactHyphenRange,
   dedupeRanges,
   exceptPatchedLines,
+  mergeBackportFixes,
   isBounded,
   isRangeExpression,
   nextLine,
@@ -58,6 +59,16 @@ export interface RecordFacts {
 export interface Catalogue {
   entries: readonly CatalogEntry[];
   index: SourceIndex;
+}
+
+/** The catalog version scheme of a product, or undefined when the product is not listed. */
+export function schemeOf(catalogue: Catalogue, slug: string): string | undefined {
+  return catalogue.entries.find((e) => e.product.slug === slug)?.product.version_scheme;
+}
+
+/** semver and semver4: the readings that rely on lines and branches apply to both. */
+function semverFamily(scheme: string | undefined): boolean {
+  return scheme === 'semver' || scheme === 'semver4';
 }
 
 /** GHSA ecosystems that version a library, not the product itself. */
@@ -384,9 +395,7 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
     const notes: string[] = [];
     const read = cveRanges(affected, notes);
     for (const note of notes) warnings.push(`${cveId}: ${note} for ${rule.slug}`);
-    const semver =
-      catalogue.entries.find((e) => e.product.slug === rule.slug)?.product.version_scheme ===
-      'semver';
+    const semver = semverFamily(schemeOf(catalogue, rule.slug));
     const ranges = read !== undefined && semver ? clipOpenRanges(read) : read;
     if (ranges !== undefined && read !== undefined && ranges.some((r, i) => r !== read[i])) {
       warnings.push(
@@ -481,7 +490,10 @@ function goModuleMajor(name: string | null | undefined): number | undefined {
  * patched versions next to "All" becomes one range per branch. A Go module with a major suffix
  * only holds that major, so an open lower bound starts at it (v2 starts at 2.0.0).
  */
-export function ghsaRanges(vulnerability: GhsaAdvisory['vulnerabilities'][number]): RangeReading {
+export function ghsaRanges(
+  vulnerability: GhsaAdvisory['vulnerabilities'][number],
+  fourParts = false,
+): RangeReading {
   const python = vulnerability.package?.ecosystem?.trim().toLowerCase() === 'pip';
   const written = (text: string) => (python ? pep440Prereleases(text.trim()) : text.trim());
   const expression = written(vulnerability.vulnerable_version_range ?? '');
@@ -490,7 +502,7 @@ export function ghsaRanges(vulnerability: GhsaAdvisory['vulnerabilities'][number
   );
   const reading = PLACEHOLDER_MAJOR.test(`${expression} ${patchedRaw}`)
     ? placeholderReading(expression, patchedRaw)
-    : readGhsaRange(expression, patchedRaw);
+    : readGhsaRange(expression, patchedRaw, fourParts);
   const major = goModuleMajor(vulnerability.package?.name);
   if (reading.ranges === undefined || major === undefined) return reading;
   return {
@@ -533,8 +545,8 @@ function placeholderReading(expression: string, patchedRaw: string): RangeReadin
   };
 }
 
-function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
-  const branchFixes = patchedBranchList(patchedRaw);
+function readGhsaRange(expression: string, patchedRaw: string, fourParts = false): RangeReading {
+  const branchFixes = patchedBranchList(patchedRaw, fourParts);
   const all = expression === '' || /^(all|\*|any)$/i.test(expression);
   if (all) {
     return branchFixes === undefined
@@ -547,7 +559,7 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
     // Several lower bounds and no fix in them: either nothing is patched yet (keep the open
     // ranges) or a patched list says where each branch is fixed.
     if (!/[0-9]/.test(patchedRaw)) return { ranges: parsed };
-    const paired = pairLowerBounds(parsed, branchFixes);
+    const paired = pairLowerBounds(parsed, branchFixes, fourParts);
     return paired === undefined
       ? {
           ranges: undefined,
@@ -709,12 +721,12 @@ function isNextPatch(last: string, patched: string): boolean {
  * A list of two or more exact patched versions, one per branch, separated by commas or spaces
  * (`1.36.12 1.37.8 1.38.6 1.39.3`), sorted ascending.
  */
-function patchedBranchList(raw: string): string[] | undefined {
+function patchedBranchList(raw: string, fourParts = false): string[] | undefined {
   const parts = raw.split(/[\s,]+/).filter((part) => part !== '');
   if (parts.length < 2) return undefined;
   const versions = parts.map((part) => cleanVersion(part));
   if (versions.some((v) => v === undefined || branchOf(v) === undefined)) return undefined;
-  return (versions as string[]).sort((a, b) => compareSemverLike(a, b) ?? 0);
+  return (versions as string[]).sort((a, b) => compareSemverLike(a, b, fourParts) ?? 0);
 }
 
 /**
@@ -745,6 +757,7 @@ function claimsFrom(
   productFor: (vulnerability: GhsaAdvisory['vulnerabilities'][number]) => string | undefined,
   rank: (slug: string) => number,
   warnings: string[],
+  catalogue: Catalogue,
 ): ProductClaim[] {
   const bySlug = new Map<string, VersionRange[] | undefined>();
   for (const vulnerability of advisory.vulnerabilities) {
@@ -758,7 +771,7 @@ function claimsFrom(
         `${advisory.ghsa_id}: malformed package name "${name.trim().replace(/\s+/g, ' ')}", entry read as ${slug}`,
       );
     }
-    const { ranges, note } = ghsaRanges(vulnerability);
+    const { ranges, note } = ghsaRanges(vulnerability, schemeOf(catalogue, slug) === 'semver4');
     const noted = `${advisory.ghsa_id}: ${note ?? ''}`;
     if (note !== undefined && !warnings.includes(noted)) warnings.push(noted);
     if (ranges === undefined) {
@@ -800,6 +813,7 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
               (s as { repo: string }).repo === record.repository,
           ),
         warnings,
+        catalogue,
       ),
     );
   } else if (record.repo !== null && repoSlug !== undefined) {
@@ -832,6 +846,7 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
             (s as { repo: string }).repo === record.repository,
         ),
       warnings,
+      catalogue,
     );
     claims.push(
       ...(claimed.length > 0
@@ -868,6 +883,7 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
             );
           }),
         warnings,
+        catalogue,
       ),
     );
   }
@@ -919,7 +935,11 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
     source: { type: 'ghsa', id: record.id, url: advisoryUrl, license: 'CC-BY-4.0' },
     claims: patchedLineClaims(
       clippedClaims(
-        perBranchClaims(mergeClaims(claims), record.id, warnings),
+        perBranchClaims(
+          backportClaims(mergeClaims(claims), catalogue, record.id, warnings),
+          record.id,
+          warnings,
+        ),
         catalogue,
         record.id,
         warnings,
@@ -944,9 +964,7 @@ function clippedClaims(
   warnings: string[],
 ): ProductClaim[] {
   return claims.map((claim) => {
-    const semver =
-      catalogue.entries.find((e) => e.product.slug === claim.slug)?.product.version_scheme ===
-      'semver';
+    const semver = semverFamily(schemeOf(catalogue, claim.slug));
     if (!semver) return claim;
     const ranges = clipOpenRanges(claim.ranges);
     if (ranges.every((r, i) => r === claim.ranges[i])) return claim;
@@ -1000,6 +1018,24 @@ function sameRanges(a: readonly VersionRange[], b: readonly VersionRange[]): boo
   return a.length === b.length && a.every((r, i) => key(r) === key(b[i] ?? r));
 }
 
+/** Keeps the Enterprise backport range over the community range of one line (mergeBackportFixes), semver4 products only. */
+function backportClaims(
+  claims: ProductClaim[],
+  catalogue: Catalogue,
+  id: string,
+  warnings: string[],
+): ProductClaim[] {
+  return claims.map((claim) => {
+    if (schemeOf(catalogue, claim.slug) !== 'semver4') return claim;
+    const ranges = mergeBackportFixes(claim.ranges);
+    if (ranges.length === claim.ranges.length) return claim;
+    warnings.push(
+      `${id}: community and Enterprise fixes of ${claim.slug} on the same lines: kept the Enterprise backport, the next community patch is after it`,
+    );
+    return { ...claim, ranges };
+  });
+}
+
 /**
  * Skips the releases a record lists as fixed on one line when another range of the same record
  * runs past that line (exceptPatchedLines). Semver products only: elsewhere a two-part version is
@@ -1012,9 +1048,7 @@ function patchedLineClaims(
   warnings: string[],
 ): ProductClaim[] {
   return claims.map((claim) => {
-    const scheme = catalogue.entries.find((e) => e.product.slug === claim.slug)?.product
-      .version_scheme;
-    if (scheme !== 'semver') return claim;
+    if (!semverFamily(schemeOf(catalogue, claim.slug))) return claim;
     const ranges = exceptPatchedLines(claim.ranges);
     if (sameRanges(ranges, claim.ranges)) return claim;
     warnings.push(
