@@ -185,9 +185,10 @@ func (Webhook) Summary(s Summary, now time.Time) ([]Message, error) {
 		for _, it := range p.Items {
 			open = append(open, it.Advisory.ID)
 		}
-		action := ""
-		if len(p.Items) > 0 {
-			action = actionText(p.Declared, p.Branch, p.Latest)
+		action := actionText(p.Declared, p.Branch, p.Latest)
+		if p.Missing || len(p.Items) == 0 {
+			// Nothing to act on: say so in words instead of an empty string.
+			action = summaryText(p, s.MinSeverity)
 		}
 		ws.Products = append(ws.Products, WebhookProductSummary{
 			Product: p.Product.Slug, ProductName: p.Product.Name, DeclaredVersion: p.Declared, Branch: p.Branch,
