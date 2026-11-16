@@ -122,11 +122,7 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
       // Several upper bounds in a row list one branch each (docker-ce: "<= v19.03.15, <= v20.10.27"):
       // every bound after the first starts at its own major.minor.
       if (open === undefined) bare += 1;
-      const branch = branchOf(version);
-      const start =
-        ranges.length > 0 && open === undefined && branch !== undefined
-          ? `${branch.major}.${branch.minor}.0`
-          : '0';
+      const start = ranges.length > 0 && open === undefined ? branchStart(op, version) : '0';
       ranges.push(upper(open ?? { introduced: start }, op, version));
       open = undefined;
     } else {
@@ -155,11 +151,24 @@ function sortedUpperBounds(ranges: readonly VersionRange[]): VersionRange[] {
   const bounds = ranges.map(upperOf);
   if (bounds.some((b) => compareSemverLike(b, b) === undefined)) return [...ranges];
   const sorted = [...ranges].sort((a, b) => compareSemverLike(upperOf(a), upperOf(b)) ?? 0);
-  return sorted.map((range, i) => {
-    const branch = branchOf(upperOf(range));
-    if (i === 0 || branch === undefined) return { ...range, introduced: '0' };
-    return { ...range, introduced: `${branch.major}.${branch.minor}.0` };
-  });
+  return sorted.map((range, i) => ({
+    ...range,
+    introduced: i === 0 ? '0' : branchStart(range.fixed === undefined ? '<=' : '<', upperOf(range)),
+  }));
+}
+
+/**
+ * Where a listed upper bound's branch starts: its major.minor.0, or the lowest prerelease of it
+ * (`1.5.0-0`) when the bound is a prerelease of that first release (runc: `<= 1.5.0-rc.2`), which
+ * would otherwise give an empty range and miss the release candidates. `0` when the bound has no
+ * major.minor.
+ */
+function branchStart(op: string, bound: string): string {
+  const branch = branchOf(bound);
+  if (branch === undefined) return '0';
+  const start = `${branch.major}.${branch.minor}.0`;
+  const order = compareSemverLike(start, bound) ?? 0;
+  return (op === '<' ? order >= 0 : order > 0) ? `${start}-0` : start;
 }
 
 /** The one version a "patched versions" field names (`29.9.3`, `>= v4.0.0-beta.469`), else undefined. */
