@@ -1,5 +1,5 @@
 import type { Advisory, CatalogEntry, VersionRange } from '@advisorydeck/contract';
-import type { SourceIndex } from './source-index.ts';
+import { packageKeyOf, type SourceIndex } from './source-index.ts';
 import type { CveAffected, CveRecord, CveVersion, GhsaAdvisory, GhsaRecord } from './records.ts';
 import {
   branchOf,
@@ -747,8 +747,9 @@ function perBranchRanges(first: string, fixes: readonly string[]): VersionRange[
 
 function packageKey(vulnerability: GhsaAdvisory['vulnerabilities'][number]): string | undefined {
   const ecosystem = vulnerability.package?.ecosystem?.trim().toLowerCase() ?? '';
-  const name = vulnerability.package?.name?.trim() ?? '';
-  return LANGUAGE_ECOSYSTEMS.has(ecosystem) ? `${ecosystem}:${name}` : undefined;
+  return LANGUAGE_ECOSYSTEMS.has(ecosystem)
+    ? packageKeyOf(ecosystem, vulnerability.package?.name ?? '')
+    : undefined;
 }
 
 /** Collects ranges per product from the vulnerability entries a selector assigns to it. */
@@ -878,7 +879,7 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
             return (
               source.type === 'ghsa-package' &&
               record.global?.vulnerabilities.some(
-                (v) => packageKey(v) === `${source.ecosystem ?? ''}:${source.package ?? ''}`,
+                (v) => packageKey(v) === packageKeyOf(source.ecosystem ?? '', source.package ?? ''),
               ) === true
             );
           }),
