@@ -1,0 +1,46 @@
+{
+  "id": "GHSA-782c-3jq5-fw4j",
+  "aliases": [],
+  "title": "Multiple Low-Severity Security Issues (Email Verification Bypass, CLI Injection, Weak Hashing)",
+  "summary": "## Summary\nFour low-severity security issues found in v4.0.0-beta.468.\n\n---\n\n### Issue 1: Login Link Auto Email Verification Bypass\n**File:** `app/Http/Controllers/Controller.php`, lines 97-99\n\nThe `link()` method auto-sets `email_verified_at = now()` when a user authenticates via encrypted login link token, bypassing the standard email verification flow.\n\n**Impact:** Combined with the team invitation flow, an attacker who obtains an invitation link can log in and have their email auto-verified without proving email ownership.\n\n**Fix:** Remove the auto-verification; require users to verify through the standard flow.\n\n---\n\n### Issue 2: CLI passthru() Without Shell Escaping\n**File:** `app/Console/Commands/ViewScheduledLogs.php`, line 54\n\n```php\npassthru(\"tail -f {$logPath} | grep -E '{$filters}'\");\n```\n\nThe `$filters` variable from CLI arguments uses `preg_quote()` (regex escaping) but not `escapeshellarg()` (shell escaping). A value containing `'` could break out of the grep argument.\n\n**Impact:** Low - requires CLI/Artisan access which typically implies existing server access.\n\n**Fix:** Use `escapeshellarg()` on filter strings.\n\n---\n\n### Issue 3: SHA1 for Email Verification Hash\n**File:** `app/Models/User.php`, line 247\n\n```php\n'hash' => sha1($this->getEmailForVerification()),\n```\n\nSHA1 is deprecated with known collision attacks. Mitigated by Laravel's signed URL mechanism.\n\n**Fix:** Replace with `hash('sha256', ...)`.\n\n---\n\n### Issue 4: Predictable Filename via md5(time())\n**File:** `app/Http/Controllers/UploadController.php`, line 81\n\n```php\n$filename .= '_'.md5(time()).'.'.$extension;\n```\n\n`time()` returns a predictable Unix timestamp, making filenames guessable.\n\n**Fix:** Replace with `bin2hex(random_bytes(16))`.\n\n## Affected Version\nv4.0.0-beta.468",
+  "published_at": "2026-07-02T16:38:45.000Z",
+  "modified_at": "2026-07-02T16:38:45.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "coolify",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0-beta.474"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-782c-3jq5-fw4j",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-782c-3jq5-fw4j",
+      "url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-782c-3jq5-fw4j",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:973bb8dba698175e92fe6b25a95f2887af62bfabded5af4bc6ac41ae382f2aa3",
+  "note": null
+}

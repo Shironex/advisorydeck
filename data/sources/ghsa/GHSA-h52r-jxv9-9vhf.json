@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-h52r-jxv9-9vhf",
+  "repo": {
+    "cve_id": "CVE-2025-59158",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-116"
+    ],
+    "description": "# Stored Cross-Site Scripting (XSS) in Coolify\r\n\r\n**Affected Product:** Coolify  \r\n**Tested Version:** v4.0.0-beta.420.6  \r\n**Likely Affected:** Prior versions are also vulnerable  \r\n**Fixed in:** v4.0.0-beta.420.7  \r\n\r\n---\r\n\r\n## Summary\r\n\r\nCoolify versions prior to and including **v4.0.0-beta.420.6** are vulnerable to a **stored cross-site scripting (XSS)** attack in the project creation workflow.  \r\n\r\nAn authenticated user with low privileges (e.g., **member** role) can create a project with a maliciously crafted name containing embedded JavaScript. When an administrator later attempts to delete the project or its associated resource, the payload automatically executes in the admin’s browser context.  \r\n\r\n---\r\n\r\n## Impact\r\n\r\nSuccessful exploitation leads to **full compromise of the Coolify instance**, including:\r\n\r\n- Theft of **API tokens** and **session cookies**.  \r\n- Access to **WebSocket-based terminal sessions** on managed servers.  \r\n- Abuse of **project management features** with administrator privileges.  \r\n- Potential for **persistence and privilege escalation** when chained with other vulnerabilities.  \r\n\r\n---\r\n\r\n## Proof of Concept (PoC)\r\n\r\n1. Log in with a regular (non-admin/owner) account.  \r\n2. Create a new project with the following malicious name:  \r\n\r\n`<details x=xxxxxxxxxxxxxxxxxx:2 open ontoggle=\"prompt('PoC');\">`\r\n3. Add any resource to the project (e.g., GitLab repo, Docker image).\r\n4. When an administrator attempts to delete the project, the malicious JavaScript is executed in their browser.\r\n\r\n---\r\n\r\n## Security Boundary Crossed\r\n\r\n- From: **Low-privileged member user**  \r\n- To: **Administrator session & full control of the Coolify instance**  \r\n\r\n---\r\n\r\n## Recommendation\r\n\r\n- Upgrade to **Coolify v4.0.0-beta.359** or later.  \r\n- Sanitize and HTML-encode all user-supplied input (especially project names).  \r\n- Restrict usage of special characters in project metadata.  \r\n- Apply **Content Security Policy (CSP)** headers to reduce XSS impact.  \r\n\r\n---\r\n\r\n## Credit\r\n\r\nDiscovered by **Eyodav**\r\n",
+    "ghsa_id": "GHSA-h52r-jxv9-9vhf",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-h52r-jxv9-9vhf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h52r-jxv9-9vhf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-59158"
+      }
+    ],
+    "published_at": "2026-01-03T15:16:42Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Stored XSS in Project Name",
+    "updated_at": "2026-01-03T15:16:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "v4.0.0-beta.420.7",
+        "vulnerable_version_range": "v4.0.0-beta.420.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-mw6q-2hmg-mhxv",
+  "repo": {
+    "cve_id": "CVE-2026-34048",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-285",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\nThe terminal feature is intended to be restricted to team administrators/owners, but the websocket bootstrap endpoints only check whether the user is logged in. As a result, an authenticated low-privileged team member can open an admin-only terminal websocket session and execute commands on team servers that are terminal-enabled.\r\n\r\nI validated this locally on commit `06f60c9a98bead0c932c6adf7fd43a45d9149048` (`v4.0.0-beta.469`). Using a non-admin member account, I was able to reach the terminal websocket, receive `pty-ready`, and execute `id`, `whoami`, and `hostname` on the managed host. In my test lab, the configured server user was `root`, so the resulting output included `uid=0(root)` and `whoami=root`.\r\n\r\n### Details\r\nAt the vulnerable revision:\r\n\r\n- `GET /terminal` is protected by terminal authorization middleware (`can.access.terminal`)\r\n- `POST /terminal/auth` only checks `auth()->check()`\r\n- `POST /terminal/auth/ips` only checks `auth()->check()`\r\n\r\nThis creates an authorization mismatch between the UI and the realtime backend.\r\n\r\nThe websocket service in `docker/coolify-realtime/terminal-server.js` treats those two routes as the terminal trust boundary:\r\n\r\n- `verifyClient()` authenticates websocket clients by POSTing to `/terminal/auth`\r\n- websocket session setup POSTs to `/terminal/auth/ips`\r\n- `handleCommand()` accepts an attacker-controlled SSH command string and only verifies that the requested target host appears in the IP list returned by `/terminal/auth/ips`\r\n\r\nThe intended authorization boundary is defined in `app/Http/Middleware/CanAccessTerminal.php`, but that boundary is not applied to the two bootstrap routes above. In practice, the terminal backend is therefore gated by “logged in” instead of “allowed to use terminal”.\r\n\r\nThis becomes directly exploitable because a regular member can also obtain the inputs needed for the terminal path from normal application pages:\r\n\r\n- `/servers` exposes visible server UUIDs\r\n- `/server/{uuid}` exposes the server connection fields (`ip`, `user`, `port`) in rendered form inputs\r\n- `/security/private-key` exposes visible team private key UUIDs\r\n- the terminal path uses deterministic key file paths of the form `/var/www/html/storage/app/ssh/keys/ssh_key@<uuid>`\r\n\r\nA low-privileged member can therefore:\r\n1. authenticate normally\r\n2. call `/terminal/auth` and `/terminal/auth/ips` directly\r\n3. enumerate a visible server and visible key UUID\r\n4. open `/terminal/ws`\r\n5. submit the same SSH command shape expected by the terminal backend\r\n6. obtain shell output from a team server\r\n\r\n### PoC\r\nI reproduced this in a local lab built from commit `06f60c9a98bead0c932c6adf7fd43a45d9149048`.\r\n\r\nMinimal reproduction steps:\r\n\r\n1. Start a vulnerable Coolify instance from that revision.\r\n2. Create or use:\r\n   - one owner/admin account\r\n   - one low-privileged member account in the same team\r\n   - at least one terminal-enabled server visible to that team\r\n   - at least one team SSH key visible to that team\r\n3. Log in as the low-privileged member.\r\n4. Confirm that the `/terminal` UI is blocked for that account.\r\n5. Reuse the same session cookies and XSRF token to send:\r\n   - `POST /terminal/auth`\r\n   - `POST /terminal/auth/ips`\r\n6. Observe that both requests succeed for the member session.\r\n7. Enumerate `/servers` and open `/server/{uuid}` to recover a target host, SSH user, and port.\r\n8. Enumerate `/security/private-key` to recover a visible key UUID.\r\n9. Open a websocket connection to `/terminal/ws` with the same cookies and `X-XSRF-TOKEN`.\r\n10. Send a JSON payload in the format used by the realtime service, for example:\r\n\r\n```json\r\n{\"command\":[\"timeout 30 ssh -i /var/www/html/storage/app/ssh/keys/ssh_key@ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PasswordAuthentication=no -o ConnectTimeout=10 -o ServerAliveInterval=5 -o RequestTTY=no -o LogLevel=ERROR -p '22' 'root'@'coolify-testing-host' 'bash -se' << \\\\P0C\\nprintf '__COOLIFY_POC_BEGIN__\\\\n'; id; whoami; hostname; printf '__COOLIFY_POC_END__\\\\n'\\nP0C\"]}\r\n```\r\n\r\nExpected vulnerable behavior:\r\n- websocket connection is accepted\r\n- server returns `pty-ready`\r\n- remote command output is returned over the websocket\r\n\r\nObserved local output in my validation:\r\n- `pty-ready`\r\n- `uid=0(root) gid=0(root) groups=0(root)`\r\n- `root`\r\n- `remote hostname`\r\n- `__COOLIFY_POC_BEGIN__`\r\n- `__COOLIFY_POC_END__`\r\n\r\n### Impact\r\nThis is a privilege-escalation / command-execution issue affecting any deployment where a low-privileged member shares a team with at least one terminal-enabled server and a visible team SSH key.\r\n\r\nImpact includes:\r\n- escalation from low-privileged member to terminal-capable operator\r\n- command execution on managed team servers\r\n- potential access to containers reachable through the same terminal workflow\r\n- disclosure of secrets, source code, runtime tokens, and deployment credentials on those hosts\r\n- possible malicious redeployments, persistence, or service disruption\r\n\r\nI believe this should be treated as Critical because it is network-reachable, requires only low privileges, requires no user interaction, and crosses the application boundary into managed infrastructure.\r\n\r\n### Mitigation\r\nThe immediate fix is to enforce the same authorization boundary on the websocket bootstrap routes that is already enforced on the terminal UI.\r\n\r\nMinimum fix:\r\n- apply `can.access.terminal` to both `POST /terminal/auth` and `POST /terminal/auth/ips`\r\n- ensure low-privileged members receive an authorization failure from both routes\r\n- add regression tests covering:\r\n  - unauthenticated users denied\r\n  - authenticated non-admin members denied\r\n  - authorized admins/owners allowed\r\n\r\nRecommended hardening:\r\n- stop trusting attacker-controlled SSH command strings as the primary source of target metadata\r\n- bind terminal websocket requests to a server/container identifier that is authorized server-side\r\n- re-validate authorization again when the terminal command is executed, not only during websocket bootstrap\r\n- review server and private-key visibility rules because they materially increase the exploitability and blast radius of this issue\r\n\r\n### Attachment\r\n[coolify-member-to-server-shell-poc.zip](https://github.com/user-attachments/files/26163432/coolify-member-to-server-shell-poc.zip)\r\n",
+    "ghsa_id": "GHSA-mw6q-2hmg-mhxv",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-mw6q-2hmg-mhxv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mw6q-2hmg-mhxv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34048"
+      }
+    ],
+    "published_at": "2026-07-02T16:37:38Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Missing authorization on terminal websocket bootstrap routes allows low-privileged members to execute commands on team servers",
+    "updated_at": "2026-07-02T16:37:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

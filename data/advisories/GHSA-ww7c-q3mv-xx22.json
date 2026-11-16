@@ -1,0 +1,49 @@
+{
+  "id": "GHSA-ww7c-q3mv-xx22",
+  "aliases": [],
+  "title": "Data race on the shared bufio.Reader after an HTTP/1 upgrade in FastProxy panics the whole process",
+  "summary": "## Summary\n\nThere is a high severity vulnerability in Traefik's experimental FastProxy (`experimental.fastProxy`). Once a backend answers a protocol upgrade (`101 Switching Protocols`, e.g. WebSocket), the connection pool keeps reading from the backend connection while the tunnel copier reads from the same buffered reader, with no synchronization between them. An unauthenticated client that repeatedly opens upgraded connections and aborts them can corrupt the reader's internal state and trigger an unrecovered panic that terminates the whole Traefik process, causing a denial of service.\n\nOnly deployments that enable `experimental.fastProxy` are affected. Traefik v2 is not affected, as FastProxy was introduced in v3.2. Traefik v3.2 to v3.6 are affected and no longer maintained, so they will not receive a patch: users on those versions should upgrade to a patched v3.7 release.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.15\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).",
+  "published_at": "2026-10-16T08:00:59.000Z",
+  "modified_at": "2026-10-16T08:00:59.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-567"
+  ],
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "3.2.0",
+          "fixed": "3.7.15"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-ww7c-q3mv-xx22",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-ww7c-q3mv-xx22",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-ww7c-q3mv-xx22",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:35eae0b5ab800815d79fd20a5573bbb1cb25ecf50b963c8a943f2aa90973aacf",
+  "note": null
+}

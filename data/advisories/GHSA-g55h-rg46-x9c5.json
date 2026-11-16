@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-g55h-rg46-x9c5",
+  "aliases": [],
+  "title": "TLS option confusion in multi-host routers can bypass mTLS for protected hosts",
+  "summary": "## Summary\n\nThere is a high severity vulnerability in Traefik's TLS options conflict resolution. TLS options are applied during the handshake and are therefore mapped to the host names of a router rule rather than to the router itself, so when several routers on the same entry point serve the same host name with different TLS options Traefik arbitrates the conflict by falling back to the `default` TLS options - and for a multi-host router that fallback is applied to every host name in the rule, including the ones that are not themselves in conflict. A router that requires client-certificate authentication for one of its hosts therefore stops enforcing it as soon as another router creates a TLS option conflict on any other host of the same rule, and a client without a certificate can reach the protected backend. The fix introduces the `core.strictTLSOptions` static configuration option, which disables the fallback and marks the conflicting routers in error instead; it defaults to `false` to preserve the existing behaviour, so it must be explicitly enabled to take effect. Both the v2 and v3 lines are affected; the v1 line, the v2 minors below v2.11 and the v3 minors below v3.7 are no longer maintained and will not receive a patch of their own, so users running them should upgrade to a maintained, patched release.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.55\n- https://github.com/traefik/traefik/releases/tag/v3.7.11\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n### Summary\r\n\r\nTraefik v3.7.9 can apply the default TLS configuration to every host served by a multi-host HTTP router when another router creates a conflicting TLS option for only one of those hosts.\r\n\r\nThis can bypass client-certificate authentication for a protected host. In the reproduction below, `admin.example.com` is configured with a TLS option that requires and verifies a client certificate. A second router for `public.example.com` creates a same-host TLS-option conflict. After the conflict is introduced, a client without a certificate can complete the TLS handshake for `admin.example.com` and reach the backend.\r\n\r\nThe PoC is self-contained in this Markdown document. It creates all certificates, Compose files, and dynamic configuration in a temporary directory at runtime. No PoC repository files need to be distributed.\r\n\r\n### Details\r\n\r\nThe affected configuration is a multi-host router with a strict TLS option:\r\n\r\n```yaml\r\nhttp:\r\n  routers:\r\n    multi-host:\r\n      entryPoints:\r\n        - websecure\r\n      rule: Host(`admin.example.com`, `public.example.com`)\r\n      ruleSyntax: v2\r\n      service: app\r\n      tls:\r\n        options: strict\r\n```\r\n\r\nand a second router that overlaps only one host with the default TLS option:\r\n\r\n```yaml\r\n    public-default:\r\n      entryPoints:\r\n        - websecure\r\n      rule: Host(`public.example.com`)\r\n      service: app\r\n      tls: {}\r\n```\r\n\r\nThe strict option requires `RequireAndVerifyClientCert`:\r\n\r\n```yaml\r\ntls:\r\n  options:\r\n    strict:\r\n      clientAuth:\r\n        caFiles:\r\n          - /certs/ca.crt\r\n        clientAuthType: RequireAndVerifyClientCert\r\n```\r\n\r\nThe affected flow is:\r\n\r\n1. The multi-host router is registered in both the `admin.example.com` and `public.example.com` host buckets with the strict option.\r\n2. The second router introduces a default-option conflict for `public.example.com`.\r\n3. Conflict resolution mutates the shared multi-host router to use the default TLS option.\r\n4. The TCP router manager installs that shared resolved option for every domain parsed from the multi-host rule, including `admin.example.com`.\r\n5. The SNI check uses the same router-level resolution, so the request is accepted after negotiating the default no-client-certificate TLS configuration.\r\n\r\nRelevant source areas in v3.7.9:\r\n\r\n- [`pkg/config/dynamic/http_co...",
+  "published_at": "2026-08-21T09:45:52.000Z",
+  "modified_at": "2026-08-21T09:45:52.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.11.55"
+        },
+        {
+          "introduced": "3.0.0",
+          "fixed": "3.7.11"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-g55h-rg46-x9c5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-g55h-rg46-x9c5",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-g55h-rg46-x9c5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:4f8ff7b3268c3078f7262a744b51ab51a9476ca1cd54273d58bc9e60d13a5157",
+  "note": null
+}

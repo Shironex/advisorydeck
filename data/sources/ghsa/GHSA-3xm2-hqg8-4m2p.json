@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-3xm2-hqg8-4m2p",
+  "repo": {
+    "cve_id": "CVE-2026-34035",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Report metadata\r\n- Product: Coolify (self-hosted PaaS)\r\n- Discovery date: 2026-03-04\r\n- Reporter: Xyptonize\r\n- Severity: Critical\r\n- CWE-78: OS Command Injection\r\n\r\n\r\n### Suggested GHSA title\r\nCommand injection in Log Drain env file generation allows server RCE\r\n\r\n\r\n### Classification\r\n- CWE-78: OS Command Injection\r\n\r\n### Affected code\r\n- `app/Actions/Server/StartLogDrain.php`\r\n- `app/Livewire/Server/LogDrains.php`\r\n\r\n### Root cause\r\nLog-drain values are written using unquoted shell `echo` commands:\r\n```php\r\n\"echo AXIOM_API_KEY={$server->settings->logdrain_axiom_api_key} >> $config_path/.env\"\r\n```\r\nAttacker-controlled values can inject shell metacharacters/command substitution.\r\n\r\n### PoC payload\r\nSet `Axiom API Key` to:\r\n```text\r\n$(id >/tmp/coolify_poc_logdrain)\r\n```\r\n\r\n### Reproduction steps\r\n1. Log in with access to Server Log Drain settings.\r\n2. Enable Axiom log drain.\r\n3. Set API key to:\r\n   ```text\r\n   $(id >/tmp/coolify_poc_logdrain)\r\n   ```\r\n4. Click save / instant save to trigger `StartLogDrain`.\r\n5. Verify on target server:\r\n   ```bash\r\n   cat /tmp/coolify_poc_logdrain\r\n   ```\r\n6. Expected result: command executed on host.\r\n\r\n### Impact\r\n- Host RCE\r\n- Secret exfiltration and persistent compromise risk\r\n\r\n### Recommended fix\r\n1. Stop writing env via shell `echo` concatenation.\r\n2. Write files through safe file APIs or base64-decoded static payload.\r\n3. Strictly validate/escape secret fields before any command context.\r\n\r\n---\r\n\r\n",
+    "ghsa_id": "GHSA-3xm2-hqg8-4m2p",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-3xm2-hqg8-4m2p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3xm2-hqg8-4m2p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34035"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Host RCE via Log Drain secret/env command injection",
+    "updated_at": "2026-07-02T16:39:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.466",
+        "vulnerable_version_range": "< 4.0.0-beta.466"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

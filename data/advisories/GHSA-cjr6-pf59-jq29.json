@@ -1,0 +1,46 @@
+{
+  "id": "GHSA-cjr6-pf59-jq29",
+  "aliases": [],
+  "title": "ingress-nginx from-to-www-redirect sibling router serves the auth-protected backend without auth",
+  "summary": "## Summary\n\nThere is a high severity vulnerability in Traefik's Kubernetes ingress-nginx provider. For an Ingress carrying both an authentication annotation and `nginx.ingress.kubernetes.io/from-to-www-redirect`, the provider created a second router matching on the host alone that carried only the `RedirectRegex` middleware while still pointing at the parent's protected backend service. `RedirectRegex` is not a terminal handler: a request its pattern does not match is forwarded to the next handler. Because the redirect pattern accepted only a numeric port while Traefik's host matcher canonicalizes any authority, a request carrying a non-numeric or empty port (`Host: www.example.com:x`) selected the sibling router, missed the redirect, and was proxied to the protected backend with none of the Ingress's annotation-derived middlewares applied. Authentication is not the only middleware lost: every annotation-derived middleware is discarded on that router, so source-IP allowlisting and the rest are equally absent.\n\nTraefik v2 is not affected, and neither is any v3 release before v3.7.0: the ingress-nginx provider's from-to-www-redirect handling was introduced in v3.7.0.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.12\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n# Traefik: the ingress-nginx from-to-www-redirect sibling router serves an auth-protected backend without auth\n\n**ANT-ID:** ANT-2026-EYY7M3H3\n\n## Summary\n\nFor a Kubernetes Ingress carrying both an auth annotation and\n`nginx.ingress.kubernetes.io/from-to-www-redirect`, the ingress-nginx provider creates a\nsecond router that matches on the host alone, carries **only** the `RedirectRegex`\nmiddleware, and is pointed at the parent's real backend service. `RedirectRegex` is not a\nterminal handler: `pkg/middlewares/redirect/redirect.go` forwards every request its pattern\ndoes not match to the next handler, which for this router is the backend. The pattern\ncannot match an authority whose port is not numeric, while `net.SplitHostPort`, and hence\nthe canonical host the `Host()` matcher compares against, accepts one. So\n`Host: www.example.com:x` selects the sibling router, misses the redirect, and is proxied\nto the protected backend with no authentication at all. Affects v3.7.10, the latest\nrelease, and HEAD.\n\n> Discovered by AI and verified by humans; credit Calif.io in collaboration with Anthropic.\n\n## Technical Details\n\n`applyFromToWwwRedirect()` (`pkg/provider/kubernetes/ingress-nginx/translator.go:546`) is\ncalled immediately after `p.applyMiddlewares()` has populated `rt.Middlewares` with the\nIngress's auth middleware. It then builds a new router that inherits `rt.Service` but\nreplaces the middleware chain outright:\n\n```go\nconf.HTTP.Routers[routerKey+\"-from-to-www-redirect\"] = &dynamic.Router{\n    EntryPoints:   rt.EntryPoints,\n    Rule:          f.ExtraRouterRule,     // Host(\"www.example.com\"), no path constraint\n    Priority:      rt.Priority,\n    Middlewares:   []string{mwName},      // only the redirect; rt.Middlewares discarded\n    Service:       rt.Service,            // the parent's protected backend\n    TLS:           rt.TLS,\n}\n```\n\nThe authorization is not bypassed so much as never attached to that route, and because\n`applyMiddlewares()` is where every annotation-derived middleware is attached, the sibling\ndiscards all of them, not only BasicAuth. We confirmed the same 401-to-200 transition on an\nIngress guarded by `whitelist-source-range` instead, which returns 403 on the parent and\n200 on the sibling.\n\nWhat turns that into a reachable bypass is a disagreement between two parsers about the\nsame authority. The redirect pattern is `(https?)://[^/:]+(:[0-9]+)?/(.*)`: `[^/:]+` stops\nat the first colon and `(:[0-9]+)?` accepts only digits, so for\n`http://www.example.com:x/admin/secret` the opt...",
+  "published_at": "2026-08-27T07:50:13.000Z",
+  "modified_at": "2026-08-27T07:50:13.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "3.7.0",
+          "fixed": "3.7.12"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-cjr6-pf59-jq29",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cjr6-pf59-jq29",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-cjr6-pf59-jq29",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:112c1edc4aaf894e78f1e04de4cc30da24cac5d4d05a4c061d3d313fb510a2ce",
+  "note": null
+}

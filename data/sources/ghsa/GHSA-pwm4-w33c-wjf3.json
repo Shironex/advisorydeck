@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-pwm4-w33c-wjf3",
+  "repo": {
+    "cve_id": "CVE-2026-42147",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Vulnerability Details\n\n**CWE**: CWE-918 - Server-Side Request Forgery (SSRF)\n\nThe S3 Storage functionality in Coolify allows authenticated users to configure a custom S3-compatible endpoint URL. When creating or testing an S3 storage connection, the `testConnection()` method in `app/Models/S3Storage.php` sends an HTTP GET request (ListObjectsV2) to the user-controlled endpoint without validating that the URL does not point to internal/private network addresses.\n\nThe endpoint field is validated only as `required|url|max:255`, which accepts any URL including internal hostnames (e.g., `http://169.254.169.254`, `http://localhost:6379`, `http://internal-service:8080`).\n\nThis allows an authenticated attacker to:\n1. Access cloud metadata services (e.g., AWS IMDSv1 at 169.254.169.254) to steal IAM credentials\n2. Probe internal network services and perform port scanning\n3. Interact with internal services (Redis, PostgreSQL, etc.) reachable from the Coolify server\n4. Obtain error-based information disclosure about internal service responses\n\nThe vulnerability is triggered via:\n- S3 Storage creation (Create.php:116)\n- S3 Storage update (Form.php:149)\n- Test Connection button (Form.php:120)\n\nThe S3 Storage endpoint configuration in Coolify does not validate that the provided endpoint URL points to an external service. The `testConnection()` method in `app/Models/S3Storage.php` (line 122-165) uses `Storage::build()` with the user-controlled endpoint and calls `$disk->files()`, which sends an HTTP GET request (S3 ListObjectsV2) to the specified URL.\n\n**Vulnerable Code** (`app/Models/S3Storage.php:122-135`):\n```php\npublic function testConnection(bool $shouldSave = false)\n{\n    $disk = Storage::build([\n        'driver' => 's3',\n        'region' => $this['region'],\n        'key' => $this['key'],\n        'secret' => $this['secret'],\n        'bucket' => $this['bucket'],\n        'endpoint' => $this['endpoint'],  // User-controlled, no private IP validation\n        'use_path_style_endpoint' => true,\n    ]);\n    $disk->files();  // Sends HTTP GET to user-controlled endpoint\n}\n```\n\nThe endpoint field validation (`app/Livewire/Storage/Create.php:40`) only checks URL format:\n```php\n'endpoint' => 'required|url|max:255',\n```\n\nThis accepts any URL including internal hostnames and private IP addresses.\n\n## Steps to Reproduce\n\n1. Login to Coolify as any authenticated user\n2. Navigate to **S3 Storages** → Click **+ Add**\n3. Fill in the form:\n   - **Name**: any name\n   - **Endpoint**: `http://169.254.169.254` (AWS metadata) or any internal URL\n   - **Bucket**: `latest/meta-data` (for AWS metadata) or any value\n   - **Region**: `us-east-1`\n   - **Access Key / Secret Key**: any values\n4. Click **Validate Connection & Continue**\n5. The server sends HTTP GET to `http://169.254.169.254/latest/meta-data/?list-type=2`\n6. The error message in the UI leaks response parsing details\n\n## Impact\n\nAn authenticated attacker can exploit this SSRF to:\n\n1. **Cloud Metadata Theft**: Access AWS/GCP/Azure metadata endpoints (e.g., `http://169.254.169.254/latest/meta-data/iam/security-credentials/`) to steal IAM credentials, leading to full cloud account compromise\n2. **Internal Service Discovery**: Probe internal network services reachable from the Coolify server (port scanning via error-based responses)\n3. **Internal Service Interaction**: Send HTTP requests to internal services (Redis, PostgreSQL, Elasticsearch) from the Coolify server's network context\n4. **Error-Based Information Disclosure**: Response parsing errors leak details about internal service responses in the UI\n\nThis is particularly impactful for cloud-hosted Coolify instances where IMDSv1 is enabled, as it can lead to full cloud infrastructure compromise.\n\n## Proposed Fix\n\nAdd private IP/hostname validation before making the S3 connection:\n```php\nuse Illuminate\\Support\\Facades\\Validator;\n\n// In testConnection() or endpoint mutator:\n$parsed = parse_url($this['endpoint']);\n$host = $parsed['host'] ?? '';\n$ip = gethostbyname($host);\n$privateRanges = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8', '169.254.0.0/16'];\nforeach ($privateRanges as $range) {\n    if (ip_in_range($ip, $range)) {\n        throw new \\Exception('Internal IP addresses are not allowed as S3 endpoints');\n    }\n}\n```",
+    "ghsa_id": "GHSA-pwm4-w33c-wjf3",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-pwm4-w33c-wjf3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pwm4-w33c-wjf3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42147"
+      }
+    ],
+    "published_at": "2026-07-02T16:37:17Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SSRF via S3 Storage Endpoint in testConnection()",
+    "updated_at": "2026-07-02T16:37:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

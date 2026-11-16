@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-9x6p-29p3-h466",
+  "repo": {
+    "cve_id": "CVE-2026-27956",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "## Summary\r\n\r\n`GET /api/v1/servers/{server_uuid}/domains?uuid={app_uuid}` bypasses team scoping when the optional `uuid` query parameter is provided. Any authenticated API user can enumerate domain names (FQDNs) of applications belonging to other teams.\r\n\r\nThis is a separate finding from GHSA-5p5w-h58c-2h5m (cross-team deployment info disclosure via `deployment_by_uuid`), affecting a different controller and different data.\r\n\r\n## Details\r\n\r\n**File:** `app/Http/Controllers/Api/ServersController.php`, lines 285-296\r\n\r\n```php\r\npublic function domains_by_server(Request $request)\r\n{\r\n    $teamId = getTeamIdFromToken();\r\n    if (is_null($teamId)) {\r\n        return invalidTokenResponse();\r\n    }\r\n    $uuid = $request->get('uuid');\r\n    if ($uuid) {\r\n        // SHORT-CIRCUIT: No team check, queries globally\r\n        $domains = Application::getDomainsByUuid($uuid);\r\n        return response()->json(serializeApiResponse($domains));\r\n    }\r\n    // Only the fallback path (no ?uuid= param) is team-scoped:\r\n    $projects = Project::where('team_id', $teamId)->get();\r\n    ...\r\n}\r\n```\r\n\r\n**`Application::getDomainsByUuid()` in `app/Models/Application.php`, lines 1962-1971:**\r\n\r\n```php\r\npublic static function getDomainsByUuid(string $uuid): array\r\n{\r\n    $application = self::where('uuid', $uuid)->first();  // Global query, no team filter\r\n    if ($application) {\r\n        return $application->fqdns;\r\n    }\r\n    return [];\r\n}\r\n```\r\n\r\nWhen the `?uuid=` query parameter is provided, the endpoint short-circuits to `Application::getDomainsByUuid()` which performs a global query without team scoping. The `{server_uuid}` path parameter is not even validated against the caller's team in this code path - the function returns before reaching the team-scoped fallback logic.\r\n\r\n## Correct Pattern (same controller, other endpoints)\r\n\r\nAll other `ServersController` methods correctly scope by team:\r\n\r\n```php\r\n// servers(), server_by_uuid(), etc.\r\n$server = ModelsServer::whereTeamId($teamId)->whereUuid($uuid)->first();\r\n```\r\n\r\nAnd the fallback path of `domains_by_server` (when no `?uuid=` param) correctly scopes:\r\n\r\n```php\r\n$projects = Project::where('team_id', $teamId)->get();\r\n```\r\n\r\n## Impact\r\n\r\nAny authenticated API user can discover the configured domain names (FQDNs) of applications belonging to other teams. This leaks:\r\n- Internal/private domain names (e.g., `internal-tool.company.com`)\r\n- Application URL structure and naming conventions\r\n- Which applications exist and their deployment domains\r\n\r\nThe `{server_uuid}` path parameter can be any valid server UUID (even the attacker's own), since it's not used when `?uuid=` is provided.\r\n\r\n## Suggested Fix\r\n\r\nAdd team scoping to the `?uuid=` code path:\r\n\r\n```php\r\nif ($uuid) {\r\n    $application = Application::ownedByCurrentTeamAPI($teamId)->where('uuid', $uuid)->first();\r\n    if ($application) {\r\n        return response()->json(serializeApiResponse($application->fqdns));\r\n    }\r\n    return response()->json(serializeApiResponse([]));\r\n}\r\n```\r\n\r\nOr scope `getDomainsByUuid` to accept a teamId parameter.",
+    "ghsa_id": "GHSA-9x6p-29p3-h466",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-9x6p-29p3-h466",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9x6p-29p3-h466"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27956"
+      }
+    ],
+    "published_at": "2026-06-25T15:24:20Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-team application domain enumeration via domains_by_server endpoint",
+    "updated_at": "2026-06-25T15:24:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "v4.0.0-beta.464",
+        "vulnerable_version_range": "<= 4.0.0-beta.406"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

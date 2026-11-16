@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-qvj7-gq9c-hp7q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-306"
+    ],
+    "description": "## Summary\n\nThere is a high severity vulnerability in Traefik's Kubernetes Ingress NGINX provider. Since v3.7.13, an Ingress carrying the `nginx.ingress.kubernetes.io/ssl-passthrough: \"true\"` annotation gets, besides its TCP passthrough router, an HTTP router on the non-TLS entry points that proxies to the backend. That router was built outside the regular per-rule processing, so the access-control annotations set on the same Ingress, such as `auth-type` with `auth-secret`, `auth-url` and `whitelist-source-range`, were parsed but never turned into middlewares on it. An unauthenticated client reaching the HTTP entry point with the Ingress host could therefore reach a backend the operator had annotated as protected, with no authentication and no source allow-listing applied, and nothing logged. The HTTP side of an ssl-passthrough Ingress is now built like any other Ingress, with its annotation directives applied; the routers it generates are renamed as a result, see the v3.7.14 migration guide. Traefik v2 and Traefik v3 versions before v3.7.13 are not affected.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.14\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n",
+    "ghsa_id": "GHSA-qvj7-gq9c-hp7q",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-qvj7-gq9c-hp7q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qvj7-gq9c-hp7q"
+      }
+    ],
+    "published_at": "2026-10-07T08:47:51Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Kubernetes Ingress NGINX provider: ssl-passthrough sibling HTTP router serves the auth-protected backend without auth",
+    "updated_at": "2026-10-07T08:47:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.14",
+        "vulnerable_version_range": ">= v3.7.13, <= v3.7.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

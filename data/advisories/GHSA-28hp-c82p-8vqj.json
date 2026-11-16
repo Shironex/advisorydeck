@@ -1,0 +1,49 @@
+{
+  "id": "GHSA-28hp-c82p-8vqj",
+  "aliases": [],
+  "title": "Kubernetes Ingress NGINX provider: a TLS-option cache hit skips the cross-namespace authorization check, letting an Ingress use another namespace's CA secret",
+  "summary": "## Summary\n\nThere is a low severity vulnerability in Traefik's Kubernetes Ingress NGINX provider. With `allowCrossNamespaceResources` disabled (the default), the cross-namespace check on the `nginx.ingress.kubernetes.io/auth-tls-secret` annotation only runs when a client authentication TLS option is first built: a later Ingress referencing a CA secret already used by another Ingress reuses the shared TLS option without being checked. A user allowed to create Ingresses in one namespace can therefore have a CA secret from another namespace enforced as the client certificate authority of their own routes, bypassing the configured namespace isolation, and learn whether that secret exists and is in use; the secret's contents are not disclosed. The issue was introduced in v3.7.11, when client authentication TLS options started being shared across Ingresses; earlier versions are not affected, and Traefik v2 is not affected since it does not include the Kubernetes Ingress NGINX provider.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.15\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).",
+  "published_at": "2026-10-16T08:01:00.000Z",
+  "modified_at": "2026-10-16T08:01:00.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.1,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:N/VC:N/VI:L/VA:N/SC:L/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "traefik",
+      "ranges": [
+        {
+          "introduced": "3.7.11",
+          "fixed": "3.7.15"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-28hp-c82p-8vqj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-28hp-c82p-8vqj",
+      "url": "https://github.com/traefik/traefik/security/advisories/GHSA-28hp-c82p-8vqj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:341bec278603f90f8bb07676c7099c856b37d06a567240ee2a1edac5d0ef75e5",
+  "note": null
+}

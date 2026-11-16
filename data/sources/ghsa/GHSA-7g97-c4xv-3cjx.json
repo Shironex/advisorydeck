@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-7g97-c4xv-3cjx",
+  "repo": {
+    "cve_id": "CVE-2026-27957",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-78"
+    ],
+    "description": "### Summary\r\n\r\nAn authenticated command injection vulnerability in the CA Certificate management feature allows any authenticated user to execute arbitrary commands as the configured SSH user on the managed server host. As the SSH user typically would have to either be root or part of the docker group for Coolify to function as intended, this provides complete compromise of the managed server and associated docker containers. \r\n\r\n### Details\r\n\r\n`app/Livewire/Server/CaCertificate/Show.php`\r\n\r\n`saveCaCertificate()` calls `openssl_x509_read()` to validate the user-supplied certificate, however this check only validates the certificate format up to the `-----END CERTIFICATE-----` marker. An attacker therefore can inject further content and still pass validation which will eventually be passed to the `writeCertificateToServer()` function:\r\n\r\n```php\r\nif (! openssl_x509_read($this->certificateContent)) {\r\n    throw new \\Exception('Invalid certificate format.');\r\n}\r\n// ...truncated\r\n$this->writeCertificateToServer();\r\n``` \r\n\r\n`writeCertificateToServer()` uses user-supplied input including potential malicious content from attacker (`$this->certificateContent`) directly in a shell (echo) command without sanitisation:\r\n\r\n```php\r\n\"echo '{$this->certificateContent}' > $caCertPath/coolify-ca.crt\",\r\n```\r\n\r\n### PoC\r\n\r\n**Prerequisites:** Any authenticated Coolify account associated with a managed server (owner/admin privileges not required).\r\n\r\n**Steps:**\r\n\r\n1. Navigate to Servers > [target server] > Security > CA Certificate\r\n2. Either generate a new valid certificate or just append desired commands to the existing certificate after the `-----END CERTIFICATE-----`, for example:\r\n\r\n```\r\n' ; id > /tmp/coolify_cacert_poc.txt ; echo '\r\n```\r\n3. Save certificate\r\n4. Check /tmp/coolify_cacert_poc.txt was created on the target server\r\n\r\nNote: the above payload could easily be changed to create a reverse shell.\r\n\r\n### Impact\r\n\r\nRCE via command injection leading to complete compromise of the managed server and associated docker containers. Because Coolify requires Docker access to function, the configured SSH user will typically be root or have Docker privileges (Note: Docker group membership is effectively equivalent to root - an attacker can trivially escalate to root). An attacker can therefore read all files and credentials on the server and docker containers and typically can also pivot to any other systems they communicate with as they would have access to the associated config files.\r\n\r\n### Recommendations\r\n\r\nThere are multiple ways to sanitize, but the cleanest probably is to just use `openssl_x509_export()` after `openssl_x509_read()` to re-serialise the parsed DER object back to PEM. The cleaned value can then be used in `writeCertificateToServer()` rather than `$this->certificateContent`.",
+    "ghsa_id": "GHSA-7g97-c4xv-3cjx",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-7g97-c4xv-3cjx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7g97-c4xv-3cjx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27957"
+      }
+    ],
+    "published_at": "2026-06-25T09:55:12Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated RCE via command injection in CA certificate management feature",
+    "updated_at": "2026-06-25T09:55:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "v4.0.0-beta.464",
+        "vulnerable_version_range": "<= 4.0.0-beta.463"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

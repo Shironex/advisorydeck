@@ -1,0 +1,66 @@
+{
+  "global": null,
+  "id": "GHSA-6m9p-4h64-m6vh",
+  "repo": {
+    "cve_id": "CVE-2026-92542",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:N/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-441"
+    ],
+    "description": "The firewall rules which mark VXLAN datagrams for encryption indiscriminately match both authentic VXLAN datagrams sent from the kernel and forged datagrams sent by user processes. Any packet sent from the host network namespace of a Linux Swarm node is encrypted with the overlay-network IPsec parameters which meets the following criteria:\r\n- UDP datagram\r\n- Destination port is the Swarm data-path port\r\n- Datagram starts with a VXLAN header for the VNI of an encrypted overlay network which any running container on the node is connected to\r\n\r\n### Impact\r\nAn unprivileged user on a Linux Swarm node can trivially inject forged Ethernet frames into an encrypted overlay network on another Linux Swarm node. \r\n\r\n### Patches\r\n\r\nThe issue is fixed in Docker Engine v29.8.2. Users should upgrade to v29.8.2 or later.\r\n\r\n### Workarounds\r\nBlock userspace processes from sending UDP packets to the Swarm data-path port.\r\n```\r\niptables -I OUTPUT -p udp --dport \"$(docker info --format '{{.Swarm.Cluster.DataPathPort}}')\" -m owner --socket-exists -j DROP\r\n```\r\n\r\n",
+    "ghsa_id": "GHSA-6m9p-4h64-m6vh",
+    "html_url": "https://github.com/moby/moby/security/advisories/GHSA-6m9p-4h64-m6vh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6m9p-4h64-m6vh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-92542"
+      }
+    ],
+    "published_at": "2026-10-01T21:18:22Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Blind VXLAN injection into encrypted overlay networks from cluster peer",
+    "updated_at": "2026-10-01T21:18:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/moby/moby/v2/daemon/libnetwork/drivers/overlay"
+        },
+        "patched_versions": "v2.0.0-beta.25",
+        "vulnerable_version_range": "<= v2.0.0-beta.24"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/docker/docker/libnetwork/drivers/overlay"
+        },
+        "patched_versions": "v25.0.19",
+        "vulnerable_version_range": "<= v25.0.18, > v26.0.0"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Docker Engine"
+        },
+        "patched_versions": "29.8.2",
+        "vulnerable_version_range": "<= 25.0.18, 26.0.0 - 29.8.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "moby/moby"
+}

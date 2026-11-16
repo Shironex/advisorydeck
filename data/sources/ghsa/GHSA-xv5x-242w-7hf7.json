@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-xv5x-242w-7hf7",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-772"
+    ],
+    "description": "## Summary\n\nThere is a high severity vulnerability in Traefik's NTLM and Kerberos backend connection handling. Since v2.11.58 and v3.7.14, Traefik allocates a dedicated backend transport to a client connection as soon as a request carries an `Authorization` header with the `NTLM` or `Negotiate` scheme, without any valid credential or backend challenge. This transport, its idle backend connection and its goroutines are not released when the client connection closes, and the same pattern exists in FastProxy. An unauthenticated client can therefore open many short-lived connections and exhaust the memory, file descriptors and backend connections of the Traefik process, regardless of whether NTLM or Kerberos backends are configured. Traefik v3.6 and earlier v3 lines, and Traefik v2.11.57 and earlier, are not affected: they only dedicate a transport after the backend answers with a `WWW-Authenticate: NTLM` or `Negotiate` challenge.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v2.11.61\n- https://github.com/traefik/traefik/releases/tag/v3.7.17\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).",
+    "ghsa_id": "GHSA-xv5x-242w-7hf7",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-xv5x-242w-7hf7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xv5x-242w-7hf7"
+      }
+    ],
+    "published_at": "2026-11-02T09:15:05Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Per-connection backend transport leak from unauthenticated Negotiate/NTLM headers (3.7.14+)",
+    "updated_at": "2026-11-02T09:15:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v2"
+        },
+        "patched_versions": "v2.11.61",
+        "vulnerable_version_range": ">= v2.11.58, <= v2.11.60"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.17",
+        "vulnerable_version_range": ">= v3.7.14, <= v3.7.16"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

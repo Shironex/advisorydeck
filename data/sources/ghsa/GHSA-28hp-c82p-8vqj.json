@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-28hp-c82p-8vqj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 2.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:N/VC:N/VI:L/VA:N/SC:L/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Summary\n\nThere is a low severity vulnerability in Traefik's Kubernetes Ingress NGINX provider. With `allowCrossNamespaceResources` disabled (the default), the cross-namespace check on the `nginx.ingress.kubernetes.io/auth-tls-secret` annotation only runs when a client authentication TLS option is first built: a later Ingress referencing a CA secret already used by another Ingress reuses the shared TLS option without being checked. A user allowed to create Ingresses in one namespace can therefore have a CA secret from another namespace enforced as the client certificate authority of their own routes, bypassing the configured namespace isolation, and learn whether that secret exists and is in use; the secret's contents are not disclosed. The issue was introduced in v3.7.11, when client authentication TLS options started being shared across Ingresses; earlier versions are not affected, and Traefik v2 is not affected since it does not include the Kubernetes Ingress NGINX provider.\n\n## Patches\n\n- https://github.com/traefik/traefik/releases/tag/v3.7.15\n\n## For more information\n\nIf you have any questions or comments about this advisory, please [open an issue](https://github.com/traefik/traefik/issues).",
+    "ghsa_id": "GHSA-28hp-c82p-8vqj",
+    "html_url": "https://github.com/traefik/traefik/security/advisories/GHSA-28hp-c82p-8vqj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-28hp-c82p-8vqj"
+      }
+    ],
+    "published_at": "2026-10-16T08:01:00Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Kubernetes Ingress NGINX provider: a TLS-option cache hit skips the cross-namespace authorization check, letting an Ingress use another namespace's CA secret",
+    "updated_at": "2026-10-16T08:01:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/traefik/traefik/v3"
+        },
+        "patched_versions": "v3.7.15",
+        "vulnerable_version_range": ">= v3.7.11, <= v3.7.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "traefik/traefik"
+}

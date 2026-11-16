@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-46hp-7m8g-7622",
+  "repo": {
+    "cve_id": "CVE-2026-34153",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nThe fix for CVE-2025-66213 added `validateShellSafePath` and `escapeshellarg` only for path uses that occur **after** building the initial command list in `LocalFileVolume::saveStorageOnServer()`. The vulnerable interpolations are on **lines 132 and 139**, where `$this->fs_path` (and `$parent_dir` derived from it) are pushed into shell commands **without** escape. Those commands are then sent verbatim via `instant_remote_process()` over SSH.\r\n\r\nAdditionally, the **file mount** flow (`submitFileStorage()`) does **not** call `validateShellSafePath` on the user-controlled path before creating the volume. On save, the model's `booted()` dispatches `ServerStorageSaveJob`, which calls `saveStorageOnServer()` - so RCE is achievable on **save**, without any deploy.\r\n\r\n\r\n## Affected Versions\r\n\r\n`< v4.x @ 89aecc2 (confirmed) >`\r\n\r\n## Root Cause\r\n\r\n### 1) Commands built with unescaped `fs_path` before any hardening\r\n\r\nIn `app/Models/LocalFileVolume.php`, `saveStorageOnServer()` builds `$commands` as follows:\r\n\r\n- **Lines 132-134:**  \r\n  `$commands->push(\"mkdir -p $this->fs_path ...\");`  \r\n  `$commands->push(\"mkdir -p $workdir ...\");`  \r\n  `$commands->push(\"cd $workdir\");`\r\n- **Line 139:**  \r\n  `$commands->push(\"mkdir -p $parent_dir ...\");`  \r\n  where `$parent_dir` is derived from `$this->fs_path` (line 136).\r\n\r\nAll of these interpolate user-controlled or path-derived values **without** `escapeshellarg` or validation at this point.\r\n\r\n### 2) Validation and escape happen only later, for different uses\r\n\r\nAt **lines 151-152** the code does:\r\n\r\n- `validateShellSafePath($path, 'storage path');`\r\n- `$escapedPath = escapeshellarg($path);`\r\n\r\n`$path` here is the **transformed** path (e.g. with workdir prepended). This `$escapedPath` is used only for **subsequent** commands (`test -f`, `cat`, `tee`, `touch`, `mkdir -p {$escapedPath}`, etc.). The commands already pushed at 132 and 139 are **never** rewritten with the escaped value; they still contain raw `$this->fs_path` and `$parent_dir`.\r\n\r\n### 3) Commands sent verbatim over SSH\r\n\r\nAt **line 196**, `instant_remote_process($commands, $server)` sends the full `$commands` array to the remote server. The first elements of `$commands` therefore execute with unescaped `fs_path` in the shell, enabling command injection if `fs_path` contains metacharacters (e.g. `;`, `|`, `$(...)`).\r\n\r\n### 4) File mount path not validated on submit\r\n\r\nIn `app/Livewire/Project/Service/Storage.php`:\r\n\r\n- **`submitFileStorageDirectory()`** (lines 183-184) calls `validateShellSafePath()` on source and destination before creating the volume.\r\n- **`submitFileStorage()`** (lines 128-164) only validates `'file_storage_path' => 'required|string'` and **does not** call `validateShellSafePath` for the file-mount path.\r\n\r\nThe file path is built as `$fs_path = application_configuration_dir().'/'.$this->resource->uuid.$this->file_storage_path` (or equivalent for standalone). The user-controlled suffix (`file_storage_path`) is stored as `fs_path` on `LocalFileVolume` and is then used in the vulnerable command construction in `saveStorageOnServer()`.\r\n\r\n### 5) RCE on save, no deploy required\r\n\r\n`LocalFileVolume::booted()` (lines 26-29) dispatches `ServerStorageSaveJob` on `created`. The job's `handle()` calls `saveStorageOnServer()`. So creating a new file mount via the UI (submitFileStorage) immediately triggers remote execution of the built commands, including the unescaped `fs_path` - RCE on save, without any deployment step.\r\n\r\n## Attack Scenario\r\n\r\n1. Attacker has permission to add file storage to an application or standalone service (e.g. “File” mount in Storage UI).\r\n2. Attacker submits a path suffix containing shell metacharacters (e.g. `/x; id > /tmp/pwned #` or `$(curl ...)`).\r\n3. `submitFileStorage()` builds `fs_path` and creates `LocalFileVolume` without `validateShellSafePath`.\r\n4. `ServerStorageSaveJob` runs and calls `saveStorageOnServer()`.\r\n5. Commands at lines 132 and 139 are built with the malicious `fs_path` and executed via `instant_remote_process()` on the target server → arbitrary command execution.\r\n\r\n## Impact\r\n\r\n- Remote command execution on the server that runs Coolify’s queue and SSH (e.g. Coolify host or deployment target), in the context of `instant_remote_process()`.\r\n- Potential full compromise of deployment infrastructure, credential theft, and lateral movement.\r\n\r\n## Suggested Fix\r\n\r\n1. **Use escaped path for all shell uses of `fs_path` in `saveStorageOnServer()`**  \r\n   - Compute a single normalized path (including workdir logic), run `validateShellSafePath()` and `escapeshellarg()` on it once, and use this escaped value in **every** command that includes the path (including the initial `mkdir -p` and `mkdir -p $parent_dir` at lines 132 and 139). Do not push commands that interpolate raw `$this->fs_path` or `$parent_dir`.\r\n2. **Validate file-mount path at submit**  \r\n   - In `submitFileStorage()`, after deriving the full path (or the user-controlled segment), call `validateShellSafePath()` before calling `LocalFileVolume::create()`, consistent with `submitFileStorageDirectory()`.\r\n3. **Regression tests**  \r\n   - Add tests that assert metacharacter payloads in `fs_path` (and in the file-mount path input) never reach shell execution unescaped, for both file and directory mount flows and for create/update/save paths.\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-46hp-7m8g-7622",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-46hp-7m8g-7622",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-46hp-7m8g-7622"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34153"
+      }
+    ],
+    "published_at": "2026-07-02T16:38:22Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Coolify RCE via LocalFileVolume `fs_path`",
+    "updated_at": "2026-07-02T16:38:22Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "composer",
+          "name": "coollabsio/coolify"
+        },
+        "patched_versions": "4.0.0-beta.471",
+        "vulnerable_version_range": "<= 4.0.0-beta.470"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coollabsio/coolify"
+}
