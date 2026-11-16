@@ -12,6 +12,7 @@ export const SCHEMA_NAMES = [
   'manifest',
   'image-config',
   'curated-note',
+  'correction',
 ] as const;
 
 export type SchemaName = (typeof SCHEMA_NAMES)[number];

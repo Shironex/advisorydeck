@@ -79,6 +79,7 @@ export interface Schemas {
   manifest?: Manifest;
   imageConfig?: ImageConfig;
   curatedNote?: CuratedNote;
+  correction?: Correction;
 }
 /**
  * One catalog entry: catalog/<category>/<slug>.yml. Says what the product is, how its versions compare and where its advisories come from.
@@ -315,6 +316,12 @@ export interface Advisory {
    * @minItems 1
    */
   affected: [AffectedProduct, ...AffectedProduct[]];
+  /**
+   * Products whose ranges Advisorydeck corrected by hand because the upstream record is wrong (a typo that makes current releases read affected). The ranges in affected are already the corrected ones; show the reason and the evidence next to them. Absent when nothing was corrected.
+   *
+   * @minItems 1
+   */
+  corrections?: [AppliedCorrection, ...AppliedCorrection[]];
   references: {
     url: string;
     type: 'advisory' | 'fix' | 'release-notes' | 'report' | 'article' | 'web';
@@ -379,6 +386,29 @@ export interface VersionRange {
    * A version or branch string as the vendor writes it, without a leading v.
    */
   last_affected?: string;
+}
+/**
+ * A hand correction as it appears inside a published advisory: the ranges of product were corrected by Advisorydeck because the upstream record is wrong.
+ */
+export interface AppliedCorrection {
+  /**
+   * Stable public key of a product: lowercase letters, digits and single hyphens.
+   */
+  product: string;
+  /**
+   * An advisory identifier such as CVE-2026-120154, GHSA-xxxx-xxxx-xxxx or USN-1234-1.
+   */
+  advisory: string;
+  reason: string;
+  /**
+   * @minItems 1
+   */
+  evidence: [string, ...string[]];
+  corrected_at: string;
+  /**
+   * What the upstream record said, as ingest read it, for comparison. An empty list means upstream gave no readable range.
+   */
+  upstream_ranges: VersionRange[];
 }
 export interface NoteAction {
   kind: 'upgrade' | 'backup' | 'commands' | 'config' | 'restart' | 'read';
@@ -534,4 +564,41 @@ export interface Channel {
    */
   url_env: string;
   name?: string;
+}
+/**
+ * A reviewed hand correction of one upstream advisory for one product: corrections/<product>/<advisory-id>.yml. Ingest replaces the ranges it read from upstream with these ranges and says so on the advisory.
+ */
+export interface Correction {
+  /**
+   * An advisory identifier such as CVE-2026-120154, GHSA-xxxx-xxxx-xxxx or USN-1234-1.
+   */
+  advisory: string;
+  /**
+   * Stable public key of a product: lowercase letters, digits and single hyphens.
+   */
+  product: string;
+  /**
+   * Why the upstream ranges are wrong, in one or two plain sentences written by a person. Shown on the site next to the advisory.
+   */
+  reason: string;
+  /**
+   * Where the corrected ranges come from: the vendor's release notes, the fix commit or the upstream issue reporting the typo.
+   *
+   * @minItems 1
+   */
+  evidence: [string, ...string[]];
+  /**
+   * When the correction was written.
+   */
+  corrected_at: string;
+  /**
+   * The ranges ingest read from upstream when the correction was written. When the upstream reading changes, ingest still applies the correction but warns that it needs a recheck.
+   */
+  upstream_ranges: VersionRange[];
+  /**
+   * The corrected affected ranges, in the product's version scheme, in the order they are published.
+   *
+   * @minItems 1
+   */
+  ranges: [VersionRange, ...VersionRange[]];
 }
