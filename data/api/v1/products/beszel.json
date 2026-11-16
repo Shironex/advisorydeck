@@ -1,0 +1,336 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T10:48:18Z",
+  "product": {
+    "slug": "beszel",
+    "name": "Beszel",
+    "category": "monitoring",
+    "homepage": "https://beszel.dev",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-wqvf-7262-m7g8",
+      "aliases": [],
+      "title": "OAuth self-signup role escalation via mass assignment",
+      "summary": "## Summary\r\n\r\n| Field           | Value                                                                                                                               |\r\n| --------------- | ----------------------------------------------------------------------------------------------------------------------------------- |\r\n| **Advisory ID** | GHSA-wqvf-7262-m7g8                                                                                                                 |\r\n| **Package**     | `beszel` (Hub, GitHub: `github.com/henrygd/beszel`)                                                                                 |\r\n| **Ecosystem**   | Go / PocketBase web application (Docker)                                                                                            |\r\n| **Severity**    | **Medium**                                                                                                                          |\r\n| **CVSS v3.1**   | `5.4` (AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N)                                                                                         |\r\n| **CWE**         | CWE-915 (Improperly Controlled Modification of Dynamically-Determined Object Attributes)<br>CWE-269 (Improper Privilege Management) |\r\n| **CVE**         | To be assigned (if maintainers disclose)                                                                                            |\r\n| **Affected**    | Hub builds where `USER_CREATION=true` and an OAuth2/OIDC provider is enabled                                                        |\r\n| **Patched**     | [f7fd3ef](https://github.com/henrygd/beszel/commit/f7fd3ef403085b64dc8a21a02011105b2251333a)                                        |\r\n\r\n## 1. Background\r\n\r\nBeszel Hub uses PocketBase as its data layer. When self-service OAuth/OIDC sign-up is enabled (`USER_CREATION=true`), a new OAuth user is supposed to get the regular `user` role. The sign-up path instead accepts attacker-controlled extra fields, and `users.role` is writable during OAuth record creation - so an attacker can self-assign `admin`.\r\n\r\n**Threat model.** The attacker must possess a genuine account at the configured OAuth/OIDC provider (this is **not** an authentication bypass). The impact is privilege escalation from `user` (self-service OAuth sign-up) to `admin`.\r\n\r\n## 2. Description\r\n\r\nWhen `USER_CREATION=true`, Beszel allows OAuth2-based creation of `users` records using the rule:\r\n\r\n```go\r\ncr := \"@request.context = 'oauth2'\"\r\nusersCollection.CreateRule = &cr\r\n```\r\n\r\nThe OAuth2 `createData` payload can include writable user fields, including `role`. Since the `role` field accepts `admin`, an attacker registering a new OAuth2 account can supply `role: \"admin\"`.\r\nThe default-role hook only assigns `user` when the role is empty:\r\n\r\n```go\r\nif e.Record.GetString(\"role\") == \"\" {\r\n    e.Record.Set(\"role\", \"user\")\r\n}\r\n```\r\n\r\nTherefore, an attacker-supplied `admin` value remains unchanged and is persisted to the new account.\r\nBeszel authorization subsequently trusts this stored value directly:\r\n\r\n```go\r\ne.Auth.GetString(\"role\") == \"admin\"\r\n```\r\n\r\nAs a result, an unauthenticated attacker able to register through OAuth2 can create an administrative account and access admin-only functionality, including sensitive endpoints such as `/api/beszel/config-yaml`.\r\n\r\n## 3. Reproduction\r\n\r\n### 3.1 Prerequisites\r\n\r\n- Docker with Compose (v5.5+).\r\n- A checkout of the affected revision (verified: `6a7b2772`).\r\n- A local OIDC provider **or** any real OAuth2/OIDC provider.\r\n- This PoC uses the ready-made container `ghcr.io/navikt/mock-oauth2-server` so the stand runs fully offline (no external accounts).\r\n- Two OIDC identities: `control` (negative control) and `verify` (main check).\r\n\r\n### 3.2 Expected result\r\n\r\n| Test                | `createData`          | Expected recorded `role` |\r\n| ------------------- | --------------------- | ------------------------ |\r\n| Negative control    | `{}`  (no role)       | `user`...",
+      "published_at": "2026-09-28T14:02:40.000Z",
+      "modified_at": "2026-10-26T15:11:32.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-269",
+        "CWE-915"
+      ],
+      "affected": [
+        {
+          "product": "beszel",
+          "ranges": [
+            {
+              "introduced": "0.9.0",
+              "fixed": "0.20.0"
+            }
+          ]
+        }
+      ],
+      "corrections": [
+        {
+          "product": "beszel",
+          "advisory": "GHSA-wqvf-7262-m7g8",
+          "reason": "The repository advisory writes the affected range as >= 0.9.0, <= 1.19.0 next to the patched version 0.20.0, a typo for 0.19.x: Beszel has never released a 1.x version. The fix commit f7fd3ef first shipped in 0.20.0, so 0.20.0 and later are not affected.",
+          "evidence": [
+            "https://github.com/henrygd/beszel/commit/f7fd3ef403085b64dc8a21a02011105b2251333a",
+            "https://github.com/henrygd/beszel/compare/v0.19.0...v0.20.0",
+            "https://github.com/henrygd/beszel/releases/tag/v0.20.0"
+          ],
+          "corrected_at": "2026-11-16",
+          "upstream_ranges": [
+            {
+              "introduced": "0.9.0",
+              "last_affected": "1.19.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-wqvf-7262-m7g8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wqvf-7262-m7g8",
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-wqvf-7262-m7g8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5f2e9254f546023ac54cf5a95247b1f915aa902b168535e7d2bea7d68081fb5a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-94382",
+      "aliases": [
+        "GHSA-759g-ch5m-2gch"
+      ],
+      "title": "Beszel before 0.19.0 Insecure Direct Object Reference via user-alerts",
+      "summary": "Beszel before 0.19.0 contains an insecure direct object reference vulnerability in the POST and DELETE /api/beszel/user-alerts handlers that allows any authenticated user to create or delete alerts on systems they cannot access. Attackers can supply arbitrary system IDs in the request body to register alert rules and receive notifications disclosing target system names and metrics.",
+      "published_at": "2026-09-20T22:42:38.000Z",
+      "modified_at": "2026-09-21T14:12:10.208Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.2,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00305,
+        "percentile": 0.23618,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "beszel",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "0.19.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-759g-ch5m-2gch",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/commit/6f92b9396dfbacaf71c20444d175af78e0517409",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/blob/v0.18.8/internal/alerts/alerts_api.go#L19-L80",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/releases/tag/v0.19.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel",
+          "type": "web"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/beszel-before-0.19.0-insecure-direct-object-reference-via-user-alerts",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-94382",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-94382",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-94382",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-94382",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-759g-ch5m-2gch",
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-759g-ch5m-2gch",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:897a01d28263927f90287f7992f5f2363337097ab0a72529c255e6f907c3086b",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-40077",
+      "aliases": [
+        "GHSA-5f5r-95pg-xrpm"
+      ],
+      "title": "Beszel has an IDOR in hub API endpoints that read system ID from URL parameter",
+      "summary": "Beszel is a server monitoring platform. Prior to 0.18.7, some API endpoints in the Beszel hub accept a user-supplied system ID and proceed without further checks that the user should have access to that system. As a result, any authenticated user can access these routes for any system if they know the system's ID. System IDs are random 15 character alphanumeric strings, and are not exposed to all users. However, it is theoretically possible for an authenticated user to enumerate a valid system ID via web API. To use the containers endpoints, the user would also need to enumerate a container ID, which is 12 digit hexadecimal string. This vulnerability is fixed in 0.18.7.",
+      "published_at": "2026-04-09T17:40:19.000Z",
+      "modified_at": "2026-04-13T20:19:45.967Z",
+      "severity": {
+        "level": "low",
+        "score": 3.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00228,
+        "percentile": 0.1367,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-184"
+      ],
+      "affected": [
+        {
+          "product": "beszel",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "0.18.7"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-5f5r-95pg-xrpm",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/releases/tag/v0.18.7",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-40077",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5f5r-95pg-xrpm",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-40077",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-40077",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-40077",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-40077",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-5f5r-95pg-xrpm",
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-5f5r-95pg-xrpm",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:460ae74ea4d67166cf14d6cbbbd438f51303677f3d614bdea30be2d6f5b4877f",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27734",
+      "aliases": [
+        "GHSA-phwh-4f42-gwf3"
+      ],
+      "title": "Beszel Vulnerable to Docker API Path Traversal via Unsanitized Container ID",
+      "summary": "Beszel is a server monitoring platform. Prior to version 0.18.2, the hub's authenticated API endpoints GET /api/beszel/containers/logs and GET /api/beszel/containers/info pass the user-supplied \"container\" query parameter to the agent without validation. The agent constructs Docker Engine API URLs using fmt.Sprintf with the raw value instead of url.PathEscape(). Since Go's http.Client does not sanitize `../` sequences from URL paths sent over unix sockets, an authenticated user (including readonly role) can traverse to arbitrary Docker API endpoints on agent hosts, exposing sensitive infrastructure details. Version 0.18.4 fixes the issue.",
+      "published_at": "2026-02-27T16:43:51.000Z",
+      "modified_at": "2026-03-02T12:52:19.071Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00545,
+        "percentile": 0.46279,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "beszel",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "0.18.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-phwh-4f42-gwf3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/releases/tag/v0.18.4",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/henrygd/beszel/commit/311095cfddda113863ca9656cf9e99411be1cef5",
+          "type": "fix"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-27734",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-phwh-4f42-gwf3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27734",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27734",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27734",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27734",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-phwh-4f42-gwf3",
+          "url": "https://github.com/henrygd/beszel/security/advisories/GHSA-phwh-4f42-gwf3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9306882fb4bdf4647fbfa8f7fe59e210351add416790413fa5e6a8cc3feb96af",
+      "note": null
+    }
+  ]
+}
