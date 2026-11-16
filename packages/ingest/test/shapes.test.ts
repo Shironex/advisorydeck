@@ -347,3 +347,11 @@ describe('a CVE record linked to the GHSA it references (G4)', () => {
     expect(cve('CVE-2026-101801').links).toEqual([]);
   });
 });
+
+describe('smaller normalisations', () => {
+  it('PHP: a wildcard line (8.2.*) starts at its first release', () => {
+    expect(rangesOf(cve('CVE-2026-109618'), 'php')).toEqual(
+      matcherRanges('php', 'CVE-2026-109618'),
+    );
+  });
+});

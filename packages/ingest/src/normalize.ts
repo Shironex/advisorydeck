@@ -138,6 +138,15 @@ function same(a: string | undefined, b: string | undefined): boolean {
   return (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase();
 }
 
+/** A wildcard line written as a version (PHP: `8.2.*` lessThan 8.2.35) means its first release, 8.2.0. */
+function lineStart(raw: string): string | undefined {
+  const match = /^v?(\d+(?:\.\d+)*)\.\*$/.exec(raw);
+  if (match?.[1] === undefined) return undefined;
+  const parts = match[1].split('.');
+  while (parts.length < 3) parts.push('0');
+  return parts.join('.');
+}
+
 /**
  * Ranges of one CVE affected entry. Undefined when any affected version cannot be read: half a
  * range list would make a consumer say "not affected" for the part that was dropped.
@@ -154,7 +163,7 @@ export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
       continue;
     }
     const any = raw === '' || raw === '*' || /^(n\/a|unspecified|all)$/i.test(raw);
-    const introduced = any ? '0' : cleanVersion(raw);
+    const introduced = any ? '0' : cleanVersion(lineStart(raw) ?? raw);
     if (introduced === undefined) return undefined;
     const bound = v.lessThan ?? v.lessThanOrEqual;
     if (bound !== undefined) {
