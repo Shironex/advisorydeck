@@ -58,9 +58,12 @@ type firstStart struct {
 	sent map[string][][]byte // per channel type
 }
 
-func runFirstStart(t *testing.T, mode string, replay bool, statePath string) firstStart {
+func runFirstStart(t *testing.T, mode string, replay bool, statePath string, edits ...func(*testfeed.Feed)) firstStart {
 	t.Helper()
 	f := committedFeed(t)
+	for _, edit := range edits {
+		edit(f)
+	}
 	discord, generic := testfeed.NewHook(t), testfeed.NewHook(t)
 	cfg := exampleConfig(t, f.Base(), mode, statePath)
 	client := f.Server.Client()
@@ -135,6 +138,26 @@ func TestFirstStartOnCommittedFeed(t *testing.T) {
 				t.Fatalf("%s mode, %s: restart sent %d", mode, ch, len(bodies))
 			}
 		}
+	}
+}
+
+// A product whose upstream is archived says so in the first-start summary of every channel.
+func TestFirstStartShowsArchivedUpstream(t *testing.T) {
+	archive := func(f *testfeed.Feed) {
+		f.EditProduct(t, "traefik", func(p map[string]any) {
+			p["product"].(map[string]any)["upstream"] = map[string]any{"status": "archived", "since": "2026-07-01", "note": "Example note."}
+		})
+	}
+	res := runFirstStart(t, "digest", false, filepath.Join(t.TempDir(), "state.json"), archive)
+	if !strings.Contains(string(res.sent["discord"][0]), "Upstream archived Traefik on 2026-07-01, so no further fixes are expected") ||
+		!strings.Contains(string(res.sent["discord"][0]), "Traefik [UPSTREAM ARCHIVED] 3.7.19") {
+		t.Errorf("discord summary lacks the upstream warning: %s", res.sent["discord"][0])
+	}
+	if !strings.Contains(string(res.sent["webhook"][0]), `"upstream":{"status":"archived","since":"2026-07-01","note":"Example note."}`) {
+		t.Errorf("webhook summary lacks upstream: %s", res.sent["webhook"][0])
+	}
+	if strings.Count(string(res.sent["discord"][0]), "Upstream archived") != 1 {
+		t.Errorf("only traefik is archived: %s", res.sent["discord"][0])
 	}
 }
 

@@ -96,6 +96,7 @@ func discordEmbedFor(it Item, kind Kind) discordEmbed {
 			Inline: inline,
 		})
 	}
+	field("Upstream", upstreamText(it.Product), false)
 	field("Your version", fmt.Sprintf("%s: %s", it.Declared, it.Reason), false)
 	field("Fixed in", fixText(it), true)
 	field("Severity", severityText(a.Severity), true)
@@ -211,7 +212,7 @@ func discordBundleEmbed(b Bundle) discordEmbed {
 
 func discordDigestEmbed(d ProductDigest, budget int) discordEmbed {
 	items := d.Items()
-	head := actionText(d.Declared, d.Branch, d.Latest)
+	head := withUpstream(d.Product, actionText(d.Declared, d.Branch, d.Latest))
 	lines := make([]string, 0, len(d.Bundles))
 	for _, b := range d.Bundles {
 		lines = append(lines, digestLine(b))

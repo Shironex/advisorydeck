@@ -128,7 +128,53 @@ func headline(it Item) string {
 	if it.Advisory.KEV.Listed {
 		badge = " [EXPLOITED]"
 	}
-	return fmt.Sprintf("[%s]%s %s %s: %s", levelLabel(it.Advisory.Severity.Level), badge, it.Product.Name, it.Declared, it.Advisory.Title)
+	return fmt.Sprintf("[%s]%s %s%s %s: %s", levelLabel(it.Advisory.Severity.Level), badge, it.Product.Name, upstreamBadge(it.Product), it.Declared, it.Advisory.Title)
+}
+
+// upstreamBadge marks a product whose upstream no longer ships fixes, in every title.
+func upstreamBadge(p feed.ProductInfo) string {
+	switch {
+	case p.Upstream == nil:
+		return ""
+	case p.Upstream.Status == feed.UpstreamArchived:
+		return " [UPSTREAM ARCHIVED]"
+	default:
+		return " [UPSTREAM " + strings.ToUpper(p.Upstream.Status) + "]"
+	}
+}
+
+// upstreamText is the warning for a product whose upstream no longer ships fixes, empty for a
+// maintained one. Every message about such a product carries it.
+func upstreamText(p feed.ProductInfo) string {
+	u := p.Upstream
+	if u == nil {
+		return ""
+	}
+	var b strings.Builder
+	if u.Status == feed.UpstreamArchived {
+		b.WriteString("Upstream archived " + p.Name)
+		if u.Since != "" {
+			b.WriteString(" on " + u.Since)
+		}
+		b.WriteString(", so no further fixes are expected: plan a move to a maintained alternative.")
+	} else {
+		fmt.Fprintf(&b, "Upstream status of %s: %s.", p.Name, u.Status)
+		if u.Since != "" {
+			b.WriteString(" Since " + u.Since + ".")
+		}
+	}
+	if note := strings.TrimSpace(u.Note); note != "" {
+		b.WriteString(" " + note)
+	}
+	return b.String()
+}
+
+// withUpstream puts the upstream warning, if any, on its own line before text.
+func withUpstream(p feed.ProductInfo, text string) string {
+	if w := upstreamText(p); w != "" {
+		return w + "\n" + text
+	}
+	return text
 }
 
 // fixText says which release fixes the user's version, then every fix of the advisory.
