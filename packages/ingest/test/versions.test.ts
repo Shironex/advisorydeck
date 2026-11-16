@@ -15,6 +15,14 @@ describe('cleanVersion', () => {
     expect(cleanVersion('26.1.5+incompatible')).toBe('26.1.5+incompatible');
   });
 
+  it('reads Java milestone and release suffixes as semver', () => {
+    expect(cleanVersion('9.0.0.M1')).toBe('9.0.0-M1');
+    expect(cleanVersion('9.0.0.RC3')).toBe('9.0.0-RC3');
+    expect(cleanVersion('5.2.25.RELEASE')).toBe('5.2.25');
+    expect(cleanVersion('11.0.0-M1')).toBe('11.0.0-M1');
+    expect(cleanVersion('5.2.25.SR1')).toBe('5.2.25.SR1');
+  });
+
   it('rejects text that is not a version', () => {
     expect(cleanVersion('< 1.0')).toBeUndefined();
     expect(cleanVersion('')).toBeUndefined();

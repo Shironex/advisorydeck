@@ -69,6 +69,10 @@ const extra: CatalogEntry[] = [
   product('nextcloud', [
     { type: 'ghsa-repo', repo: 'nextcloud/security-advisories', packages: ['Server'] },
   ]),
+  product('tomcat', [{ type: 'cve-cna', assigner: 'apache', products: ['Apache Tomcat'] }]),
+  product('spring-web', [
+    { type: 'ghsa-package', ecosystem: 'maven', package: 'org.springframework:spring-web' },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -96,6 +100,14 @@ function repoGhsa(file: string, id: string, repository: string): RecordFacts {
   if (raw === undefined) throw new Error(id);
   const record: GhsaRecord = { id, repository, repo: trimGhsa(raw), global: null };
   return ghsaFacts(record, catalogue);
+}
+
+function globalGhsa(file: string, id: string): RecordFacts {
+  const raw = json<Record<string, unknown>[]>(join(here, 'ghsa', file)).find(
+    (a) => a['ghsa_id'] === id,
+  );
+  if (raw === undefined) throw new Error(id);
+  return ghsaFacts({ id, repository: null, repo: null, global: trimGhsa(raw) }, catalogue);
 }
 
 function rangesOf(facts: RecordFacts, slug: string): VersionRange[] {
@@ -349,6 +361,23 @@ describe('a CVE record linked to the GHSA it references (G4)', () => {
 });
 
 describe('smaller normalisations', () => {
+  it('Tomcat: a dotted milestone (9.0.0.M1) is a prerelease', () => {
+    expect(rangesOf(cve('CVE-2026-74049'), 'tomcat')).toEqual(
+      matcherRanges('tomcat', 'CVE-2026-74049'),
+    );
+  });
+
+  it('Spring: .RELEASE is the release itself', () => {
+    expect(
+      rangesOf(globalGhsa('global-spring-web.json', 'GHSA-ccgv-vj62-xf9h'), 'spring-web'),
+    ).toEqual([
+      { introduced: '6.1.0', fixed: '6.1.4' },
+      { introduced: '6.0.0', fixed: '6.0.17' },
+      { introduced: '5.3.0', fixed: '5.3.32' },
+      { introduced: '0', last_affected: '5.2.25' },
+    ]);
+  });
+
   it('PHP: a wildcard line (8.2.*) starts at its first release', () => {
     expect(rangesOf(cve('CVE-2026-109618'), 'php')).toEqual(
       matcherRanges('php', 'CVE-2026-109618'),
