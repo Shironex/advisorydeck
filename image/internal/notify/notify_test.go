@@ -303,6 +303,69 @@ func TestSummaryContent(t *testing.T) {
 	}
 }
 
+// A product with nothing open and one whose only open advisory has no fix (issue #9): every
+// rendering says so in words, never with an empty version.
+func TestSummaryWithoutFix(t *testing.T) {
+	it := fixtureItem(t)
+	unfixed := it
+	unfixed.Product = feed.ProductInfo{Slug: "coolify", Name: "Coolify"}
+	unfixed.Declared, unfixed.FixedIn, unfixed.Verdict = "4.0.0-beta.474", "", matching.Unknown
+	traefik := ProductSummary{Product: feed.ProductInfo{Slug: "traefik", Name: "Traefik"}, Declared: "3.7.19", Advisories: 70}
+	coolify := ProductSummary{Product: unfixed.Product, Declared: "4.0.0-beta.474", Advisories: 40, Items: []Item{unfixed}}
+	s := Summary{MinSeverity: "medium", Mode: "instant", Products: []ProductSummary{traefik, coolify}}
+
+	if got := SummaryLine(traefik); got != "nothing open" {
+		t.Errorf("traefik line = %q", got)
+	}
+	if got := SummaryLine(coolify); got != "1 advisory open, no fix listed, check the vendor advisory" {
+		t.Errorf("coolify line = %q", got)
+	}
+	if got := SummaryLine(ProductSummary{Items: []Item{it}, Latest: "17.12"}); got != "1 advisory open, run 17.12 or later" {
+		t.Errorf("fixed line = %q", got)
+	}
+
+	discord, err := Discord{}.Summary(s, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slack, err := Slack{}.Summary(s, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, msgs := range map[string][]Message{"discord": discord, "slack": slack} {
+		p := string(msgs[0].Payload)
+		for _, want := range []string{"Nothing open at medium or above among the 70 advisories", "with unknown versions, check manually: " + it.Advisory.ID} {
+			if !strings.Contains(p, want) {
+				t.Errorf("%s summary lacks %q:\n%s", name, want, p)
+			}
+		}
+		if strings.Contains(p, `\"\"`) || strings.Contains(p, "latest fix") {
+			t.Errorf("%s summary shows an empty fix:\n%s", name, p)
+		}
+	}
+
+	wm, err := Webhook{}.Summary(s, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Summary WebhookSummary `json:"summary"`
+	}
+	if err := json.Unmarshal(wm[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	got := payload.Summary.Products
+	if len(got) != 2 || got[0].Latest != "" || got[1].Latest != "" {
+		t.Fatalf("webhook products = %+v", got)
+	}
+	if !strings.HasPrefix(got[0].Action, "Nothing open at medium or above") {
+		t.Errorf("webhook action for nothing open = %q", got[0].Action)
+	}
+	if !strings.HasPrefix(got[1].Action, "No fixed release is known") {
+		t.Errorf("webhook action without a fix = %q", got[1].Action)
+	}
+}
+
 func TestWebhookPayload(t *testing.T) {
 	now := time.Date(2026, 11, 16, 8, 0, 0, 0, time.UTC)
 	it := fixtureItem(t)

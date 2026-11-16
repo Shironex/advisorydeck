@@ -322,15 +322,7 @@ func (Discord) Summary(s Summary, _ time.Time) ([]Message, error) {
 	if len(rest) > 0 {
 		var b strings.Builder
 		for _, p := range rest {
-			line := productTitle(p.Product, p.Declared, p.Branch) + ": "
-			if p.Latest != "" {
-				line += fmt.Sprintf("%s open, run %s or later", plural(len(p.Items), "advisory", "advisories"), p.Latest)
-			} else if len(p.Items) > 0 {
-				line += plural(len(p.Items), "advisory", "advisories") + " open, check manually"
-			} else {
-				line += "nothing open"
-			}
-			b.WriteString(line + "\n")
+			b.WriteString(productTitle(p.Product, p.Declared, p.Branch) + ": " + SummaryLine(p) + "\n")
 		}
 		e := discordEmbed{Title: fmt.Sprintf("%d more products", len(rest)), Description: truncate(defuse(b.String()), discordDescriptionMax), Color: 0x828282}
 		m.Embeds = append(m.Embeds, fitEmbed(e, budget))

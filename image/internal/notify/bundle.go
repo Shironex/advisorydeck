@@ -313,6 +313,22 @@ func bundleSources(items []Item) string {
 	return strings.Join(out, ", ")
 }
 
+// SummaryLine is one product's state in a single line, for the dry run and the collapsed
+// list at the end of a long summary: nothing open, open with the newest release needed, or
+// open without a known fix, in words rather than an empty version.
+func SummaryLine(p ProductSummary) string {
+	switch {
+	case p.Missing:
+		return "no file in the feed yet"
+	case len(p.Items) == 0:
+		return "nothing open"
+	case p.Latest == "":
+		return plural(len(p.Items), "advisory", "advisories") + " open, no fix listed, check the vendor advisory"
+	default:
+		return fmt.Sprintf("%s open, run %s or later", plural(len(p.Items), "advisory", "advisories"), p.Latest)
+	}
+}
+
 // summaryText is one product's paragraph in the first-start summary, without markup.
 func summaryText(p ProductSummary, floor string) string {
 	if p.Missing {

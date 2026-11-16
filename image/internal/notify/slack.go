@@ -208,7 +208,7 @@ func (Slack) Summary(s Summary, _ time.Time) ([]Message, error) {
 	if len(rest) > 0 {
 		lines := make([]string, 0, len(rest))
 		for _, p := range rest {
-			lines = append(lines, fmt.Sprintf("%s: %s open", productTitle(p.Product, p.Declared, p.Branch), plural(len(p.Items), "advisory", "advisories")))
+			lines = append(lines, productTitle(p.Product, p.Declared, p.Branch)+": "+SummaryLine(p))
 		}
 		blocks = append(blocks, slackSection(slackEscape(defuse(collapsedLines(lines, slackSectionMax-50)))))
 	}

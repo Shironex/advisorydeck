@@ -500,7 +500,7 @@ func (e *Engine) report(plans []channelPlan, now time.Time) {
 			}
 			fmt.Fprintln(e.Out)
 			for _, ps := range s.Products {
-				fmt.Fprintf(e.Out, "    %s %s: %d open, latest fix %q\n", ps.Product.Slug, ps.Declared, len(ps.Items), ps.Latest)
+				fmt.Fprintf(e.Out, "    %s %s: %s\n", ps.Product.Slug, ps.Declared, notify.SummaryLine(ps))
 			}
 		}
 		fmt.Fprintf(e.Out, "  instant: %d\n", len(p.instant))

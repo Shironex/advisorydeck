@@ -269,6 +269,33 @@ func TestDisabledWebhook(t *testing.T) {
 	}
 }
 
+// The dry run says in words when nothing is open or the open advisory has no fix (issue #9).
+func TestDryRunSummaryWithoutFix(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ranges []any
+		want   string
+	}{
+		{"nothing open", []any{map[string]any{"introduced": "18", "fixed": "18.7"}}, "postgresql 17: nothing open"},
+		{"no fix", []any{}, "postgresql 17: 1 advisory open, no fix listed, check the vendor advisory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, "digest", "medium")
+			r.feed.EditProduct(t, "postgresql", func(p map[string]any) {
+				a := p["advisories"].([]any)[0].(map[string]any)
+				a["affected"].([]any)[0].(map[string]any)["ranges"] = tc.ranges
+			})
+			var out bytes.Buffer
+			if err := r.engine(true, &out).Cycle(context.Background(), false); err != nil {
+				t.Fatal(err)
+			}
+			if s := out.String(); !strings.Contains(s, tc.want) || strings.Contains(s, `""`) {
+				t.Errorf("dry run output lacks %q or shows an empty fix:\n%s", tc.want, s)
+			}
+		})
+	}
+}
+
 func TestTransientFailureRetriesNextCycle(t *testing.T) {
 	r := newRig(t, "instant", "medium")
 	r.start()
@@ -298,7 +325,7 @@ func TestDryRun(t *testing.T) {
 		t.Fatal("dry run wrote state")
 	}
 	s := out.String()
-	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "first start: 1 summary", `postgresql 17: 1 open, latest fix "17.12"`, "instant: 0", "digest: 0"} {
+	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "first start: 1 summary", `postgresql 17: 1 advisory open, run 17.12 or later`, "instant: 0", "digest: 0"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("dry run output lacks %q:\n%s", want, s)
 		}
