@@ -2,6 +2,7 @@ package feed
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -38,8 +39,11 @@ func TestFixturesDecodeAndAgree(t *testing.T) {
 		t.Fatalf("product feed = %+v", p.Product)
 	}
 	a := p.Advisories[0]
-	if a.ID != "CVE-2026-120154" || a.Severity.Level != "medium" || a.EPSS != nil || a.Note == nil {
+	if a.ID != "CVE-2026-120154" || a.Severity.Level != "medium" || a.EPSS == nil || a.EPSS.Percentile != 0.22351 || a.Note == nil {
 		t.Fatalf("advisory = %+v", a)
+	}
+	if a.KEV.State() != KEVNotListed {
+		t.Errorf("kev state = %s, want not-listed (checked)", a.KEV.State())
 	}
 	if r := a.Affected[0].Ranges[1]; r.Introduced != "17" || r.Fixed != "17.12" {
 		t.Errorf("second range = %+v", r)
@@ -74,5 +78,24 @@ func TestUnknownFieldsAreIgnored(t *testing.T) {
 	m, err := DecodeManifest(strings.NewReader(`{"schema":"advisorydeck/v1/manifest","generated_at":"2026-11-13T09:00:00Z","products":{},"future":true}`))
 	if err != nil || m == nil {
 		t.Fatalf("additive field broke decoding: %v", err)
+	}
+}
+
+func TestKEVStates(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"listed":true,"added_at":"2026-11-15","checked":true}`: KEVListed,
+		`{"listed":false,"added_at":null,"checked":true}`:        KEVNotListed,
+		`{"listed":false,"added_at":null,"checked":false}`:       KEVNotChecked,
+		// A feed from before enrichment: no checked field. Never "not listed".
+		`{"listed":false,"added_at":null}`: KEVNotChecked,
+		`{"listed":true,"added_at":null}`:  KEVListed,
+	} {
+		var k KEV
+		if err := json.Unmarshal([]byte(raw), &k); err != nil {
+			t.Fatal(err)
+		}
+		if got := k.State(); got != want {
+			t.Errorf("%s: state %s, want %s", raw, got, want)
+		}
 	}
 }
