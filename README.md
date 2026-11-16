@@ -23,7 +23,7 @@ No accounts and no telemetry.
 | `packages/contract` | TypeScript types, validators and loaders for the contract                                                                                                          |
 | `packages/ingest`   | Advisory collection (in progress)                                                                                                                                  |
 | `apps/site`         | Astro static site (placeholder)                                                                                                                                    |
-| `image/`            | Go notifier image (config validation only so far)                                                                                                                  |
+| `image/`            | Go notifier image (v0: polling, local matching, Discord, Slack and webhook delivery), see [docs/image.md](docs/image.md)                                           |
 | `docs/`             | [Architecture](docs/architecture.md), [feed contract](docs/feed-contract.md), [adding a product](docs/adding-a-product.md), [adding a note](docs/adding-a-note.md) |
 
 ## Development
