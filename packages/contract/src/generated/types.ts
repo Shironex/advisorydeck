@@ -401,7 +401,7 @@ export interface ProductFeed {
     slug: string;
     name: string;
     /**
-     * Catalog category. databases (databases, caches, queues and search engines), proxies (reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines such as dockerd and containerd, runc, and container tooling), runtimes (language runtimes), auth (identity, single sign-on and secrets), monitoring (metrics, logs, dashboards and uptime checks), storage (files, photos, media and backups), devtools (git hosting and CI), apps (applications deployed from templates: CMS, chat, AI front ends).
+     * Catalog category. databases (databases, caches, queues and search engines), proxies (web servers, reverse proxies and load balancers), os (operating systems and kernels), paas (self-hosted platforms), containers (container engines such as dockerd and containerd, runc, orchestration and container tooling), runtimes (language runtimes that app containers run on), auth (identity, single sign-on and secrets), monitoring (metrics, logs, dashboards and uptime checks), storage (files, photos, media, backups, object storage and image registries), devtools (git hosting, CI and remote development environments), apps (applications deployed from templates: CMS, chat, automation, AI front ends).
      */
     category:
       | 'databases'
