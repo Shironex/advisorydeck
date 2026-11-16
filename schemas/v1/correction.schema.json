@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Shironex/advisorydeck/main/schemas/v1/correction.schema.json",
+  "title": "Correction",
+  "description": "A reviewed hand correction of one upstream advisory for one product: corrections/<product>/<advisory-id>.yml. Ingest replaces the ranges it read from upstream with these ranges and says so on the advisory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "advisory",
+    "product",
+    "reason",
+    "evidence",
+    "corrected_at",
+    "upstream_ranges",
+    "ranges"
+  ],
+  "properties": {
+    "advisory": {
+      "$ref": "defs.schema.json#/$defs/advisoryId",
+      "description": "Any id of the advisory cluster (the CVE id or the GHSA id). Must equal the file name without .yml."
+    },
+    "product": {
+      "$ref": "defs.schema.json#/$defs/slug",
+      "description": "The catalog product whose ranges are corrected. Must equal the folder name."
+    },
+    "reason": {
+      "description": "Why the upstream ranges are wrong, in one or two plain sentences written by a person. Shown on the site next to the advisory.",
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 500
+    },
+    "evidence": {
+      "description": "Where the corrected ranges come from: the vendor's release notes, the fix commit or the upstream issue reporting the typo.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "defs.schema.json#/$defs/httpsUrl" }
+    },
+    "corrected_at": {
+      "description": "When the correction was written.",
+      "$ref": "defs.schema.json#/$defs/date"
+    },
+    "upstream_ranges": {
+      "description": "The ranges ingest read from upstream when the correction was written. When the upstream reading changes, ingest still applies the correction but warns that it needs a recheck.",
+      "type": "array",
+      "items": { "$ref": "advisory.schema.json#/$defs/range" }
+    },
+    "ranges": {
+      "description": "The corrected affected ranges, in the product's version scheme, in the order they are published.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "advisory.schema.json#/$defs/range" }
+    }
+  },
+  "$defs": {
+    "appliedCorrection": {
+      "title": "AppliedCorrection",
+      "description": "A hand correction as it appears inside a published advisory: the ranges of product were corrected by Advisorydeck because the upstream record is wrong.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "advisory", "reason", "evidence", "corrected_at", "upstream_ranges"],
+      "properties": {
+        "product": { "$ref": "defs.schema.json#/$defs/slug" },
+        "advisory": {
+          "$ref": "defs.schema.json#/$defs/advisoryId",
+          "description": "The id the correction is filed under: corrections/<product>/<advisory>.yml in the repository."
+        },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "defs.schema.json#/$defs/httpsUrl" }
+        },
+        "corrected_at": { "$ref": "defs.schema.json#/$defs/date" },
+        "upstream_ranges": {
+          "description": "What the upstream record said, as ingest read it, for comparison. An empty list means upstream gave no readable range.",
+          "type": "array",
+          "items": { "$ref": "advisory.schema.json#/$defs/range" }
+        }
+      }
+    }
+  }
+}

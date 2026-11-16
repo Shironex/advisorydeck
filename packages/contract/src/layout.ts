@@ -13,6 +13,7 @@ export const repoLayout = {
   catalogDir: 'catalog',
   schemasDir: `schemas/${FEED_VERSION}`,
   notesDir: 'notes',
+  correctionsDir: 'corrections',
   dataDir: 'data',
   advisoriesDir: 'data/advisories',
   /** The v1 feed as ingest writes it; the site publishes this folder as api/v1/. */

@@ -21,6 +21,7 @@ const wrapper = {
     manifest: { $ref: schemaId('manifest') },
     imageConfig: { $ref: schemaId('image-config') },
     curatedNote: { $ref: schemaId('curated-note') },
+    correction: { $ref: schemaId('correction') },
   },
 } as unknown as JSONSchema;
 
