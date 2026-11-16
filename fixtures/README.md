@@ -11,8 +11,13 @@ Hand-made example data in the exact shapes of [schemas/v1](../schemas/v1/). Ever
 | `image/*.yml`                          | image-config | image, generator: valid configs               |
 | `image/invalid/*.yml`                  | image-config | must fail the schema and the image            |
 | `image/invalid-semantic/*.yml`         | image-config | pass the schema, fail the image's extra rules |
+| `match/advisories/<product>.json`      | none         | matcher: real advisories and expected answers |
+| `match/versions.json`                  | none         | matcher: version comparison and parse cases   |
+| `match/tags.json`                      | none         | matcher: image tags against catalog patterns  |
 
 The advisory is built from the real CVE record for CVE-2026-120154 (PostgreSQL, published 2026-11-12), and the branch data from endoflife.date on the same week.
+
+The matcher vectors in `match/` come from real advisories (PostgreSQL, Traefik, Coolify, Redis and moby), each verified against its source. Every advisory records its `source` URL, the date it was `verified`, the ranges as `published` upstream, how they were normalized into feed `ranges`, and the expected `outcome`, `reason` and `fixed` for each case. Outcomes are `affected`, `not-affected` and `unknown`; reasons are the codes of `match.Reason` in `image/internal/match`.
 
 ## Rules
 

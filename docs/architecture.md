@@ -37,7 +37,15 @@ Advisorydeck is a static pipeline. There is no server and no database: scheduled
 
 ## Where version matching lives
 
-Comparing "I run 17.4" against "fixed in 17.12" happens in the image, in Go, because the image is the consumer that knows the user's versions. The matcher (version schemes `semver`, `pg`, `dpkg` and friends, per-branch range evaluation) belongs in `image/internal/match`. If the site ever needs the same answer in the browser, the matcher's test vectors should be plain JSON under `fixtures/` so a TypeScript port can run the same cases.
+Comparing "I run 17.4" against "fixed in 17.12" happens in the image, in Go, because the image is the consumer that knows the user's versions. The matcher lives in `image/internal/match`: it parses every `version_scheme` (`semver`, `pg`, `calver`, `dpkg`, `kernel`, `opaque`), evaluates an advisory's per-branch ranges and resolves image tags with the catalog's `tag_pattern`. It is a pure library with no I/O.
+
+Every answer is one of three outcomes, each with a reason code:
+
+- **affected**: an exact version is inside a range, or (for a branch such as `17` or a floating tag such as `postgres:17`) some release of the branch is. A branch answer names the fix to pull, because a floating tag is only safe if it was pulled after the fix release.
+- **not affected**: every range was read and none covers the version or any release of the branch. This is the only way to get it.
+- **unknown**: the advisory has no ranges (an empty list, or a repo advisory that says All and TBD), the version or a range bound cannot be read, the scheme cannot order versions, or the tag names no version (`latest`, `alpine`, a codename). The image says "check manually". The zero value of the result type is unknown, so nothing reads as safe by default.
+
+The matcher's test vectors are plain JSON in [`fixtures/match/`](../fixtures/match/) (real advisories, each with its source and the ranges as published, plus version and tag cases), so a TypeScript port can run the same cases.
 
 ## The seams
 
