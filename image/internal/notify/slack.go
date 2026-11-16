@@ -51,6 +51,9 @@ func slackBlocksFor(it Item, kind Kind) []slackBlock {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "*%s*\n%s\n", title, slackEscape(defuse(truncate(a.Summary, descMax))))
+	if w := upstreamText(it.Product); w != "" {
+		fmt.Fprintf(&b, "*Upstream:* %s\n", slackEscape(defuse(w)))
+	}
 	fmt.Fprintf(&b, "*Your version:* %s: %s\n", slackEscape(it.Declared), slackEscape(it.Reason))
 	fmt.Fprintf(&b, "*Fixed in:* %s\n", slackEscape(fixText(it)))
 	fmt.Fprintf(&b, "*Severity:* %s\n", slackEscape(severityText(a.Severity)))
@@ -136,7 +139,7 @@ func slackProductBlocks(d ProductDigest) []slackBlock {
 	for _, b := range d.Bundles {
 		lines = append(lines, digestLine(b))
 	}
-	head := fmt.Sprintf("*[%s] %s*\n%s\n", levelLabel(highestOf(items).Level), slackEscape(defuse(productTitle(d.Product, d.Declared, d.Branch))), slackEscape(actionText(d.Declared, d.Branch, d.Latest)))
+	head := fmt.Sprintf("*[%s] %s*\n%s\n", levelLabel(highestOf(items).Level), slackEscape(defuse(productTitle(d.Product, d.Declared, d.Branch))), slackEscape(defuse(withUpstream(d.Product, actionText(d.Declared, d.Branch, d.Latest)))))
 	return []slackBlock{
 		slackSection(head + slackEscape(defuse(collapsedLines(lines, slackSectionMax-runeLen(head)-400)))),
 		slackContext(slackEscape(defuse("Exploitation: " + exploitSummary(items) + " | Advisorydeck, data: " + bundleSources(items)))),

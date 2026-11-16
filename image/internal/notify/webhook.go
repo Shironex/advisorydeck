@@ -32,15 +32,16 @@ type WebhookPayload struct {
 
 // WebhookBundle groups the advisories one release fixes for the declared version.
 type WebhookBundle struct {
-	Key             string        `json:"key"`
-	Product         string        `json:"product"`
-	DeclaredVersion string        `json:"declared_version"`
-	Fix             string        `json:"fix"`
-	Latest          string        `json:"latest"`
-	Action          string        `json:"action"`
-	Advisories      []string      `json:"advisories"`
-	Highest         feed.Severity `json:"highest"`
-	Urgent          string        `json:"urgent"`
+	Key             string         `json:"key"`
+	Product         string         `json:"product"`
+	DeclaredVersion string         `json:"declared_version"`
+	Fix             string         `json:"fix"`
+	Latest          string         `json:"latest"`
+	Action          string         `json:"action"`
+	Advisories      []string       `json:"advisories"`
+	Highest         feed.Severity  `json:"highest"`
+	Urgent          string         `json:"urgent"`
+	Upstream        *feed.Upstream `json:"upstream,omitempty"`
 }
 
 // WebhookSummary is the first-start overview.
@@ -53,41 +54,43 @@ type WebhookSummary struct {
 
 // WebhookProductSummary is one watched product in the summary.
 type WebhookProductSummary struct {
-	Product         string        `json:"product"`
-	ProductName     string        `json:"product_name"`
-	DeclaredVersion string        `json:"declared_version"`
-	Branch          bool          `json:"branch"`
-	Missing         bool          `json:"missing"`
-	Advisories      int           `json:"advisories"`
-	Open            []string      `json:"open"`
-	Releases        int           `json:"releases"`
-	Latest          string        `json:"latest"`
-	Action          string        `json:"action"`
-	Highest         feed.Severity `json:"highest"`
+	Product         string         `json:"product"`
+	ProductName     string         `json:"product_name"`
+	DeclaredVersion string         `json:"declared_version"`
+	Branch          bool           `json:"branch"`
+	Missing         bool           `json:"missing"`
+	Advisories      int            `json:"advisories"`
+	Open            []string       `json:"open"`
+	Releases        int            `json:"releases"`
+	Latest          string         `json:"latest"`
+	Action          string         `json:"action"`
+	Highest         feed.Severity  `json:"highest"`
+	Upstream        *feed.Upstream `json:"upstream,omitempty"`
 }
 
 // WebhookItem is one advisory for one declared product.
 type WebhookItem struct {
-	AdvisoryID      string        `json:"advisory_id"`
-	Aliases         []string      `json:"aliases"`
-	Title           string        `json:"title"`
-	Summary         string        `json:"summary"`
-	URL             string        `json:"url"`
-	Product         string        `json:"product"`
-	ProductName     string        `json:"product_name"`
-	DeclaredVersion string        `json:"declared_version"`
-	Verdict         string        `json:"verdict"`
-	Reason          string        `json:"reason"`
-	Urgent          string        `json:"urgent"`
-	Severity        feed.Severity `json:"severity"`
-	KEV             bool          `json:"kev"`
-	KEVState        string        `json:"kev_state"`
-	EPSS            *feed.EPSS    `json:"epss"`
-	FixedIn         []string      `json:"fixed_in"`
-	Fix             string        `json:"fix"`
-	PublishedAt     time.Time     `json:"published_at"`
-	Revision        string        `json:"revision"`
-	Note            *feed.Note    `json:"note"`
+	AdvisoryID      string         `json:"advisory_id"`
+	Aliases         []string       `json:"aliases"`
+	Title           string         `json:"title"`
+	Summary         string         `json:"summary"`
+	URL             string         `json:"url"`
+	Product         string         `json:"product"`
+	ProductName     string         `json:"product_name"`
+	DeclaredVersion string         `json:"declared_version"`
+	Verdict         string         `json:"verdict"`
+	Reason          string         `json:"reason"`
+	Urgent          string         `json:"urgent"`
+	Severity        feed.Severity  `json:"severity"`
+	KEV             bool           `json:"kev"`
+	KEVState        string         `json:"kev_state"`
+	EPSS            *feed.EPSS     `json:"epss"`
+	FixedIn         []string       `json:"fixed_in"`
+	Fix             string         `json:"fix"`
+	PublishedAt     time.Time      `json:"published_at"`
+	Revision        string         `json:"revision"`
+	Note            *feed.Note     `json:"note"`
+	Upstream        *feed.Upstream `json:"upstream,omitempty"`
 }
 
 func webhookItems(items []Item) []WebhookItem {
@@ -119,6 +122,7 @@ func webhookItems(items []Item) []WebhookItem {
 			PublishedAt:     a.PublishedAt,
 			Revision:        a.Revision,
 			Note:            a.Note,
+			Upstream:        it.Product.Upstream,
 		})
 	}
 	return out
@@ -132,6 +136,7 @@ func webhookBundle(b Bundle) WebhookBundle {
 	return WebhookBundle{
 		Key: b.Key, Product: b.Product.Slug, DeclaredVersion: b.Declared, Fix: b.Fix, Latest: b.Latest,
 		Action: actionText(b.Declared, b.Branch, b.Latest), Advisories: ids, Highest: b.Highest(), Urgent: b.Urgent(),
+		Upstream: b.Product.Upstream,
 	}
 }
 
@@ -187,7 +192,7 @@ func (Webhook) Summary(s Summary, now time.Time) ([]Message, error) {
 		ws.Products = append(ws.Products, WebhookProductSummary{
 			Product: p.Product.Slug, ProductName: p.Product.Name, DeclaredVersion: p.Declared, Branch: p.Branch,
 			Missing: p.Missing, Advisories: p.Advisories, Open: open, Releases: p.Releases, Latest: p.Latest,
-			Action: action, Highest: highestOf(p.Items),
+			Action: action, Highest: highestOf(p.Items), Upstream: p.Product.Upstream,
 		})
 	}
 	items := s.Items()

@@ -183,7 +183,7 @@ func bundleTitle(b Bundle) string {
 	if exploited(b.Items) {
 		badge = " [EXPLOITED]"
 	}
-	return fmt.Sprintf("[%s]%s %s %s fixes %d advisories for %s", levelLabel(b.Highest().Level), badge, b.Product.Name, b.Fix, len(b.Items), b.Declared)
+	return fmt.Sprintf("[%s]%s %s%s %s fixes %d advisories for %s", levelLabel(b.Highest().Level), badge, b.Product.Name, upstreamBadge(b.Product), b.Fix, len(b.Items), b.Declared)
 }
 
 // bundleLead is the opening of a multi-item bundle: the action and the severity breakdown.
@@ -192,7 +192,7 @@ func bundleLead(b Bundle) string {
 	if b.Latest != "" && b.Fix != "" && b.Latest != b.Fix {
 		lead = fmt.Sprintf("%s fixes these; %s is the newest release you need. %s", b.Fix, b.Latest, lead)
 	}
-	return lead + "\nSeverity: " + levelCounts(b.Items) + ", highest " + severityText(b.Highest()) + "."
+	return withUpstream(b.Product, lead+"\nSeverity: "+levelCounts(b.Items)+", highest "+severityText(b.Highest())+".")
 }
 
 func exploited(items []Item) bool {
@@ -318,6 +318,11 @@ func summaryText(p ProductSummary, floor string) string {
 	if p.Missing {
 		return fmt.Sprintf("The feed has no file for %s yet, so nothing can be matched.", p.Product.Slug)
 	}
+	return withUpstream(p.Product, summaryBody(p, floor))
+}
+
+// summaryBody is summaryText without the upstream warning.
+func summaryBody(p ProductSummary, floor string) string {
 	if len(p.Items) == 0 {
 		return fmt.Sprintf("Nothing open at %s or above among the %s in the feed.", floor, plural(p.Advisories, "advisory", "advisories"))
 	}
@@ -393,14 +398,14 @@ func digestIntro(ds []ProductDigest) string {
 }
 
 func groupIntro(d ProductDigest) string {
-	return fmt.Sprintf("Advisorydeck: %s fix %s for %s %s", plural(len(d.Bundles), "release", "releases"), plural(len(d.Items()), "advisory", "advisories"), d.Product.Name, d.Declared)
+	return fmt.Sprintf("Advisorydeck: %s fix %s for %s%s %s", plural(len(d.Bundles), "release", "releases"), plural(len(d.Items()), "advisory", "advisories"), d.Product.Name, upstreamBadge(d.Product), d.Declared)
 }
 
 func productTitle(p feed.ProductInfo, declared string, branch bool) string {
 	if branch {
-		return fmt.Sprintf("%s %s (branch)", p.Name, declared)
+		return fmt.Sprintf("%s%s %s (branch)", p.Name, upstreamBadge(p), declared)
 	}
-	return p.Name + " " + declared
+	return p.Name + upstreamBadge(p) + " " + declared
 }
 
 // digestLine is one bundle in a product's digest entry.

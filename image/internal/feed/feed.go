@@ -42,13 +42,25 @@ type ProductFeed struct {
 
 // ProductInfo is the catalog data a consumer needs.
 type ProductInfo struct {
-	Slug          string   `json:"slug"`
-	Name          string   `json:"name"`
-	Category      string   `json:"category"`
-	Homepage      string   `json:"homepage"`
-	VersionScheme string   `json:"version_scheme"`
-	Branches      []Branch `json:"branches"`
+	Slug          string    `json:"slug"`
+	Name          string    `json:"name"`
+	Category      string    `json:"category"`
+	Homepage      string    `json:"homepage"`
+	VersionScheme string    `json:"version_scheme"`
+	Upstream      *Upstream `json:"upstream,omitempty"`
+	Branches      []Branch  `json:"branches"`
 }
+
+// Upstream is set when the upstream project no longer ships fixes (archived on its forge,
+// retired by its vendor). Absent means maintained as far as the catalog knows.
+type Upstream struct {
+	Status string `json:"status"`
+	Since  string `json:"since,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// UpstreamArchived is the status of a project whose repository is archived upstream.
+const UpstreamArchived = "archived"
 
 // Branch is a release branch and its support state.
 type Branch struct {
