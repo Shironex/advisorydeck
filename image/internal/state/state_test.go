@@ -64,3 +64,45 @@ func TestOpenMissingAndBroken(t *testing.T) {
 		t.Fatal("unknown version accepted")
 	}
 }
+
+func TestMigratesVersion1WithoutResending(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	v1 := `{
+  "version": 1,
+  "manifest_etag": "\"abc\"",
+  "channels": {
+    "discord:DISCORD_WEBHOOK_URL:ops": {
+      "instant": {"CVE-2026-120154|postgresql": "sha256:aa"},
+      "digest": {},
+      "last_digest": "2026-11-15T07:00:00Z"
+    }
+  }
+}`
+	if err := os.WriteFile(path, []byte(v1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Read(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := f.Channels["discord:DISCORD_WEBHOOK_URL:ops"]
+	if f.Version != Version || c.Started.IsZero() || c.Instant["CVE-2026-120154|postgresql"] != "sha256:aa" || f.ManifestETag != `"abc"` {
+		t.Fatalf("migrated = %+v, channel %+v", f, c)
+	}
+	if !c.Started.Equal(time.Date(2026, 11, 15, 7, 0, 0, 0, time.UTC)) {
+		t.Errorf("started = %v, want the last digest time", c.Started)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":3,"channels":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Error("a newer state version was accepted")
+	}
+}
