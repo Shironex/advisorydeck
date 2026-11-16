@@ -31,4 +31,46 @@ describe('source index', () => {
       'traefik/traefik is already claimed by traefik',
     );
   });
+
+  it('takes every product of a vendor only with a vendor named', () => {
+    const base = catalog.entries[0]?.product;
+    if (base === undefined) throw new Error('empty catalog');
+    const go = (vendor?: string): CatalogEntry => ({
+      file: 'catalog/runtimes/go.yml',
+      product: {
+        ...base,
+        slug: 'go',
+        sources: [
+          {
+            type: 'cve-cna',
+            assigner: 'Go',
+            products: ['*'],
+            ...(vendor === undefined ? {} : { vendor }),
+          },
+        ],
+      },
+    });
+    expect(buildSourceIndex([go('Go standard library')]).issues).toEqual([]);
+    expect(buildSourceIndex([go()]).issues.map((i) => i.message)).toEqual([
+      'Go products ["*"] needs a vendor, or it takes the whole assigner',
+    ]);
+    const other: CatalogEntry = {
+      file: 'catalog/runtimes/net.yml',
+      product: {
+        ...base,
+        slug: 'net',
+        sources: [
+          {
+            type: 'cve-cna',
+            assigner: 'Go',
+            vendor: 'Go standard library',
+            products: ['net/http'],
+          },
+        ],
+      },
+    };
+    expect(
+      buildSourceIndex([go('Go standard library'), other]).issues.map((i) => i.message),
+    ).toEqual(['Go products overlap with go']);
+  });
 });
