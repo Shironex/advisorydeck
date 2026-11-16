@@ -1,0 +1,197 @@
+name: Site
+
+# Ingest, build and deploy the site and the v1 feed to GitHub Pages.
+# How it works, what it costs and the 60 day rule: docs/deploy.md.
+
+on:
+  schedule:
+    # Hourly, at an odd minute: the top of the hour is when GitHub delays scheduled runs most.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: Deploy even when nothing changed since the last deploy
+        type: boolean
+        default: false
+      skip_ingest:
+        description: Build from the stored data without fetching anything
+        type: boolean
+        default: false
+      backfill:
+        description: Re-read the cvelistV5 baseline (needed when the cursor is older than about six weeks)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One run at a time; a run that is already deploying is never cancelled.
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+env:
+  HUSKY: '0'
+  ASTRO_TELEMETRY_DISABLED: '1'
+  TURBO_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Keep-alive: re-enable this workflow through the API (see docs/deploy.md).
+      actions: write
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+      fingerprint: ${{ steps.fingerprint.outputs.site }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # main is protected (pull requests and required checks only), so this workflow never
+      # commits. Ingest output is carried from run to run in the Actions cache instead. The key
+      # prefix changes whenever the committed data, the ingest code or the catalog changes on
+      # main, and then the run starts again from what is committed.
+      # The prefix is computed once, from the files as checked out. Restoring the cache and
+      # running ingest both rewrite data/state.json, so hashing it again at save time would give
+      # a different prefix and the next run would never find this run's data.
+      - name: Compute the ingest cache prefix
+        id: data-key
+        run: echo "prefix=ingest-data-${{ hashFiles('data/state.json', 'packages/ingest/src/**', 'catalog/**') }}-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore ingest data from the last run
+        id: restore-data
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data
+          key: ${{ steps.data-key.outputs.prefix }}${{ github.run_id }}
+          restore-keys: ${{ steps.data-key.outputs.prefix }}
+
+      - name: Fingerprint data before ingest
+        id: before
+        run: echo "data=$(find data -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Ingest
+        if: ${{ !inputs.skip_ingest }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BACKFILL: ${{ inputs.backfill && 'true' || 'false' }}
+        # Exit 1 means a source failed (rate limit, network) but the outputs written are still
+        # consistent; validation below is the real gate. Anything else fails the run.
+        run: |
+          args=()
+          if [ "$BACKFILL" = "true" ]; then args+=(--backfill); fi
+          set +e
+          pnpm ingest "${args[@]}"
+          status=$?
+          set -e
+          if [ "$status" -eq 1 ]; then
+            echo "::warning::ingest reported source errors; publishing what is stored"
+          elif [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+
+      - name: Validate catalog, notes and data against the schemas
+        run: pnpm validate
+
+      - name: Fingerprint data after ingest
+        id: after
+        run: echo "data=$(find data -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Store ingest data for the next run
+        if: steps.after.outputs.data != steps.before.outputs.data
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data
+          key: ${{ steps.data-key.outputs.prefix }}${{ github.run_id }}
+
+      - name: Keep a copy of the ingest data for refreshing main
+        if: steps.after.outputs.data != steps.before.outputs.data
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ingest-data
+          path: data
+          retention-days: 7
+
+      # Everything the published site is built from. Unchanged since the last deploy means
+      # nothing to build or deploy.
+      - name: Fingerprint the site inputs
+        id: fingerprint
+        run: |
+          site=$(find data/api data/advisories data/quality.json notes catalog schemas packages/contract/src apps/site pnpm-lock.yaml \
+            -type f -not -path '*/node_modules/*' -not -path 'apps/site/dist/*' -not -path 'apps/site/.astro/*' -print0 \
+            | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-32)
+          echo "site=$site" >> "$GITHUB_OUTPUT"
+
+      - name: Look up the last deploy
+        id: deployed
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .site-deployed
+          key: site-deployed-${{ steps.fingerprint.outputs.site }}
+          lookup-only: true
+
+      - name: Decide
+        id: decide
+        env:
+          FORCE: ${{ inputs.force_deploy && 'true' || 'false' }}
+          HIT: ${{ steps.deployed.outputs.cache-hit == 'true' && 'true' || 'false' }}
+        run: |
+          if [ "$FORCE" = "true" ] || [ "$HIT" != "true" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "Site inputs unchanged since the last deploy: skipping build and deploy."
+          fi
+
+      - name: Build the site
+        if: steps.decide.outputs.deploy == 'true'
+        run: pnpm --filter @advisorydeck/site run build
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: steps.decide.outputs.deploy == 'true'
+        with:
+          path: apps/site/dist
+
+      # Scheduled workflows in a public repository are disabled after 60 days without repository
+      # activity. This workflow cannot commit (main is protected), so it re-enables itself through
+      # the API on every scheduled run. docs/deploy.md explains the limits of this.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/site.yml/enable" --silent || echo "::warning::could not re-enable the workflow"
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+      - name: Remember this deploy
+        env:
+          FINGERPRINT: ${{ needs.build.outputs.fingerprint }}
+        run: echo "$FINGERPRINT" > .site-deployed
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .site-deployed
+          key: site-deployed-${{ needs.build.outputs.fingerprint }}
