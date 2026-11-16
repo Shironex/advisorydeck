@@ -15,7 +15,7 @@ pnpm ingest --anonymous           # no GITHUB_TOKEN: run even when the run could
 
 Set `GITHUB_TOKEN` (for example `GITHUB_TOKEN=$(gh auth token) pnpm ingest`). The catalog makes one GitHub request per repository source and one per ecosystem for all `ghsa-package` sources together, plus a few release listings, and a query without a stored cursor (a new product, `--backfill`) can take several pages. Without a token GitHub allows 60 API requests an hour and caps each query at 5 pages, so before it starts ingest counts the worst case for the current catalog and cursors, reads the remaining anonymous budget from `GET /rate_limit` (which does not count against it) and refuses with exit code 2 when the run could exceed it. `--anonymous` runs anyway: a query cut off by the limit keeps its cursor and is finished on a later run. With a token the limit is 5000 (1000 for the Actions `github.token`). The token is only ever sent to `api.github.com`. A rate limit that resets within a minute is waited out; a longer one stops that source, keeps its cursor and still writes a consistent feed from what is stored (the run exits 1).
 
-The hourly Site run uses the workflow's `github.token`. With 80 products it makes about 65 API requests an hour (57 repository queries, 6 ecosystem queries, the cvelistV5 release listing and the schedule keep-alive), far below the 1000 an hour that token allows; a new product adds one request (a repository source) or nothing (a package in an ecosystem already queried).
+The hourly Site run uses the workflow's `github.token`. With 99 products it makes about 67 API requests an hour (58 repository queries, 7 ecosystem queries, the cvelistV5 release listing and the schedule keep-alive), far below the 1000 an hour that token allows; a new product adds one request (a repository source) or nothing (a package in an ecosystem already queried).
 
 ## Sources
 
@@ -51,7 +51,7 @@ The catalog's source index (`buildSourceIndex`) decides:
 
 - **CVE records**: `cveMetadata.assignerShortName` must match a `cve-cna` source and an `affected[]` entry must match its `products` (and `vendor`, when set). `products: ["*"]` takes every product of the source's `vendor` (the Go CNA names each package, `net/http`, `crypto/x509`, as the product); it needs a `vendor`. Records from other assigners are only kept when a stored GHSA names them, for their CNA score and dates.
 - **Repository advisories**: belong to the repository's product. When the `ghsa-repo` source lists `packages`, only entries with those names count (compared without case, whatever the ecosystem; `""` matches an entry without a name), and an advisory naming none of them is not about the product: Nextcloud's `security-advisories` repository lists Server next to apps such as `files_lock`. Otherwise, when some entries name the product itself (no language ecosystem, for example `Docker Engine` or `redis-server`) or a package the catalog gives the product, only those count; Go module entries of moby (`v2.0.0-beta.28`) are another version line and are skipped. When no entry does, all entries count (Coolify files some advisories under `npm:coolify`).
-- **Global advisories**: an entry counts for the product that claims its `ecosystem:package`.
+- **Global advisories**: an entry counts for the product that claims its `ecosystem:package`. PyPI names compare normalized as pip does (`Django` is `django`, `open_webui` is `open-webui`); other names compare as written.
 
 ## Ranges
 
