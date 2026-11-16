@@ -22,6 +22,20 @@ export function cleanVersion(raw: string): string | undefined {
   return VERSION.test(value) && value.length <= 64 ? value : undefined;
 }
 
+/**
+ * Rewrites PEP 440 prereleases written straight after a version (`3.15.0a1`, `6.0rc2`,
+ * `1.2c1`) as semver prereleases (`3.15.0-a1`, `6.0-rc2`, `1.2-rc1`), anywhere in a range
+ * expression. Only for Python data (CVE versionType python, the GHSA pip ecosystem): other
+ * schemes use the same letters differently (PostgreSQL's 17rc1).
+ */
+export function pep440Prereleases(text: string): string {
+  return text.replace(
+    /(^|[^0-9A-Za-z.])(v?\d+(?:\.\d+){0,2})(a|b|rc|c)(\d+)(?![0-9A-Za-z.+-])/g,
+    (_, lead: string, version: string, tag: string, n: string) =>
+      `${lead}${version}-${tag === 'c' ? 'rc' : tag}${n}`,
+  );
+}
+
 /** True when the range says which version fixes it or is the last one affected. */
 export function isBounded(range: VersionRange): boolean {
   return range.fixed !== undefined || range.last_affected !== undefined;

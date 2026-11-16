@@ -4,6 +4,7 @@ import {
   compactHyphenRange,
   compareSemverLike,
   parseRangeExpression,
+  pep440Prereleases,
   perBranchUpperBounds,
   singlePatchedVersion,
 } from '../src/versions.ts';
@@ -204,5 +205,20 @@ describe('compactHyphenRange', () => {
 
   it('marks a reversed range as unreadable', () => {
     expect(compactHyphenRange('8.4.12-8.4.0')).toBeNull();
+  });
+});
+
+describe('pep440Prereleases', () => {
+  it('writes PEP 440 prereleases as semver prereleases', () => {
+    expect(pep440Prereleases('>= 6.0a1, < 6.0.8')).toBe('>= 6.0-a1, < 6.0.8');
+    expect(pep440Prereleases('3.15.0rc3')).toBe('3.15.0-rc3');
+    expect(pep440Prereleases('3.15.0b2')).toBe('3.15.0-b2');
+    expect(pep440Prereleases('1.2c1')).toBe('1.2-rc1');
+  });
+
+  it('leaves releases, other suffixes and semver prereleases alone', () => {
+    for (const text of ['< 5.2.17', '1.0.post1', '1.0.dev3', '3.14.0-rc1', '18beta1', 'All']) {
+      expect(pep440Prereleases(text)).toBe(text);
+    }
   });
 });

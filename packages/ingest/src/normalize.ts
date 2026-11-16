@@ -1,6 +1,6 @@
 import type { Advisory, CatalogEntry, VersionRange } from '@advisorydeck/contract';
 import type { SourceIndex } from './source-index.ts';
-import type { CveAffected, CveRecord, GhsaAdvisory, GhsaRecord } from './records.ts';
+import type { CveAffected, CveRecord, CveVersion, GhsaAdvisory, GhsaRecord } from './records.ts';
 import {
   branchOf,
   cleanVersion,
@@ -11,6 +11,7 @@ import {
   isRangeExpression,
   pairLowerBounds,
   parseRangeExpression,
+  pep440Prereleases,
   perBranchUpperBounds,
   singlePatchedVersion,
 } from './versions.ts';
@@ -147,14 +148,29 @@ function lineStart(raw: string): string | undefined {
   return parts.join('.');
 }
 
+/** A CVE version entry with its PEP 440 prereleases written as semver ones. */
+function pythonVersions(v: CveVersion): CveVersion {
+  const pep = (s: string | undefined) => (s === undefined ? undefined : pep440Prereleases(s));
+  const version = pep(v.version);
+  const lessThan = pep(v.lessThan);
+  const lessThanOrEqual = pep(v.lessThanOrEqual);
+  return {
+    ...v,
+    ...(version === undefined ? {} : { version }),
+    ...(lessThan === undefined ? {} : { lessThan }),
+    ...(lessThanOrEqual === undefined ? {} : { lessThanOrEqual }),
+  };
+}
+
 /**
  * Ranges of one CVE affected entry. Undefined when any affected version cannot be read: half a
  * range list would make a consumer say "not affected" for the part that was dropped.
  */
 export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
   const ranges: VersionRange[] = [];
-  for (const v of affected.versions ?? []) {
-    if (v.status !== 'affected') continue;
+  for (const written of affected.versions ?? []) {
+    if (written.status !== 'affected') continue;
+    const v = written.versionType === 'python' ? pythonVersions(written) : written;
     const raw = (v.version ?? '').trim();
     if (isRangeExpression(raw)) {
       const parsed = parseRangeExpression(raw);
@@ -323,12 +339,12 @@ function goModuleMajor(name: string | null | undefined): number | undefined {
  * only holds that major, so an open lower bound starts at it (v2 starts at 2.0.0).
  */
 export function ghsaRanges(vulnerability: GhsaAdvisory['vulnerabilities'][number]): RangeReading {
-  const expression = (vulnerability.vulnerable_version_range ?? '').trim();
-  const patchedRaw = (
-    vulnerability.first_patched_version ??
-    vulnerability.patched_versions ??
-    ''
-  ).trim();
+  const python = vulnerability.package?.ecosystem?.trim().toLowerCase() === 'pip';
+  const written = (text: string) => (python ? pep440Prereleases(text.trim()) : text.trim());
+  const expression = written(vulnerability.vulnerable_version_range ?? '');
+  const patchedRaw = written(
+    vulnerability.first_patched_version ?? vulnerability.patched_versions ?? '',
+  );
   const reading = readGhsaRange(expression, patchedRaw);
   const major = goModuleMajor(vulnerability.package?.name);
   if (reading.ranges === undefined || major === undefined) return reading;
