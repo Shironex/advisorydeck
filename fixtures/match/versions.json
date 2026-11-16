@@ -1,105 +1,582 @@
 {
-  "description": "Version scheme vectors for the matcher (image/internal/match). compare: want is the sign of compare(a, b). branch: whether the value names a release branch. invalid: must fail to parse.",
+  "description": "Version scheme vectors for the matcher (image/internal/match). compare: want is the sign of compare(a, b). branch: whether the value names a release branch. invalid: must fail to parse. Semver also reads PEP 440 prereleases written straight after the version (3.14.0rc1, 6.0a1) as the matching semver prerelease.",
   "compare": [
-    { "scheme": "semver", "a": "1.2.3", "b": "1.2.4", "want": -1 },
-    { "scheme": "semver", "a": "1.2.3-rc.1", "b": "1.2.3", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-alpha", "b": "1.0.0-alpha.1", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-alpha.1", "b": "1.0.0-alpha.beta", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-alpha.beta", "b": "1.0.0-beta", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-beta", "b": "1.0.0-beta.2", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-beta.2", "b": "1.0.0-beta.11", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-beta.11", "b": "1.0.0-rc.1", "want": -1 },
-    { "scheme": "semver", "a": "1.0.0-rc.1", "b": "1.0.0", "want": -1 },
-    { "scheme": "semver", "a": "1.2.3+build.5", "b": "1.2.3", "want": 0 },
-    { "scheme": "semver", "a": "v3.7.18", "b": "3.7.18", "want": 0 },
-    { "scheme": "semver", "a": "3.7.9", "b": "3.7.18", "want": -1 },
-    { "scheme": "semver", "a": "3.2", "b": "3.2.0", "want": 0 },
-    { "scheme": "semver", "a": "19.03.15", "b": "19.3.15", "want": 0 },
-    { "scheme": "semver", "a": "19.03.15", "b": "20.10.0", "want": -1 },
-    { "scheme": "semver", "a": "20.10.27", "b": "23.0.0", "want": -1 },
-    { "scheme": "semver", "a": "4.0.0-beta.9", "b": "4.0.0-beta.474", "want": -1 },
-    { "scheme": "semver", "a": "4.0.0-beta.474", "b": "4.0.0", "want": -1 },
-    { "scheme": "semver", "a": "3.12.36", "b": "4.0.0-beta.1", "want": -1 },
-    { "scheme": "semver", "a": "8.0-rc1", "b": "8.0.0", "want": -1 },
-    { "scheme": "semver", "a": "8.0.0-rc2", "b": "8.0.0-rc10", "want": -1 },
-    { "scheme": "pg", "a": "17.4", "b": "17.12", "want": -1 },
-    { "scheme": "pg", "a": "17", "b": "17.0", "want": 0 },
-    { "scheme": "pg", "a": "9.6.24", "b": "10.0", "want": -1 },
-    { "scheme": "pg", "a": "9.6.9", "b": "9.6.24", "want": -1 },
-    { "scheme": "pg", "a": "18beta1", "b": "18beta2", "want": -1 },
-    { "scheme": "pg", "a": "18beta2", "b": "18rc1", "want": -1 },
-    { "scheme": "pg", "a": "18rc1", "b": "18.0", "want": -1 },
-    { "scheme": "pg", "a": "17.12", "b": "18beta1", "want": -1 },
-    { "scheme": "pg", "a": "9.6rc1", "b": "9.6.0", "want": -1 },
-    { "scheme": "calver", "a": "2024.10.1", "b": "2024.11", "want": -1 },
-    { "scheme": "calver", "a": "2024.1", "b": "2024.01", "want": 0 },
-    { "scheme": "calver", "a": "2024.10", "b": "2024.10.1", "want": -1 },
-    { "scheme": "kernel", "a": "6.1.115", "b": "6.1.119", "want": -1 },
-    { "scheme": "kernel", "a": "6.12-rc3", "b": "6.12", "want": -1 },
-    { "scheme": "kernel", "a": "6.12", "b": "6.12.0", "want": 0 },
-    { "scheme": "kernel", "a": "5.15.0", "b": "6.1.0", "want": -1 },
-    { "scheme": "dpkg", "a": "1:2.30-1", "b": "2.31-1", "want": 1 },
-    { "scheme": "dpkg", "a": "0:1.0", "b": "1.0", "want": 0 },
-    { "scheme": "dpkg", "a": "1.2.3", "b": "1.2.3-0", "want": 0 },
-    { "scheme": "dpkg", "a": "1.0~rc1-1", "b": "1.0-1", "want": -1 },
-    { "scheme": "dpkg", "a": "1.0~~", "b": "1.0~", "want": -1 },
-    { "scheme": "dpkg", "a": "1.0~", "b": "1.0", "want": -1 },
-    { "scheme": "dpkg", "a": "1.0", "b": "1.0a", "want": -1 },
-    { "scheme": "dpkg", "a": "1.0a", "b": "1.0+", "want": -1 },
-    { "scheme": "dpkg", "a": "1.0-1", "b": "1.0-1.1", "want": -1 },
-    { "scheme": "dpkg", "a": "1:9.2p1-2+deb12u3", "b": "1:9.2p1-2+deb12u4", "want": -1 },
-    { "scheme": "dpkg", "a": "1:9.2p1-2+deb12u3", "b": "9.9p1-1", "want": 1 },
-    { "scheme": "dpkg", "a": "2.36-9+deb12u7", "b": "2.36-9+deb12u10", "want": -1 },
-    { "scheme": "dpkg", "a": "5.15.0-91.101", "b": "5.15.0-122.132", "want": -1 },
-    { "scheme": "dpkg", "a": "6.1.115-1", "b": "6.1.119-1", "want": -1 },
-    { "scheme": "opaque", "a": "build-7", "b": "build-7", "want": 0 }
+    {
+      "scheme": "semver",
+      "a": "1.2.3",
+      "b": "1.2.4",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.2.3-rc.1",
+      "b": "1.2.3",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-alpha",
+      "b": "1.0.0-alpha.1",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-alpha.1",
+      "b": "1.0.0-alpha.beta",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-alpha.beta",
+      "b": "1.0.0-beta",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-beta",
+      "b": "1.0.0-beta.2",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-beta.2",
+      "b": "1.0.0-beta.11",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-beta.11",
+      "b": "1.0.0-rc.1",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.0.0-rc.1",
+      "b": "1.0.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "1.2.3+build.5",
+      "b": "1.2.3",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "v3.7.18",
+      "b": "3.7.18",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "3.7.9",
+      "b": "3.7.18",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "3.2",
+      "b": "3.2.0",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "19.03.15",
+      "b": "19.3.15",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "19.03.15",
+      "b": "20.10.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "20.10.27",
+      "b": "23.0.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "4.0.0-beta.9",
+      "b": "4.0.0-beta.474",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "4.0.0-beta.474",
+      "b": "4.0.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "3.12.36",
+      "b": "4.0.0-beta.1",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "8.0-rc1",
+      "b": "8.0.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "8.0.0-rc2",
+      "b": "8.0.0-rc10",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "17.4",
+      "b": "17.12",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "17",
+      "b": "17.0",
+      "want": 0
+    },
+    {
+      "scheme": "pg",
+      "a": "9.6.24",
+      "b": "10.0",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "9.6.9",
+      "b": "9.6.24",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "18beta1",
+      "b": "18beta2",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "18beta2",
+      "b": "18rc1",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "18rc1",
+      "b": "18.0",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "17.12",
+      "b": "18beta1",
+      "want": -1
+    },
+    {
+      "scheme": "pg",
+      "a": "9.6rc1",
+      "b": "9.6.0",
+      "want": -1
+    },
+    {
+      "scheme": "calver",
+      "a": "2024.10.1",
+      "b": "2024.11",
+      "want": -1
+    },
+    {
+      "scheme": "calver",
+      "a": "2024.1",
+      "b": "2024.01",
+      "want": 0
+    },
+    {
+      "scheme": "calver",
+      "a": "2024.10",
+      "b": "2024.10.1",
+      "want": -1
+    },
+    {
+      "scheme": "kernel",
+      "a": "6.1.115",
+      "b": "6.1.119",
+      "want": -1
+    },
+    {
+      "scheme": "kernel",
+      "a": "6.12-rc3",
+      "b": "6.12",
+      "want": -1
+    },
+    {
+      "scheme": "kernel",
+      "a": "6.12",
+      "b": "6.12.0",
+      "want": 0
+    },
+    {
+      "scheme": "kernel",
+      "a": "5.15.0",
+      "b": "6.1.0",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1:2.30-1",
+      "b": "2.31-1",
+      "want": 1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "0:1.0",
+      "b": "1.0",
+      "want": 0
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.2.3",
+      "b": "1.2.3-0",
+      "want": 0
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0~rc1-1",
+      "b": "1.0-1",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0~~",
+      "b": "1.0~",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0~",
+      "b": "1.0",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0",
+      "b": "1.0a",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0a",
+      "b": "1.0+",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1.0-1",
+      "b": "1.0-1.1",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1:9.2p1-2+deb12u3",
+      "b": "1:9.2p1-2+deb12u4",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "1:9.2p1-2+deb12u3",
+      "b": "9.9p1-1",
+      "want": 1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "2.36-9+deb12u7",
+      "b": "2.36-9+deb12u10",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "5.15.0-91.101",
+      "b": "5.15.0-122.132",
+      "want": -1
+    },
+    {
+      "scheme": "dpkg",
+      "a": "6.1.115-1",
+      "b": "6.1.119-1",
+      "want": -1
+    },
+    {
+      "scheme": "opaque",
+      "a": "build-7",
+      "b": "build-7",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "3.14.0rc1",
+      "b": "3.14.0-rc1",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "6.0a1",
+      "b": "6.0-a1",
+      "want": 0
+    },
+    {
+      "scheme": "semver",
+      "a": "3.15.0a1",
+      "b": "3.15.0b1",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "3.15.0b2",
+      "b": "3.15.0rc1",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "3.15.0rc2",
+      "b": "3.15.0rc10",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "3.15.0rc3",
+      "b": "3.15.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "6.0a1",
+      "b": "6.0.0",
+      "want": -1
+    },
+    {
+      "scheme": "semver",
+      "a": "5.2.17",
+      "b": "6.0a1",
+      "want": -1
+    }
   ],
   "branch": [
-    { "scheme": "semver", "version": "3.2", "branch": true },
-    { "scheme": "semver", "version": "v3", "branch": true },
-    { "scheme": "semver", "version": "3.2.1", "branch": false },
-    { "scheme": "semver", "version": "8.0-rc1", "branch": false },
-    { "scheme": "semver", "version": "19.03", "branch": true },
-    { "scheme": "semver", "version": "4.0.0-beta.474", "branch": false },
-    { "scheme": "pg", "version": "17", "branch": true },
-    { "scheme": "pg", "version": "17.4", "branch": false },
-    { "scheme": "pg", "version": "9.6", "branch": true },
-    { "scheme": "pg", "version": "9.6.24", "branch": false },
-    { "scheme": "pg", "version": "18beta1", "branch": false },
-    { "scheme": "calver", "version": "2024.10", "branch": false },
-    { "scheme": "kernel", "version": "6.12", "branch": false },
-    { "scheme": "dpkg", "version": "1.0", "branch": false },
-    { "scheme": "opaque", "version": "build-7", "branch": false }
+    {
+      "scheme": "semver",
+      "version": "3.2",
+      "branch": true
+    },
+    {
+      "scheme": "semver",
+      "version": "v3",
+      "branch": true
+    },
+    {
+      "scheme": "semver",
+      "version": "3.2.1",
+      "branch": false
+    },
+    {
+      "scheme": "semver",
+      "version": "8.0-rc1",
+      "branch": false
+    },
+    {
+      "scheme": "semver",
+      "version": "19.03",
+      "branch": true
+    },
+    {
+      "scheme": "semver",
+      "version": "4.0.0-beta.474",
+      "branch": false
+    },
+    {
+      "scheme": "pg",
+      "version": "17",
+      "branch": true
+    },
+    {
+      "scheme": "pg",
+      "version": "17.4",
+      "branch": false
+    },
+    {
+      "scheme": "pg",
+      "version": "9.6",
+      "branch": true
+    },
+    {
+      "scheme": "pg",
+      "version": "9.6.24",
+      "branch": false
+    },
+    {
+      "scheme": "pg",
+      "version": "18beta1",
+      "branch": false
+    },
+    {
+      "scheme": "calver",
+      "version": "2024.10",
+      "branch": false
+    },
+    {
+      "scheme": "kernel",
+      "version": "6.12",
+      "branch": false
+    },
+    {
+      "scheme": "dpkg",
+      "version": "1.0",
+      "branch": false
+    },
+    {
+      "scheme": "opaque",
+      "version": "build-7",
+      "branch": false
+    },
+    {
+      "scheme": "semver",
+      "version": "6.0a1",
+      "branch": false
+    },
+    {
+      "scheme": "semver",
+      "version": "3.14.0rc1",
+      "branch": false
+    }
   ],
   "invalid": [
-    { "scheme": "semver", "version": "" },
-    { "scheme": "semver", "version": "1.2.3.4" },
-    { "scheme": "semver", "version": "1..2" },
-    { "scheme": "semver", "version": "1.2.3-" },
-    { "scheme": "semver", "version": "1.2.3-rc..1" },
-    { "scheme": "semver", "version": "1.2.3 " },
-    { "scheme": "semver", "version": "latest" },
-    { "scheme": "semver", "version": "All" },
-    { "scheme": "semver", "version": "TBD" },
-    { "scheme": "semver", "version": "99999999999999999999.0.0" },
+    {
+      "scheme": "semver",
+      "version": ""
+    },
+    {
+      "scheme": "semver",
+      "version": "1.2.3.4"
+    },
+    {
+      "scheme": "semver",
+      "version": "1..2"
+    },
+    {
+      "scheme": "semver",
+      "version": "1.2.3-"
+    },
+    {
+      "scheme": "semver",
+      "version": "1.2.3-rc..1"
+    },
+    {
+      "scheme": "semver",
+      "version": "1.2.3 "
+    },
+    {
+      "scheme": "semver",
+      "version": "latest"
+    },
+    {
+      "scheme": "semver",
+      "version": "All"
+    },
+    {
+      "scheme": "semver",
+      "version": "TBD"
+    },
+    {
+      "scheme": "semver",
+      "version": "99999999999999999999.0.0"
+    },
     {
       "scheme": "semver",
       "version": "1.2.3-0123456789012345678901234567890123456789012345678901234567890"
     },
-    { "scheme": "pg", "version": "17.4.1" },
-    { "scheme": "pg", "version": "9.6.24.1" },
-    { "scheme": "pg", "version": "17.4beta" },
-    { "scheme": "pg", "version": "17-alpine" },
-    { "scheme": "pg", "version": "v17" },
-    { "scheme": "calver", "version": "2024.x" },
-    { "scheme": "kernel", "version": "6" },
-    { "scheme": "kernel", "version": "6.8.0-45-generic" },
-    { "scheme": "dpkg", "version": "a1.0" },
-    { "scheme": "dpkg", "version": "1.0-" },
-    { "scheme": "dpkg", "version": ":1.0" },
-    { "scheme": "dpkg", "version": "x:1.0" },
-    { "scheme": "dpkg", "version": "1.0 0" },
-    { "scheme": "opaque", "version": "has space" },
-    { "scheme": "nope", "version": "1.0" }
+    {
+      "scheme": "pg",
+      "version": "17.4.1"
+    },
+    {
+      "scheme": "pg",
+      "version": "9.6.24.1"
+    },
+    {
+      "scheme": "pg",
+      "version": "17.4beta"
+    },
+    {
+      "scheme": "pg",
+      "version": "17-alpine"
+    },
+    {
+      "scheme": "pg",
+      "version": "v17"
+    },
+    {
+      "scheme": "calver",
+      "version": "2024.x"
+    },
+    {
+      "scheme": "kernel",
+      "version": "6"
+    },
+    {
+      "scheme": "kernel",
+      "version": "6.8.0-45-generic"
+    },
+    {
+      "scheme": "dpkg",
+      "version": "a1.0"
+    },
+    {
+      "scheme": "dpkg",
+      "version": "1.0-"
+    },
+    {
+      "scheme": "dpkg",
+      "version": ":1.0"
+    },
+    {
+      "scheme": "dpkg",
+      "version": "x:1.0"
+    },
+    {
+      "scheme": "dpkg",
+      "version": "1.0 0"
+    },
+    {
+      "scheme": "opaque",
+      "version": "has space"
+    },
+    {
+      "scheme": "nope",
+      "version": "1.0"
+    },
+    {
+      "scheme": "semver",
+      "version": "3.14.0rc"
+    },
+    {
+      "scheme": "semver",
+      "version": "3.14.0dev1"
+    },
+    {
+      "scheme": "semver",
+      "version": "3.14.0.post1"
+    },
+    {
+      "scheme": "semver",
+      "version": "3.14.0rc1-1"
+    },
+    {
+      "scheme": "semver",
+      "version": "rc1"
+    },
+    {
+      "scheme": "pg",
+      "version": "17a1"
+    }
   ]
 }

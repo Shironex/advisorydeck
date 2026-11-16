@@ -24,8 +24,9 @@ type Scheme string
 // The version schemes of schemas/v1.
 const (
 	// SchemeSemver is semantic versioning with lenient input: a leading v, one to three
-	// numeric components, leading zeros (Docker's 19.03.15) and build metadata are accepted.
-	// One or two components without a prerelease name a branch (3.2, 8).
+	// numeric components, leading zeros (Docker's 19.03.15), build metadata and a PEP 440
+	// prerelease written straight after the version (3.14.0rc1 reads as 3.14.0-rc1) are
+	// accepted. One or two components without a prerelease name a branch (3.2, 8).
 	SchemeSemver Scheme = "semver"
 	// SchemePG is PostgreSQL's scheme: major.minor since 10 (17 is a branch, 17.4 a release),
 	// major.minor.patch before (9.6 is a branch, 9.6.24 a release), with prereleases written
@@ -390,6 +391,9 @@ func parseSemver(s string) (Version, error) {
 		s = s[:i]
 	}
 	core, preText, hasPre := strings.Cut(s, "-")
+	if !hasPre {
+		core, preText, hasPre = cutPEP440(core)
+	}
 	nums, err := parseNums(core, 1, 3)
 	if err != nil {
 		return Version{}, err
@@ -404,6 +408,25 @@ func parseSemver(s string) (Version, error) {
 	}
 	v.nums = pad(nums, 3)
 	return v, nil
+}
+
+// cutPEP440 splits a PEP 440 prerelease written straight after the version (3.14.0rc1,
+// 6.0a1, 3.15.0b2) into the version and the prerelease identifier, so it compares like the
+// semver prerelease 3.14.0-rc1. Anything else is returned whole, to fail as before.
+func cutPEP440(s string) (string, string, bool) {
+	i := strings.IndexFunc(s, func(r rune) bool { return r != '.' && (r < '0' || r > '9') })
+	if i <= 0 || !isDigit(s[i-1]) {
+		return s, "", false
+	}
+	tag := s[i:]
+	for _, kind := range []string{"rc", "a", "b"} {
+		if n, ok := strings.CutPrefix(tag, kind); ok {
+			if _, digits := isDigits(n); digits {
+				return s[:i], tag, true
+			}
+		}
+	}
+	return s, "", false
 }
 
 // splitPGPre splits a trailing alpha, beta or rc prerelease (18beta1) off a pg version.
