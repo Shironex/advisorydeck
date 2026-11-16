@@ -22,10 +22,11 @@ Examples: [fixtures/api/v1/](../fixtures/api/v1/).
 
 ## Field semantics
 
-- **`id`** is the cluster id: the CVE id when there is one, else the GHSA id, else the vendor id. `aliases` lists the other ids and never repeats `id`.
+- **`id`** is the cluster id: the CVE id when there is one, else the GHSA id, else the vendor id. `aliases` lists the other ids and never repeats `id`. When a CVE is filed later for an advisory published under its GHSA id, the id becomes the CVE id and the GHSA id moves to `aliases`; match on `id` and `aliases` together.
 - **`affected[].ranges`**, in the product's `version_scheme`:
   - `introduced` is inclusive; `"0"` means from the first version.
   - `fixed` is exclusive; `last_affected` is inclusive; never both; neither means no fix yet.
+  - A bound that names a branch covers the whole branch: `last_affected: "1.29"` is every 1.29 release. A lower bound can be the lowest prerelease of a release (`introduced: "8.8.0-0"`, every prerelease of 8.8.0 and up), as Go's own records write it.
   - One range per branch is normal (PostgreSQL: `17` to `17.12`, `16` to `16.16`, ...).
   - **An empty list means the affected versions are unknown.** Say "check manually"; never "not affected".
 - **`severity.level`** is `unknown`, `low`, `medium`, `high` or `critical`. `unknown` is published, never dropped. `score` and `vector` are null when there is no CVSS data; `source` says which record the score came from (`cna`, `ghsa`, `nvd`, `vendor`, or `none`).
