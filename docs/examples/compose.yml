@@ -1,0 +1,27 @@
+# Example: run the Advisorydeck notifier next to your other services.
+#
+# 1. Build the image:      docker build -t advisorydeck:local image/
+# 2. Copy the config:      cp fixtures/image/advisorydeck.yml docs/examples/advisorydeck.yml
+#    (point feed.url at the published feed and list what you run)
+# 3. Create .env from .env.example and paste your real webhook URLs. Never commit .env.
+# 4. Check without sending: docker compose -f docs/examples/compose.yml run --rm advisorydeck once -dry-run
+# 5. Start:                 docker compose -f docs/examples/compose.yml up -d
+services:
+  advisorydeck:
+    image: advisorydeck:local
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    user: '65532:65532'
+    # Webhook URLs come only from the environment, named by url_env in the config.
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:?set it in .env}
+      GENERIC_WEBHOOK_URL: ${GENERIC_WEBHOOK_URL:?set it in .env}
+    volumes:
+      - ./advisorydeck.yml:/config/advisorydeck.yml:ro
+      - advisorydeck-state:/data
+    # No ports and no Docker socket: the container only makes outbound HTTPS requests.
+
+volumes:
+  advisorydeck-state:
