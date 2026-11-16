@@ -44,6 +44,8 @@ import (
 //     22.23.3 lessThanOrEqual 22.23.3), read as upper bounds per branch.
 //   - nginx.json: an open range next to fixed later lines (CVE-2026-95101, 1.25.0 lessThan *),
 //     ended on the branch before the next listed start (last_affected 1.29).
+//   - go.json: a CNA that names each package (CVE-2026-56866, net/http and net/http/httputil),
+//     taken whole by a vendor-wide rule; 1.27.0-0 covers the 1.27 release candidates.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`

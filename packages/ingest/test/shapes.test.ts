@@ -79,6 +79,9 @@ const extra: CatalogEntry[] = [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'nodejs', products: ['node'] },
   ]),
   product('nginx', [{ type: 'cve-cna', assigner: 'f5', products: ['NGINX Open Source'] }]),
+  product('go', [
+    { type: 'cve-cna', assigner: 'Go', vendor: 'Go standard library', products: ['*'] },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -405,6 +408,12 @@ describe('smaller normalisations', () => {
     const facts = cve('CVE-2026-95101');
     expect(rangesOf(facts, 'nginx')).toEqual(matcherRanges('nginx', 'CVE-2026-95101'));
     expect(facts.warnings.join('\n')).toContain('ends before the next listed line starts');
+  });
+
+  it('Go: a vendor-wide rule takes every package the record names', () => {
+    const facts = cve('CVE-2026-56866');
+    expect(facts.claims.map((c) => c.slug)).toEqual(['go']);
+    expect(rangesOf(facts, 'go')).toEqual(matcherRanges('go', 'CVE-2026-56866'));
   });
 
   it('Spring: .RELEASE is the release itself', () => {

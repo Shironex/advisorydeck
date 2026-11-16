@@ -1,6 +1,9 @@
 import type { CatalogEntry, Issue } from '@advisorydeck/contract';
 
-/** A cvelistV5 rule: records from this assigner whose affected product (and vendor) match belong to slug. */
+/**
+ * A cvelistV5 rule: records from this assigner whose affected product (and vendor) match belong to
+ * slug. A product "*" matches every product of the vendor.
+ */
 export interface CnaRule {
   slug: string;
   products: string[];
@@ -56,10 +59,19 @@ export function buildSourceIndex(entries: readonly CatalogEntry[]): {
       switch (source.type) {
         case 'cve-cna': {
           const rules = index.cna.get(source.assigner) ?? [];
+          const everyProduct = source.products.includes('*');
+          if (everyProduct && source.vendor === undefined) {
+            issues.push({
+              file,
+              message: `${source.assigner} products ["*"] needs a vendor, or it takes the whole assigner`,
+            });
+          }
           const clash = rules.find(
             (rule) =>
               rule.vendor === source.vendor &&
-              rule.products.some((p) => source.products.includes(p)),
+              (everyProduct ||
+                rule.products.includes('*') ||
+                rule.products.some((p) => source.products.includes(p))),
           );
           if (clash !== undefined) {
             issues.push({

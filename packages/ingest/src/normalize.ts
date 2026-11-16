@@ -280,7 +280,7 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
   for (const affected of cna.affected ?? []) {
     const rule = rules.find(
       (r) =>
-        r.products.some((p) => same(p, affected.product)) &&
+        r.products.some((p) => p === '*' || same(p, affected.product)) &&
         (r.vendor === undefined || same(r.vendor, affected.vendor)),
     );
     if (rule === undefined) continue;
