@@ -72,6 +72,18 @@ describe('parseRangeExpression (real upstream strings)', () => {
     ]);
   });
 
+  it('starts a branch whose bound is a prerelease at its lowest prerelease (runc)', () => {
+    expect(parseRangeExpression('<=1.3.5,<=1.4.2,<=1.5.0-rc.2')).toEqual([
+      { introduced: '0', last_affected: '1.3.5' },
+      { introduced: '1.4.0', last_affected: '1.4.2' },
+      { introduced: '1.5.0-0', last_affected: '1.5.0-rc.2' },
+    ]);
+    expect(parseRangeExpression('< 1.0.4, < 1.1.0')).toEqual([
+      { introduced: '0', fixed: '1.0.4' },
+      { introduced: '1.1.0-0', fixed: '1.1.0' },
+    ]);
+  });
+
   it('reads a lower bound alone as no fix yet, and an exact version', () => {
     expect(parseRangeExpression('>= 7.0.0')).toEqual([{ introduced: '7.0.0' }]);
     expect(parseRangeExpression('= 1.2.3')).toEqual([

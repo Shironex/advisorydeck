@@ -91,6 +91,7 @@ const extra: CatalogEntry[] = [
   product('mattermost', [{ type: 'cve-cna', assigner: 'Mattermost', products: ['Mattermost'] }]),
   product('jenkins', [{ type: 'cve-cna', assigner: 'jenkins', products: ['Jenkins'] }]),
   product('portainer', [{ type: 'ghsa-repo', repo: 'portainer/portainer' }]),
+  product('runc', [{ type: 'ghsa-repo', repo: 'opencontainers/runc' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -524,5 +525,12 @@ describe('an open GHSA range next to a later bounded line', () => {
   it('Portainer: a closed range with no patched version stays closed', () => {
     const facts = repoGhsa('repo-portainer.json', 'GHSA-j3mf-q9qf-5qf8', 'portainer/portainer');
     expect(rangesOf(facts, 'portainer')).toEqual(matcherRanges('portainer', 'GHSA-j3mf-q9qf-5qf8'));
+  });
+});
+
+describe('a prerelease upper bound of a branch', () => {
+  it('runc: <= 1.5.0-rc.2 starts at the lowest 1.5.0 prerelease, not at 1.5.0', () => {
+    const facts = repoGhsa('repo-runc.json', 'GHSA-xjvp-4fhw-gc47', 'opencontainers/runc');
+    expect(rangesOf(facts, 'runc')).toEqual(matcherRanges('runc', 'CVE-2026-41579'));
   });
 });
