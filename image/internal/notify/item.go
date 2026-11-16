@@ -43,7 +43,10 @@ type Item struct {
 	Declared string
 	Verdict  matching.Verdict
 	Reason   string
-	Urgent   string // "", UrgentKEV or UrgentActionRequired
+	// FixedIn is the release that fixes the declared version (for a branch, the highest
+	// fix inside it: the one to pull), empty when unknown or unfixed.
+	FixedIn string
+	Urgent  string // "", UrgentKEV or UrgentActionRequired
 }
 
 // Key builds the dedupe key of an advisory for a product.
@@ -114,6 +117,15 @@ func headline(it Item) string {
 		badge = " [EXPLOITED]"
 	}
 	return fmt.Sprintf("[%s]%s %s %s: %s", levelLabel(it.Advisory.Severity.Level), badge, it.Product.Name, it.Declared, it.Advisory.Title)
+}
+
+// fixText says which release fixes the user's version, then every fix of the advisory.
+func fixText(it Item) string {
+	all := strings.Join(fixedIn(it), ", ")
+	if it.FixedIn == "" {
+		return all
+	}
+	return it.FixedIn + " for your version (all fixes: " + all + ")"
 }
 
 // fixedIn lists the fix versions for the item's product, or says why there are none.

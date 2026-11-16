@@ -113,7 +113,7 @@ func (e *Engine) match(products map[string]*feed.ProductFeed) []notify.Item {
 			}
 			items = append(items, notify.Item{
 				Key: notify.Key(a.ID, p.Slug), Advisory: a, Product: pf.Product,
-				Declared: string(p.Version), Verdict: r.Verdict, Reason: r.Reason, Urgent: urgent,
+				Declared: string(p.Version), Verdict: r.Verdict, Reason: r.Reason, FixedIn: r.FixedIn, Urgent: urgent,
 			})
 		}
 		e.Log.Info("matched", "product", p.Slug, "version", string(p.Version), "advisories", len(pf.Advisories),

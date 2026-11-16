@@ -1,9 +1,8 @@
 // Package matching defines the seam between the daemon and the version matcher.
 //
 // The daemon only needs one question answered: given what the user declared and one
-// advisory, is the user affected, not affected, or is it unknown? The real matcher
-// (version schemes, per-branch ranges) lives in internal/match; Stub is a deliberately
-// small stand-in that answers conservatively until that package is wired in.
+// advisory, is the user affected, not affected, or is it unknown? Library answers it
+// with the matcher in internal/match; tests can swap in any Matcher (see Func).
 package matching
 
 import "github.com/Shironex/advisorydeck/image/internal/feed"
@@ -33,7 +32,15 @@ type Declared struct {
 // Result is a verdict plus a short human reason, shown in notifications and logs.
 type Result struct {
 	Verdict Verdict
-	Reason  string
+	// Reason is one line for people.
+	Reason string
+	// Code is the matcher's stable reason code (in-range, branch-in-range, no-ranges ...).
+	Code string
+	// FixedIn is the release that fixes the declared version or branch, when known.
+	FixedIn string
+	// Branch is true when the declared value was a branch, so the answer covers every
+	// release of it (a floating tag is affected if pulled before FixedIn).
+	Branch bool
 }
 
 // Matcher answers whether one advisory affects what the user declared. product carries

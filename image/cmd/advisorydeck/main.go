@@ -151,7 +151,7 @@ func daemon(once bool, path string, dry, digestNow bool, e env) int {
 	eng := &engine.Engine{
 		Cfg:     cfg,
 		Poll:    &poll.Client{HTTP: e.httpClient, Base: cfg.Feed.URL, UserAgent: ua, Log: log},
-		Matcher: matching.Stub{},
+		Matcher: matching.Library{},
 		Sender:  &notify.Sender{HTTP: e.httpClient, Log: log, UserAgent: ua},
 		Targets: ts,
 		Log:     log,
