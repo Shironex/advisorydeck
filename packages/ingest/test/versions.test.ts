@@ -3,6 +3,7 @@ import {
   cleanVersion,
   compareSemverLike,
   parseRangeExpression,
+  perBranchUpperBounds,
   singlePatchedVersion,
 } from '../src/versions.ts';
 
@@ -83,5 +84,58 @@ describe('compareSemverLike', () => {
     expect(compareSemverLike('3.6.12', '3.6.11')).toBe(1);
     expect(compareSemverLike('4.0.0-beta.420.7', '4.0.0-beta.420.6')).toBe(1);
     expect(compareSemverLike('17', '17.1')).toBeUndefined();
+  });
+});
+
+describe('perBranchUpperBounds', () => {
+  it('sorts the bounds and starts each on the line after the previous one', () => {
+    expect(
+      perBranchUpperBounds([
+        { introduced: '0', fixed: '26.7.1' },
+        { introduced: '0', fixed: '26.4.14' },
+        { introduced: '0', last_affected: '26.6.4' },
+      ]),
+    ).toEqual([
+      { introduced: '0', fixed: '26.4.14' },
+      { introduced: '26.5.0', last_affected: '26.6.4' },
+      { introduced: '26.7.0', fixed: '26.7.1' },
+    ]);
+  });
+
+  it('keeps the prereleases of a line whose first release or prerelease is the bound', () => {
+    expect(
+      perBranchUpperBounds([
+        { introduced: '0', last_affected: '9.2.0-rc1' },
+        { introduced: '0', last_affected: '9.1.2' },
+      ]),
+    ).toEqual([
+      { introduced: '0', last_affected: '9.1.2' },
+      { introduced: '9.2.0-0', last_affected: '9.2.0-rc1' },
+    ]);
+  });
+
+  it('leaves shapes it cannot read as one fix per branch', () => {
+    expect(perBranchUpperBounds([{ introduced: '0', fixed: '1.2.3' }])).toBeUndefined();
+    expect(
+      perBranchUpperBounds([
+        { introduced: '0', fixed: '4.0.0-beta.471' },
+        { introduced: '0', fixed: '4.0.0-beta.470' },
+      ]),
+    ).toBeUndefined();
+    expect(
+      perBranchUpperBounds([
+        { introduced: '0', fixed: '1.2.3' },
+        { introduced: '2.0.0', fixed: '2.1.3' },
+      ]),
+    ).toBeUndefined();
+    expect(
+      perBranchUpperBounds([{ introduced: '0', fixed: '1.2.3' }, { introduced: '0' }]),
+    ).toBeUndefined();
+    expect(
+      perBranchUpperBounds([
+        { introduced: '0', fixed: '17' },
+        { introduced: '0', fixed: '16.4' },
+      ]),
+    ).toBeUndefined();
   });
 });

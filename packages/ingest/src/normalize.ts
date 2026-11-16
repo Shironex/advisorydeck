@@ -7,6 +7,7 @@ import {
   compareSemverLike,
   dedupeRanges,
   parseRangeExpression,
+  perBranchUpperBounds,
   singlePatchedVersion,
 } from './versions.ts';
 
@@ -244,7 +245,7 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
       url: `https://www.cve.org/CVERecord?id=${cveId}`,
       license: 'CVE-TOU',
     },
-    claims: mergeClaims(claims),
+    claims: perBranchClaims(mergeClaims(claims), cveId, warnings),
     warnings,
   };
 }
@@ -565,7 +566,7 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
     cwes: [...(record.repo?.cwe_ids ?? []), ...(record.global?.cwe_ids ?? [])],
     references,
     source: { type: 'ghsa', id: record.id, url: advisoryUrl, license: 'CC-BY-4.0' },
-    claims: mergeClaims(claims),
+    claims: perBranchClaims(mergeClaims(claims), record.id, warnings),
     warnings,
   };
 }
@@ -591,4 +592,21 @@ function mergeClaims(claims: readonly ProductClaim[]): ProductClaim[] {
     );
   }
   return [...out.values()];
+}
+
+/**
+ * Reads upper bounds that each start at 0, one per branch, as one range per branch
+ * (perBranchUpperBounds). The entries of one record are joined before this, so it applies both to
+ * one entry listing several bounds and to several entries listing one each.
+ */
+function perBranchClaims(claims: ProductClaim[], id: string, warnings: string[]): ProductClaim[] {
+  return claims.map((claim) => {
+    const ranges = perBranchUpperBounds(claim.ranges);
+    if (ranges === undefined) return claim;
+    const bounds = ranges.map((r) => r.fixed ?? r.last_affected ?? '').join(', ');
+    warnings.push(
+      `${id}: upper bounds ${bounds} each from the first version read as one range per branch for ${claim.slug}, each from the line after the previous bound`,
+    );
+    return { ...claim, ranges };
+  });
 }
