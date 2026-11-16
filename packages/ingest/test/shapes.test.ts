@@ -73,6 +73,8 @@ const extra: CatalogEntry[] = [
   product('spring-web', [
     { type: 'ghsa-package', ecosystem: 'maven', package: 'org.springframework:spring-web' },
   ]),
+  product('python', [{ type: 'cve-cna', assigner: 'PSF', products: ['CPython'] }]),
+  product('django', [{ type: 'ghsa-package', ecosystem: 'pip', package: 'django' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -364,6 +366,18 @@ describe('smaller normalisations', () => {
   it('Tomcat: a dotted milestone (9.0.0.M1) is a prerelease', () => {
     expect(rangesOf(cve('CVE-2026-74049'), 'tomcat')).toEqual(
       matcherRanges('tomcat', 'CVE-2026-74049'),
+    );
+  });
+
+  it('Python: PEP 440 prereleases in a CVE record become semver prereleases', () => {
+    expect(rangesOf(cve('CVE-2026-12345'), 'python')).toEqual(
+      matcherRanges('python', 'CVE-2026-12345'),
+    );
+  });
+
+  it('Django: PEP 440 lower bounds in a pip advisory become semver prereleases', () => {
+    expect(rangesOf(globalGhsa('global-django.json', 'GHSA-q238-5cxm-5c9h'), 'django')).toEqual(
+      matcherRanges('django', 'GHSA-q238-5cxm-5c9h'),
     );
   });
 

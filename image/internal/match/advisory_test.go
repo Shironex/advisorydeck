@@ -38,6 +38,8 @@ import (
 //     (GHSA-f99w-3pm7-v4cv), paired into one range per branch.
 //   - tomcat.json: a dotted milestone as a lower bound (CVE-2026-74049, 9.0.0.M1), read as the
 //     prerelease 9.0.0-M1.
+//   - python.json, django.json: PEP 440 prereleases (CVE-2026-12345 3.15.0a1 to 3.15.0rc3,
+//     GHSA-q238-5cxm-5c9h >= 6.0a1), written by ingest as 3.15.0-a1 and read in both spellings.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`
