@@ -1,0 +1,54 @@
+name: Catalog suggestions
+
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: catalog-suggest
+  cancel-in-progress: false
+
+env:
+  HUSKY: '0'
+  TURBO_TELEMETRY_DISABLED: '1'
+  ISSUE_TITLE: Catalog suggestions from Coolify and Dokploy templates
+
+# Reads the Coolify service templates and the Dokploy blueprints and keeps one open issue up to
+# date with image candidates for the catalog. It never writes to the repository.
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build the suggestions
+        run: pnpm catalog:suggest --out "$RUNNER_TEMP/suggest.md"
+      - name: Create or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          number="$(gh issue list --state open --label product-request --limit 100 \
+            --json number,title \
+            --jq '.[] | select(.title == env.ISSUE_TITLE) | .number' | head -n 1)"
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/suggest.md"
+          else
+            gh issue create --title "$ISSUE_TITLE" --label product-request \
+              --body-file "$RUNNER_TEMP/suggest.md"
+          fi
