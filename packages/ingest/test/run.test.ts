@@ -10,6 +10,7 @@ import {
   type ProductFeed,
 } from '@advisorydeck/contract';
 import { afterEach, describe, expect, it } from 'vitest';
+import { EPSS_API, KEV_URLS } from '../src/enrich.ts';
 import { Http, type FetchLike } from '../src/http.ts';
 import { runIngest, type RunOptions } from '../src/run.ts';
 
@@ -57,6 +58,11 @@ function routes(): Map<string, Route> {
       { file: 'cve/CVE-2026-59734.json' },
     ],
     ['https://endoflife.date/api/v1/products/postgresql', { file: 'endoflife/postgresql.json' }],
+    [KEV_URLS[0], { file: 'kev/known_exploited_vulnerabilities.json' }],
+    [
+      `${EPSS_API}?cve=CVE-2025-49844,CVE-2025-59157,CVE-2026-115538,CVE-2026-120153,CVE-2026-120154,CVE-2026-25243,CVE-2026-34158,CVE-2026-34592,CVE-2026-34597,CVE-2026-59734,CVE-2026-88010&limit=100`,
+      { file: 'epss/feed-cves.json' },
+    ],
   ]);
 }
 
@@ -171,12 +177,15 @@ describe('ingest run (recorded fixtures, no network)', () => {
     for (const name of ids) {
       const advisory = readJson<Advisory>(join(dirs.dataDir, 'advisories', name));
       expect(validateAgainst('advisory', advisory)).toEqual([]);
+      // Every advisory was looked up in the (recorded) KEV catalog; none of these is listed.
+      expect(advisory.kev).toEqual({ listed: false, added_at: null, checked: true });
     }
 
     // The CVE a GHSA names was fetched on its own and joined the cluster.
     const coolify = readJson<Advisory>(join(dirs.dataDir, 'advisories/CVE-2026-59734.json'));
     expect(coolify.aliases).toEqual(['GHSA-4fhp-xqqp-w7vv']);
-    expect(coolify.sources.map((s) => s.type)).toEqual(['cve-cna', 'ghsa']);
+    expect(coolify.sources.map((s) => s.type)).toEqual(['cve-cna', 'epss', 'ghsa']);
+    expect(coolify.epss).toEqual({ score: 0.00811, percentile: 0.57517, date: '2026-11-15' });
     expect(coolify.affected).toEqual([
       { product: 'coolify', ranges: [{ introduced: '0', fixed: '4.0.0-beta.469' }] },
     ]);
@@ -232,6 +241,33 @@ describe('ingest run (recorded fixtures, no network)', () => {
     expect(
       seen.filter((s) => s.url.includes('coollabsio/coolify/security-advisories')),
     ).toHaveLength(1);
+    // EPSS changes once a day: six hours later it is not asked again.
+    expect(seen.some((s) => s.url.startsWith(EPSS_API))).toBe(false);
+  });
+
+  it('publishes advisories as not checked when KEV was never read, and keeps a stored catalog', async () => {
+    const dirs = setup();
+    const table = routes();
+    for (const url of KEV_URLS) table.set(url, { status: 500, body: 'down' });
+    const report = await runIngest(
+      options(dirs, [], { skip: new Set(['cve', 'ghsa', 'epss']), since: '2025-01-01' }, table),
+    );
+    expect(report.warnings.join('\n')).toContain('kev:');
+    expect(report.warnings.join('\n')).toContain('not checked');
+
+    const dirs2 = setup();
+    await firstRun(dirs2);
+    const later = await runIngest(
+      options(
+        dirs2,
+        [],
+        { skip: new Set(['cve', 'ghsa']), now: new Date('2026-11-17T00:00:00Z') },
+        table,
+      ),
+    );
+    expect(later.warnings.join('\n')).toContain('kept the stored catalog');
+    const advisory = readJson<Advisory>(join(dirs2.dataDir, 'advisories/CVE-2026-120154.json'));
+    expect(advisory.kev.checked).toBe(true);
   });
 
   it('rebuilds the same outputs offline from data/sources', async () => {

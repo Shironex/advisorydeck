@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto';
 import type { Advisory, AffectedProduct, FeedNote } from '@advisorydeck/contract';
+import {
+  EPSS_SIGNAL_PERCENTILE,
+  enrichmentSources,
+  epssOf,
+  kevOf,
+  noEnrichment,
+  nvdSeverity,
+  type Enrichment,
+} from './enrich.ts';
 import type { ProductClaim, RecordFacts, Reference, Severity, SourceRef } from './normalize.ts';
 import { stableJson } from './store.ts';
 import { isBounded } from './versions.ts';
@@ -26,6 +35,11 @@ export function compareIds(a: string, b: string): number {
   if (ca !== null) return -1;
   if (cb !== null) return 1;
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** The CVE ids of a cluster, in id order. */
+export function cveIdsOf(ids: readonly string[]): string[] {
+  return ids.filter((id) => /^CVE-\d{4}-\d{4,}$/.test(id)).sort(compareIds);
 }
 
 /** Groups records whose ids link to each other (a GHSA naming its CVE) into clusters. */
@@ -77,13 +91,21 @@ export function pickRanges(claims: readonly ProductClaim[]): AffectedProduct[] {
   });
 }
 
-/** Material revision: changes only with severity level, ranges, KEV, the EPSS signal or the note. */
+/**
+ * Material revision: changes only with severity level, ranges, a KEV listing, the EPSS signal
+ * (crossing the percentile threshold) or the reviewed note. Titles, descriptions, references,
+ * dates, scores within a level and the KEV "checked" flag do not count, so trivial upstream edits
+ * never make an image post again.
+ */
 export function revisionOf(advisory: Omit<Advisory, 'revision'>): string {
   const material = {
     severity: advisory.severity.level,
     affected: advisory.affected,
     kev: advisory.kev.listed,
-    epss: advisory.epss === null ? null : advisory.epss.percentile >= 0.95,
+    // Below the threshold and unknown hash the same (null, as before scores were filled), so
+    // filling or refreshing a score never changes a revision; crossing the threshold does.
+    epss:
+      advisory.epss !== null && advisory.epss.percentile >= EPSS_SIGNAL_PERCENTILE ? true : null,
     note: advisory.note,
   };
   return `sha256:${createHash('sha256').update(stableJson(material)).digest('hex')}`;
@@ -94,6 +116,7 @@ export function buildAdvisory(
   ids: readonly string[],
   facts: ReadonlyMap<string, RecordFacts>,
   notes: ReadonlyMap<string, FeedNote | null>,
+  enrichment: Enrichment = noEnrichment,
 ): Advisory | undefined {
   const members = ids
     .map((id) => facts.get(id))
@@ -121,14 +144,23 @@ export function buildAdvisory(
     pick((m) => m.title) ?? (description === undefined ? id : firstSentence(description)),
     TITLE_MAX,
   );
-  const severity: Severity = [...cves, ...ghsas]
+  const cveIds = cveIdsOf(ids);
+  // Severity chain: a CNA score, else a GitHub score, else NVD's, else a GitHub rating without
+  // a score, else unknown.
+  const recorded = [...cves, ...ghsas]
     .map((m) => m.severity)
-    .find((s) => s !== undefined) ?? {
-    level: 'unknown',
-    score: null,
-    vector: null,
-    source: 'none',
-  };
+    .filter((s): s is Severity => s !== undefined);
+  const nvdId = recorded.some((s) => s.score !== null)
+    ? undefined
+    : cveIds.find((cve) => nvdSeverity(enrichment.nvd.get(cve)) !== undefined);
+  const severity: Severity = recorded.find((s) => s.score !== null) ??
+    (nvdId === undefined ? undefined : nvdSeverity(enrichment.nvd.get(nvdId))) ??
+    recorded[0] ?? {
+      level: 'unknown',
+      score: null,
+      vector: null,
+      source: 'none',
+    };
   const times = (get: (m: RecordFacts) => string | undefined) =>
     members
       .map(get)
@@ -146,9 +178,10 @@ export function buildAdvisory(
       references.push(ref);
     }
   }
-  const sources = members
-    .map((m) => m.source)
-    .sort((a, b) => (a.type === b.type ? compareIds(a.id, b.id) : a.type < b.type ? -1 : 1));
+  const sources = [
+    ...members.map((m) => m.source),
+    ...enrichmentSources(cveIds, enrichment, nvdId),
+  ].sort((a, b) => (a.type === b.type ? compareIds(a.id, b.id) : a.type < b.type ? -1 : 1));
   const [firstSource, ...restSources] = sources;
   if (firstSource === undefined) return undefined;
   const cwes = [...new Set(members.flatMap((m) => m.cwes))].sort(
@@ -163,8 +196,8 @@ export function buildAdvisory(
     published_at: published,
     modified_at: modified < published ? published : modified,
     severity,
-    kev: { listed: false, added_at: null },
-    epss: null,
+    kev: kevOf(cveIds, enrichment.kev),
+    epss: epssOf(cveIds, enrichment.epss),
     ...(cwes.length > 0 ? { cwes } : {}),
     affected: [firstAffected, ...restAffected],
     references,

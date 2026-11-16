@@ -66,6 +66,11 @@ export class Http {
     this.maxWaitMs = options.maxWaitMs ?? 60_000;
   }
 
+  /** Waits, with the injected sleep (tests pass one that returns at once). */
+  pause(ms: number): Promise<void> {
+    return this.sleep(ms);
+  }
+
   get authenticated(): boolean {
     return this.options.githubToken !== undefined && this.options.githubToken !== '';
   }
