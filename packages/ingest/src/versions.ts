@@ -333,3 +333,123 @@ export function branchOf(version: string): { major: number; minor: number } | un
   const match = /^(\d+)\.(\d+)/.exec(version);
   return match === null ? undefined : { major: Number(match[1]), minor: Number(match[2]) };
 }
+
+/** A stretch of versions: from lo (inclusive, `0` is the first version) to hi, or open above. */
+export interface Span {
+  lo: string;
+  hi?: string;
+  /** True when hi itself is inside the span. */
+  hiIncluded: boolean;
+}
+
+/** Orders two bounds, `0` before every version; undefined when either is not semver-like. */
+function compareBound(a: string, b: string): number | undefined {
+  if (a === '0' || b === '0') return a === b ? 0 : a === '0' ? -1 : 1;
+  return compareSemverLike(a, b);
+}
+
+/** The first release of the line after a version's major.minor (10.11.21 gives 10.12.0). */
+export function nextLine(version: string): string | undefined {
+  const branch = branchOf(version);
+  return branch === undefined ? undefined : `${branch.major}.${branch.minor + 1}.0`;
+}
+
+/** The span a range covers. */
+export function spanOf(range: VersionRange): Span {
+  const hi = range.fixed ?? range.last_affected;
+  return hi === undefined
+    ? { lo: range.introduced, hiIncluded: false }
+    : { lo: range.introduced, hi, hiIncluded: range.last_affected !== undefined };
+}
+
+/** -1, 0 or 1 for two upper ends, open above sorting last; undefined when they cannot be ordered. */
+function compareHigh(a: Span, b: Span): number | undefined {
+  if (a.hi === undefined || b.hi === undefined) {
+    return a.hi === b.hi ? 0 : a.hi === undefined ? 1 : -1;
+  }
+  const order = compareBound(a.hi, b.hi);
+  if (order !== 0) return order;
+  return a.hiIncluded === b.hiIncluded ? 0 : a.hiIncluded ? 1 : -1;
+}
+
+/** True when a version is below a span's upper end, or at it when that end is included. */
+function belowHigh(version: string, span: Span): boolean | undefined {
+  if (span.hi === undefined) return true;
+  const order = compareBound(version, span.hi);
+  if (order === undefined) return undefined;
+  return span.hiIncluded ? order <= 0 : order < 0;
+}
+
+/** True when two spans share a version; undefined when their bounds cannot be ordered. */
+export function spansOverlap(a: Span, b: Span): boolean | undefined {
+  const x = belowHigh(b.lo, a);
+  const y = belowHigh(a.lo, b);
+  return x === undefined || y === undefined ? undefined : x && y;
+}
+
+/**
+ * Removes unaffected spans from affected ranges, for records that list both and where an
+ * unaffected version lies inside an affected range (Mattermost: `0 <= 10.20.11` affected with
+ * 10.11.21 unaffected) or that only list what is unaffected (Jenkins, default status affected).
+ * The affected ranges are joined first, so overlapping ranges from 0 become one stretch, and
+ * every unaffected span cuts it. Undefined when any bound cannot be ordered, or when a cut ends
+ * on an included version (what follows it cannot be written as a range start): a guess there
+ * could read a vulnerable release as not affected.
+ */
+export function subtractSpans(
+  affected: readonly VersionRange[],
+  unaffected: readonly Span[],
+): VersionRange[] | undefined {
+  const spans = affected.map(spanOf);
+  if (spans.some((s) => compareBound(s.lo, s.lo) === undefined)) return undefined;
+  // Every start is semver-like (checked above), so any two of them can be ordered.
+  const byStart = [...spans].sort((a, b) => compareBound(a.lo, b.lo) ?? 0);
+  const joined: Span[] = [];
+  for (const span of byStart) {
+    const last = joined.at(-1);
+    const start = last?.hi === undefined ? -1 : compareBound(span.lo, last.hi);
+    if (start === undefined) return undefined;
+    if (last === undefined || start > 0) {
+      joined.push({ ...span });
+      continue;
+    }
+    const order = compareHigh(span, last);
+    if (order === undefined) return undefined;
+    if (order > 0) joined[joined.length - 1] = { ...span, lo: last.lo };
+  }
+  let pieces = joined;
+  for (const cut of unaffected) {
+    const next: Span[] = [];
+    for (const piece of pieces) {
+      const overlap = spansOverlap(piece, cut);
+      if (overlap === undefined) return undefined;
+      if (!overlap) {
+        next.push(piece);
+        continue;
+      }
+      if ((compareBound(piece.lo, cut.lo) ?? 0) < 0) {
+        next.push({ lo: piece.lo, hi: cut.lo, hiIncluded: false });
+      }
+      if (cut.hi === undefined) continue;
+      const rest = belowHigh(cut.hi, piece);
+      if (rest === undefined) return undefined;
+      const exactEnd =
+        piece.hi !== undefined && piece.hiIncluded && compareBound(cut.hi, piece.hi) === 0;
+      if (!rest || (cut.hiIncluded && exactEnd)) continue;
+      if (cut.hiIncluded) return undefined;
+      next.push({
+        lo: cut.hi,
+        ...(piece.hi === undefined ? {} : { hi: piece.hi }),
+        hiIncluded: piece.hiIncluded,
+      });
+    }
+    pieces = next;
+  }
+  return pieces.map((p) =>
+    p.hi === undefined
+      ? { introduced: p.lo }
+      : p.hiIncluded
+        ? { introduced: p.lo, last_affected: p.hi }
+        : { introduced: p.lo, fixed: p.hi },
+  );
+}
