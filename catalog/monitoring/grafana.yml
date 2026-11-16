@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: grafana
+name: Grafana
+category: monitoring
+homepage: https://grafana.com/oss/grafana/
+description: Dashboards and alerting for metrics, logs and traces (open source edition).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: grafana
+images:
+  - ref: docker.io/grafana/grafana
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-security-[0-9]+)?(?:-(?:ubuntu|distroless))?(?:-slim)?$"
+    note: Security releases are tagged 12.4.3-security-02; the pattern reads them as 12.4.3.
+sources:
+  - type: cve-cna
+    assigner: GRAFANA
+    products: [Grafana]
+    note: Grafana Labs is its own CNA and also files plugins, Loki, Mimir and others under their own product names.
+  - type: vendor-page
+    url: https://grafana.com/security/security-advisories/
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one entry per branch with lessThan as the fix (8.1.0 lessThan 11.6.14, 12.0.0 lessThan 12.1.10).
+  - Security releases carry build metadata (12.0.2+security-01). Build metadata does not order versions, so a security release compares equal to its base release.
+  - The global GHSA entries for github.com/grafana/grafana use Go pseudo-versions (1.9.2-0.2026...) for some advisories, so they are not a source.

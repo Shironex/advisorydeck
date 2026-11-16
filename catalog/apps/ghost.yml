@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: ghost
+name: Ghost
+category: apps
+homepage: https://ghost.org
+description: Publishing platform for blogs and newsletters.
+version_scheme: semver
+branches:
+  source: none
+images:
+  - ref: docker.io/library/ghost
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2})(?:-(?:alpine|bookworm|bullseye)[0-9.]*)?$"
+    note: The next tags are previews and carry no release version.
+sources:
+  - type: ghsa-repo
+    repo: TryGhost/Ghost
+  - type: ghsa-package
+    ecosystem: npm
+    package: ghost
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: TryGhost
+    products: [Ghost]
+match:
+  strategy: package-ranges
+curated: false
+data_notes:
+  - Advisories name the npm package ghost, whose versions are the release versions. Entries for @tryghost/activitypub and @tryghost/portal are other products and are not read.
+  - Some ranges miss the comma between bounds (>= 6.62.0 <= 6.71.0) or write hyphen ranges without spaces (5.43.0-5.120.4); ingest reads both. A few write the operator after the version (v3.23.0>=, <v6.23.0), which cannot be read (published as unknown).
+  - One advisory writes <= 6.50.0 with 6.50.0 as the patch; ingest keeps the stricter reading, so 6.50.0 is reported as affected.
+  - Not listed on endoflife.date.

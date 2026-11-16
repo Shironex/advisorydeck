@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: prometheus
+name: Prometheus
+category: monitoring
+homepage: https://prometheus.io
+description: Metrics collection and time series database.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: prometheus
+images:
+  - ref: docker.io/prom/prometheus
+    tag_pattern: "^v(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc\\.[0-9]+)?)(?:-(?:distroless|busybox))?$"
+  - ref: quay.io/prometheus/prometheus
+    tag_pattern: "^v(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc\\.[0-9]+)?)(?:-(?:distroless|busybox))?$"
+sources:
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: prometheus
+    products: [prometheus]
+    note: Listed first because the CVE records carry bounded per-branch ranges where the repository advisories write prose (3.5.3 and 3.11.3) or list only the versions the reporter tested (3.10.0, 3.11.0, 3.11.1).
+  - type: ghsa-repo
+    repo: prometheus/prometheus
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories name prometheus with an empty ecosystem and often write ranges and patched versions as prose (>= 2.48.0 and < 3.5.3 ; >= 3.6.0 and <3.11.3, patched 3.5.3 and 3.11.3), which cannot be read; the GitHub CVE record gives the same ranges in a readable form.
+  - The Go module github.com/prometheus/prometheus uses v0.3xx module versions, not release versions, so it is not a source.
+  - Some CVE records add a Go pseudo-version entry (< 0.311.2-0.2026...) next to the release ranges; it only covers versions below 1 and never matches a release.

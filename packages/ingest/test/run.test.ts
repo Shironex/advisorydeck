@@ -203,11 +203,31 @@ describe('ingest run (recorded fixtures, no network)', () => {
     const manifest = readJson<Manifest>(join(api, 'manifest.json'));
     expect(validateAgainst('manifest', manifest)).toEqual([]);
     expect(Object.keys(manifest.products)).toEqual([
+      'apache-httpd',
+      'authelia',
+      'caddy',
+      'containerd',
       'coolify',
       'docker-engine',
+      'dokploy',
+      'elasticsearch',
+      'ghost',
+      'gitea',
+      'gitlab',
+      'grafana',
+      'haproxy',
+      'immich',
+      'jellyfin',
+      'mongodb',
+      'open-webui',
       'postgresql',
+      'prometheus',
+      'rabbitmq',
       'redis',
       'traefik',
+      'uptime-kuma',
+      'vaultwarden',
+      'zitadel',
     ]);
     for (const [slug, entry] of Object.entries(manifest.products)) {
       const bytes = readFileSync(join(api, 'products', `${slug}.json`));

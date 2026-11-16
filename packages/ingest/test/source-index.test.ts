@@ -14,9 +14,13 @@ describe('source index', () => {
     expect(index.ghsaRepos.get('moby/moby')).toBe('docker-engine');
     expect(index.ghsaPackages.get('go:github.com/traefik/traefik/v3')).toBe('traefik');
     expect(index.cna.get('PostgreSQL')).toEqual([{ slug: 'postgresql', products: ['PostgreSQL'] }]);
-    expect(index.cna.get('GitHub_M')).toEqual([
-      { slug: 'redis', products: ['redis'], vendor: 'redis' },
-    ]);
+    const github = index.cna.get('GitHub_M') ?? [];
+    expect(github).toContainEqual({ slug: 'redis', products: ['redis'], vendor: 'redis' });
+    expect(github).toContainEqual({ slug: 'caddy', products: ['caddy'], vendor: 'caddyserver' });
+    // GitHub files for many vendors: every GitHub_M source names its vendor.
+    expect(github.every((claim) => claim.vendor !== undefined)).toBe(true);
+    expect(index.ghsaPackages.get('go:code.gitea.io/gitea')).toBe('gitea');
+    expect(index.ghsaRepos.has('go-gitea/gitea')).toBe(false);
   });
 
   it('reports two products claiming the same repository', () => {

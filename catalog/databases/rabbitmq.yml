@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: rabbitmq
+name: RabbitMQ
+category: databases
+homepage: https://www.rabbitmq.com
+description: Message broker (AMQP, MQTT, STOMP).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: rabbitmq
+images:
+  - ref: docker.io/library/rabbitmq
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-(?:beta|rc)\\.[0-9]+)?)(?:-management)?(?:-alpine)?$"
+    note: The management tags carry the same version as the plain ones.
+sources:
+  - type: ghsa-repo
+    repo: rabbitmq/rabbitmq-server
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: rabbitmq
+    products: [rabbitmq-server]
+    note: GitHub assigns the CVEs from the repository advisories.
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Repository advisories name the package rabbitmq-server under the ecosystem rabbitmq, other or empty, one bounded entry per branch (>= 4.3.0, < 4.3.7).
+  - Some advisories also list Erlang client libraries (erlang:amqp10_client, erlang:amqp10_common); they version the libraries, so ingest reads only the rabbitmq-server entries.
+  - About a fifth of the advisories have no CVE id; the GHSA id is the cluster id then.

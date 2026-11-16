@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: gitea
+name: Gitea
+category: devtools
+homepage: https://about.gitea.com
+description: Self-hosted Git service with issues, pull requests, packages and CI.
+version_scheme: semver
+branches:
+  source: none
+images:
+  - ref: docker.io/gitea/gitea
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)(?:-rootless)?$"
+    note: Nightly tags (28-nightly, main-nightly) carry no release version.
+  - ref: docker.gitea.com/gitea
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)(?:-rootless)?$"
+    note: Gitea's own registry, the same images as Docker Hub.
+sources:
+  - type: cve-cna
+    assigner: Gitea
+    products: [Gitea, Gitea Open Source Git Server]
+    note: Gitea is its own CNA; Gitea Runner is filed under its own product name and is not this product.
+  - type: ghsa-package
+    ecosystem: go
+    package: code.gitea.io/gitea
+  - type: ghsa-package
+    ecosystem: go
+    package: gitea.dev
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Versions jumped from 1.27.3 (August 2026) to 28.0.0 (September 2026); both lines compare correctly as numbers.
+  - The Go modules are code.gitea.io/gitea (1.x) and gitea.dev (28.x and later), with release versions.
+  - The repository go-gitea/gitea also publishes Gitea Runner advisories (gitea.com/gitea/runner, versions 3.x to 5.x), so it is not a source for this product; the reviewed global advisories of the two Gitea modules are.
+  - Many Gitea CNA records give one range from 0 (0 lessThan 28.3.0).
