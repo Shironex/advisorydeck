@@ -1,0 +1,587 @@
+---
+import Base from '../layouts/Base.astro';
+import { CATEGORY_LABELS, categoriesInUse, loadSiteData, productsIn } from '../lib/feed.ts';
+import { CHANNEL_LABELS, CHANNEL_TYPES, DEFAULT_ENV } from '../lib/generator.ts';
+import { feedBaseUrl, REPO_URL } from '../lib/site.ts';
+
+const data = loadSiteData();
+const categories = categoriesInUse(data);
+
+/** What the browser script needs: products with their branches, and the feed URL. */
+const payload = {
+  feedUrl: feedBaseUrl(),
+  products: data.products.map((p) => ({
+    slug: p.slug,
+    name: p.name,
+    branches: p.branches.map((b) => ({ name: b.name, eol: b.eol, latest: b.latest })),
+    image: p.images[0]?.ref.replace(/^docker\.io\/(library\/)?/, '') ?? null,
+  })),
+};
+
+const severities = [
+  { value: 'critical', label: 'Critical only' },
+  { value: 'high', label: 'High and critical', hint: 'recommended' },
+  { value: 'medium', label: 'Medium and above' },
+  { value: 'low', label: 'Everything with a score' },
+];
+const modes = [
+  {
+    value: 'digest',
+    label: 'Daily digest',
+    hint: 'One message a day. Exploited (KEV) advisories and notes that say a default setup is exposed still post at once.',
+  },
+  { value: 'instant', label: 'Instant', hint: 'Every match is posted when it appears.' },
+  {
+    value: 'both',
+    label: 'Both',
+    hint: 'Every match is posted at once and listed again in the daily digest.',
+  },
+];
+---
+
+<Base
+  title="Notifier setup"
+  description="Generate advisorydeck.yml, compose.yml and a .env template for the Advisorydeck notifier, entirely in your browser."
+  section="generator"
+>
+  <div class="prose">
+    <h1>Set up the notifier</h1>
+    <p>
+      Pick what you run and where to post. This page writes the three files the notifier image
+      needs. It runs entirely in your browser: nothing you pick is sent anywhere, there are no
+      analytics, and it never asks for a webhook URL. You paste that into your own <code>.env</code>
+      .
+    </p>
+  </div>
+
+  <noscript>
+    <p class="panel">
+      The generator needs JavaScript. Without it, start from the example
+      <a href={`${REPO_URL}/blob/main/docs/examples/compose.yml`}>compose.yml</a> and
+      <a href={`${REPO_URL}/blob/main/fixtures/image/advisorydeck.yml`}>advisorydeck.yml</a>, and
+      read
+      <a href={`${REPO_URL}/blob/main/docs/image.md`}>how the image works</a>.
+    </p>
+  </noscript>
+
+  <script
+    is:inline
+    type="application/json"
+    id="generator-data"
+    set:html={JSON.stringify(payload).replace(/</g, '\\u003c')}
+  />
+  <div class="gen" data-generator hidden>
+    <p class="jump small">
+      <a href="#output-heading">Skip to your files</a>
+    </p>
+    <form class="gen-form" aria-label="Notifier settings" novalidate>
+      <fieldset class="step">
+        <legend>
+          <span class="step-n" aria-hidden="true">
+            1
+          </span>{' '}
+          What you run
+        </legend>
+        <details class="explain" open>
+          <summary>Branch or exact version?</summary>
+          <p>
+            <strong>Exact version</strong> (17.4, 3.7.19): the notifier can say precisely whether
+            you are affected. Use it when you pin a full version tag.
+          </p>
+          <p>
+            <strong>Floating tag of a branch</strong> (<code>postgres:17</code>,{' '}
+            <code>traefik:v3.7</code>): the version moves every time you pull. The notifier then
+            says "branch 17 is fixed from 17.12: pull again and recreate the container", which is
+            true for anyone who pulled before the fix. Pick this only if you really pull the
+            floating tag.
+          </p>
+        </details>
+        {categories.map((category) => (
+          <div class="cat-group" role="group" aria-labelledby={`g-${category}`}>
+            <p class="eyebrow" id={`g-${category}`}>
+              {CATEGORY_LABELS[category].name}
+            </p>
+            <ul class="product-picks">
+              {productsIn(data, category).map((p) => {
+                const supported = p.branches.filter((b) => !b.eol);
+                const eol = p.branches.filter((b) => b.eol);
+                return (
+                  <li class="pick" data-slug={p.slug}>
+                    <label class="check">
+                      <input type="checkbox" name="product" value={p.slug} data-product-toggle />
+                      <span>{p.name}</span>
+                    </label>
+                    <div class="version" data-version-panel hidden>
+                      <div class="kind" role="radiogroup" aria-label={`How you run ${p.name}`}>
+                        {p.branches.length > 0 && (
+                          <label class="radio">
+                            <input
+                              type="radio"
+                              name={`kind-${p.slug}`}
+                              value="floating"
+                              data-kind
+                            />
+                            <span>I pull the floating tag of a branch</span>
+                          </label>
+                        )}
+                        <label class="radio">
+                          <input
+                            type="radio"
+                            name={`kind-${p.slug}`}
+                            value="exact"
+                            data-kind
+                            checked
+                          />
+                          <span>I pinned an exact version</span>
+                        </label>
+                      </div>
+                      {p.branches.length > 0 && (
+                        <label class="field" data-branch-field hidden>
+                          <span class="field-label">Branch</span>
+                          <select data-branch>
+                            <optgroup label="Supported">
+                              {supported.map((b) => (
+                                <option value={b.name}>
+                                  {b.name}
+                                  {b.latest ? ` (latest ${b.latest})` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                            {eol.length > 0 && (
+                              <optgroup label="End of life: no more fixes">
+                                {eol.map((b) => (
+                                  <option value={b.name}>{b.name} (end of life)</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                        </label>
+                      )}
+                      <label class="field" data-exact-field>
+                        <span class="field-label">Exact version</span>
+                        <input
+                          type="text"
+                          data-exact
+                          inputmode="text"
+                          autocomplete="off"
+                          spellcheck="false"
+                          placeholder={
+                            supported[0]?.latest ??
+                            (p.slug === 'coolify' ? '4.0.0-beta.474' : '1.2.3')
+                          }
+                          aria-describedby={`hint-${p.slug}`}
+                        />
+                      </label>
+                      {p.branches.length > 0 && (
+                        <p class="hint small muted" data-hint-floating hidden>
+                          {p.images[0]
+                            ? `A floating tag names only the branch, for example ${p.images[0].ref.replace(/^docker\.io\/(library\/)?/, '')}:${supported[0]?.name ?? p.branches[0]?.name ?? ''}.`
+                            : 'Pick the release branch you follow.'}
+                        </p>
+                      )}
+                      <p class="hint small muted" id={`hint-${p.slug}`} data-hint-exact>
+                        {p.images[0]?.note ??
+                          (p.images[0]
+                            ? `The version is the tag of ${p.images[0].ref.replace(/^docker\.io\/(library\/)?/, '')} you run.`
+                            : 'The version you run.')}
+                      </p>
+                      <p class="warn small" data-eol-warning hidden role="note">
+                        This branch is end of life and gets no security fixes. The notifier will
+                        remind you.
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </fieldset>
+
+      <fieldset class="step">
+        <legend>
+          <span class="step-n" aria-hidden="true">
+            2
+          </span>{' '}
+          What to send
+        </legend>
+        <div class="field-group" role="radiogroup" aria-labelledby="sev-label">
+          <p class="field-label" id="sev-label">
+            Minimum severity
+          </p>
+          {severities.map((s) => (
+            <label class="radio">
+              <input type="radio" name="severity" value={s.value} checked={s.value === 'high'} />
+              <span>
+                {s.label}
+                {s.hint && <span class="muted small"> ({s.hint})</span>}
+              </span>
+            </label>
+          ))}
+          <p class="hint small muted">
+            Advisories without a score never pass this on their own. Exploited (KEV) advisories
+            always do.
+          </p>
+        </div>
+        <div class="field-group" role="radiogroup" aria-labelledby="mode-label">
+          <p class="field-label" id="mode-label">
+            When
+          </p>
+          {modes.map((m) => (
+            <label class="radio">
+              <input type="radio" name="mode" value={m.value} checked={m.value === 'digest'} />
+              <span>
+                {m.label}
+                <span class="block muted small">{m.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div class="row" data-digest-fields>
+          <label class="field">
+            <span class="field-label">Digest time</span>
+            <input type="time" name="digest-time" value="08:00" step="60" required />
+          </label>
+          <label class="field grow">
+            <span class="field-label">Time zone</span>
+            <select name="timezone">
+              <option value="UTC">UTC</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="step">
+        <legend>
+          <span class="step-n" aria-hidden="true">
+            3
+          </span>{' '}
+          Where to post
+        </legend>
+        <p class="hint small muted">
+          Each channel reads its webhook URL from an environment variable. Only the variable's name
+          goes into the files; you paste the URL into <code>.env</code> on your server.
+        </p>
+        <ul class="channels" data-channels></ul>
+        <button type="button" class="button" data-add-channel>
+          Add a channel
+        </button>
+        <template data-channel-template>
+          <li class="channel">
+            <label class="field">
+              <span class="field-label">Type</span>
+              <select data-channel-type>
+                {CHANNEL_TYPES.map((t) => (
+                  <option value={t}>{CHANNEL_LABELS[t]}</option>
+                ))}
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Variable name</span>
+              <input
+                type="text"
+                data-channel-env
+                value={DEFAULT_ENV.discord}
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <label class="field">
+              <span class="field-label">
+                Label <span class="muted">(optional)</span>
+              </span>
+              <input
+                type="text"
+                data-channel-name
+                maxlength="64"
+                autocomplete="off"
+                placeholder="ops"
+              />
+            </label>
+            <button type="button" class="button remove" data-remove-channel>
+              Remove
+            </button>
+          </li>
+        </template>
+      </fieldset>
+    </form>
+
+    <section class="gen-output" aria-labelledby="output-heading">
+      <h2 id="output-heading">Your files</h2>
+      <div class="status" role="status" aria-live="polite" data-status></div>
+      {[
+        { key: 'config', file: 'advisorydeck.yml', note: 'Mounted read-only into the container.' },
+        {
+          key: 'compose',
+          file: 'compose.yml',
+          note: 'Read-only root filesystem, no capabilities, no Docker socket.',
+        },
+        {
+          key: 'env',
+          file: '.env',
+          note: 'Paste your webhook URLs here. Never commit or share it.',
+        },
+      ].map((out) => (
+        <div class="out" data-output={out.key}>
+          <div class="out-head">
+            <h3 class="mono">{out.file}</h3>
+            <div class="out-actions">
+              <button type="button" class="button" data-copy={out.key}>
+                Copy<span class="visually-hidden"> {out.file}</span>
+              </button>
+              <button type="button" class="button" data-download={out.key} data-filename={out.file}>
+                Download<span class="visually-hidden"> {out.file}</span>
+              </button>
+            </div>
+          </div>
+          <p class="small muted">{out.note}</p>
+          <pre
+            tabindex="0"
+            aria-label={`${out.file} contents`}
+          ><code data-code={out.key}></code></pre>
+        </div>
+      ))}
+      <div class="next">
+        <h3>Then, on your server</h3>
+        <pre
+          tabindex="0"
+          aria-label="Commands to run"
+        ><code>docker build -t advisorydeck:local https://github.com/Shironex/advisorydeck.git#main:image
+docker compose run --rm advisorydeck once -dry-run
+docker compose up -d</code></pre>
+        <p class="small muted">
+          The dry run prints what would be posted and sends nothing. No image is published yet, so
+          the first command builds it from the repository.
+        </p>
+        <p class="small share">
+          <button type="button" class="button" data-copy-link>
+            Copy a link to this setup
+          </button>
+          <span class="muted" data-link-note>
+            The link keeps your choices after the # sign, which browsers never send to a server.
+          </span>
+        </p>
+      </div>
+    </section>
+  </div>
+</Base>
+
+<script>
+  import { startGenerator } from '../scripts/generator.ts';
+  startGenerator();
+</script>
+
+<style>
+  .gen {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+    margin-top: var(--space-5);
+  }
+  @media (min-width: 66rem) {
+    .gen {
+      grid-template-columns: minmax(0, 26rem) minmax(0, 1fr);
+      align-items: start;
+    }
+    .gen-output {
+      position: sticky;
+      top: var(--space-4);
+    }
+  }
+  .jump {
+    margin: 0;
+  }
+  @media (min-width: 66rem) {
+    .jump {
+      display: none;
+    }
+  }
+  .step {
+    border: var(--border-width) solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    padding: var(--space-4);
+    margin: 0 0 var(--space-4);
+    min-width: 0;
+  }
+  legend {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-md);
+    padding: 0 var(--space-2);
+  }
+  .step-n {
+    display: inline-grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    margin-right: var(--space-1);
+    border-radius: 50%;
+    background: var(--color-text);
+    color: var(--color-bg);
+    font-size: var(--text-xs);
+  }
+  .explain {
+    font-size: var(--text-sm);
+    background: var(--color-surface-muted);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .explain summary {
+    cursor: pointer;
+    font-weight: var(--weight-medium);
+  }
+  .explain p {
+    margin: var(--space-2) 0 0;
+  }
+  .cat-group {
+    margin-bottom: var(--space-3);
+  }
+  .product-picks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .pick {
+    border-bottom: var(--border-width) solid var(--color-border);
+    padding-block: var(--space-2);
+  }
+  .check,
+  .radio {
+    display: flex;
+    gap: var(--space-2);
+    align-items: flex-start;
+    padding-block: var(--space-1);
+    cursor: pointer;
+  }
+  .check input,
+  .radio input {
+    margin-top: 0.3em;
+    accent-color: var(--color-link);
+  }
+  .check span {
+    font-weight: var(--weight-medium);
+  }
+  .version {
+    padding: var(--space-2) 0 var(--space-2) var(--space-5);
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-block: var(--space-2);
+    min-width: 0;
+  }
+  .field-label {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    margin: 0;
+  }
+  .field input[type='text'],
+  .field input[type='time'],
+  .field select {
+    min-height: 2.25rem;
+    padding: 0 var(--space-2);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    width: 100%;
+    max-width: 100%;
+  }
+  .field input[aria-invalid='true'] {
+    border-color: var(--sev-critical-bar);
+  }
+  .field-group {
+    margin-bottom: var(--space-4);
+  }
+  .block {
+    display: block;
+  }
+  .hint {
+    margin: var(--space-1) 0 var(--space-2);
+  }
+  .warn {
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--state-warn-bg);
+    color: var(--state-warn-fg);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+  .row .grow {
+    flex: 1 1 12rem;
+  }
+  .channels {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+  }
+  .channels :global(.channel) {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0 var(--space-3);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+  .channels :global(.remove) {
+    justify-self: start;
+  }
+  .status {
+    margin-bottom: var(--space-4);
+  }
+  .status :global(.ok),
+  .status :global(.bad) {
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    margin: 0;
+  }
+  .status :global(.ok) {
+    background: var(--state-ok-bg);
+    color: var(--state-ok-fg);
+  }
+  .status :global(.bad) {
+    background: var(--state-warn-bg);
+    color: var(--state-warn-fg);
+  }
+  .status :global(ul) {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-5);
+  }
+  .out {
+    margin-bottom: var(--space-5);
+  }
+  .out-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .out-head h3 {
+    margin: 0;
+    font-size: var(--text-base);
+  }
+  .out-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .out p {
+    margin: var(--space-1) 0 var(--space-2);
+  }
+  .share {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .out pre,
+  .next pre {
+    font-size: var(--text-sm);
+    max-height: 32rem;
+  }
+</style>
