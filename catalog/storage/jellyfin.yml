@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: jellyfin
+name: Jellyfin
+category: storage
+homepage: https://jellyfin.org
+description: Self-hosted media server.
+version_scheme: semver
+branches:
+  source: none
+images:
+  - ref: docker.io/jellyfin/jellyfin
+    tag_pattern: "^(?<version>[0-9]+\\.[0-9]+(?:\\.[0-9]{1,3})?)(?:\\.[0-9]{8}(?:-[0-9]{6})?)?$"
+    note: Release tags carry a build date after the version (10.11.11.20260606-153911, 12.4.20261026-211555); unstable and date-only tags (2026110913) carry no release version.
+sources:
+  - type: ghsa-repo
+    repo: jellyfin/jellyfin
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: jellyfin
+    products: [jellyfin]
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Releases were three-part up to 10.11.x and are two-part from 12.0 (September 2026). The matcher reads a two-part version such as 12.4 as its branch, which gives the same answer while releases have no patch number.
+  - Repository advisories name the package jellyfin or leave it empty. One CVE names a workflow file (code-quality.yml) with a commit range and does not apply.
+  - Not listed on endoflife.date.

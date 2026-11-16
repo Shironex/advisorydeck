@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: mongodb
+name: MongoDB
+category: databases
+homepage: https://www.mongodb.com
+description: Document database (MongoDB Community Server).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: mongodb
+images:
+  - ref: docker.io/library/mongo
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)(?:-(?:noble|jammy|focal|resolute|windowsservercore|nanoserver)(?:-ltsc[0-9]+)?)?$"
+    note: Codename tags (noble, resolute) and windowsservercore tags without a number carry no version.
+sources:
+  - type: cve-cna
+    assigner: mongodb
+    products: [MongoDB Server]
+    note: MongoDB is its own CNA. The vendor field is written four ways (MongoDB, MongoDB Inc, MongoDB Inc., MongoDB, Inc.), so no vendor filter; drivers and other MongoDB products use other product names.
+  - type: vendor-page
+    url: https://www.mongodb.com/resources/products/alerts
+    note: Security alerts page; cross-check only.
+match:
+  strategy: vendor-ranges
+curated: false
+tags: [coolify-database]
+data_notes:
+  - Records list one affected entry per supported branch with lessThan as the fix (9.0.0 lessThan 9.0.7, 8.0.0 lessThan 8.0.37); some write the branch as the introduced version (8.2 lessThan 8.2.6).
+  - versionType is semver or custom; both are plain dotted numbers.

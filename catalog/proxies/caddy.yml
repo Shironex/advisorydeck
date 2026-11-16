@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: caddy
+name: Caddy
+category: proxies
+homepage: https://caddyserver.com
+description: Web server and reverse proxy with automatic HTTPS.
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: caddy
+images:
+  - ref: docker.io/library/caddy
+    tag_pattern: "^(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-(?:beta|rc)\\.[0-9]+)?)(?:-(?:alpine|windowsservercore|nanoserver)(?:-ltsc[0-9]+)?)?$"
+    note: The builder tags build custom binaries and are not a runtime image, so the pattern does not read them.
+sources:
+  - type: ghsa-repo
+    repo: caddyserver/caddy
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/caddyserver/caddy/v2
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/caddyserver/caddy/v2/modules/caddyhttp
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy
+  - type: ghsa-package
+    ecosystem: go
+    package: github.com/caddyserver/caddy/v2/modules/caddyhttp/fileserver
+  - type: cve-cna
+    assigner: GitHub_M
+    vendor: caddyserver
+    products: [caddy]
+match:
+  strategy: package-ranges
+curated: false
+tags: [coolify-proxy]
+data_notes:
+  - Advisories name the Go module github.com/caddyserver/caddy/v2 or one of its submodules (modules/caddyhttp, reverseproxy, fileserver); the submodules release with Caddy, so their versions are Caddy versions. The v1 module github.com/caddyserver/caddy is a different line and is not claimed.
+  - Versions are written with and without a leading v, and one advisory writes the patched version as v.2.11.5, which cannot be read (published as unknown).
