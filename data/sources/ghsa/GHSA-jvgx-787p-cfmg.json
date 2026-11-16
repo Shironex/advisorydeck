@@ -1,0 +1,79 @@
+{
+  "global": null,
+  "id": "GHSA-jvgx-787p-cfmg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-352",
+      "CWE-625"
+    ],
+    "description": "### Summary\r\nCoder's CSRF protection exempts a short list of routes used by agents, workspace proxies and other non-browser clients. The list was matched as unanchored regular expressions, so any API path that only contained one of the patterns, such as `derp` or `api/v2/workspaceagents`, skipped both the CSRF token check and the same-origin check. A page on the same site as the Coder deployment could make a signed-in user's browser send some state-changing requests to Coder without their knowledge.\r\n\r\n### Details\r\nThe exemptions in `coderd/httpmw/csrf.go` were written like shell wildcards (for example `derp/*` and `api/v2/workspaceagents/*`) but are matched as unanchored regular expressions. As a result:\r\n\r\n- `api/v2/workspaceagents/*` exempted every route under `/api/v2/workspaceagents/`, including routes users call from the dashboard with their session cookie, such as recreating or deleting a dev container.\r\n- `derp/*` exempted any path containing the text `derp`, such as user or organization member routes for a username that contains `derp`.\r\n\r\nAn exempt request skips both the CSRF token check and the same-origin check.\r\n\r\n### Impact\r\nAn attacker who can get a signed-in user to load a page that is same-site with the Coder deployment, for example a workspace app or shared port on the wildcard access URL, could forge simple `POST` requests to the affected routes as that user. Examples include recreating the user's dev container, which removes data that is not on a mounted volume, or, if the victim is an Owner or User Admin, adding a user whose name contains `derp` to an organization.\r\n\r\nRequests that need a CORS preflight, such as `PUT` and `DELETE`, are blocked in every configuration, because Coder never allows credentialed cross-origin requests with those methods. User roles cannot be changed this way. Deployments started with `--samesite-auth-cookie none` can be attacked from any website, not only same-site pages.\r\n\r\n### Patches\r\nEach exemption is now anchored so it matches only the route it was written for. Routes that users call with a session cookie are no longer exempt.\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.39 (Mainline) | [v2.39.0](https://github.com/coder/coder/releases/tag/v2.39.0) |\r\n| 2.38 (Stable) | [v2.38.6](https://github.com/coder/coder/releases/tag/v2.38.6) |\r\n| 2.37 (Security Support) | [v2.37.10](https://github.com/coder/coder/releases/tag/v2.37.10) |\r\n| 2.34 (ESR) | [v2.34.18](https://github.com/coder/coder/releases/tag/v2.34.18) |\r\n| 2.29 (ESR) | [v2.29.26](https://github.com/coder/coder/releases/tag/v2.29.26) |\r\n\r\nRelease lines 2.30 to 2.33, 2.35 and 2.36 are end-of-life and will not receive a patch. Users on these lines should upgrade to a patched release.\r\n\r\n### Workarounds\r\nKeep the default `--samesite-auth-cookie lax`, and avoid opening untrusted workspace apps or shared ports while signed in to Coder.\r\n\r\n### References\r\n- Fix: https://github.com/coder/coder/pull/31125\r\n\r\n### Credits\r\nWe'd like to thank a customer security team for reporting this issue, and Anthropic's Security Team (ANT-2026-XABYHG6B) and Adam Korczynski of [Ada Logics](https://adalogics.com/) for reporting and validating it.",
+    "ghsa_id": "GHSA-jvgx-787p-cfmg",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-jvgx-787p-cfmg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jvgx-787p-cfmg"
+      }
+    ],
+    "published_at": "2026-11-04T14:02:08Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "CSRF protection skipped for API paths matching unanchored exemption patterns",
+    "updated_at": "2026-11-04T14:02:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.6",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.6"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.10",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.10"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.18",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.18"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.26",
+        "vulnerable_version_range": "< 2.29.26"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.37.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

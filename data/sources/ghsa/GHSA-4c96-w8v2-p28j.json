@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-4c96-w8v2-p28j",
+  "repo": {
+    "cve_id": "CVE-2026-32260",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\n  A command injection vulnerability exists in Deno's `node:child_process` polyfill (`shell: true` mode) that bypasses the fix\r\n  for CVE-2026-27190 (GHSA-hmh4-3xvx-q5hr). An attacker who controls arguments passed to `spawnSync` or `spawn` with `shell:\r\n  true` can execute arbitrary OS commands, bypassing Deno's permission system.\r\n\r\n  **Affected versions:** Deno v2.7.0, v2.7.1\r\n\r\n  ## Details\r\n\r\n  The two-stage argument sanitization in `transformDenoShellCommand` (`ext/node/polyfills/internal/child_process.ts`) has a\r\n  priority bug: when an argument contains a `$VAR` pattern, it is wrapped in double quotes (L1290) instead of single quotes\r\n  (L1293). Double quotes in POSIX sh do not suppress backtick command substitution, allowing injected commands to execute.\r\n\r\n  Attack chain:\r\n  1. `escapeShellArg` wraps the argument in single quotes (safe)\r\n  2. `op_node_parse_shell_args` strips the single-quote delimiters during tokenization (raw argument exposed)\r\n  3. Re-quoting detects `$VAR` pattern → applies double quotes\r\n  4. Backtick payload inside double quotes executes via `/bin/sh`\r\n\r\n  ## Impact\r\n\r\n  **OS Command Injection (CWE-78)**. Any application using `node:child_process` `spawn`/`spawnSync` with `shell: true` and\r\n  user-controlled arguments is vulnerable. Injected commands execute at the OS process level, outside Deno's permission\r\n  sandbox. Only `--allow-run` is required.\r\n\r\n  ## Mitigation\r\n\r\n  Avoid passing user-controlled input as arguments to `spawn`/`spawnSync` with `shell: true`. Use `shell: false` (the default)\r\n  instead, or validate/sanitize inputs before passing them.",
+    "ghsa_id": "GHSA-4c96-w8v2-p28j",
+    "html_url": "https://github.com/denoland/deno/security/advisories/GHSA-4c96-w8v2-p28j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4c96-w8v2-p28j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32260"
+      }
+    ],
+    "published_at": "2026-03-12T15:49:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Command Injection via incomplete shell metacharacter blocklist in node:child_process (bypass of CVE-2026-27190 fix)",
+    "updated_at": "2026-03-12T15:49:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "denoland/deno"
+        },
+        "patched_versions": "2.7.2",
+        "vulnerable_version_range": " >= v2.7.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "denoland/deno"
+}

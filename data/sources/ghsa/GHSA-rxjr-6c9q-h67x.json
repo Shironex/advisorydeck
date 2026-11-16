@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rxjr-6c9q-h67x",
+  "repo": {
+    "cve_id": "CVE-2026-63188",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Summary\r\n\r\n`@logto/tunnel` serves custom sign-in experience files from the `--experience-path` directory. When the tunnel service is reachable, a requester can use `../` path segments in a static asset request to read files outside that directory that the CLI process can read.\r\n\r\n### Details\r\n\r\nThe tunnel command accepts `--experience-path` as the local folder path for custom sign-in experience assets. `packages/tunnel/src/commands/tunnel/index.ts` enables `createStaticFileProxy(path)` when that option is set and sends non-Logto, non-`--experience-uri` requests to that static proxy. The server is started with `server.listen(port)`.\r\n\r\n`packages/tunnel/src/commands/tunnel/utils.ts` builds the filesystem path as `path.join(staticPath, fallBackToIndex ? index : request.url)`. For file asset paths, `request.url` is used directly. A request URL such as `/../secret.txt` resolves outside `staticPath` and is then opened with `fs.open(requestPath, 'r')`. There is no URL normalization and no containment check that the resolved path remains under the configured static directory before the file is read and returned.\r\n\r\nThe proof boundary is the packaged CLI end-to-end run. The filesystem read primitive was validated with equivalent Node HTTP handling for the affected code path, including that Node preserves `/../secret.txt` in `request.url` and that bare `server.listen(port)` binds to all interfaces on this platform.\r\n\r\n### PoC\r\n\r\n1. Create a custom UI directory at `/tmp/logto-ui/static` with `/tmp/logto-ui/static/index.html`.\r\n2. Create a sibling file outside the static root, for example `/tmp/logto-ui/secret.txt`.\r\n3. Start the tunnel with `logto-tunnel --endpoint https://<tenant-id>.logto.app --port 9000 --experience-path /tmp/logto-ui/static`.\r\n4. Request `http://<host>:9000/../secret.txt`.\r\n5. The response body contains the contents of `/tmp/logto-ui/secret.txt`.\r\n\r\n### Impact\r\n\r\nThe observed result is arbitrary file read outside the configured custom UI static directory. If the tunnel port is reachable from another host, an unauthenticated network peer can read local files readable by the `logto-tunnel` process, including development secrets or credentials stored near the custom UI project.\r\n\r\n",
+    "ghsa_id": "GHSA-rxjr-6c9q-h67x",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-rxjr-6c9q-h67x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rxjr-6c9q-h67x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-63188"
+      }
+    ],
+    "published_at": "2026-07-02T07:39:52Z",
+    "references": [],
+    "severity": "high",
+    "summary": "logto-tunnel serves files outside --experience-path via path traversal",
+    "updated_at": "2026-07-16T14:05:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "@logto/tunnel"
+        },
+        "patched_versions": "0.3.9",
+        "vulnerable_version_range": " <=0.3.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

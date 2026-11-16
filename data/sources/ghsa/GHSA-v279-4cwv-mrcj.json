@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-v279-4cwv-mrcj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639",
+      "CWE-862",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe v2 data write path accepted any attachment object carrying a path without binding that path to the caller, the base, the table or the column, so an attacker could store another base's attachment path in their own row and have NocoDB issue a signed download URL for it.\n\n### Details\n\nFor non-v3 attachment fields, `prepareNocoData` in `BaseModelSqlv2.ts` validated only that each attachment object carried a url or a path. The surrounding checks covered JSON shape, rejected data URLs and applied a length limit, but never verified that the supplied path corresponded to a file reference owned by the caller's base or by the caller. On read, `_convertAttachmentType` collects every attachment object holding a path or url and calls `PresignedUrl.signAttachment()` on each, and the explicit download endpoint in `attachments.service.ts` behaves the same way: it reads the caller's own row through the normal row-level authorization check, finds the attachment object stored there and signs it. Row-level authorization therefore succeeded against the attacker's own row while the temporary signed URL pointed at the victim's stored file, which the secure download handler then served. 2026.08.0 bound paths written to attachment cells to files the caller or the base holds; the download endpoint still signed a foreign path stored in a JSON field, and encoded or bucket-prefixed storage URLs still passed as external links, until 2026.10.0.\n\n### Impact\n\nWith secure attachments enabled, an authenticated user able to write to an attachment field in any one base could obtain a signed temporary download URL for an attachment belonging to a different base or workspace, given its stored path - crossing the base boundary and defeating the non-public download behaviour that secure attachment mode is intended to provide. Direct access to the victim base and direct download of the victim row's attachment both returned forbidden. Requires an authenticated account with write access to an attachment column in a single base and knowledge of the victim attachment path.\n\n### Credit\n\nThis issue was reported by [@Faze-up](https://github.com/Faze-up).\n",
+    "ghsa_id": "GHSA-v279-4cwv-mrcj",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-v279-4cwv-mrcj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-v279-4cwv-mrcj"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:01Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Insecure Direct Object Reference via Attachment Field Paths",
+    "updated_at": "2026-11-02T08:48:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.0",
+        "vulnerable_version_range": "< 2026.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

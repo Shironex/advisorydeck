@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-x8h5-94m9-7jw4",
+  "aliases": [],
+  "title": "Email/SMS connector credentials returned in the API response body and stored in audit logs on an outbound network error",
+  "summary": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/pull/9849). Upgrade to 1.46.0 or later. The fix is in Logto core, so connectors don't need updating.\n\n---\n\nI am the author of logto-io/logto#9849 (sanitizing `got` errors in the core error handler). While addressing a review comment on that PR, I found a related issue that goes beyond logging, so I am reporting it privately through this advisory.\n\n## Summary\n\nWhen an outbound request made by a connector fails at the network level (timeout, connection reset, DNS failure), several connectors wrap the raw `got` `RequestError` in a `ConnectorError`:\n\n- `packages/connectors/connector-sendgrid-email/src/index.ts` (`throw new ConnectorError(ConnectorErrorCodes.General, error)`)\n- `connector-mailgun`, `connector-http-email`, `connector-smtp2go-email`, `connector-saml` do the same.\n\nA `got` `RequestError` carries the full request `Options` as an enumerable property, and `Options.toJSON()` returns its internals: headers (including `Authorization: Bearer <SendGrid API key>`), `username`/`password` (Mailgun basic auth, also embedded in the serialized `url` as `https://api:<key>@api.mailgun.net/...`), `json`/`form` bodies (recipient address, verification code).\n\nTwo sinks then expose that object:\n\n1. **HTTP response body.** `packages/core/src/middleware/koa-connector-error-handler.ts` converts the `ConnectorError` into `new RequestError({ code: 'connector.general', status: 400, errorDescription: JSON.stringify(data) }, data)`. `RequestError.toBody()` (`packages/core/src/errors/RequestError/index.ts`) returns `pick(this, 'code', 'data', 'details')`, so `data` - the serialized `got` error with the credentials - is sent to the caller. The `errorDescription` interpolation also puts the same JSON in the i18n `message`.\n2. **Audit logs.** `packages/core/src/middleware/koa-audit-log.ts` stores `pick(error, 'message', 'code', 'data')` in the `logs` table, which is readable in the Console and through the Management API.\n\nThe endpoints that send a verification code (`POST /api/verification-codes`, the experience API `.../verifications/verification-code`, `routes-me/verification-code`) are reachable without authentication, so an anonymous caller who requests a code during a provider outage receives the provider API key in a 400 response.\n\n## Reproduction (reasoning, verified at the unit level)\n\n```js\nimport { RequestError, Options } from 'got';\nimport { ConnectorError, ConnectorErrorCodes } from '@logto/connector-kit';\n\nconst options = new Options('https://api.sendgrid.com/v3/mail/send', {\n  method: 'POST',\n  headers: { Authorization: 'Bearer SG.FAKE' },\n  json: { from: 'a@b.c' },\n});\nconst gotError = new RequestError('Timeout awaiting request', { code: 'ETIMEDOUT' }, options);\nconst wrapped = new ConnectorError(ConnectorErrorCodes.General, gotError);\n\nwrapped.message.includes('SG.FAKE');                       // true\nJSON.stringify({ data: wrapped.data }).includes('SG.FAKE'); // true - what toBody() returns\n```\n\nEnd to end: configure the SendGrid connector, make `api.sendgrid.com` unreachable (hosts file or egress rule), then `POST /api/verification-codes` with an email address. The 400 body contains `data.options.headers.authorization`.\n\n## Suggested fix\n\nNever let a raw `got` error become `data`. Either:\n\n- in `@logto/connector-kit`, make `ConnectorError` reduce an `Error` passed as `data` to `{ name, code, message }` (drop `options`, `request`, `response`), which fixes every connector at once; or\n- in `koa-connector-error-handler.ts`, sanitize `data` before building the `RequestError` (the `sanitizeError` helper from #9849 can be reused), and never interpolate the raw JSON into `errorDescription`;\n- and in the email/SMS connectors, pass `error.message` rather than the error object (as `connector-vonage-sms` already does).\n\n## Impact note\n\nSelf-hosted deployments that use the SendGrid, Mailgun, SMTP2GO or HTTP email connectors are affected on every network-level failure to...",
+  "published_at": "2026-11-09T07:10:06.000Z",
+  "modified_at": "2026-11-09T07:10:06.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.8,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-209",
+    "CWE-532"
+  ],
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.46.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-x8h5-94m9-7jw4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-x8h5-94m9-7jw4",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-x8h5-94m9-7jw4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+  "note": null
+}

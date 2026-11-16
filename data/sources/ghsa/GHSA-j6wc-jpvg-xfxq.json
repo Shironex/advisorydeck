@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-j6wc-jpvg-xfxq",
+  "repo": {
+    "cve_id": "CVE-2026-104090",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\r\n\r\nIn OpenBao, the `sys/storage/raft/snapshot` and `sys/storage/raft/snapshot-force` endpoint is a highly privileged endpoint to replace the current storage state, including the plugin catalog. The latter API allows replacement of storage state to a state unrelated to the current storage, without knowledge of the current seal mechanism.\r\n\r\nOpenBao allows modification of the plugin catalog via API endpoint which is then stored within encrypted storage and thus are writable by the Snapshot APIs. When OpenBao is subsequently unsealed, plugins could be loaded and executed without conforming to the `plugin_directory` set in the server's configuration, allowing an attacker with write access to this endpoint to achieve remote code execution of arbitrary binaries on the underlying system. \r\n\r\nOperators not running the Raft storage backend are not affected.\r\n\r\nThis vulnerability is original to HashiCorp Vault.\r\n\r\n## Patch\r\n\r\nThis vulnerability is patched in OpenBao v2.7.0 and v2.6.3.",
+    "ghsa_id": "GHSA-j6wc-jpvg-xfxq",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-j6wc-jpvg-xfxq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j6wc-jpvg-xfxq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-104090"
+      }
+    ],
+    "published_at": "2026-09-23T19:18:53Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Remote Code Execution via `sys/storage/raft/snapshot-force` Plugin Catalog Replacement in OpenBao",
+    "updated_at": "2026-10-01T18:48:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/openbao/openbao/v2"
+        },
+        "patched_versions": "2.6.3, 2.7.0",
+        "vulnerable_version_range": "<2.6.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

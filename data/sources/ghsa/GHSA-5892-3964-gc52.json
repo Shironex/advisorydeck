@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-5892-3964-gc52",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-862"
+    ],
+    "description": "### Summary\r\n\r\nThe aggregated meta info route in `utils.controller.ts` was served behind a rate-limiter guard only, with no authentication guard and no permission check, returning instance-wide metadata and live per-base row counts to anonymous callers.\r\n\r\n### Details\r\n\r\nThe route carried `PublicApiLimiterGuard`, whose `canActivate` returns `true` unconditionally, and no `@Acl`. Because NocoDB's authentication cut-off is enforced by the ACL interceptor rather than by the guards on the controller, nothing on the route required an identity.\r\n\r\nThe handler in `utils.service.ts` enumerates every base on the instance with no tenant filter, counts all registered users at root scope, and reports per-base shared and public view counts, how many of those views are password protected, and webhook counts. It then obtains a SQL client for each configured data source and runs a record count for every table it finds, so the response also carries live row counts for every base. The source carried a standing `TODO` noting the endpoint was unsuitable for multi-tenant deployments.\r\n\r\n### Impact\r\n\r\nNo authentication is required. Any remote caller could read the full footprint of the instance across all tenants - base count, total registered users, shared and password-protected share counts, webhook counts, and live per-base row counts - which is direct reconnaissance material for a multi-tenant deployment. Because a single request fans row-count queries out to every configured data source with no cap, cache or pagination, repeated anonymous requests also amplified into query load against every tenant's database. The official Docker image was not affected, as it serves this route from the Enterprise implementation, which returns no data; builds from the public source and the npm package were.\r\n\r\n### Credit\r\n\r\nThis issue was reported by [@ya3raj](https://github.com/ya3raj).\r\n",
+    "ghsa_id": "GHSA-5892-3964-gc52",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-5892-3964-gc52",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5892-3964-gc52"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:16Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Instance Metadata Disclosure via Aggregated Meta Endpoint",
+    "updated_at": "2026-10-27T10:06:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.1",
+        "vulnerable_version_range": "< 2026.09.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

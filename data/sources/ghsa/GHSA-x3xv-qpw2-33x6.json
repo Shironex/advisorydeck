@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-x3xv-qpw2-33x6",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nRow comments were listed and counted using only a caller-supplied model id and row id, with no binding to the base the request was authorized against, and both table creation and comment creation persisted caller-chosen internal ids.\n\n### Details\n\nIn `Comment.ts`, `list` and `commentsCount` selected on row id and model id alone. Model ids are unique only per base, so that pair identified the same discussion in every base on the instance at once; the sibling document-comment query already scoped on base id. Authorization was resolved against the base in the request URL while the rows returned were identified globally. Two further gaps composed with it. `tables.service.ts` passed a client-supplied `id` through to `Model.insert`, letting a Creator mint a decoy table in their own base carrying the victim table's model id - comment creation resolves the model inside the authorized base, so it accepted writes that then surfaced on the victim's discussion. Comment creation also persisted a caller-chosen comment id, and the web client renders comment bodies from a map keyed on that id, so a duplicated id caused the attacker's body to be displayed beneath the legitimate comment's author name, email, avatar and timestamp.\n\n### Impact\n\nA user with the Viewer role on any unrelated base could read private row comments from bases they have no access to, including comment bodies, author and resolver email addresses, timestamps, and the victim's workspace, base, table, source and row identifiers. With Creator on an unrelated base, the same identifier collisions allowed comments to be persisted onto a victim record and attacker-controlled text to be presented under a trusted teammate's identity. Requires an authenticated account with a role on one unrelated base and knowledge of the victim table and row ids, which a public shared view exposes; no victim interaction is needed, and direct requests to the victim base's metadata, records and comments were refused.\n\n### Credit\n\nThis issue was reported by [@bwbugs](https://github.com/bwbugs). It was independently reported by [@Fla4sh](https://github.com/Fla4sh).\n",
+    "ghsa_id": "GHSA-x3xv-qpw2-33x6",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-x3xv-qpw2-33x6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x3xv-qpw2-33x6"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:14Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Insecure Direct Object Reference in Row Comment Operations",
+    "updated_at": "2026-10-27T10:06:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

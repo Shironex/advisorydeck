@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-x3wx-294c-4p48",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-184",
+      "CWE-79"
+    ],
+    "description": "### Summary\n\nThe interstitial page shown when navigating away from NocoDB validated its redirect parameter with a bespoke scheme check that could be evaded by embedding an ASCII control character in the scheme, allowing an attacker to run script in the application origin through a crafted link.\n\n### Details\n\n`PageLeavingWarning.vue` judged the `ncRedirectUrl` query parameter with a local scheme check whose character class stopped at any ASCII control character. A value such as `j<TAB>avascript:` therefore matched no scheme at all and fell through to the check's default-allow branch, and the unvalidated value reached two sinks: the `href` of the anchor rendered into the page and a direct assignment to `window.location`. Browsers strip the control character from the URL and act on the real scheme, so the payload executed on either sink. The route is deliberately public, so the crafted link works without a session.\n\n### Impact\n\nNo authentication is required to deliver the link. A signed-in user who follows it executes arbitrary JavaScript in the NocoDB origin, where the payload can read the session token from `localStorage[\"nocodb-gui-v2\"]` and act as that user through the authenticated API, leading to account takeover. This affects accounts of any role, including administrators.\n\n### Credit\n\nThis issue was reported by [@dhairya7760](https://github.com/dhairya7760).\n",
+    "ghsa_id": "GHSA-x3wx-294c-4p48",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-x3wx-294c-4p48",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x3wx-294c-4p48"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Reflected Cross-Site Scripting via Smuggled URL Scheme",
+    "updated_at": "2026-10-27T10:06:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

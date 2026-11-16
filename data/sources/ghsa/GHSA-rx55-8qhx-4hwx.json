@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-rx55-8qhx-4hwx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:H/UI:A/VC:H/VI:H/VA:H/SC:H/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Dynamic Credentials authorize and revoke endpoints forwarded the caller's raw session token to the configured resolver, missing the check the execution path already applied. Since a workflow's fallback resolver is settable with plain workflow:update, a user who can register a resolver could capture any collaborator's - or the owner's - session during the ordinary \"Connect your account\" step, and with it read credentials they have no access to.\n\n## Patches\n\nThe issue has been fixed in n8n versions 2.39.6 and 2.40.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Disable the Dynamic Credentials module if it is not required.\n- Audit and revoke any custom global roles that carry the `credentialResolver:create` scope, limiting that scope to fully trusted administrators only.\n- Review registered credential resolvers and remove any that are not recognized or point to unexpected URLs.\n- Rotate session tokens and credentials for any users who may have triggered the \"Connect your account\" flow on a shared workflow with an externally-registered resolver.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-rx55-8qhx-4hwx",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-rx55-8qhx-4hwx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rx55-8qhx-4hwx"
+      }
+    ],
+    "published_at": "2026-09-16T08:23:33Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Dynamic Credentials Authorize Endpoint Leaks Session Token to Attacker-Controlled Resolver",
+    "updated_at": "2026-09-16T08:23:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.40.1",
+        "vulnerable_version_range": "< 2.40.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.39.6",
+        "vulnerable_version_range": "< 2.39.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

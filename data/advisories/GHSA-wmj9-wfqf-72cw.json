@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-wmj9-wfqf-72cw",
+  "aliases": [],
+  "title": "Stored Cross-Site Scripting via Formula URL in Grid View",
+  "summary": "### Summary\n\nThe canvas cell renderer used for grid views assigned the rendered output of a `URL()` formula to `innerHTML` without sanitization, so a record's text value containing markup executed script for any user who opened the table in grid mode.\n\n### Details\n\nThe link-building helper in `urlUtils.ts` handles a formula's `URI::(...)` segments: the valid-URL branch builds an anchor safely through `document.createElement` and `textContent`, but the branch for a segment whose content is not a valid URL returned the user-controlled label as raw, unencoded HTML. The canvas grid's formula cell renderer passed that string to `renderFormulaURL` in `canvas.ts`, which assigned it to `container.innerHTML` on a detached `div` used only for text measurement and link-box extraction - detached is enough for an `<img onerror>` or `<svg onload>` handler to fire. On the server, a `URL({TextField})` formula serialises the referenced field's value with only parentheses escaped, so `<` and `>` from a record reach the renderer intact, and NocoDB sets no `script-src` policy to block the inline handler. The Vue virtual-cell consumer of the same helper renders through the project's DOMPurify directive; the canvas renderer, which is the one used for grid views in ordinary deployments, did not.\n\n### Impact\n\nSame-origin script execution in the browser of every user who views the affected table in grid mode, including owners and administrators, with no interaction beyond opening the view. The payload runs in the NocoDB origin and can read the session token from `localStorage[\"nocodb-gui-v2\"]`, which is not an HttpOnly cookie, so an attacker can take over the account, exfiltrate all data the victim can see and perform any action the victim is permitted to perform. Creating the formula column requires a base Creator role; where such a column already references an attacker-writable field, a base Editor role is sufficient.\n\n### Credit\n\nThis issue was reported by [@mtholmquist](https://github.com/mtholmquist).",
+  "published_at": "2026-11-02T08:47:41.000Z",
+  "modified_at": "2026-11-02T08:47:41.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-wmj9-wfqf-72cw",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wmj9-wfqf-72cw",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-wmj9-wfqf-72cw",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:af0317099ec98c3e33b2233709b40592ce584a90541fa3c2186caffd51b5b1ca",
+  "note": null
+}

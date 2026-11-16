@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-crxf-p6jm-vpgw",
+  "repo": {
+    "cve_id": "CVE-2026-26265",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": " ### Impact\r\n\r\nAn IDOR vulnerability in the directory items endpoint allows any user, including anonymous users, to retrieve private user field values for all users in the directory. The `user_field_ids` parameter in `DirectoryItemsController#index` accepts arbitrary user field IDs without authorization checks, bypassing the visibility restrictions (`show_on_profile` / `show_on_user_card`) that are enforced elsewhere (e.g., `UserCardSerializer` via `Guardian#allowed_user_field_ids`).\r\n\r\nAn attacker can request `GET /directory_items.json?period=all&user_field_ids=<id>` with any private field ID and receive that field's value for every user in the directory response. This enables bulk exfiltration of private user data such as phone numbers, addresses, or other sensitive custom fields that admins have explicitly configured as non-public.\r\n\r\n### Patches\r\n\r\nThe issue is patched by filtering `user_field_ids` against `UserField.public_fields` for non-staff users before building the custom field map.\r\n\r\n### Workarounds\r\n\r\nSite administrators can remove sensitive data from private user fields, or disable the user directory via the `enable_user_directory` site setting.",
+    "ghsa_id": "GHSA-crxf-p6jm-vpgw",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-crxf-p6jm-vpgw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-crxf-p6jm-vpgw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-26265"
+      }
+    ],
+    "published_at": "2026-02-26T12:52:50Z",
+    "references": [],
+    "severity": "high",
+    "summary": "IDOR vulnerability in the directory items endpoint",
+    "updated_at": "2026-02-26T12:52:50Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2025.12.2",
+        "vulnerable_version_range": "< 2025.12.2"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.1.1",
+        "vulnerable_version_range": ">= 2026.1.0-latest, < 2026.1.1"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.2.0",
+        "vulnerable_version_range": ">= 2026.2.0-latest, < 2026.2.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

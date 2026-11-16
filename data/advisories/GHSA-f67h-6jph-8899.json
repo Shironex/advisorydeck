@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-f67h-6jph-8899",
+  "aliases": [],
+  "title": "Cross-tenant filer write in SeaweedFS S3Tables/Iceberg REST gateways via stored metadataLocation (path traversal)",
+  "summary": "## Summary\nA confused-deputy path-traversal / cross-tenant write in SeaweedFS's S3Tables + Iceberg REST gateways. The raw S3Tables JSON API (`X-Amz-Target: S3Tables.UpdateTable` / `RegisterTable` / `CreateTable`, served on the main S3 port) persists the client-supplied `metadataLocation` body field verbatim with no bucket-confinement. The Iceberg REST gateway (default-on, port 8181) commit / create-on-commit write paths later read that stored value back and build a filer write path from it through a segment walk that collapses `..`, escaping the caller's authorized table-bucket directory and writing an Iceberg-metadata JSON file (plus auto-created parent directories) into another tenant's `/buckets/<victim>/...` subtree - or elsewhere in the filer virtual namespace. The create/register/createView handlers DO confine `location`; the commit paths do NOT.\n\n## Root Cause\n- Store persists unvalidated: `weed/s3api/s3tables/handler_table.go:1553-1554` stores `req.MetadataLocation` verbatim. The store validates only namespace/table/bucket NAMES and authorizes against the caller's OWN bucket - no location validation anywhere (grep confirms zero `parseS3Location`/`isValidTablePath`/`metadataBucket` checks in the s3tables store on CreateTable/RegisterTable/UpdateTable).\n- The bucket-confinement guard (require `metadataBucket == bucketName`, plus `isValidTablePath`) is present ONLY on create (`handlers_table.go:235/239`), register (`:446/450`), and createView (`handlers_view.go:134`).\n- The guard is ABSENT on all 4 commit/update write paths, which each read the stored `metadataLocation` back, call `parseS3Location` only to split it, then write: `handlers_commit.go:227→313→318`, `commit_helpers.go:182→190`, `handlers_transaction.go:144→206→91`, `handlers_view_update.go:86→100→105`.\n- Sink `..`-collapse: `saveMetadataBlob` (`metadata_files.go:78-100`) walks tablePath segment-by-segment via `LookupEntry`/`CreateEntry`; `LookupDirectoryEntry` resolves via `util.JoinPath` = `filepath.Join`, which cleans `..`, so `s3://attacker/../victim/planted/...` climbs from `/buckets/attacker` to land at `/buckets/victim/planted/...`, auto-creating missing parents.\n\n## Impact\nCross-tenant filer write breaking table-bucket isolation: an attacker with table perms on one own bucket writes an Iceberg-metadata JSON file, plus arbitrary directory creation, into another tenant's table-bucket tree (or outside `/buckets` in the filer virtual namespace). Cross-tenant (S:C) integrity and availability impact.\n\n## Proof of Concept\n1. Attacker owns table bucket `attacker`; creates a table normally (Iceberg create confines, satisfied trivially on own bucket).\n2. Poison: `POST /` `X-Amz-Target: S3Tables.UpdateTable` (SigV4 service=s3tables), body `{\"tableBucketARN\":\"arn:...:bucket/attacker\",\"namespace\":[\"ns\"],\"name\":\"t\",\"metadataLocation\":\"s3://attacker/../victim/planted/metadata/v1.metadata.json\"}` → stored verbatim.\n3. Trigger write: `POST /v1/namespaces/ns/tables/t` (Iceberg REST commit) → `handleUpdateTable` GetTable returns the poisoned `MetadataLocation` → `parseS3Location` → bucket=`attacker`, path=`../victim/planted` → `stageCommitMetadata` → `saveMetadataFile` writes into `/buckets/victim/planted/...`.\n\n## Attack Chain\n1. Entry: attacker creates a table on its own bucket via Iceberg gateway. Guard: create-path `metadataBucket==bucketName` + `isValidTablePath` (handlers_table.go:235-242). Bypass proof: satisfied trivially on own bucket.\n2. Poison: `POST /` `X-Amz-Target: S3Tables.UpdateTable`, body `metadataLocation: s3://attacker/../victim/planted/metadata/v1.metadata.json`. Guard: location bucket-confinement at the store. Bypass proof: handler_table.go:1553-1554 stores `req.MetadataLocation` verbatim; grep confirms no `parseS3Location`/`isValidTablePath`/`metadataBucket` check in the s3tables store; authorized against attacker's own bucket → passes.\n3. Trigger write: `POST /v1/namespaces/ns/tables/t` (Iceberg REST commit). `handleUpdateTable` GetTable → poiso...",
+  "published_at": "2026-11-09T19:49:09.000Z",
+  "modified_at": "2026-11-09T19:49:09.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.2,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f67h-6jph-8899",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f67h-6jph-8899",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f67h-6jph-8899",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:736fd29d268f9dcb0fb7d96ec04f40446d7a4aa09b8129cb911263ec222c388f",
+  "note": null
+}

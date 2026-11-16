@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-72fw-g74f-8mwr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1336",
+      "CWE-94"
+    ],
+    "description": "### Summary\n\nWebhook URL, header and body templates are rendered with Handlebars, and several bundled template helpers resolved attacker-supplied property paths outside the template engine, defeating the engine's protection against prototype-chain property access.\n\n### Details\n\n`webhookHelpers.ts` compiles webhook templates with Handlebars and registers the `handlebars-helpers-v2` helper pack. Handlebars itself denies a template any access to non-own, prototype-chain properties such as `constructor`, `prototype` and `__proto__`; that control is what closes the classic template-to-code escalation, and it is enforced while the engine evaluates the template's own syntax tree. The `pluck`, `sortBy`, `filter` and `withSort` helpers in the bundled pack each accept a dotted property path as an argument and resolve it against the render context with `get-value`, an unguarded property-walk loop that runs as ordinary JavaScript outside the engine's evaluator. A path such as `constructor.constructor` therefore walked from the webhook's data context to the native `Function` constructor without the engine's guard ever observing the access, and the resolved value was rendered into the request NocoDB then sent to the webhook's configured destination. Other helpers in the same pack call the values they are given, so the resolved constructor could also be invoked with a string from the template, compiling and running it as JavaScript in the server process.\n\n### Impact\n\nAn attacker could run arbitrary JavaScript in the NocoDB server process through a crafted webhook template, and through it operating-system commands with the privileges of the server. Short of code execution, the same primitive read prototype-chain-reachable internals of the server process into the outbound request, which goes to a destination the attacker chooses. Exploitation requires an authenticated account with the Creator or Owner base role, since webhook creation and update are restricted to those roles; the Editor role and below can only trigger existing webhooks.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team). It was independently reported by [@utkusen](https://github.com/utkusen).\n",
+    "ghsa_id": "GHSA-72fw-g74f-8mwr",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-72fw-g74f-8mwr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-72fw-g74f-8mwr"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:47Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Server-Side Template Injection via Webhook Helpers",
+    "updated_at": "2026-11-02T08:47:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

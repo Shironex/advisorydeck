@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-46551",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nThe `uploadViaURL` path in the v1/v2 attachment API did not enforce `NC_ATTACHMENT_FIELD_SIZE` against the remote `content-length` or against the response stream. An authenticated user (Editor+) could direct the server to download arbitrarily large files, exhausting disk space and causing denial of service.\n\n### Details\n\nIn `packages/nocodb/src/services/attachments.service.ts`, the HEAD probe read `content-length` but never compared it to `NC_ATTACHMENT_FIELD_SIZE`; the subsequent `storageAdapter.fileCreateByUrl()` performed the download without `maxContentLength`. The v3 service (`v3/data-attachment-v3.service.ts`) already enforced the limit, but the v1/v2 endpoints (`POST /api/v1/db/storage/upload-by-url`, `POST /api/v2/storage/upload-by-url`) did not.\n\nThis is distinct from GHSA-xr7v-j379-34v9 (blind SSRF via HEAD) - same code area, different class.\n\n### Impact\n\n- Authenticated DoS via disk exhaustion. Editor role suffices.\n- Cascading failures once disk fills: blocked DB writes, log rotation, application crash.\n\n### Credit\n\nThis issue was reported by [@ik0z](https://github.com/ik0z).",
+    "ghsa_id": "GHSA-99vc-2jx2-688p",
+    "html_url": "https://github.com/advisories/GHSA-99vc-2jx2-688p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-99vc-2jx2-688p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46551"
+      }
+    ],
+    "published_at": "2026-05-21T20:35:41Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-99vc-2jx2-688p",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-46551",
+      "https://github.com/advisories/GHSA-99vc-2jx2-688p"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Missing File Size Enforcement in Upload-by-URL Allows Denial of Service via Disk Exhaustion",
+    "updated_at": "2026-07-20T21:16:34Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 0.301.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-99vc-2jx2-688p",
+  "repo": {
+    "cve_id": "CVE-2026-46551",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nThe `uploadViaURL` path in the v1/v2 attachment API did not enforce `NC_ATTACHMENT_FIELD_SIZE` against the remote `content-length` or against the response stream. An authenticated user (Editor+) could direct the server to download arbitrarily large files, exhausting disk space and causing denial of service.\n\n### Details\n\nIn `packages/nocodb/src/services/attachments.service.ts`, the HEAD probe read `content-length` but never compared it to `NC_ATTACHMENT_FIELD_SIZE`; the subsequent `storageAdapter.fileCreateByUrl()` performed the download without `maxContentLength`. The v3 service (`v3/data-attachment-v3.service.ts`) already enforced the limit, but the v1/v2 endpoints (`POST /api/v1/db/storage/upload-by-url`, `POST /api/v2/storage/upload-by-url`) did not.\n\nThis is distinct from GHSA-xr7v-j379-34v9 (blind SSRF via HEAD) - same code area, different class.\n\n### Impact\n\n- Authenticated DoS via disk exhaustion. Editor role suffices.\n- Cascading failures once disk fills: blocked DB writes, log rotation, application crash.\n\n### Credit\n\nThis issue was reported by [@ik0z](https://github.com/ik0z).\n",
+    "ghsa_id": "GHSA-99vc-2jx2-688p",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-99vc-2jx2-688p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-99vc-2jx2-688p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46551"
+      }
+    ],
+    "published_at": "2026-05-19T06:13:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Missing File Size Limit on Upload-by-URL",
+    "updated_at": "2026-05-19T06:13:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.04.4",
+        "vulnerable_version_range": "< 2026.04.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

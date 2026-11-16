@@ -1,0 +1,96 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41278",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\n\nThe `GET /api/v1/public-chatflows/:id` endpoint returns the full chatflow object **without sanitization** for public chatflows. Docker validation revealed this is worse than initially assessed: the `sanitizeFlowDataForPublicEndpoint` function does NOT exist in the released v3.0.13 Docker image. Both `public-chatflows` AND `public-chatbotConfig` return completely raw flowData including credential IDs, plaintext API keys, and password-type fields.\n\n### Root Cause\n\n```typescript\n// packages/server/src/controllers/chatflows/index.ts:218-220\nconst chatflow = await chatflowsService.getChatflowById(req.params.id)\nif (!chatflow) return res.status(StatusCodes.NOT_FOUND).json(...)\nif (chatflow.isPublic) return res.status(StatusCodes.OK).json(chatflow) // ← NO sanitization!\n```\n\n### Docker Validation (v3.0.13)\n\nCreated public chatflow with credential IDs and passwords in flowData:\n```json\n{\n  \"flowData\": \"{\\\"nodes\\\":[{\\\"data\\\":{\\\"credential\\\":\\\"e92a39bf-...\\\",\\\"inputs\\\":{\\\"password\\\":\\\"sk-supersecretkey123\\\",\\\"apiKey\\\":\\\"should-not-leak\\\"}}}]}\"\n}\n```\n\nThe `sanitizeFlowDataForPublicEndpoint` function only exists in unreleased HEAD, and even there, only `public-chatbotConfig` calls it - `public-chatflows` never does.\n\n### Impact\n\n- **Credential IDs** leaked - enables OAuth2 token theft chain (Finding 1)\n- **Plaintext API keys and passwords** leaked - direct third-party account compromise\n- **Node configurations** leaked - reveals internal architecture and endpoint URLs\n- Both `public-chatflows` and `public-chatbotConfig` are affected in the released version\n\n### Suggested Fix\n\nApply sanitization to both public endpoints:\n\n```typescript\nconst sanitized = sanitizeFlowDataForPublicEndpoint(chatflow)\nreturn res.status(StatusCodes.OK).json(sanitized)\n```\n\nEnsure the sanitization function strips all `credential`, `password`, `apiKey`, and `secretKey` fields from `flowData`.\n\n---\n\n## References\n\n- `packages/server/src/controllers/chatflows/index.ts` lines 209-236\n- `packages/server/src/utils/sanitizeFlowData.ts` lines 11-34 (exists only in unreleased HEAD)\n\n## Credits\n- Shinobi Security - https://github.com/shinobisecurity",
+    "ghsa_id": "GHSA-w47f-j8rh-wx87",
+    "html_url": "https://github.com/advisories/GHSA-w47f-j8rh-wx87",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w47f-j8rh-wx87"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41278"
+      }
+    ],
+    "published_at": "2026-04-17T21:34:30Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-w47f-j8rh-wx87",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41278",
+      "https://github.com/advisories/GHSA-w47f-j8rh-wx87"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Public chatflow endpoints return unsanitized flowData including plaintext API keys, passwords, and credential IDs",
+    "updated_at": "2026-04-24T21:00:59Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-w47f-j8rh-wx87",
+  "repo": {
+    "cve_id": "CVE-2026-41278",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe `GET /api/v1/public-chatflows/:id` endpoint returns the full chatflow object **without sanitization** for public chatflows. Docker validation revealed this is worse than initially assessed: the `sanitizeFlowDataForPublicEndpoint` function does NOT exist in the released v3.0.13 Docker image. Both `public-chatflows` AND `public-chatbotConfig` return completely raw flowData including credential IDs, plaintext API keys, and password-type fields.\r\n\r\n### Root Cause\r\n\r\n```typescript\r\n// packages/server/src/controllers/chatflows/index.ts:218-220\r\nconst chatflow = await chatflowsService.getChatflowById(req.params.id)\r\nif (!chatflow) return res.status(StatusCodes.NOT_FOUND).json(...)\r\nif (chatflow.isPublic) return res.status(StatusCodes.OK).json(chatflow) // ← NO sanitization!\r\n```\r\n\r\n### Docker Validation (v3.0.13)\r\n\r\nCreated public chatflow with credential IDs and passwords in flowData:\r\n```json\r\n{\r\n  \"flowData\": \"{\\\"nodes\\\":[{\\\"data\\\":{\\\"credential\\\":\\\"e92a39bf-...\\\",\\\"inputs\\\":{\\\"password\\\":\\\"sk-supersecretkey123\\\",\\\"apiKey\\\":\\\"should-not-leak\\\"}}}]}\"\r\n}\r\n```\r\n\r\nThe `sanitizeFlowDataForPublicEndpoint` function only exists in unreleased HEAD, and even there, only `public-chatbotConfig` calls it - `public-chatflows` never does.\r\n\r\n### Impact\r\n\r\n- **Credential IDs** leaked - enables OAuth2 token theft chain (Finding 1)\r\n- **Plaintext API keys and passwords** leaked - direct third-party account compromise\r\n- **Node configurations** leaked - reveals internal architecture and endpoint URLs\r\n- Both `public-chatflows` and `public-chatbotConfig` are affected in the released version\r\n\r\n### Suggested Fix\r\n\r\nApply sanitization to both public endpoints:\r\n\r\n```typescript\r\nconst sanitized = sanitizeFlowDataForPublicEndpoint(chatflow)\r\nreturn res.status(StatusCodes.OK).json(sanitized)\r\n```\r\n\r\nEnsure the sanitization function strips all `credential`, `password`, `apiKey`, and `secretKey` fields from `flowData`.\r\n\r\n---\r\n\r\n## References\r\n\r\n- `packages/server/src/controllers/chatflows/index.ts` lines 209-236\r\n- `packages/server/src/utils/sanitizeFlowData.ts` lines 11-34 (exists only in unreleased HEAD)\r\n\r\n## Credits\r\n- Shinobi Security - https://github.com/shinobisecurity",
+    "ghsa_id": "GHSA-w47f-j8rh-wx87",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-w47f-j8rh-wx87",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w47f-j8rh-wx87"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41278"
+      }
+    ],
+    "published_at": "2026-04-15T21:44:58Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Public chatflow endpoints return unsanitized flowData including plaintext API keys, passwords, and credential IDs",
+    "updated_at": "2026-04-20T15:32:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,74 @@
+{
+  "id": "GHSA-vq5x-84qg-f883",
+  "aliases": [],
+  "title": "HTML injection via Unicode bidirectional characters in code blocks",
+  "summary": "### Impact\r\n\r\nDiscourse highlights hidden Unicode bidirectional characters in code blocks so readers can see them. The highlighting step parsed the post's HTML again, so a user could craft a post where an attribute value containing these characters turned back into HTML, bypassing the sanitizer. This could be used to inject arbitrary HTML into posts. The default Content Security Policy blocks script execution from the injected markup.\r\n\r\nThis is only exploitable with Nokogiri 1.19.4 and earlier, which do not escape `<` and `>` in attribute values. Supported releases bundle Nokogiri 1.19.7 and are not known to be exploitable; on them, the issue only corrupts such attribute values.\r\n\r\n### Patches\r\n\r\nThe highlighting now rewrites text nodes only and builds the warning markup as nodes, so no HTML is parsed again. Fixed in `2026.11.0-latest`. Fixed release versions will be added after the fix and backports are released.\r\n\r\n### Workarounds\r\n\r\nNo known workarounds for the HTML injection. Keep the default Content Security Policy enabled to prevent script execution.\r\n\r\n### References\r\n\r\n- https://nvd.nist.gov/vuln/detail/CVE-2021-42574\n\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-7X9UVRAT.",
+  "published_at": "2026-11-10T17:37:38.000Z",
+  "modified_at": "2026-11-10T17:37:38.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.1,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "discourse",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.7.5"
+        },
+        {
+          "introduced": "2026.8.0",
+          "fixed": "2026.9.2"
+        },
+        {
+          "introduced": "2026.10.0",
+          "fixed": "2026.10.1"
+        },
+        {
+          "introduced": "2026.11.0-0",
+          "fixed": "2026.11.0-latest.1"
+        },
+        {
+          "introduced": "2026.10.0-latest",
+          "fixed": "2026.10.1"
+        },
+        {
+          "introduced": "2026.9.0-latest",
+          "fixed": "2026.9.2"
+        },
+        {
+          "introduced": "2026.7.0-latest",
+          "fixed": "2026.7.5"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/discourse/discourse/security/advisories/GHSA-vq5x-84qg-f883",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vq5x-84qg-f883",
+      "url": "https://github.com/discourse/discourse/security/advisories/GHSA-vq5x-84qg-f883",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b1b9aafdf0a7ded92fb03c89d962f7adbc60f79c9a5fdd61f133c8a4d6418a9e",
+  "note": null
+}

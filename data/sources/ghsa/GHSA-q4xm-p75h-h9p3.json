@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-q4xm-p75h-h9p3",
+  "repo": {
+    "cve_id": "CVE-2026-62662",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.0/AV:N/AC:H/PR:H/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nThe client credentials grant (`grant_type=client_credentials`) does not validate the resource parameter before embedding it as the aud claim in the issued JWT. Any authenticated OIDC client can obtain a Pocket ID-signed access token claiming authorization for any arbitrary audience, including other registered OIDC clients. There is no check that the requested audience is a registered resource server, and no check that the requesting client has been granted permission to access it.\r\n\r\n## Details\r\n\r\nIn `backend/internal/service/oidc_service.go`, `createTokenFromClientCredentials` accepts the resource parameter from the token request and places it directly into the `aud` claim of the issued JWT without validation:\r\n\r\n```golang\r\n  audClaim := client.ID\r\n  if input.Resource != \"\" {\r\n      audClaim = input.Resource  // no validation performed\r\n  }\r\n  accessToken, err := s.jwtService.GenerateOAuthAccessToken(dummyUser, audClaim)\r\n```\r\n\r\nThe only guard in this function is `verifyClientCredentialsInternal`, which confirms the requesting client's credentials are valid. After that check passes, any value supplied as resource is accepted. There is no registry of permitted audiences, no per-client authorization policy controlling which resources a client may request tokens for, and no validation that the resource value corresponds to anything registered in Pocket ID.\r\n\r\nThe introspection endpoint (`/api/oidc/introspect`) does not mitigate this. It checks that the introspecting client's ID matches the token's `aud` claim, but since the attacker controls `aud`, a resource server calling introspection to validate an inbound token will receive `\"active\": true`. Pocket ID has no server-side record of which client requested the token or whether it was authorized to do so, so introspection cannot distinguish a legitimately issued token from one obtained through this vulnerability.\r\n\r\n## PoC\r\n\r\nGiven a Pocket ID instance with two registered OIDC clients - `client-a` (attacker-controlled) and `client-b` (target resource) - the following request causes Pocket ID to issue a signed JWT with `aud: [\"client-b\"]`, authenticated only as `client-a`:\r\n\r\n```\r\ncurl -X POST https://<pocket-id-host>/api/oidc/token \\\r\n    -d \"grant_type=client_credentials\" \\\r\n    -d \"client_id=client-a\" \\\r\n    -d \"client_secret=<client-a-secret>\" \\\r\n    -d \"resource=client-b\"\r\n```\r\n\r\nThe response is a valid, Pocket ID-signed JWT with:\r\n\r\n```json\r\n{\r\n    \"sub\": \"client-client-a\",\r\n    \"aud\": [\"client-b\"],\r\n    \"iss\": \"https://<pocket-id-host>\",\r\n    \"type\": \"oauth-access-token\"\r\n}\r\n```\r\n\r\nThis token will pass signature and `aud` validation at any resource server that trusts Pocket ID's JWKS and accepts `client-b` as its audience identifier.\r\n\r\n## Impact\r\n\r\nAny OIDC client registered in Pocket ID that has valid credentials (client secret or federated identity) can obtain a Pocket ID-signed access token scoped to any other registered client or arbitrary audience string. In deployments where services use the client credentials grant and validate incoming bearer tokens against Pocket ID's JWKS, this allows a compromised or malicious client to bypass audience-based access controls and present tokens to resource servers it should not be authorized to access.\r\n\r\nThe severity depends on deployment: if no resource servers validate Pocket ID-issued access tokens, there is no immediate exploitable impact. In deployments that do rely on the client credentials grant for service-to-service authorization, the isolation between services is entirely broken.",
+    "ghsa_id": "GHSA-q4xm-p75h-h9p3",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-q4xm-p75h-h9p3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q4xm-p75h-h9p3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-62662"
+      }
+    ],
+    "published_at": "2026-07-13T09:04:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Client credentials grant allows any OIDC client to obtain tokens for arbitrary audiences",
+    "updated_at": "2026-07-16T20:35:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v2.10.0",
+        "vulnerable_version_range": "v1.11.0 - v2.9.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

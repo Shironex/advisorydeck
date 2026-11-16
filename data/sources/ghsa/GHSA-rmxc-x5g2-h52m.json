@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-rmxc-x5g2-h52m",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe public group-by endpoint of a shared view checked the requested column against the view's visible columns by title or id only, while the query builder also accepts a column's physical name, and it did not check the sub-group column at all. Anyone holding the share link could group by a column the owner hid from the view.\n\n### Details\n\n`restrictSharedViewColumnReferences` in `sharedViewQueryHelpers.ts` resolved each group-by reference through the model's titles and ids, rejected one that resolved to a hidden column, and let through any it could not resolve. The group-by builder in `BaseModelSqlv2/group-by.ts` resolves a reference by title or by physical column name, so a hidden column named by its physical name passed the check and was grouped on, returning its distinct values with their counts. The sub-group parameter was not among the checked keys; the builder resolved it the same way and returned, for each group, the number of distinct values of the named column. The group-by count builder also resolved physical names without a visibility check. Both builders now check every resolved column against the view's exposed columns and answer a hidden column the same way as an unknown one, and the service check also inspects the sub-group parameter.\n\n### Impact\n\nNo authentication is required: the attacker needs the link to a shared view, and its password if it has one. They could read the values of columns the owner hid from that view, for the rows its filter allows, and learn which hidden columns exist and how many distinct values each holds.\n\n### Credit\n\nThis issue was reported by [@nkedia9009-crypto](https://github.com/nkedia9009-crypto) (Naman Kedia).\n",
+    "ghsa_id": "GHSA-rmxc-x5g2-h52m",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-rmxc-x5g2-h52m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rmxc-x5g2-h52m"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Hidden Column Disclosure via Shared View Group-By Column Names",
+    "updated_at": "2026-11-02T08:47:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

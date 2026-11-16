@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-4rrc-r66w-5v7f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe role restriction that routes declare through the `allowedRoles` option of the `@Acl` decorator was not enforced, so access was decided by the role permission table alone. In Community Edition builds up to 0.301.3, that table let an organization Creator generate a password reset link for the super admin.\n\n### Details\n\nIn `aclFn` (`extract-ids.middleware.ts`, Community and Enterprise), `allowedRoles` was read only inside a condition that rejects callers holding no recognised role, so it never refused a caller who held some other role, and the decision came from the role permission table. Community Edition releases from 0.202.6 to 0.301.3 granted the organization Creator role the user management permissions behind `org-users.controller.ts`, whose routes are declared for the super admin, including listing users and generating a password reset link. `generateResetUrl` in `org-users.service.ts` checked neither the caller nor the target and returned the reset token in its response. Release 0.301.4 removed those permissions from the role, and the Enterprise role table never granted them. The Enterprise table did grant the organization SSO client list to organization Creators although the route is declared for organization Owners, and the list returns each client's configuration, including its client secret. On NocoDB Cloud, workspace Creators likewise reached the workspace SSO client routes declared for workspace Owners. The middleware now refuses a caller who holds none of the declared roles.\n\n### Impact\n\nAn attacker needs an account with the organization Creator role, or on NocoDB Cloud the workspace Creator role. On Community Edition builds from 0.202.6 to 0.301.3, an organization Creator could generate a password reset link for the super admin, set a new password and sign in as the super admin, taking control of the instance. In the Enterprise build, an organization Creator could read the organization's SSO client secrets, and on NocoDB Cloud a workspace Creator could list, add, change and delete the workspace's SSO clients.\n\n### Credit\n\nThis issue was reported by [@123abab123789](https://github.com/123abab123789).\n",
+    "ghsa_id": "GHSA-4rrc-r66w-5v7f",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4rrc-r66w-5v7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4rrc-r66w-5v7f"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Incorrect Authorization via Unenforced Route Role Restrictions",
+    "updated_at": "2026-11-02T08:47:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

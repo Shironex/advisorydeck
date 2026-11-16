@@ -1,0 +1,68 @@
+{
+  "global": null,
+  "id": "GHSA-jf9f-j6c5-hx4v",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### MCP notification-list tool leaks group private-message summary metadata without required scope\n\n## Impact\n\nA vulnerability in the MCP notification-list tool allows OAuth clients that hold only the `mcp:content:read` scope to retrieve topic-less group private-message summary notifications. These notifications contain sensitive metadata, including the group name, group ID, and unread/inbox count, for the consenting user's group inboxes.\n\nThe disclosure is limited to this metadata - no private-message content, topic text, or cross-user data is exposed. The vulnerability affects sites where MCP is enabled and where a group private-message participant authorizes an OAuth MCP client with only content-read scope. No staff privileges, cross-user access, or private-message content access is required.\n\nThis is a scoped-access boundary issue: the dedicated `mcp:private-messages:read` scope is required to access private-message-related content, and the notification-list tool already excludes private-message-topic notifications without that scope. The topic-less group summary notifications bypassed that boundary.\n\n## Workarounds\n\nNo known workarounds for this issue. MCP is disabled by default and requires site-level enablement; sites that do not enable MCP are not affected.\n\n### MCP draft tool may disclose private-message draft after topic is soft-deleted\n\n### Impact\n\nThe Discourse MCP server's `discourse_get_draft` tool could return the content of a retained private-message reply draft to an OAuth client that was not granted the `mcp:private-messages:read` scope, when the private-message topic had been soft-deleted. A draft associated with a live private-message topic was properly protected, but soft-deleted private-message topics were misclassified as non-private because the deleted row was not visible through the topic lookups used for classification. As a result, an OAuth client with only draft-read access could retrieve the user's retained private reply draft via the MCP interface.\n\nThis issue affects Discourse installations that have the MCP server feature enabled. Exploitation requires a legitimate OAuth authorization for the affected user that includes draft-read access but explicitly excludes private-message read access, plus a retained private-message reply draft and a soft-deleted private-message topic. Draft lookups remain scoped to the authorized user, so the flaw does not expose other users' drafts. Confidentiality is the only impacted security property; there is no effect on integrity or availability.\n\n### Workarounds\n\nNo known workarounds for this issue.\n\n### Calendar MCP tool discloses private-message event metadata without required scope\n\n### Impact\n\nA vulnerability in the Discourse Calendar plugin's Model Context Protocol (MCP) integration allowed clients holding only the `discourse-calendar:read` scope to retrieve metadata about events posted in private-message topics. This violated the platform's MCP scope boundary, which requires the separate `mcp:private-messages:read` scope before returning private-message-derived content to delegated clients.\n\nAffected clients could learn of the existence of private-message calendar events (including event names and timing details) without the proper authorization. Public events were not affected, and private-message content outside of calendar event metadata was not exposed.\n\nThe issue affects sites with both the Discourse Events/Calendar plugin and the MCP server enabled, where clients are authenticated via MCP OAuth tokens scoped to `discourse-calendar:read` only.\n\n### Workarounds\n\nNo known workarounds for this issue. Site administrators should ensure that MCP clients are only issued to trusted parties and that client access is revoked until the patched version is deployed.\n\n### Data Explorer: non-admin users can retrieve PostgreSQL explain output\n\n### Impact\n\nThe Data Explorer plugin allows non-admin users who are assigned to a group to run a shared report. A non-admin group member could pass an `explain=true` parameter when running such a report and receive PostgreSQL plan text that contains predicate literals and relation names. That plan detail is otherwise admin-only, so this constitutes an information disclosure of administrator-only SQL internals.\n\nThe vulnerability requires a supported configuration: the Data Explorer plugin enabled, an authenticated non-admin user assigned to the report's group, and an administrator-created shared report whose plan contains sensitive data. The attack does not modify data and does not affect availability - execution remains read-only. Administrators are unaffected and retain explain output for diagnostics.\n\n### Workarounds\n\nNo known workarounds for this issue.\n\n### MCP draft tools allow scope bypass on private-message data\n\n### Impact\n\nA delegated MCP token that was granted general draft-write scope (`mcp:drafts:write`) but not the dedicated private-message write scope (`mcp:private-messages:write`) could overwrite or delete the token owner's own private-message reply or compose drafts. This includes retained drafts whose private-message topic had been soft-deleted.\n\nThis is a self-service authorization boundary bypass with integrity-only impact. A drafts-only client can mutate the owner's own private-message draft content without holding the dedicated private-message scope, including drafts for soft-deleted PM topics. No cross-user access, staff escalation, credential exposure, or confidentiality loss is involved. Availability impact is limited to the individual draft if it is deleted. This affects Discourse instances that have enabled the MCP server (disabled by default) and delegated MCP draft scopes to external clients.\n\n### Workarounds\n\nNo known workarounds for this issue. Sites that cannot upgrade immediately and use MCP delegation should verify that delegated tokens do not include `mcp:drafts:write` unless the corresponding `mcp:private-messages:write` scope is also intended to be granted, and monitor draft activity for unexpected changes.\n\n### MCP private message reader exposes moderator-hidden posts\n\n### Impact\n\nAn information disclosure vulnerability affects the MCP `discourse_read_private_message` tool. Moderator-hidden posts in private messages were fully exposed (including raw text) to otherwise authorized non-staff participants.\n\nThe attack requires all of the following preconditions:\n- MCP is enabled (it is off by default)\n- The affected MCP tool is exposed\n- The attacker has a valid OAuth client authorization with private-message read scope\n- The attacker is already a participant in the affected private message\n- A moderator has hidden another participant's post in that private message\n\nThe vulnerability leverages the MCP private-message reader's failure to apply the same hidden-content visibility filtering used by the existing topic reader. As a result, hidden posts were included in the tool's output, exposing the full raw text of content that the acting user should not have been able to view. This violates the intended visibility boundary for private-message participants.\n\nThe issue is confined to the MCP interface. Standard Discourse web and API routes are not affected, and no unauthorized write or denial-of-service impact was identified.\n\n### Workarounds\n\nNo known workarounds for this issue.\n\n<!-- patch-triage-lifecycle:ae52cec2d9dfeffb63566338c8c26aea9efd9792d5ef0d99be16d39eefdadb3e -->",
+    "ghsa_id": "GHSA-jf9f-j6c5-hx4v",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-jf9f-j6c5-hx4v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jf9f-j6c5-hx4v"
+      }
+    ],
+    "published_at": "2026-10-23T16:53:20Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Close MCP private-message read-scope gaps",
+    "updated_at": "2026-10-23T16:53:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.10.0-latest.1",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.9.1",
+        "vulnerable_version_range": ">= 2026.9.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.8.2",
+        "vulnerable_version_range": ">= 2026.8.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.7.4",
+        "vulnerable_version_range": ">= 2026.7.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

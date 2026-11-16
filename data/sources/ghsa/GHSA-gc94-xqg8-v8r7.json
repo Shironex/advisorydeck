@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-gc94-xqg8-v8r7",
+  "repo": {
+    "cve_id": "CVE-2026-55216",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-345"
+    ],
+    "description": "> [!IMPORTANT]\n> **Action required: upgrading alone does not remove the exposure.**\n>\n> The fix is a configuration option, not a change of default. Logto 1.46.0 adds a `disableEmailSync` option to the OAuth 2.0 connector (`@logto/connector-oauth` 1.8.0). The Azure AD connector has had the same option since 1.43.0. Both default to `false`, so the connector keeps using the email its provider returns until an administrator turns the option on.\n>\n> If you use the OAuth 2.0 or Azure AD connector with a provider that does not verify email addresses, or lets a user or directory administrator set the email freely, upgrade to 1.46.0 and enable `disableEmailSync` on that connector. The Google, GitHub and OIDC connectors are not affected, because they only return an email that the provider marks as verified.\n\n---\n\n## Summary\r\n\r\nWhen a social sign-in finds an existing account by email, Logto links the social identity and signs the user in without checking whether the social provider asserted the email as verified. An attacker who can present a social identity carrying a victim's email (without owning that mailbox) can take over the victim's account.\r\n\r\nThe matching SSO path already guards this (`email_verified ?? trustUnverifiedEmail`), and the GitHub connector correctly uses only the verified && primary email - so the social path looks like an oversight rather than intended behavior.\r\n\r\nValidated end-to-end locally against `svhd/logto:latest` (core 1.40.1).\r\n\r\n## Where (core 1.40.1)\r\n\r\n- `packages/core/src/libraries/social.ts` → `findSocialRelatedUser` does `findUserByEmail(info.email)` with no `email_verified` check.\r\n- `packages/core/src/routes/experience/classes/helpers.ts` (case `VerificationType.Social`): when `linkSocialIdentity` is true it uses `identifyRelatedUser()` (the email-matched user).\r\n- `packages/core/src/routes/experience/classes/experience-interaction.ts` `identifyUser()` only calls `guardIdentificationMethod` (method-enablement) - no email-verification gate and no proof of ownership of the matched account.\r\n- `linkSocialIdentity` is a client-supplied request body field (`routes/experience/index.ts`, `POST /api/experience/identification`).\r\n\r\nConnectors that let an attacker carry an unverified/attacker-set email:\r\n\r\n- `connector-azuread` → `email: conditional(mail)` (Microsoft Graph `mail` is mutable/unverified - the classic nOAuth pattern).\r\n- The standard `connector-oauth2` → surfaces whatever the configured userInfo endpoint maps to `email` via `profileMap`, with no verification check. (This is the connector I used in the PoC.)\r\n\r\n(Contrast, safe by default) `connector-github` (verified && primary), `connector-google` and `connector-oidc` only emit the email when the provider marked it verified - so they are not affected unless an admin explicitly opts into `trustUnverifiedEmail` (OIDC). This is exactly why the social-linking path should be checking verification too.\r\n\r\n## Validated PoC\r\n\r\n(all on localhost, docker compose from the repo)\r\n\r\n1. Created a victim user `victim@example.com` (Management API).\r\n2. Configured a standard OAuth2 social connector pointing at a tiny mock IdP I control, whose `/userinfo` returns `{ sub: \"attacker-sub-001\", email: \"victim@example.com\" }` - no `email_verified` field (models nOAuth / an unverified-email IdP).\r\n3. Drove the sign-in experience as the \"attacker\": social verification (Logto fetched my `/userinfo`), then `POST /api/experience/identification` with `{ verificationId, linkSocialIdentity: true }` → 204, then `POST /api/experience/submit` → 200 with a completed sign-in.\r\n4. The victim account's `identities` now contains the attacker's social identity:\r\n\r\n   ```json\r\n   \"pocoauth2\": {\r\n     \"userId\": \"attacker-sub-001\",\r\n     \"details\": { \"email\": \"victim@example.com\", ... }\r\n   }\r\n   ```\r\n\r\n   The attacker is now signed in as - and permanently linked to - the victim's account.\r\n\r\n(Happy to share the mock-IdP + driver script; it's ~3 small files.)\r\n\r\n## Impact\r\n\r\nAccount takeover. Severity depends on the tenant's connectors: tenants using the Azure AD connector (nOAuth) or a standard OAuth2 connector against an IdP that doesn't verify emails are exploitable; Google/GitHub/OIDC connectors are not (they only surface verified emails). This affects both self-hosted Logto and, where such connectors are enabled, Logto Cloud (a tenant boundary).\r\n\r\nSame class as nOAuth (Microsoft), Nhost (GHSA-6g38-8j4p-j3pr), and Reviactyl (CVE-2026-34456).\r\n\r\n## Suggested fix\r\n\r\nPer the maintainer's confirmed approach: extend the `trustUnverifiedEmail` config flag (already on the OIDC connector since v1.36.0) to the Azure AD and OAuth2 connectors. The flag appears in the connector form when creating a new connector, defaulting to `off`, so new connectors only use the email when the provider asserts it as verified. Each connector's `getUserInfo` respects the flag.\r\n\r\nFor backward compatibility, connectors that don't have the setting (i.e. all existing ones) are treated as trusted, so current integrations keep working unchanged. Admins who don't trust their IdP's email handling can simply turn the flag off.\r\n\r\nHappy to take the PR through the temporary private fork.\r\n\r\n---\r\n\r\nReporter: JebeenLee",
+    "ghsa_id": "GHSA-gc94-xqg8-v8r7",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-gc94-xqg8-v8r7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gc94-xqg8-v8r7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55216"
+      }
+    ],
+    "published_at": "2026-11-05T06:57:54Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Account takeover via email_verified bypass in social account linking (Azure AD, OAuth2 connectors)",
+    "updated_at": "2026-11-05T06:57:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": "<= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8hhc-j325-rxqp",
+  "repo": {
+    "cve_id": "CVE-2026-55762",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "## Summary\r\n\r\nThe `POST /api/v1/fingerprint` REST endpoint enforces authentication (`authRequired: true`) but performs **no authorization check**. Any authenticated user - including a standard `user` role account - can call this endpoint with `{\"setDeploymentAs\": \"new-workspace\"}` to permanently deregister the workspace from Rocket.Chat Cloud. This wipes all cloud credentials, removes the workspace license, breaks push notifications for all users, and requires manual re-registration to recover.\r\n\r\n## Root Cause\r\n\r\n**File:** `apps/meteor/app/api/server/v1/misc.ts`, lines 634-700\r\n\r\nThe route handler has `authRequired: true` but performs zero authorization:\r\n\r\n```javascript\r\nAPI.v1.addRoute('fingerprint', { authRequired: true }, {\r\n  async post() {\r\n    // ❌ No check: no hasPermission('manage-cloud'), no isAdmin(), nothing\r\n    const { setDeploymentAs } = this.bodyParams;\r\n\r\n    if (setDeploymentAs === 'new-workspace') {\r\n      await WorkspaceCredentials.removeAllCredentials();         // line 649\r\n      await Settings.updateValueById('Cloud_Workspace_Id', ''); // line 651\r\n      await Settings.updateValueById('Cloud_Workspace_Client_Id', '');\r\n      await Settings.updateValueById('Cloud_Workspace_Client_Secret', '');\r\n      await Settings.updateValueById('Cloud_Workspace_PublicKey', '');\r\n      await Settings.updateValueById('Cloud_Workspace_License', '');\r\n      await Settings.updateValueById('uniqueID', generateUniqueId()); // line 662\r\n    }\r\n  }\r\n});\r\n```\r\n\r\n**Contrast with correct pattern** (same file, different endpoint):\r\n```javascript\r\n// cloud.manualSync endpoint - properly authorized\r\nAPI.v1.addRoute('cloud.manualSync', { authRequired: true }, {\r\n  async post() {\r\n    if (!this.userId) throw new Meteor.Error('error-not-allowed');\r\n    await hasPermissionAsync(this.userId, 'manage-cloud'); // ← correct check\r\n    // ...\r\n  }\r\n});\r\n```\r\n\r\n---\r\n\r\n## Impact\r\n\r\nAn attacker with any valid account on a target Rocket.Chat instance can:\r\n\r\n1. **Wipe the workspace license** - `Cloud_Workspace_License` cleared; paid features disabled immediately\r\n2. **Break push notifications** - `Cloud_Workspace_Client_Id/Secret` cleared; all mobile push delivery stops for every user\r\n3. **Sever Rocket.Chat Marketplace access** - workspace is no longer recognized; apps stop receiving updates or may be disabled",
+    "ghsa_id": "GHSA-8hhc-j325-rxqp",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-8hhc-j325-rxqp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8hhc-j325-rxqp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55762"
+      }
+    ],
+    "published_at": "2026-06-15T23:32:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Any Authenticated User Can Permanently Deregister Workspace from Rocket.Chat Cloud via Unprotected `/api/v1/fingerprint` Endpoint",
+    "updated_at": "2026-06-17T14:43:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.5.1, 8.4.4, 8.3.6, 8.2.6, 8.1.6, 8.0.7, 7.10.13",
+        "vulnerable_version_range": "<8.5.1, <8.4.4, <8.3.6, <8.2.6, <8.1.6, <8.0.7, <7.10.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

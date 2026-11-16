@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-q742-6g25-cvm9",
+  "aliases": [],
+  "title": "Read-Only Source Restriction Bypass via Internal Batch API",
+  "summary": "### Summary\n\nWrite operations submitted through the internal batch endpoint were authorized against the source named on the outer envelope rather than the source actually targeted, letting a base Editor write to a source configured as data-read-only.\n\n### Details\n\n`internal.controller.ts` builds each batch sub-request with `Object.create(req)` and replaces only `query` and `body`, so authorization-relevant properties already resolved by the ID-extraction middleware - notably the source id derived from the envelope's table - were inherited by the sub-request. The dispatcher also accepted every registered operation except a nested batch, including the data-write operations, even though the SDK describes the batch set as read-only. A caller could therefore name a table from a writable source on the envelope and a table belonging to a data-read-only source inside a `dataUpdate`, `dataInsert` or `dataDelete` sub-operation: the read-only assertion in `extract-ids.middleware.ts` evaluated the writable decoy source and allowed the request, while `data-table.service.ts` resolved the inner table and performed the write without re-checking the restriction on the actual target source.\n\n### Impact\n\nRequires an authenticated base Editor role, or any other base role carrying data-write permission, plus knowledge of workspace, base and table identifiers that are ordinarily visible to a base member. Such a user could insert, update, move or delete records in a source the base owner had explicitly configured as data-read-only, corrupting or destroying data in an attached production database and defeating the source-level write boundary.\n\n### Credit\n\nThis issue was reported by [@l0h1nth](https://github.com/l0h1nth).",
+  "published_at": "2026-11-02T08:47:11.000Z",
+  "modified_at": "2026-11-02T08:47:11.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "2026.06.2",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-q742-6g25-cvm9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q742-6g25-cvm9",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-q742-6g25-cvm9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:fa762f2d521231483becfe3ea4c98edc591e8149fd0dce88554f2ee1c0216c47",
+  "note": null
+}

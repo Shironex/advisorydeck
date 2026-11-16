@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-hgq6-9jg2-wf3f",
+  "repo": {
+    "cve_id": "CVE-2026-30833",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-943"
+    ],
+    "description": "### Issue 2: NoSQL injection in the EE ddp-streamer-service  (`GHSL-2026-005`)\r\n\r\nA NoSQL injection vulnerability exists in Rocket.Chat's account service used in the `ddp-streamer` micro service that allows unauthenticated attackers to manipulate MongoDB queries during authentication. The vulnerability is located in the username-based login flow where user-supplied input is directly embedded into a MongoDB query selector without validation. An attacker can inject MongoDB operator expressions (e.g., `{ $regex: '.*' }`) in place of a username string, causing the database query to match unintended user records.\r\n\r\nThe NoSQL injection surface exists in the authentication flow where the `username` parameter from the client is used directly in a MongoDB `findOne` query without type or content validation.\r\n\r\n[ee/apps/account-service/src/lib/loginViaUsername.ts](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/account-service/src/lib/loginViaUsername.ts#13):\r\n```typescript\r\nUsers.findOne<IUser>({ username }, { projection: { 'services.password.bcrypt': 1 } });\r\n```\r\n\r\nThe vulnerability is externally reachable through the [`login`](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/ddp-streamer/src/configureServer.ts#L67-L88) method exposed by the ddp-streamer micro service (reachable via `<rocketchat-host>/websocket`):\r\n\r\n```typescript\r\n   server.methods({\r\n       async login(resume, user, password) {\r\n           const result = await Account.login({ resume, user, password });\r\n           // ...\r\n       }\r\n   });\r\n```\r\n\r\n#### Impact\r\n\r\nThis issue may lead to enable logins without fully knowing the usernames of users (especially in combination with GHSL-2026-004).\r\n\r\n#### Remediation\r\n\r\nValidate that the `username` parameter is a primitive string before using it in the query and/or use parameterized queries if possible.\r\n\r\n#### CWEs\r\n\r\n- CWE-943: Improper Neutralization of Special Elements in Data Query Logic\r\n\r\n## Credit\r\n\r\nThese issues were discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [@p- (Peter Stöckli)](https://github.com/p-) and [@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo).\r\n\r\n## Contact\r\n\r\nYou can contact the GHSL team at `securitylab@github.com`, please include a reference to `GHSL-2026-004` or `GHSL-2026-005` in any communication regarding these issues.\r\n\r\n## Disclosure Policy\r\n\r\nThis report is subject to a 90-day disclosure deadline, as described in more detail in our [coordinated disclosure policy](https://securitylab.github.com/advisories#policy).",
+    "ghsa_id": "GHSA-hgq6-9jg2-wf3f",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-hgq6-9jg2-wf3f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hgq6-9jg2-wf3f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-30833"
+      }
+    ],
+    "published_at": "2026-03-05T20:21:29Z",
+    "references": [],
+    "severity": "high",
+    "summary": "NoSQL injection in the EE ddp-streamer-service",
+    "updated_at": "2026-03-05T21:36:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.2.0, 8.1.1, 8.0.2, 7.13.4, 7.12.5, 7.11.5, 7.10.8",
+        "vulnerable_version_range": "<8.2.0, <8.1.1, <8.0.2, <7.13.4, <7.12.5, <7.11.5, <7.10.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

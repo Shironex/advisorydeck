@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-m887-2246-mgw3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "**Version:** `surreal version`: 3.2.0 for linux on x86_64. Seen first on a RocksDB-backed server, reproduced on an in-memory one.\n\n**Summary:** a user with the `VIEWER` role can change a database's schema. `CREATE` on a table that does not exist yet, in a database that is not `STRICT`, returns `OK` and leaves a new table defined as `TYPE ANY SCHEMALESS PERMISSIONS NONE` (0 rows). An explicit `DEFINE TABLE` by the same user is correctly refused (\"IAM error: Not enough permissions to perform this action\"), so the implicit definition bypasses the check that the explicit one applies.\n\n**Reproduce** (fresh server: `surreal start --user root --pass root memory`):\n\nAs root:\n```sql\nDEFINE NAMESPACE n; USE NS n; DEFINE DATABASE loose; DEFINE DATABASE strict STRICT;\nDEFINE USER v ON ROOT PASSWORD 'v' ROLES VIEWER;\nUSE NS n DB loose; DEFINE TABLE t SCHEMALESS; CREATE t:1 SET a = 1;\n```\nAs `v` (ns `n`, db `loose`):\n```sql\nCREATE probe_new:x SET a = 1;   -- OK, returns []\nDEFINE TABLE probe_defined;     -- ERR: IAM error: Not enough permissions\nUPDATE t:1 SET a = 2;           -- OK, returns [], row unchanged (expected)\n```\nAs root: `INFO FOR DB;` now lists `probe_new` (`DEFINE TABLE probe_new TYPE ANY SCHEMALESS PERMISSIONS NONE`), 0 rows.\nIn db `strict` the same `CREATE` by `v` returns \"The table 'probe_new' does not exist\" (expected).\n\n**Impact:** a read-only credential (e.g. one given to a backup or reporting job) can add arbitrary empty tables to any non-STRICT database it can reach. No data is read or changed beyond that, but it is a schema write by a role documented as read-only, and it can clutter or collide with table names an application later defines.\n\n**Expected:** a `VIEWER` statement that would implicitly define a table is refused the same way an explicit `DEFINE TABLE` is.\n\n**Workaround we plan:** set every database reachable by VIEWER users to STRICT.\n\n### Patches\n\nA patch has been created that requires DEFINE TABLE authority before a table is defined on demand, so a VIEWER can no longer implicitly create a table via CREATE on a nonexistent table.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealQL Documentation - DEFINE TABLE](https://surrealdb.com/docs/surrealql/statements/define/table)\n- `fix(exec): require DEFINE TABLE authority to define a table on demand` (commit `2598b3b0ad`)\n",
+    "ghsa_id": "GHSA-m887-2246-mgw3",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-m887-2246-mgw3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m887-2246-mgw3"
+      }
+    ],
+    "published_at": "2026-11-03T15:51:16Z",
+    "references": [],
+    "severity": "low",
+    "summary": "VIEWER role can define tables implicitly via CREATE on a non-STRICT database",
+    "updated_at": "2026-11-03T15:51:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

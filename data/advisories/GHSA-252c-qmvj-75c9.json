@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-252c-qmvj-75c9",
+  "aliases": [],
+  "title": "CSRF can create an attacker-controlled administrator account",
+  "summary": "### Summary\r\n\r\npocket-id issues its authentication and other sensitive cookies without an explicit `SameSite` attribute. The tested release also has no CSRF token or request-origin/Fetch Metadata validation in the relevant route chain. For JSON endpoints, Pocket ID explicitly selects Gin's JSON binder; that binder decodes the request body without enforcing the HTTP `Content-Type`. A cross-site HTML form with `enctype=\"text/plain\"` can therefore submit a JSON-shaped body without a CORS preflight.\r\n\r\nIf the victim is an administrator and their browser includes the session cookie on that cross-site POST, the attacker can cause `POST /api/users` to create a new user with `isAdmin: true`. This creates a persistent unauthorized administrator account.\r\n\r\nThe final login step is conditional. To authenticate the newly created account through the demonstrated path, `emailOneTimeAccessAsUnauthenticatedEnabled` must be enabled. It is `false` by default and is publicly readable through `GET /api/application-configuration`. When it is disabled, the CSRF account-creation issue remains, but this particular email-login takeover chain is incomplete.\r\n\r\n### Root cause\r\n\r\n1. **Cookies omit `SameSite`.** `backend/internal/utils/cookie/add_cookie.go` calls `c.SetCookie` for access-token, session, device-token, device-login, and reauthentication cookies without setting an explicit SameSite policy.\r\n2. **No CSRF protection on the relevant API routes.** The global middleware chain contains no CSRF token check and no `Origin` or `Sec-Fetch-Site` validation for cookie-authenticated state-changing requests.\r\n3. **JSON binding does not enforce `Content-Type`.** `dto.ShouldBindWithNormalizedJSON` calls `ctx.ShouldBindWith(obj, binding.JSON)`, and Gin's JSON binder decodes the body without checking its media type. The `POST /api/users` handler uses this helper.\r\n4. **The admin bit is client-controlled.** `POST /api/users` accepts `dto.UserCreateDto.IsAdmin`, and `UserService.CreateUser` copies that value into the new user record. The endpoint itself requires an administrator session, which is supplied by the victim's cookie.\r\n\r\n### Preconditions and limitations\r\n\r\n- The pocket-id instance is reachable by the victim's browser and the victim has an active administrator session.\r\n- The target browser sends the cookie with the cross-site form POST. Modern Chromium-based browsers normally treat an omitted SameSite attribute as Lax, but retain a short-lived compatibility exception for recently set cookies on top-level POST navigations. Older or differently configured browsers may have broader behavior. Exploitability is therefore browser-dependent and should be tested against the target browser.\r\n- The unauthenticated email one-time-access feature must be enabled for the demonstrated account-takeover chain. The CSRF user creation itself does not depend on that flag.\r\n- The PoC sets `emailVerified: true` in the forged request, but the tested user-creation path accepts that client-supplied field; it does not prove that the email address was independently verified.\r\n\r\n### Proof of concept\r\n\r\nUse a disposable, fresh instance. The compose file bind-mounts `./data`, so an existing database is not fresh.\r\n\r\nMake sure ./data doesn't have any data in it.\r\n\r\nPoC Dependencies: sqlite3, node.js.\r\n\r\ndocker-compose.yml\r\n```yaml\r\nservices:\r\n  pocket-id:\r\n    image: ghcr.io/pocket-id/pocket-id:v2.12.0\r\n    ports:\r\n      - \"1411:1411\"\r\n    environment:\r\n      APP_URL: http://localhost:1411\r\n      ENCRYPTION_KEY: poc-encryption-key-not-secret\r\n      TRUST_PROXY: \"false\"\r\n    volumes:\r\n      - \"./data:/app/data\"\r\n```\r\n\r\npoc.mjs\r\n```javascript\r\n// PoC: pocket-id <= v2.12.0 - CSRF -> attacker-controlled admin -> account takeover\r\n// Usage: docker compose up -d && npm i playwright && npx playwright install chromium && node poc.mjs\r\nimport { chromium } from 'playwright';\r\nimport http from 'node:http';\r\nimport { execSync } from 'node:child_process';\r\n\r\nconst BASE = 'http://localhost:...",
+  "published_at": "2026-08-07T09:22:13.000Z",
+  "modified_at": "2026-08-07T09:22:13.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.7,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-352",
+    "CWE-1275"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-252c-qmvj-75c9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-252c-qmvj-75c9",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-252c-qmvj-75c9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7c2256e3fb3bbdf04d43654fa86221d11e67adc5fa2871b767cdb735850be454",
+  "note": null
+}

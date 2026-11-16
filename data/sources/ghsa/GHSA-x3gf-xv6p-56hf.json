@@ -1,0 +1,86 @@
+{
+  "global": null,
+  "id": "GHSA-x3gf-xv6p-56hf",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-266"
+    ],
+    "description": "### Summary\r\n\r\nWhen a scoped API key or OAuth2 access token created a new API key, Coder did not limit the new key to the scopes, allow list, or expiry of the key that created it. If the request did not specify scopes, the new key defaulted to `coder:all`. A token limited to, for example, `user:read coder:apikeys.manage_self` could create a full-access key through `POST /api/v2/users/{user}/keys/tokens` or `POST /api/v2/users/{user}/keys`. A key with a restricted allow list could likewise create a key with an unrestricted allow list. The same gap applied to keys minted by the application auth redirect and to OAuth2 authorization requests made from a restricted session.\r\n\r\n> **Note:** Exploitation requires a scoped API key or OAuth2 access token that was granted permission to create API keys (for example `coder:apikeys.manage_self` or `api_key:create`), or a `coder:all` key with a restricted allow list.\r\n\r\n### Impact\r\n\r\nA holder of a narrowly scoped token with key-creation permission could obtain a key with the full permissions of the token's user. If the user was an Owner, the limited token could also create full-access keys for other users. A key with a restricted allow list could create a key with an unrestricted allow list, and a short-lived token could create a longer-lived key, so access outlived the original token.\r\n\r\nThis affects scoped tokens, allow lists, and OAuth2 grants used as a damage-limiting control, for example tokens given to CI systems or third-party integrations. Sessions with `coder:all` scope and an unrestricted allow list, including browser logins, are not affected because they already hold full access.\r\n\r\nOn v2.31.7 and later, scoped tokens can reach the key-creation endpoints, so the scope escalation applies. On earlier affected versions, including the 2.29 line, only the allow-list and expiry escalation applies, because no public scope can read the user.\r\n\r\n### Patches\r\n\r\nA new API key now inherits the creating key's scopes and allow list when none are requested. Requests for scopes or allow-list entries beyond the creating key are rejected with `403`; the application auth redirect keeps returning `404`. The new key's expiry is capped at the creating key's expiry. `/oauth2/authorize` returns `invalid_scope` when the requested grant exceeds the session, or when the session's allow list is restricted.\r\n\r\nThis is a behavior change: clients that used a scoped token to create keys without specifying scopes previously received `coder:all` keys, and now receive keys limited to the creating token's scopes.\r\n\r\nThe fix was backported to the following release lines:\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.38 (Mainline) | [v2.38.4](https://github.com/coder/coder/releases/tag/v2.38.4) |\r\n| 2.37 (Stable) | [v2.37.8](https://github.com/coder/coder/releases/tag/v2.37.8) |\r\n| 2.36 (Security Support) | [v2.36.11](https://github.com/coder/coder/releases/tag/v2.36.11) |\r\n| 2.34 (ESR) | [v2.34.16](https://github.com/coder/coder/releases/tag/v2.34.16) |\r\n| 2.29 (ESR) | [v2.29.24](https://github.com/coder/coder/releases/tag/v2.29.24) |\r\n\r\nRelease lines 2.28, 2.30 through 2.33, and 2.35 are end-of-life and will not receive a patch. Users on these lines should upgrade to a patched release.\r\n\r\n### Workarounds\r\n\r\nDo not grant `coder:apikeys.manage_self`, `api_key:create`, `api_key:*`, or other key-creation scopes to scoped API keys or OAuth2 applications. Treat `coder:all` keys with a restricted allow list as full-access. Revoke existing tokens and OAuth2 grants that hold them, and review API keys created by such tokens.\r\n\r\n### References\r\n\r\n- Fix: https://github.com/coder/coder/pull/30256\r\n\r\n### Credits\r\n\r\nWe'd like to thank a customer security team and Muted Cybersecurity (@MutedCybersecurity) for independently reporting this issue!",
+    "ghsa_id": "GHSA-x3gf-xv6p-56hf",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-x3gf-xv6p-56hf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x3gf-xv6p-56hf"
+      }
+    ],
+    "published_at": "2026-10-29T11:04:52Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Scoped API keys and OAuth tokens can create API keys broader than themselves",
+    "updated_at": "2026-10-29T11:04:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.4",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.4"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.8",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.11",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.11"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.16",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.16"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.24",
+        "vulnerable_version_range": ">= 2.28.0, < 2.29.24"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

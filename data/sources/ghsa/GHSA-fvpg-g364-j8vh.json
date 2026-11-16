@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-fvpg-g364-j8vh",
+  "repo": {
+    "cve_id": "CVE-2026-77317",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# SFTP path ACL literal prefix match permits cross-tenant file read and overwrite\n\n## Summary\n\nThis report was prepared with AI assistance and manually validated end to end against SeaweedFS 4.39 and current `master` commit `298ab35fd7551defd2ba3b00880196aaacbaa29a`.\n\nThe SFTP server applies configured path permissions with `strings.HasPrefix(filepath, p)`. A user granted access to `/tenants/alice` is therefore also granted the same access to sibling paths such as `/tenants/alice-archive`, `/tenants/alice2`, and `/tenants/alice-backup`. Through the real authenticated SFTP service, a scoped user can read and overwrite another tenant's files.\n\n## Impact\n\nAn authenticated SFTP user with a root view (`HomeDir: \"/\"`) and narrow path permissions can cross the configured ACL boundary. If the user has `read`, it can disclose sibling-tenant data. If it has `write`, it can overwrite sibling-tenant data.\n\nThis is a user-facing authentication boundary, not access to an internal master, filer, or volume port. The attacker connects only to the documented SFTP service with its own valid low-privilege credentials.\n\n## Affected versions\n\nConfirmed on release 4.39 (commit `db42bb49757b459551607939807017d7a9d5a94a`) and current `master` commit `298ab35fd7551defd2ba3b00880196aaacbaa29a`. The vulnerable SFTP implementation was introduced in release 3.88.\n\n## Deployment and attacker position\n\nComponents:\n\n- SeaweedFS master, volume server, filer, and SFTP server\n- Only the SFTP port is reachable by the attacker\n- SFTP password authentication is enabled\n- Internal cluster ports remain private\n\nAttacker:\n\n- Has valid credentials for a non-root SFTP user\n- Has `HomeDir: \"/\"`\n- Has `read`, `write`, and `list` only for `/tenants/alice`\n- Has no permission configured for `/tenants/alice-archive`\n\nRelevant user entry:\n\n```json\n{\n  \"Username\": \"scoped\",\n  \"Password\": \"scopedpassword\",\n  \"PublicKeys\": [],\n  \"HomeDir\": \"/\",\n  \"Permissions\": {\n    \"/tenants/alice\": [\"read\", \"write\", \"list\"]\n  },\n  \"Uid\": 1003,\n  \"Gid\": 1003\n}\n```\n\n## Reproduction\n\nA working integration regression test is attached as `test/sftp/sibling_prefix_security_test.go`. It starts a real local SeaweedFS cluster and SFTP server using the project's existing SFTP test framework.\n\nThe test performs these steps:\n\n1. An administrator creates `/tenants/alice-archive/secret.txt` containing `SIBLING-SECRET`.\n2. The low-privilege `scoped` user authenticates over SFTP.\n3. The scoped user reads `/tenants/alice-archive/secret.txt` even though its only configured ACL is `/tenants/alice`.\n4. The scoped user overwrites the same sibling file.\n5. The administrator reads the file and observes `OVERWRITTEN-BY-SCOPED-USER`.\n\nRun:\n\n```bash\ncd test/sftp\ngo test -v -timeout 60s -run TestScopedRootUserCannotReadSiblingPrefixSecurity ./...\n```\n\nThe end-to-end run reached the deliberate security failure after proving both effects:\n\n```text\n=== RUN   TestScopedRootUserCannotReadSiblingPrefixSecurity\nsibling_prefix_security_test.go:53: authorization bypass: ACL /tenants/alice read and overwrote sibling /tenants/alice-archive\n```\n\nA smaller unit regression test in `weed/sftpd/sftp_permissions_security_test.go` independently proves both raw prefix mistakes. On unmodified code:\n\n```text\nTestExplicitPermissionDoesNotMatchSiblingPrefixSecurity: security boundary bypass: ACL for /tenants/alice matched sibling /tenants/alice-archive\nTestHomeDirectoryDoesNotMatchSiblingPrefixSecurity: security boundary bypass: home /tenants/alice matched sibling /tenants/alice-archive\n```\n\n## Expected behavior\n\nA permission entry for `/tenants/alice` should authorize exactly `/tenants/alice` and descendants under `/tenants/alice/`. A sibling path whose name merely starts with the same bytes must be denied.\n\n## Actual behavior\n\n`/tenants/alice-archive/secret.txt` inherits the `read` and `write` permissions configured for `/tenants/alice`, allowing disclosure and modification through SFTP.\n\n## Root cause\n\n`weed/sftpd/sftp_permissions.go` uses literal string-prefix comparisons for path boundaries:\n\n```go\nfunc isPathInHomeDirectory(user *user.User, path string) bool {\n    return strings.HasPrefix(path, user.HomeDir)\n}\n```\n\nand:\n\n```go\nfor p, userPerms := range user.Permissions {\n    if strings.HasPrefix(filepath, p) && len(p) > len(bestMatch) {\n        bestMatch = p\n        perms = userPerms\n    }\n}\n```\n\nThe comment says the path must be either the permission path exactly or under that path, but `strings.HasPrefix` does not enforce a path-component boundary.\n\n## Remediation\n\nNormalize both paths using slash-based path semantics, then require either exact equality or a separator-delimited descendant:\n\n```go\nfunc pathWithin(base, candidate string) bool {\n    base = path.Clean(base)\n    candidate = path.Clean(candidate)\n    if base == \"/\" {\n        return strings.HasPrefix(candidate, \"/\")\n    }\n    return candidate == base || strings.HasPrefix(candidate, base+\"/\")\n}\n```\n\nUse this helper in both `isPathInHomeDirectory` and `HasExplicitPermission`. Add regression cases for exact paths, descendants, sibling prefixes, cleaned traversal, root, and trailing separators.\n",
+    "ghsa_id": "GHSA-fvpg-g364-j8vh",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-fvpg-g364-j8vh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fvpg-g364-j8vh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-77317"
+      }
+    ],
+    "published_at": "2026-08-21T03:13:10Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SFTP path ACL literal prefix match permits cross-tenant file read and overwrite",
+    "updated_at": "2026-08-21T03:13:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": ">= 3.88, <= 4.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

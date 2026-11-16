@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-9g75-jg2x-68m4",
+  "aliases": [],
+  "title": "Session Cookie Without Secure Flag via Client-Side Token Sync",
+  "summary": "### Summary\n\nThe Enterprise web app wrote the session token into a cookie from script without the Secure attribute, so on an https deployment the token could travel over plain HTTP.\n\n### Details\n\nThe Enterprise copy of the frontend composable `useGlobal/index.ts`, which the official Docker image is built from, writes the session token into an `nc_token` cookie from script each time the token changes and when the app loads. The write sets no Secure attribute, and a cookie set from script cannot be HttpOnly. The cookie the server issues at sign-in is HttpOnly, and Secure on https sites, but whenever the browser held no server-issued cookie, for example after it expired or was cleared while the token stayed in local storage, the app recreated the cookie without either attribute. The backend accepts this cookie as a session credential (`jwt-strategy.provider.ts`). The Community Edition copy of the composable sets Secure on https. The Enterprise copy now sets Secure on https as well.\n\n### Impact\n\nNo authentication is required, but the attacker needs a position on the victim's network that lets them observe or induce a plain-HTTP request to an instance served over https, at a time when the script-written cookie is present. They could capture the victim's session token and act as the victim until the token expires.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team).",
+  "published_at": "2026-11-02T08:48:12.000Z",
+  "modified_at": "2026-11-02T08:48:12.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.2,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-614"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0.301.4",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-9g75-jg2x-68m4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9g75-jg2x-68m4",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-9g75-jg2x-68m4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f7854857b22981fc5d5fb947c7a3b523b472449447808c69609d28e84e268156",
+  "note": null
+}

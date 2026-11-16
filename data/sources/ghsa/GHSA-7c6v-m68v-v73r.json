@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-7c6v-m68v-v73r",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-204",
+      "CWE-307"
+    ],
+    "description": "## Summary\r\n\r\nThe Meteor method `sendForgotPasswordEmail`, callable unauthenticated over DDP / WebSocket and over the `POST /api/v1/method.callAnon/sendForgotPasswordEmail` HTTP route, has **no `DDPRateLimiter` rule attached**. Its sibling method `sendConfirmationEmail` (in the same directory, mostly the same shape) does have a rate limit.\r\n\r\n## Details\r\n\r\n`sendForgotPasswordEmail.ts` in its entirety:\r\n\r\n```ts\r\n// apps/meteor/server/methods/sendForgotPasswordEmail.ts\r\nexport const sendForgotPasswordEmail = async (to: string): Promise<boolean | undefined> => {\r\n    const email = to.trim().toLowerCase();\r\n\r\n    const user = await Users.findOneByEmailAddress(email, { projection: { _id: 1, services: 1 } });\r\n\r\n    if (!user) {\r\n        return true;                                  // <-- silent on non-existent\r\n    }\r\n\r\n    if (user.services && !user.services.password) {\r\n        if (!settings.get('Accounts_AllowPasswordChangeForOAuthUsers')) {\r\n            return false;                             // <-- distinguishable signal for OAuth-only users\r\n        }\r\n    }\r\n\r\n    try {\r\n        Accounts.sendResetPasswordEmail(user._id, email);\r\n        return true;\r\n    } catch (err) {\r\n        SystemLogger.error({ err });\r\n    }\r\n};\r\n\r\nMeteor.methods<ServerMethods>({\r\n    async sendForgotPasswordEmail(to) {\r\n        check(to, String);\r\n        return sendForgotPasswordEmail(to);\r\n    },\r\n});\r\n\r\n// NB: no DDPRateLimiter.addRule(...) anywhere in this file\r\n```\r\n\r\nCompare `sendConfirmationEmail.ts` (same directory, same purpose-class):\r\n\r\n```ts\r\n// apps/meteor/server/methods/sendConfirmationEmail.ts:29-39\r\nDDPRateLimiter.addRule(\r\n    { type: 'method', name: 'sendConfirmationEmail', userId() { return true; } },\r\n    5,\r\n    60000,\r\n);\r\n```\r\n\r\nThe REST endpoint `POST /api/v1/users.forgotPassword` (`apps/meteor/app/api/server/v1/users.ts:1124`) does not set custom `rateLimiterOptions`, so it falls under the API's default REST rate limiter (`API_Enable_Rate_Limiter_Limit_Calls_Default`). That bounds the REST path. The DDP method has no such floor.\r\n\r\n## References\r\n\r\n- `apps/meteor/server/methods/sendForgotPasswordEmail.ts` - affected file\r\n- `apps/meteor/server/methods/sendConfirmationEmail.ts:29-39` - correct pattern in sibling method\r\n- `apps/meteor/app/api/server/v1/users.ts:1124` - REST entry point (rate-limited via API default)\r\n- `apps/meteor/app/api/server/v1/misc.ts:670-720` - `method.callAnon` HTTP-to-DDP bridge\r\n",
+    "ghsa_id": "GHSA-7c6v-m68v-v73r",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-7c6v-m68v-v73r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7c6v-m68v-v73r"
+      }
+    ],
+    "published_at": "2026-08-20T19:23:56Z",
+    "references": [],
+    "severity": "low",
+    "summary": "sendForgotPasswordEmail Meteor Method Lacks DDP Rate Limit",
+    "updated_at": "2026-08-20T19:23:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.8.0, 8.7.2, 8.6.2, 8.5.3, 8.4.6, 8.3.8, 8.2.8, 8.1.8, 7.10.15",
+        "vulnerable_version_range": "<8.8.0, <8.7.2, <8.6.2, <8.5.3, <8.4.6, <8.3.8, <8.2.8, <8.1.8, <7.10.15"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

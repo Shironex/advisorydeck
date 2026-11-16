@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-frqc-xh5h-rrcw",
+  "aliases": [],
+  "title": "Remote Code Execution via Formula Parsed Tree SQL Injection",
+  "summary": "### Summary\n\nThe formula query builder reused a stored, client-influenceable `parsed_tree` without revalidating it, interpolating its function name into raw SQL. On a base backed by external PostgreSQL this reached remote code execution on the database host, and on a single-container SQLite metadata install it reached instance super administrator.\n\n### Details\n\nThe builder in `parsed-tree-builder.ts` constructs SQL for a formula column from the column's stored `parsed_tree`, writing the call-expression function name straight into a `knex.raw` fragment with no binding and no allow-list. The save-time validator that rejects unknown function names runs only when a formula is created or updated; when a stored tree is present the builder reuses it without revalidating, so an attacker able to persist a tree the validator never produced reaches the raw sink with a chosen function name. Against an external PostgreSQL source whose role may run server programs, the injected SQL could run operating-system commands on the database host. Persisting such a tree was possible because the guard meant to stop a SQLite source from opening NocoDB's own metadata file compared only normalized path strings, so a kernel-resolved alias opened the real file while comparing unequal; the attached metadata database could then be written directly, which both plants the poisoned tree and, by editing the user table, grants instance super administrator. The function names of a reused tree are now re-checked against the allow-list before the builder runs, and the path guard canonicalizes the real filesystem target before the comparison.\n\n### Impact\n\nAn attacker needs an account with the Creator or Owner role on a base, which grants the base, source and column operations the chain uses. On a default single-container install, whose metadata lives in a SQLite file, the same primitive reads every user record, password hash, API token and stored data-source credential on the instance and rewrites the attacker's own account to super administrator, defeating the boundary between a base-scoped collaborator and instance-wide authority. Where a base is connected to an external PostgreSQL server whose role may run server programs, the injection executes operating-system commands on that database host. Managed PostgreSQL offerings that forbid program execution limit the external-source case to reading and modifying data on the connected database.\n\n### Credit\n\nThis issue was reported by [@zenniskayy2k4](https://github.com/zenniskayy2k4).",
+  "published_at": "2026-11-02T08:47:51.000Z",
+  "modified_at": "2026-11-02T08:47:51.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-89"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.09.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-frqc-xh5h-rrcw",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-frqc-xh5h-rrcw",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-frqc-xh5h-rrcw",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1eca5bc34ab2c0e8e048dec111f5ebfdc99075c6ed04685bfcf82ee5b0bc3997",
+  "note": null
+}

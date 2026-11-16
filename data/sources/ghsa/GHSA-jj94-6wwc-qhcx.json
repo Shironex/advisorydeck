@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-jj94-6wwc-qhcx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-269"
+    ],
+    "description": "### Summary\n\nUpdating a user's legacy organization-role flag unconditionally rewrote that user's default-workspace role as a side effect, silently restoring workspace-wide access that an administrator had previously revoked.\n\n### Details\n\n`org-users.service.ts` backs the super-admin-only user update route, whose documented purpose is toggling a legacy organization role that does not govern workspace or base access. Every invocation of `userUpdate` also called `WorkspaceUser.update` against the default workspace, setting the target's workspace role to Creator or Viewer according to the organization-role value - with no guard on the user's current workspace role and no check that the organization role had actually changed, so even re-asserting the same value re-triggered the write. Where a user has no explicit membership row for a base, NocoDB falls back to their workspace role for that base, and a workspace Creator maps to a base Creator, an exclude-list role permitting every action except base deletion and migration. Roles are resolved from the database on every request by `User.getWithRoles` rather than cached in the session token, so the restored role took effect on the affected user's next call using their existing, never-reissued token.\n\n### Impact\n\nThe privileged action is available to a super administrator; the user who regains access needs only an ordinary existing account and session. A routine change to a flag with no effect on workspace or base access silently re-granted near-owner-level access - read, write and schema modification - across every base in the default workspace, defeating an administrator's earlier and deliberate revocation of that user's base access. No indication of the side effect was surfaced to the administrator making the change, the administrator who had revoked the access, or the affected user.\n\n### Credit\n\nThis issue was reported by [@komyunghan](https://github.com/komyunghan).\n",
+    "ghsa_id": "GHSA-jj94-6wwc-qhcx",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-jj94-6wwc-qhcx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jj94-6wwc-qhcx"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:26Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Improper Privilege Management via Organization Role Update",
+    "updated_at": "2026-10-27T10:06:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": ">= 2026.04.0, < 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

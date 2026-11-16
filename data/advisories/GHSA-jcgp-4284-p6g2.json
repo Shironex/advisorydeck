@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-jcgp-4284-p6g2",
+  "aliases": [],
+  "title": "Path traversal in Lance Namespace REST gateway via request-body location enables cross-tenant filer marker write",
+  "summary": "## Summary\nThe SeaweedFS Lance Namespace REST catalog gateway (default port **9101**, bind `0.0.0.0`, launched whenever `-s3.port.lance > 0` which is the default) reads a client-supplied request-body `location` field in `handleDeclareTable`/`handleRegisterTable` and passes it - after only `strings.TrimSuffix(req.Location, \"/\")` - into a filer path sink. `TableDataDirFromMetadataLocation` performs `path.Join(\"/buckets\", location)`, which collapses `..` segments server-side, and `writeMarker` then issues a filer `CreateEntry` at the resulting directory. Because `writeMarker` never sets `SkipCheckParentDirectory`, the filer recursively auto-creates every missing parent directory along the traversed path. An attacker can therefore write a fixed-name marker (`.lance-reserved` / `.lance-deregistered`) and create parent directories at any location in the filer's virtual namespace - outside the caller's bucket and outside `/buckets` entirely - enabling cross-tenant writes and targeted hiding of another tenant's live Lance tables.\n\nThe Lance gateway is the sibling REST gateway that the fix for CVE-2026-54917 (GHSA-w62w-66v9-vvgv) never covered. That fix added a `validateRequestPath` middleware to the **S3** and **Iceberg** routers only, and it inspects only mux path variables - it cannot see a request-body field, and the Lance router does not install it. The Iceberg gateway confines the identical `location` field (`parseS3Location` + `metadataBucket==bucketName` + `isValidTablePath`); Lance implements none of these.\n\n## Root Cause\n- `weed/s3api/lance/server.go:88` - `RegisterRoutes` installs only `router.Use(loggingMiddleware)`; no `validateRequestPath` (contrast `weed/s3api/iceberg/server.go` and `weed/s3api/s3api_server.go` which install it).\n- `weed/s3api/lance/handlers_table.go:130` - the sole transformation applied to the body field is `location := strings.TrimSuffix(req.Location, \"/\")` (no `..`/Clean/prefix check).\n- `weed/s3api/s3tables/utils.go` - `TableDataDirFromMetadataLocation` does `path.Join(TablesPath /* \"/buckets\" */, loc)`, collapsing `..`.\n- `weed/s3api/lance/markers.go:54-66` - `writeMarker` issues `filer_pb.CreateEntry{Directory: <traversed>, Name: \".lance-reserved\"}` **without** `SkipCheckParentDirectory`, so the filer gRPC handler passes `SkipCheckParentDirectory=false` and `ensureParentDirectoryEntry` recursively creates every missing parent.\n\n## Impact\n- Cross-tenant / cross-bucket write of a fixed-name, zero-byte marker into any directory of the filer virtual namespace (including outside `/buckets`).\n- Attacker-controlled recursive parent-directory creation in the filer namespace.\n- Targeted denial/hiding of a victim's live Lance table: planting `.lance-deregistered` in a victim's dataset directory makes the catalog report that table as deregistered (it disappears from `DescribeTable`/`TableExists`).\n\nImpact is bounded (no host-filesystem write, no RCE, no arbitrary recursive delete): the `/buckets`, `/etc/...` paths are entries in the SeaweedFS filer *virtual* namespace, not the host OS filesystem; DeleteTable's `HasPrefix(GetTableBucketPath(bucket))` confinement blocks arbitrary recursive deletion; marker filenames are fixed (constrained content). In the out-of-the-box zero-config `weed s3` deployment the gateway is unauthenticated (`isAuthEnabled = len(identities) > 0 = false` → `AuthenticateRequest` returns an admin identity); with auth enabled it is an authenticated confused-deputy (the catalog authorizes `CreateTable` against the `{id}` bucket while the marker write targets the traversed directory).\n\n## Proof of Concept\n```\nPOST http://TARGET:9101/v1/table/mybucket$ns$tbl/declare\nContent-Type: application/json\n\n{\"location\":\"s3://mybucket/../../../buckets/victim-bucket/target-table\"}\n```\nZero-config (no S3 identities configured) → runs unauthenticated. The server writes `.lance-reserved` into `/buckets/victim-bucket/target-table` (auto-creating parents). Using a victim's live dataset dir with `.lance-de...",
+  "published_at": "2026-09-18T20:00:51.000Z",
+  "modified_at": "2026-09-18T20:00:51.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.2,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-22",
+    "CWE-706"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.43",
+          "last_affected": "4.44"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jcgp-4284-p6g2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jcgp-4284-p6g2",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-jcgp-4284-p6g2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:4dc0b4c81e4d7a579c96ba7dee45824b27396704c6ebcfbc1406c3946ed329b9",
+  "note": null
+}

@@ -1,0 +1,88 @@
+{
+  "global": null,
+  "id": "GHSA-373r-678h-hjc6",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-177",
+      "CWE-22",
+      "CWE-441"
+    ],
+    "description": "### Summary\r\n\r\nThe AI Gateway (formerly AI Bridge) passthrough router forwarded the client's request path to the upstream model provider without rejecting percent-encoded dot segments. `http.ServeMux` only cleans literal `.` and `..` segments, so a path such as `/openai/v1/models/%2e%2e/%2e%2e/<endpoint>` or `/openai/v1/models/..%2F..%2F<endpoint>` still matched an allowlisted passthrough prefix route (for example `/models/`). The escaped path was then sent upstream, where decoding and normalization resolved it to an endpoint outside the provider base-URL prefix that the gateway does not intend to expose.\r\n\r\nIn releases before v2.33.0, the passthrough built the upstream path from the already-decoded request path, so the traversal was resolved by the gateway itself (v2.30 through v2.32) or forwarded as literal `..` segments (v2.28 and v2.29).\r\n\r\n> **Note:** Exploitation requires AI Gateway to be enabled and an authenticated Coder user with access to it. Impact depends on which endpoints the upstream provider exposes to the configured credential, and in v2.33.0 and later on whether the upstream or an intermediate proxy normalizes the decoded path.\r\n\r\n### Impact\r\n\r\nAn authenticated user with AI Gateway access may be able to reach upstream endpoints outside the allowlisted passthrough routes. When the gateway injects the deployment's centrally managed provider key, those requests are authenticated with that key, so the user could call upstream APIs beyond the allowlisted passthrough routes (for example reading or modifying provider-side resources owned by the deployment's provider account). This crosses the boundary between individual Coder users and the deployment-wide provider credential.\r\n\r\nThe provider key itself is not disclosed to the client, and access to Coder resources outside AI Gateway is not affected.\r\n\r\n### Patches\r\n\r\nThe fix validates the request path at the AI Gateway entrypoint, before routing to any provider. After decoding the escaped path once, requests are rejected with `400 invalid request path` if any segment is `.` or `..` (including segments separated by an escaped `/` or `\\`), still contains `%` (multiple encoding), or contains control characters. Escaped separators inside ordinary segments, such as `/models/org%2Fmodel`, continue to forward unchanged.\r\n\r\nThe fix was backported to the following release lines:\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.38 (Mainline) | [v2.38.1](https://github.com/coder/coder/releases/tag/v2.38.1) |\r\n| 2.37 (Stable) | [v2.37.5](https://github.com/coder/coder/releases/tag/v2.37.5) |\r\n| 2.36 (Security Support) | [v2.36.8](https://github.com/coder/coder/releases/tag/v2.36.8) |\r\n| 2.35 (end-of-life, patched) | [v2.35.10](https://github.com/coder/coder/releases/tag/v2.35.10) |\r\n| 2.34 (ESR) | [v2.34.13](https://github.com/coder/coder/releases/tag/v2.34.13) |\r\n| 2.29 (ESR) | [v2.29.22](https://github.com/coder/coder/releases/tag/v2.29.22) |\r\n\r\n\r\nAI Bridge was introduced in v2.28.0. Release lines 2.28 and 2.30 through 2.33 are end-of-life and will not receive a patch.\r\n\r\n### Workarounds\r\n\r\nConfigure a reverse proxy or WAF in front of Coder to reject requests under `/api/v2/aibridge/` and `/api/v2/ai-gateway/` whose raw path, compared case-insensitively, contains `%2e`, `%25`, `%5c`, `.%2f`, or `%2f.`. Do not block `%2f` on its own, because model IDs such as `org%2Fmodel` use it. Alternatively, disable AI Gateway until you can upgrade.\r\n\r\n### References\r\n\r\n- Fix: #30178\r\n",
+    "ghsa_id": "GHSA-373r-678h-hjc6",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-373r-678h-hjc6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-373r-678h-hjc6"
+      }
+    ],
+    "published_at": "2026-10-21T09:57:51Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Encoded path traversal in AI Gateway passthrough lets users reach unintended upstream provider endpoints",
+    "updated_at": "2026-10-21T09:57:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.5",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.5"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.8",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.8"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.35.10",
+        "vulnerable_version_range": ">= 2.35.0, < 2.35.10"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.13",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.13"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.22",
+        "vulnerable_version_range": ">= 2.28.0, < 2.29.22"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.1",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

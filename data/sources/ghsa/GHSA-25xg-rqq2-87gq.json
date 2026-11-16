@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-25xg-rqq2-87gq",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-636"
+    ],
+    "description": "### Summary\n\nLogto's SAML application authentication endpoint (`GET` and `POST /api/saml/:id/authn`, where Logto is the identity provider for a registered service provider) accepted authentication requests whose XML is not well-formed. The XML format check that Logto registers with samlify could never report a failure, so such a request was processed like a well-formed one.\n\n### Details\n\n`SamlApplication.setSchemaValidator` (`packages/core/src/saml-application/SamlApplication/index.ts`) registered this validator:\n\n```ts\nsaml.setSchemaValidator({\n  validate: async (xmlContent: string) => {\n    try {\n      XMLValidator.validate(xmlContent, { allowBooleanAttributes: true });\n      return true;\n    } catch {\n      return false;\n    }\n  },\n});\n```\n\n- fast-xml-parser's `XMLValidator.validate()` returns `true`, or an error object such as `{ err: { code: 'InvalidChar', msg: \"char '&' is not expected.\", ... } }`. It never throws, so the `catch` branch was unreachable and the validator resolved `true` for every input.\n- samlify ignores the resolved value and fails a request only when the validator rejects (`flow.js`, in the redirect, POST and simple-sign flows). Returning `false` would not have rejected a request either.\n\nThe check is a well-formedness check, not XML Schema validation. For example, an `AuthnRequest` with an unescaped ampersand in element text (`<samlp:Extensions>R&D dept</samlp:Extensions>`) received the same `302` redirect to sign-in as a well-formed request, on both bindings, and Logto stored the same pending SAML session that it stores for every accepted request.\n\n### Impact\n\nThe check is defence in depth, and it failing open grants no access. A request whose XML is not well-formed was handled exactly like a well-formed request from the same caller:\n\n- Unless the application requires signed authentication requests, the endpoint accepts requests from any caller by design.\n- The pending SAML session only lets the flow resume after sign-in. It expires after 60 minutes and grants nothing by itself; the user still has to sign in before Logto issues a SAML response.\n- Signature verification for applications that require signed authentication requests is not affected.\n\nThere is no authentication or authorization bypass, and no privilege beyond what an anonymous caller already has.\n\n### Affected versions\n\n`>= 1.23.1, <= 1.45.0`. The endpoint and the validator were introduced in 1.23.1.\n\n### Patches\n\nFixed in 1.46.0 (logto-io/logto#9947). The validator now rejects XML that is not well-formed, and the endpoint answers such a request with `400 application.saml.invalid_saml_request` on both bindings.\n\n### Workarounds\n\nOn 1.44.0 or later, requiring signed authentication requests for the application limits the endpoint to requests signed by its service provider.\n\n### Credit\n\nReported by Wenhao Wu (Southeast University).\n",
+    "ghsa_id": "GHSA-25xg-rqq2-87gq",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-25xg-rqq2-87gq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-25xg-rqq2-87gq"
+      }
+    ],
+    "published_at": "2026-11-09T07:10:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SAML application authentication endpoint accepts XML that is not well-formed",
+    "updated_at": "2026-11-09T07:10:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": ">= 1.23.1, <= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

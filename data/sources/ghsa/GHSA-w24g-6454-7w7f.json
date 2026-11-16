@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-w24g-6454-7w7f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:H/SI:L/SA:L"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe MongoDB Chat Memory node accepted the sessionId value from the Chat Trigger request body without validating that it was a plain string before passing it to the MongoDB query that loads conversation history. An unauthenticated caller could supply a MongoDB query operator in place of a session identifier, causing the database to match sessions other than their own. This allowed an outside visitor with access only to the public chat URL to read conversation histories belonging to other users. The same query path is used for write and delete operations, so those are exposed by the same defect.\n\nThe issue affects workflows that combine a Chat Trigger node configured with no authentication and a MongoDB Chat Memory node.\n\n## Patches\n\nThe issue has been fixed in n8n version 1.123.80, 2.39.6 and 2.40.1. Users should upgrade to this version or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Enable authentication on any Chat Trigger nodes that are backed by a MongoDB Chat Memory node, so that the public endpoint is no longer unauthenticated.\n- Replace the MongoDB Chat Memory node with an alternative memory backend until the instance is patched.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-w24g-6454-7w7f",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-w24g-6454-7w7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w24g-6454-7w7f"
+      }
+    ],
+    "published_at": "2026-09-16T08:23:26Z",
+    "references": [],
+    "severity": "high",
+    "summary": "NoSQL Injection in MongoDB Chat Memory Node Allows Unauthenticated Cross-Session Chat History Disclosure",
+    "updated_at": "2026-09-16T08:23:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.80",
+        "vulnerable_version_range": "< 1.123.80"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.40.1",
+        "vulnerable_version_range": "< 2.40.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.39.6",
+        "vulnerable_version_range": "< 2.39.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

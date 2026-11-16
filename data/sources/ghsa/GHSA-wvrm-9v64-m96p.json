@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-wvrm-9v64-m96p",
+  "repo": {
+    "cve_id": "CVE-2026-47263",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Impact\n\nThe `MessageBus.publish` call for `/web_hook_events/<id>` in `Jobs::RedeliverWebHookEvents` did not pass `group_ids`, leaving the channel readable by any authenticated user (or anonymous user on instances where `login_required` is disabled). Webhook IDs are sequential integers and trivially enumerable.\n\nThe published payload was the full `AdminWebHookEventSerializer` JSON - request URL, request headers, request body, response headers, and response body - so a non-staff subscriber could receive webhook contents that may include private post bodies, user PII, or response data from third-party endpoints they are not authorized to see.\n\nThe leak is triggered by webhook redeliveries, which are queued through the admin \"redeliver\"/\"redeliver failed\" UI and processed by the `RedeliverWebHookEvents` scheduled job. The sibling publisher in `Jobs::EmitWebHookEvent` was already restricted to the staff group and emitted a minimal payload; the redelivery path was not.\n\n### Workarounds\n\nUpgrade to the patched version.",
+    "ghsa_id": "GHSA-wvrm-9v64-m96p",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-wvrm-9v64-m96p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wvrm-9v64-m96p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47263"
+      }
+    ],
+    "published_at": "2026-05-18T23:34:16Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Prevent webhook payload disclosure on event redelivery",
+    "updated_at": "2026-05-19T19:34:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.5.0-latest.1",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.4.1",
+        "vulnerable_version_range": ">= 2026.4.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.3.1",
+        "vulnerable_version_range": ">= 2026.3.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.1.4",
+        "vulnerable_version_range": ">= 2026.1.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

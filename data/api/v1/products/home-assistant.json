@@ -1,0 +1,1091 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "home-assistant",
+    "name": "Home Assistant",
+    "category": "apps",
+    "homepage": "https://www.home-assistant.io",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "CVE-2026-91131",
+      "aliases": [
+        "GHSA-6456-4qg9-cqpj"
+      ],
+      "title": "SSRF in Service Discovery Protocol service (SSDP)",
+      "summary": "## Summary\r\n\r\nHome Assistant is vulnerable to a blind Server-Side Request Forgery (SSRF) via the SSDP integration. An unauthenticated attacker on the local network can send a crafted SSDP `NOTIFY` announcement with an attacker-controlled `LOCATION` header, causing Home Assistant to issue an HTTP request to that URL. The location filter rejected loopback addresses written as IP literals but not the `localhost` hostname, so the request could be directed at services bound to the loopback interface that are not otherwise reachable from the network. The SSDP integration processes announcements automatically, without any user interaction or authentication, and is enabled by default as part of `default_config`.\r\n\r\n## Details\r\n\r\nHome Assistant listens for SSDP announcements on UDP port 1900. When a `NOTIFY` announcement is received, the device description is fetched from the URL given in the `LOCATION` header.\r\n\r\nBefore making that request, the location is checked by `is_valid_location` in the `async_upnp_client` library:\r\n\r\n```python\r\ndef is_valid_location(location: str) -> bool:\r\n    \"\"\"Validate if this location is usable.\"\"\"\r\n    return location.startswith(\"http\") and not (\r\n        \"://127.0.0.1\" in location or \"://[::1]\" in location or \"://169.254\" in location\r\n    )\r\n```\r\n\r\nThe check is a set of substring comparisons against literal addresses. It rejects `127.0.0.1`, `[::1]` and the `169.254` link-local range, but it does not account for hostnames that resolve to a loopback address. A `LOCATION` value using `localhost` passes validation and is then resolved and fetched, reaching the same interface the literal checks were intended to protect.\r\n\r\nThe attacker cannot read the response to the request, so this is a blind SSRF. The scheme, host, port, path and query string are all attacker-controlled.\r\n\r\n## PoC\r\n\r\n### Prerequisites\r\n\r\n* Attacker machine on the same local network as the Home Assistant instance\r\n\r\n### Exploit\r\n\r\nSend an SSDP `NOTIFY` announcement to the target with the `LOCATION` header set to an attacker-chosen URL:\r\n\r\n```\r\nNOTIFY * HTTP/1.1\r\nHOST: <HOME_ASSISTANT_IP>:1900\r\nNTS: ssdp:alive\r\nNT: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\nUSN: uuid:89a5dcd6-c11a-4287-92db-e8f0143d7f5b\r\nAL: http://<ATTACKER_IP>:4444/foo?bar=qaz\r\nLOCATION: http://<ATTACKER_IP>:4444/foo?bar=qaz\r\n```\r\n\r\nHome Assistant issues an HTTP GET to the supplied URL, including the query string, which can be observed with a listener on the attacker's machine.\r\n\r\nSubstituting a loopback target demonstrates the filter bypass. A `LOCATION` of `http://127.0.0.1:<port>/<path>` is rejected. A `LOCATION` of `http://localhost:<port>/<path>` is accepted and the request is made.\r\n\r\n### Exploit Flow\r\n\r\n1. The attacker sends an SSDP `NOTIFY` announcement to UDP port 1900 on the target\r\n2. The `LOCATION` header carries a URL using the `localhost` hostname\r\n3. The location filter finds no matching IP literal and accepts the value\r\n4. Home Assistant resolves `localhost` and issues the HTTP request to the loopback interface\r\n5. The request reaches a service that is not otherwise accessible from the network\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker on the same local network can cause Home Assistant to issue arbitrary HTTP GET requests, including to services bound to the loopback interface that are not otherwise reachable. Exploitation requires no user interaction, no authentication and no prior configuration, as SSDP announcements are processed automatically and the integration is enabled by default.\r\n\r\nThe response is not returned to the attacker, which limits direct data disclosure. The primary risk is reaching internal services as a step towards a further vulnerability in one of them.\r\n\r\nHome Assistant fetches device descriptions from discovery announcements by design, and requests to other hosts on the local network are expected behaviour. The issue addressed here is specifically that the loopback restriction could be bypassed.\r\n\r\n## Mitigations\r\n\r\nT...",
+      "published_at": "2026-10-29T10:13:20.000Z",
+      "modified_at": "2026-10-29T10:13:20.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-184",
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.8.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-6456-4qg9-cqpj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-6456-4qg9-cqpj",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-6456-4qg9-cqpj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6b83082554c33a8993f5b2c6acd1aa1f1f882a5e2d8eb1986bf0c854970d206e",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-91129",
+      "aliases": [
+        "GHSA-4ghv-53cq-7wp3"
+      ],
+      "title": "Home Assistant: mDNS Server-Side Request Forgery",
+      "summary": "Home Assistant is open source home automation software focused on local control and privacy. Prior to 2026.2.3, the IPP integration automatically processed unauthenticated _ipp._tcp.local mDNS announcements in homeassistant/components/ipp/config_flow.py, where async_step_zeroconf passed attacker-controlled host, port, and base_path values to validate_input for printer metadata retrieval. Because the shared HTTP client followed attacker-controlled cross-origin redirects without blocking loopback targets, a local-network attacker could redirect the request to 127.0.0.1 or another internal service without user interaction or prior IPP configuration. This issue is fixed in version 2026.2.3.",
+      "published_at": "2026-09-16T14:17:24.000Z",
+      "modified_at": "2026-09-24T15:25:00.416Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.4,
+        "vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00294,
+        "percentile": 0.22287,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.2.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-4ghv-53cq-7wp3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/pull/162941",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/commit/0f3c7ca2772b605c0f3c09c88f35e527ea6ea560",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/commit/815c708d19aa0c7f59f9ee318b613a5e481a42b3",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/releases/tag/2026.2.3",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-91129",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-91129",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-91129",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-91129",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-4ghv-53cq-7wp3",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-4ghv-53cq-7wp3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6ac66ae167d1a516ee76b83cc4e2a2ced1892ea6a1786389acb1746b0c48f5ff",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-91130",
+      "aliases": [
+        "GHSA-wx4m-69m9-gx3m"
+      ],
+      "title": "Home Assistant: XSS in Statistics Graph Card",
+      "summary": "Home Assistant is open source home automation software focused on local control and privacy. Prior to 2026.7.0, the Statistics Graph card in src/components/chart/statistics-chart.ts passed entity names through getStatisticLabel and computeStateName and interpolated param.seriesName into ECharts tooltip HTML without escaping. An authenticated user or an integration that supplies a malicious default entity name could cause script-related HTML to execute when a viewer hovered over a data point. Mean, State, Sum, and Change fields in the default Line chart configuration were affected, while Bar charts were not. This issue is fixed in version 2026.7.0.",
+      "published_at": "2026-09-16T09:44:46.000Z",
+      "modified_at": "2026-09-22T19:41:01.261Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:A/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00483,
+        "percentile": 0.42212,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-80"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2025.1.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-wx4m-69m9-gx3m",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/frontend/pull/52235",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/frontend/commit/b8c201b6d34414d30c622797366570185c219614",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/releases/tag/2026.7.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-91130",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-91130",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-91130",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-91130",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-wx4m-69m9-gx3m",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-wx4m-69m9-gx3m",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:82c15b8a45d20da7724780e7481c12a6871a031350c728b161ad3d9e97e2cde4",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-66061",
+      "aliases": [
+        "GHSA-j23v-9672-677j"
+      ],
+      "title": "Home Assistant: iOS Companion app forwards NFC/QR tag scans without confirmation, enabling silent automation execution",
+      "summary": "Home Assistant is open source home automation software focused on local control and privacy.  Prior to 2026.5.0, the iOS Companion app treats tag links (NFC or QR) delivered through an OS-level routing mechanism such as iOS universal links as if they were physically scanned, without validating the calling app or prompting the user. As a result, any untrusted app on the device can forward an arbitrary tag to Home Assistant, causing it to execute the associated automation as though a legitimate user had scanned an authorized tag. This allows silent, unattended automation execution by untrusted local callers. This issue has been fixed in version 2026.5.0.",
+      "published_at": "2026-07-31T11:33:29.000Z",
+      "modified_at": "2026-08-10T13:51:46.497Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00166,
+        "percentile": 0.05944,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.5.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-j23v-9672-677j",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/iOS/commit/45e05e6666c74fdbea44cc4d6fb103043fff6fd9",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-66061",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-66061",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-66061",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-66061",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-j23v-9672-677j",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-j23v-9672-677j",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c93fcaa27c206dbdfd1ffd626195b3125cff901d325055b02e9b16ff94a476d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-66060",
+      "aliases": [
+        "GHSA-2xqv-hwrf-983f"
+      ],
+      "title": "Home Assistant: Unconfirmed NFC/QR tag scans allow silent automation execution by untrusted callers",
+      "summary": "Home Assistant is open source home automation software focused on local control and privacy.  Prior to 2026.5.3,  the Companion app treats tag links (NFC or QR) delivered through an OS-level routing mechanism as if they were physically scanned, without validating the calling app or prompting the user. As a result, any untrusted app on the device can forward an arbitrary tag to Home Assistant, causing it to execute the associated automation as though a legitimate user had scanned an authorized tag. This allows silent, unattended automation execution by untrusted local callers. This issue is fixed in version 2026.8.1.",
+      "published_at": "2026-07-31T11:30:56.000Z",
+      "modified_at": "2026-08-13T17:54:36.439Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00166,
+        "percentile": 0.05944,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862",
+        "CWE-926"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.5.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-2xqv-hwrf-983f",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/android/commit/968b49c58e4eba4d06371a3f6e73198ec6c8d4a7",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-66060",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-66060",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-66060",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-66060",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-2xqv-hwrf-983f",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-2xqv-hwrf-983f",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0534cd9473256191c17a9f51b67598d722221748f171140a15c7ddc37ba7d411",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-59717",
+      "aliases": [
+        "GHSA-68f4-97mf-f68w"
+      ],
+      "title": "Home Assistant Companion: `homeassistant://invite` Deep Link Credential Phishing",
+      "summary": "Home Assistant is open source home automation software focused on local control and privacy. Prior to 2026.6.1, the Android Companion app is vulnerable to an open redirect. The app passes the URL fragment from a homeassistant://invite deep link into the onboarding flow without ever displaying the destination hostname. Because no screen in the invitation or onboarding flow shows the parsed server URL before onboarding commits to it, a victim has no way to distinguish a legitimate invite from a malicious one. An attacker can craft an invite so that a single tap on the legitimate-looking \"Connect to my Home Assistant server\" button opens their /auth/authorize endpoint in the URL-less onboarding WebView, presenting a look-alike login page that captures the victim's credentials. Since invitations are intended to onboard brand-new users, targets are especially unlikely to notice the substitution. This issue is fixed in version 2026.6.1.",
+      "published_at": "2026-07-26T19:39:20.000Z",
+      "modified_at": "2026-08-07T21:01:47.319Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00379,
+        "percentile": 0.32407,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-601",
+        "CWE-939"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.6.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-68f4-97mf-f68w",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/android/pull/6955",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/android/commit/26154d923c3813cd4650e124900780f4f796d094",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-59717",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-59717",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-59717",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-59717",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-68f4-97mf-f68w",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-68f4-97mf-f68w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:104dbfd412dff0d5c34c321135336c3f6165fc53d40f2731fb45d10a7a2a3687",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-64825",
+      "aliases": [],
+      "title": "Home Assistant Core < 2026.6.0 Path Traversal File Write via Backup Upload",
+      "summary": "Home Assistant Core before 2026.6.0 contains a path traversal vulnerability that allows unauthenticated attackers to write arbitrary files to any directory on the host filesystem by uploading a crafted backup archive during the initial onboarding window. Attackers can manipulate the 'name' field inside the uploaded archive's backup.json to supply an absolute path, causing pathlib.Path.__truediv__ to discard the configured backup directory prefix and write attacker-controlled content to arbitrary locations, with full filesystem access when the process runs as root.",
+      "published_at": "2026-07-21T15:40:18.756Z",
+      "modified_at": "2026-11-08T14:08:01.326Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0058,
+        "percentile": 0.48244,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.6.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/releases/tag/2026.6.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/pull/172368",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/commit/567fe858289876b68b8162a77bd46e1e1af79752",
+          "type": "fix"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/home-assistant-core-path-traversal-file-write-via-backup-upload",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-64825",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-64825",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-64825",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-64825",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:b5a5055dedcef8dae8cb8108facf4793f54021a60875b5f3d99ab23227ba7559",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-64824",
+      "aliases": [],
+      "title": "Home Assistant Core < 2026.7.0 Symlink Path Traversal RCE via backup-restore",
+      "summary": "Home Assistant Core before 2026.7.0 contains a path traversal vulnerability in the backup-restore function that allows attackers to write files to arbitrary absolute filesystem paths by supplying a crafted tar archive with a SYMTYPE entry containing a benign member name paired with an absolute linkname pointing outside the extraction directory. Because the official Docker image runs the Home Assistant process as root and the subsequent regular-file entry is written through the unvalidated symlink, attackers can achieve remote code execution by overwriting auto-imported Python paths such as site-packages/sitecustomize.py or custom component directories.",
+      "published_at": "2026-07-21T15:39:52.162Z",
+      "modified_at": "2026-11-08T14:08:00.632Z",
+      "severity": {
+        "level": "high",
+        "score": 8.4,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:R/S:C/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00713,
+        "percentile": 0.54195,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.7.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/releases/tag/2026.7.0",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/pull/172252",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/commit/1e457600f1093c15e1325742d03e2b76498c79c1",
+          "type": "fix"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/home-assistant-core-symlink-path-traversal-rce-via-backup-restore",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-64824",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-64824",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-64824",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-64824",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:921f933ad9e1f4c479ea79e3f37f0f30d292a2ef74b3ba3643095db087e960e2",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-64823",
+      "aliases": [],
+      "title": "Home Assistant Core < 2026.5.4 XSS via Shelly media_player.py thumb URI",
+      "summary": "Home Assistant Core before 2026.5.4 contains a cross-site scripting vulnerability in the Shelly integration's async_get_media_image() method that allows attackers controlling a Shelly device's thumb field to serve arbitrary HTML content by supplying a data URI with a text/html content type without validation against an image-only allowlist. Attackers can cause the media player proxy endpoint to serve attacker-controlled bytes with Content-Type text/html in the Home Assistant web origin, enabling theft of session tokens from local storage and authenticated calls to sensitive service endpoints including lock, alarm, and cover controls.",
+      "published_at": "2026-07-21T15:16:03.790Z",
+      "modified_at": "2026-11-08T14:07:59.946Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.7,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00296,
+        "percentile": 0.22473,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.5.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/releases/tag/2026.5.4",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/pull/171585",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/commit/894a68acb678afc382fe5ea9002e61ab7f862011",
+          "type": "fix"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/home-assistant-core-xss-via-shelly-media-player-py-thumb-uri",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-64823",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-64823",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-64823",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-64823",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:74d9f135fd7471dd29019f9b26e7d58142c728258a70cea81b04afd4e7a57f43",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55844",
+      "aliases": [
+        "GHSA-cm5v-547m-qh5h"
+      ],
+      "title": "Home Assistant: iOS Companion App ignores internal SSID allowlist for connections - possible leak of access token and sensor data",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Prior to 2025.5.0, The iOS companion app ignores the SSID allowlist for internal networks. The app uses SSID to detect when to use the internal URL, but whenever the app cannot find any other URL to be used, it fallbacks to the internal URL as well, which can expose user's token when connected to a not secure network. This vulnerability is fixed in 2025.5.0.",
+      "published_at": "2026-06-25T07:54:23.000Z",
+      "modified_at": "2026-06-30T19:02:16.580Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.002,
+        "percentile": 0.0986,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-319"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2025.5.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-cm5v-547m-qh5h",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55844",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55844",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55844",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55844",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cm5v-547m-qh5h",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-cm5v-547m-qh5h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2c166849f5b950836233118bb1614700dca18aa10d6e98cc7706bf22aa9d6823",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-54317",
+      "aliases": [
+        "GHSA-x84v-g949-293w"
+      ],
+      "title": "Home Assistant: Konnected alarm-panel switch state and zone topology disclosed to unauthenticated actors on the LAN",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Prior to 2026.6.0, the Konnected integration registers an HTTP endpoint, KonnectedView (homeassistant/components/konnected/__init__.py), that is marked as not requiring authentication (requires_auth = False). A comment next to that line says auth is instead handled \"via the access token from configuration.\" That promise is only half true. Write requests (POST and PUT) are handled by update_sensor(), which does check the request's Authorization: Bearer <token> header against the integration's stored access tokens (using hmac.compare_digest). Read requests (GET) are handled by a separate get() method that has no authentication check at all. This vulnerability is fixed in 2026.6.0.",
+      "published_at": "2026-06-18T09:17:38.000Z",
+      "modified_at": "2026-06-26T19:00:13.860Z",
+      "severity": {
+        "level": "high",
+        "score": 7.6,
+        "vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00308,
+        "percentile": 0.23953,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200",
+        "CWE-306"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.6.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-x84v-g949-293w",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-54317",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-54317",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-54317",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-54317",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-x84v-g949-293w",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-x84v-g949-293w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:17bb666a21c6fd342959efedcf77e289b9f88fd936f87f2f54374ea831bc1812",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-54318",
+      "aliases": [
+        "GHSA-77r5-pw5w-mgj3"
+      ],
+      "title": "Home Assistant: Exported BroadcastReceiver allows local apps to spoof device location",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Prior to 2026.5.3, the LocationSensorManager BroadcastReceiver is exported with no permission. Any installed app, with zero runtime permissions, can broadcast a forged Google Play Services LocationResult directly to it; the receiver trusts the extra and forwards it to the user's Home Assistant server as the device's real location. This bypasses Android's developer-mode \"Mock Location\" gate and allows a local malicious app to drive zone-based automations (unlock door / disarm alarm / open garage) by faking the user's GPS position. This vulnerability is fixed in 2026.5.3.",
+      "published_at": "2026-06-17T08:45:37.000Z",
+      "modified_at": "2026-06-24T13:35:52.252Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00168,
+        "percentile": 0.06257,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-926"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.5.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-77r5-pw5w-mgj3",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/android/pull/6837",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-54318",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-54318",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-54318",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-54318",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-77r5-pw5w-mgj3",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-77r5-pw5w-mgj3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:0534cd9473256191c17a9f51b67598d722221748f171140a15c7ddc37ba7d411",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44698",
+      "aliases": [
+        "GHSA-7jp2-p2fw-mgvf"
+      ],
+      "title": "Home Assistant: Cross-origin iframe access token exfiltration via WebView JS bridge callback injection",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Prior to 2026.4.1 for iOS and 2026.4.4 for Android, he Home Assistant Companion apps for Android and iOS expose a JavaScript bridge to the in-app WebView window.externalApp on Android and webkit.messageHandlers.getExternalAuth (alongside revokeExternalAuth and externalBus) on iOS. Two flaws expose the bridge to all frames (including cross-origin iframes) and unsanitized interpolation of the JavaScript callback identifier allows a cross-origin iframe rendered inside the Companion app to execute arbitrary JavaScript in the Home Assistant frontend's main-frame origin and exfiltrate the signed-in user's access token. This vulnerability is fixed in 2026.4.1 for iOS and 2026.4.4 for Android.",
+      "published_at": "2026-05-11T15:39:05.000Z",
+      "modified_at": "2026-05-29T13:58:53.347Z",
+      "severity": {
+        "level": "high",
+        "score": 8.3,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00149,
+        "percentile": 0.04158,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-94",
+        "CWE-346",
+        "CWE-749",
+        "CWE-940"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "2026.4.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-7jp2-p2fw-mgvf",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44698",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44698",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44698",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44698",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-7jp2-p2fw-mgvf",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-7jp2-p2fw-mgvf",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:36bd43039cd67526371e7ea3cb5c8ea192c4db5f64a3c9a1c7388a8189e0215d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-33044",
+      "aliases": [
+        "GHSA-r584-6283-p7xc"
+      ],
+      "title": "Home Assistant has stored XSS in Map-card through malicious device name",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Starting in version 2020.02 and prior to version 2026.01, an authenticated party can add a malicious name to their device entity, allowing for Cross-Site Scripting attacks against anyone who can see a dashboard with a Map-card which includes that entity. It requires that the victim hovers over an information point. Version 2026.01 fixes the issue.",
+      "published_at": "2026-03-27T15:48:13.000Z",
+      "modified_at": "2026-04-02T13:08:11.661Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:A/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00236,
+        "percentile": 0.14677,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79",
+        "CWE-80"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "2020.02",
+              "fixed": "2026.01"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-r584-6283-p7xc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-33044",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-33044",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-33044",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-33044",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-r584-6283-p7xc",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-r584-6283-p7xc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:93d28bcb312c972faa75b28800b27839cf5ad4ee033518b2df76d70f2d808dfc",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-33045",
+      "aliases": [
+        "GHSA-46j8-vpx8-6p72"
+      ],
+      "title": "Home Assistant has stored XSS in history-graphs",
+      "summary": "Home Assistant is open source home automation software that puts local control and privacy first. Starting in version 2025.02 and prior to version 2026.01 the \"remaining charge time\"-sensor for mobile phones (imported/included from Android Auto it appears) is vulnerable cross-site scripting, similar to CVE-2025-62172. Version 2026.01 fixes the issue.",
+      "published_at": "2026-03-27T15:48:01.000Z",
+      "modified_at": "2026-04-01T03:55:27.034Z",
+      "severity": {
+        "level": "high",
+        "score": 7.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:A/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H/E:P",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00214,
+        "percentile": 0.11828,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-79",
+        "CWE-80"
+      ],
+      "affected": [
+        {
+          "product": "home-assistant",
+          "ranges": [
+            {
+              "introduced": "2025.02",
+              "fixed": "2026.01"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-46j8-vpx8-6p72",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-mq77-rv97-285m",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-33045",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-33045",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-33045",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-33045",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-46j8-vpx8-6p72",
+          "url": "https://github.com/home-assistant/core/security/advisories/GHSA-46j8-vpx8-6p72",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:50a57a0ed439c8b9fefdbe24f4f9e25b1f80163a72c4a6d9ca634c533024965e",
+      "note": null
+    }
+  ]
+}

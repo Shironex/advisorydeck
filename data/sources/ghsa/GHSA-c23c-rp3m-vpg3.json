@@ -1,0 +1,104 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-26330",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-416"
+    ],
+    "description": "### Summary\n\nAt the rate limit filter, if we enabled the response phase limit with `apply_on_stream_done` in the rate limit configuration and the response phase limit request fails directly, it may crash Envoy.\n\n### Details\n\nWhen both the request phase limit and response phase limit are enabled, the safe gRPC client instance will be re-used for both the request phase request and response phase request.\n\nBut after the request phase request is done, the inner state of the request phase limit request in gRPC client is not cleaned up. When we send the second limit request at response phase, and the second limit request fails directly, we may access the previous request's inner state and result in crash.\n\n\n### PoC\n\nThis need to mock the network failure. But we have reproduced by unit test locally.\n\n### Impact\n\nThis only happens when both the request phase limit and response phase limit are enabled in the rate limit filter, and requires the request to rate limit service fails directly (For example, if from Envoy's perspective, no healthy endpoint for rate limit service may result the request fails directly). That's say, not easy to trigger this.\n\n### To workaround\n\nThis could be worked around by splitting the rate limit filter. That is, if there is a rate limit filter that contains normal rate limit configuration (request phase limit, without `apply_on_stream_done`) and also rate limit configuration with `apply_on_stream_done` (response phase limit). Splitting them into two rate limit filters and ensure one filter only contains normal rate limit configuration (without `apply_on_stream_done`), and one only contains rate limit configuration with `apply_on_stream_done` could avoid this problem. \n\n### Credit\n\nMandar Jog (mandarjog@gmail.com)",
+    "ghsa_id": "GHSA-c23c-rp3m-vpg3",
+    "html_url": "https://github.com/advisories/GHSA-c23c-rp3m-vpg3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c23c-rp3m-vpg3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-26330"
+      }
+    ],
+    "published_at": "2026-03-10T18:31:57Z",
+    "references": [
+      "https://github.com/envoyproxy/envoy/security/advisories/GHSA-c23c-rp3m-vpg3",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-26330",
+      "https://github.com/advisories/GHSA-c23c-rp3m-vpg3"
+    ],
+    "severity": "medium",
+    "summary": "Envoy's global rate limit may crash when the response phase limit is enabled and the response phase request is failed directly",
+    "updated_at": "2026-03-18T13:43:09Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": "= 1.37.0"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": ">= 1.36.0, <= 1.36.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-c23c-rp3m-vpg3",
+  "repo": {
+    "cve_id": "CVE-2026-26330",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nAt the rate limit filter, if we enabled the response phase limit with `apply_on_stream_done` in the rate limit configuration and the response phase limit request fails directly, it may crash Envoy.\r\n\r\n### Details\r\n\r\nWhen both the request phase limit and response phase limit are enabled, the safe gRPC client instance will be re-used for both the request phase request and response phase request.\r\n\r\nBut after the request phase request is done, the inner state of the request phase limit request in gRPC client is not cleaned up. When we send the second limit request at response phase, and the second limit request fails directly, we may access the previous request's inner state and result in crash.\r\n\r\n\r\n### PoC\r\n\r\nThis need to mock the network failure. But we have reproduced by unit test locally.\r\n\r\n### Impact\r\n\r\nThis only happens when both the request phase limit and response phase limit are enabled in the rate limit filter, and requires the request to rate limit service fails directly (For example, if from Envoy's perspective, no healthy endpoint for rate limit service may result the request fails directly). That's say, not easy to trigger this.\r\n\r\n### To workaround\r\n\r\nThis could be worked around by splitting the rate limit filter. That is, if there is a rate limit filter that contains normal rate limit configuration (request phase limit, without `apply_on_stream_done`) and also rate limit configuration with `apply_on_stream_done` (response phase limit). Splitting them into two rate limit filters and ensure one filter only contains normal rate limit configuration (without `apply_on_stream_done`), and one only contains rate limit configuration with `apply_on_stream_done` could avoid this problem. \r\n\r\n### Credit\r\n\r\nMandar Jog (mandarjog@gmail.com)",
+    "ghsa_id": "GHSA-c23c-rp3m-vpg3",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-c23c-rp3m-vpg3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c23c-rp3m-vpg3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-26330"
+      }
+    ],
+    "published_at": "2026-03-10T16:05:02Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "global rate limit may crash when the response phase limit is enabled and the response phase request is failed directly",
+    "updated_at": "2026-03-10T16:23:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "patched_versions": "v1.37.1, v1.36.5",
+        "vulnerable_version_range": ">=v1.36.0,<v1.37.1, <v1.36.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3287-hpm5-3f8r",
+  "aliases": [],
+  "title": "SurrealDB DDL statements bypass namespace/database implicit-creation authorization added by GHSA-wp87-mgvq-5j93 fix",
+  "summary": "## Summary\n\nSeveral DDL statements (DEFINE FUNCTION, DEFINE PARAM, DEFINE EVENT, DEFINE FIELD, DEFINE ANALYZER, DEFINE DATABASE, and others) can recreate a dropped namespace and database by reaching the same creation sinks that the GHSA-wp87-mgvq-5j93 fix gated for USE statements. A database-level Editor with an active WebSocket or embedded SDK session that was established before the namespace was dropped can execute a DDL statement and silently recreate the namespace without holding root-level DEFINE NAMESPACE permission.\n\n## Root Cause\n\nThe GHSA-wp87-mgvq-5j93 fix added authorization checks (`should_materialize_ns_on_use` / `should_materialize_db_on_use`) to the three USE entry points (the SurrealQL executor, the RPC `yuse` method, and `Datastore::process_use`). These checks verify that the caller holds `is_allowed(Action::Edit, ResourceKind::Namespace.on_root())` before creating a missing namespace. However, the same creation sinks are reachable through Context wrapper functions called by DDL statements, and those wrappers perform no equivalent authorization check.\n\n```text\nAffected functions:\n  Context::get_ns_db_ids  (surrealdb/core/src/ctx/context.rs:663)\n    Calls ensure_ns_db without namespace-creation authorization.\n    Called by: DEFINE FUNCTION (function.rs:55), DEFINE PARAM (param.rs:52),\n              DEFINE EVENT (event.rs:47), DEFINE FIELD (field.rs:180),\n              DEFINE ANALYZER (analyzer.rs:94), and other DB-level DDL.\n\n  Context::get_ns_id  (surrealdb/core/src/ctx/context.rs:640)\n    Calls get_or_add_ns without namespace-creation authorization.\n    Called by: DEFINE USER ON NS (user.rs:172) and related NS-level DDL.\n\nCreation sink:\n  get_or_add_db_upwards (surrealdb/core/src/kvs/tx.rs:2468) with upwards=true\n    calls get_or_add_ns (catalog/providers.rs:109) which creates a\n    NamespaceDefinition in the KV store when the namespace does not exist.\n```\n\n## Impact\n\nA database-level or namespace-level Editor can recreate a namespace that a root administrator deliberately dropped, provided they hold an active in-memory session (WebSocket or embedded SDK) that was authenticated before the namespace removal. The attacker cannot create arbitrary new namespaces; they can only recreate the specific namespace associated with their session. The recreated namespace is empty (it receives a new internal namespace ID, so old data is not exposed).\n\nThis crosses the root authorization boundary: namespace creation requires `is_allowed(Action::Edit, ResourceKind::Namespace.on_root())` per the GHSA-wp87-mgvq-5j93 fix, but a database-level Editor does not hold that permission. In multi-tenant deployments where namespaces represent tenants, a deprovisioned tenant could recreate its namespace context.\n\nExploitation requires: (1) authentication is enabled (the default), (2) the attacker has an active session established before the namespace drop, (3) a root administrator drops the attacker's namespace. HTTP-per-request authentication would fail because the namespace's access method definitions were deleted with the namespace. There is no default session TTL for WebSocket connections.\n\n## Proof of Concept\n\n```text\nDependencies: A running SurrealDB >= 3.1.0 instance with authentication enabled (default).\nSetup: A namespace \"tenant_a\" exists with a database \"app\" and a DB-level Editor user.\n```\n\n1. The DB Editor authenticates via WebSocket and receives a session at Level::Database(\"tenant_a\", \"app\").\n2. A root administrator drops the namespace: REMOVE NAMESPACE tenant_a.\n3. The DB Editor (session still active) sends: DEFINE FUNCTION fn::test() {RETURN 1}.\n\n```surql\n-- Step 1: As root, set up the namespace and Editor user\nUSE NS tenant_a DB app;\nDEFINE USER editor ON DATABASE PASSWORD 'test' ROLES EDITOR;\n\n-- Step 2 (separate session): Editor authenticates\nSIGNIN { user: 'editor', pass: 'test', ns: 'tenant_a', db: 'app' };\n\n-- Step 3: Root drops the namespace\nREMOVE NAMESPACE tenant_a;\n\n-- Step 4: Editor's session is still activ...",
+  "published_at": "2026-11-03T15:50:59.000Z",
+  "modified_at": "2026-11-03T15:50:59.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.2,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-3287-hpm5-3f8r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3287-hpm5-3f8r",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-3287-hpm5-3f8r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

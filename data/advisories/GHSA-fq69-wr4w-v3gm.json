@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-fq69-wr4w-v3gm",
+  "aliases": [],
+  "title": "JavaScript Query Bridge Bypasses Arbitrary-Query Subject Gate",
+  "summary": "### Summary\nAn authorization gate bypass exists in SurrealDB's JavaScript query module (`surrealdb/surrealdb`). In `surrealdb/core/src/fnc/script/modules/surrealdb/query/mod.rs`, the bridge executes queries without verifying the caller's query capability.\n\n### Vulnerability Details\n- Affected File: `surrealdb/core/src/fnc/script/modules/surrealdb/query/mod.rs` (`query()`)\n- Mechanism: SurrealDB uses `Capabilities::allows_query()` to gate subjects permitted to execute arbitrary queries. While nested queries in SurrealQL functions check this capability, the JavaScript `surrealdb.query()` bridge directly parses and executes input queries without checking `allows_query()`. A restricted subject permitted to run a specific script can bypass policy and execute arbitrary queries.\n- Impact: Execution of unrestricted arbitrary queries by subjects restricted to predefined operations.\n\n### Recommended Remediation\nValidate `ctx.capabilities.allows_query()` in `surrealdb/query/mod.rs` before parsing and executing queries.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that enforces the query and function capabilities inside the embedded JavaScript bridge, so a script can no longer run arbitrary queries or functions that the session's capabilities deny.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealQL Documentation - Scripting functions](https://surrealdb.com/docs/surrealql/functions/script)\n- `fix(script): JS bridge bypasses the query and function capabilities` (commit `0b8be14543`)",
+  "published_at": "2026-11-03T15:51:02.000Z",
+  "modified_at": "2026-11-03T15:51:02.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-fq69-wr4w-v3gm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fq69-wr4w-v3gm",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-fq69-wr4w-v3gm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

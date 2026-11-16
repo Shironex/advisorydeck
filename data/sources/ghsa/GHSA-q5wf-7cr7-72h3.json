@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-q5wf-7cr7-72h3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\n\nThe profile update endpoint returned the caller's stored user record exactly as written, so the response body carried the account's bcrypt password hash and its salt.\n\n### Details\n\nThe profile handler in `users.service.ts` returned the user record straight from the write, and the controller serializes the service's return value as the response body, so every internal column on that row reached the client. The project has a shared user-serialization filter that drops secret columns - the password hash, the salt, invite and password-reset tokens, and the TOTP secret and backup codes - but this response path did not pass through it. The session token counter used to invalidate issued JWTs was returned as well.\n\n### Impact\n\nAn attacker in possession of a stolen or hijacked session for an account could retrieve that account's bcrypt password hash and salt and mount an offline cracking attempt against them, which matters most where the same password is reused on other services. Authentication as the target account is required.\n\n### Credit\n\nThis issue was reported by [@geo-chen](https://github.com/geo-chen).\n",
+    "ghsa_id": "GHSA-q5wf-7cr7-72h3",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-q5wf-7cr7-72h3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q5wf-7cr7-72h3"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Password Hash Exposure via Profile Update Response",
+    "updated_at": "2026-10-27T10:06:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.1",
+        "vulnerable_version_range": "< 2026.06.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

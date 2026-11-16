@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-fx53-qf4h-cx38",
+  "aliases": [],
+  "title": "SQL Injection via Select Field Option Titles",
+  "summary": "### Summary\n\nOn MySQL and MariaDB sources, select-field option titles are embedded into `enum`/`set` column\ndefinitions with only single-quote doubling, so a title ending in a backslash escapes the closing\nquote and the attacker's remaining text is parsed as `ALTER TABLE` syntax.\n\n### Details\n\nThe columns service builds the column's type-parameter value list by joining option titles and\nreplacing `'` with `''`, leaving backslashes intact. The shared validator in `sqlSanitize.ts` models\nSQL string literals as quote-doubling only - correct for PostgreSQL, SQLite and SQL Server, but not\nfor MySQL under its default `sql_mode`, where a backslash escapes the character that follows. A\ntitle ending in `\\` therefore passes validation, and `MysqlClient.ts` interpolates the validated\nvalue directly into the DDL statement. The CSV type detector, the Airtable import processor and the\nv3 tables service build the list the same way, and it reaches the same DDL. The validator's\nenum-list branch was introduced as the fix for GHSA-xj66-9p6m-wr56, so this bypasses that control\nrather than describing an unrelated defect.\n\nBackslashes inside the option literals are now doubled before the list is placed in a MySQL or\nMariaDB column definition, so each option title stays inside its literal.\n\n### Impact\n\nA user with schema-edit rights on a base - base creator or owner - can append arbitrary clauses to\nthe generated `ALTER TABLE` statement on any MySQL or MariaDB source that base can write to: adding,\ndropping or renaming columns, altering table options and indexes, or defining generated columns that\nwiden the primitive toward reading data the injection itself cannot return. The affected surface is\nthe connected external database, which may hold tables and columns NocoDB does not expose. Sources\nrunning PostgreSQL or SQLite are not affected.\n\n### Credit\n\nThis issue was reported by uu K.",
+  "published_at": "2026-11-02T08:47:39.000Z",
+  "modified_at": "2026-11-02T08:47:39.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-89",
+    "CWE-116"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-fx53-qf4h-cx38",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-fx53-qf4h-cx38",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-fx53-qf4h-cx38",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7638d96a9e423cafe4b4963b10eb8df67335acc76bdfa5cff48e036eb6ac6348",
+  "note": null
+}

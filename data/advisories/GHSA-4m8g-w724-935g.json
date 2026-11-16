@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-4m8g-w724-935g",
+  "aliases": [],
+  "title": "Cross-Base Authorization Bypass via MCP Token Identifier",
+  "summary": "### Summary\n\nThe request id-extraction middleware accepted an MCP token identifier from the query string on any route carrying a base id and used it to re-point the base against which the caller's roles were resolved, while the data context stayed on the base named in the path.\n\n### Details\n\n`extract-ids.middleware.ts` resolves two independent anchors on every request: the data anchor, which decides whose data the handler operates on, and the role anchor, which decides which base the caller's roles are resolved for. On the base-scoped branch the middleware read the MCP token id from the route parameters *or* the query string, resolved the token through the model under a full-bypass scope - so any token id on the instance resolved, unlike the service layer, which filters on the owning user - and assigned the token's base to the role anchor. The data anchor was never rewritten. No route in the tree pairs an MCP token id with a base id, so the query-string fallback had no legitimate consumer; its only effect was to let a caller pass the permission check with roles they hold on their own base while the handler served the base named in the path. The same code was present in the Community and Enterprise middleware.\n\n### Impact\n\nAn authenticated user holding no more than the Viewer role on a single base could mint an MCP token on that base - Viewers are permitted to - and then use its id to read another base's metadata, including the table list and the base user roster with member email addresses, with no role of any kind on the target base. Writes did not follow, because the invite path re-resolves the caller's power against the data base, so the impact is cross-base read disclosure. Requires an authenticated account with at least Viewer on one unrelated base.\n\n### Credit\n\nThis issue was reported by [@Humbertosp](https://github.com/Humbertosp).",
+  "published_at": "2026-11-02T08:47:13.000Z",
+  "modified_at": "2026-11-02T08:47:13.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.09.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4m8g-w724-935g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4m8g-w724-935g",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4m8g-w724-935g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:9f448b9a6f92c03b2d8079b6e2dbb0760ab54353a57091f42aaa6d45bd27a81d",
+  "note": null
+}

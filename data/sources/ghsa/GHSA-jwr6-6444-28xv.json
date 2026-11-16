@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-jwr6-6444-28xv",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-248"
+    ],
+    "description": "An authenticated system user holding the **Owner** role (at root, namespace, or database level, scoped to the target database) can crash a SurrealDB server by uploading a small malformed `.surml` file to the `/ml/import` endpoint.\r\n\r\nThe uploaded bytes are passed directly into the SurrealML header parser, which used unchecked `unwrap()` calls and array indexing on attacker-controlled header fields. A malformed field - for example a non-numeric input-dimensions value - panics during header parsing. Because `surrealdb-core` is built with `panic = 'abort'`, the panic terminates the entire server process.\r\n\r\n### Impact\r\n\r\nWhat an attacker **can** do:\r\n\r\n- With the **Owner** role (at root, namespace, or database level, scoped to the target database), crash the entire server with a single small malformed `.surml` upload to `/ml/import`.\r\n- Deny service to every namespace and database on that instance until it is restarted - because `surrealdb-core` is built with `panic = 'abort'`, the panic aborts the whole process, not just the request.\r\n\r\nWhat it **can't** do:\r\n\r\n- Reach this code path without the Owner role - record/scope users and users holding only the Editor or Viewer role cannot call `/ml/import`.\r\n- Affect confidentiality or integrity - the crash occurs during import parsing, before the model is stored (availability only).\r\n- Affect deployments built without the `ml` feature, or that do not expose the `/ml/import` route.\r\n\r\n### Patches\r\n\r\nA patch has been introduced that makes the SurrealML header parsers fail closed: malformed input-dimensions, origin, and output/normaliser fields now return a structured `BadRequest` error instead of panicking, so a malformed upload is rejected with an error response rather than crashing the server.\r\n\r\n- Versions 3.1.6 and later are not affected by this issue.\r\n\r\n### Workarounds\r\n\r\nUsers unable to patch should consider the following workarounds:\r\n\r\n- Build or deploy without the `ml` feature if machine-learning model import/export is not required.\r\n- Grant the Owner role sparingly; only Owners can import models, so callers without it cannot reach the vulnerable code path.\r\n- Run SurrealDB under a process supervisor that restarts it on exit (e.g. Kubernetes, systemd `Restart=on-failure`, or a Docker restart policy), so the server recovers immediately after a crash. This limits downtime but does not prevent the crash.\r\n\r\n### References\r\n\r\n- [DEFINE MODEL](https://surrealdb.com/docs/surrealql/statements/define/model)\r\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\r\n- `fix(surrealml): reject malformed model headers instead of panicking` (included in SurrealDB 3.2.0 and backported to 3.1.6)\r\n- [surrealdb/surrealml](https://github.com/surrealdb/surrealml) - the standalone `surrealml-core` crate carries the same parser; the fix must be mirrored there.\r\n- [GHSA-wjjj-24cx-f28g](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-wjjj-24cx-f28g) - related `panic = 'abort'` denial-of-service in RPC handling.\r\n\r\n### Acknowledgements\r\n\r\nThank you to [sondt99](https://github.com/sondt99) for reporting this issue.\r\n\r\n### Credits\r\n- Thai Son Dinh from VinSOC Labs (R&D)\r\n",
+    "ghsa_id": "GHSA-jwr6-6444-28xv",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-jwr6-6444-28xv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jwr6-6444-28xv"
+      }
+    ],
+    "published_at": "2026-07-02T15:31:03Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Denial of Service via malformed SurrealML model import",
+    "updated_at": "2026-09-01T14:24:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.6",
+        "vulnerable_version_range": "< 3.1.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-9f67-6fw4-hpfp",
+  "repo": {
+    "cve_id": "CVE-2026-17545",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.9,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-67"
+    ],
+    "description": "### Summary\r\n\r\nOn Windows, PHP's filesystem and stream APIs do not reject reserved device names such as `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to `LPT9`, `CONIN$` and `CONOUT$` when they appear as a component of a path. An attacker-controlled filename therefore reaches `CreateFileW()` and opens a device instead of the regular file the application expected, which can block or hang the request and exhaust worker processes.\r\n\r\n### Details\r\n\r\nPaths from application code flow through the stream wrapper layer into the Windows I/O layer. `file_get_contents()` opens the requested path via `php_stream_open_wrapper_ex()`, and `move_uploaded_file()` reaches `VCWD_RENAME()` and `php_copy_file_ex()`, so paths built from user-controlled upload filenames arrive at the same place.\r\n\r\nThe Windows path validation macro checks only for trailing spaces and certain trailing dots:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/win32/ioutil.h#L156-L169\r\n\r\nThere is no check for reserved device names, and `php_win32_ioutil_open_w()` passes the path straight to `CreateFileW()`:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/win32/ioutil.c#L205\r\n\r\nThat device handles can result from ordinary file opening is visible further on, where a handle whose `GetFileType()` is `FILE_TYPE_CHAR` is marked as `S_IFCHR` in `win32/ioutil.c` and simply flagged as non-seekable in `main/streams/plain_wrapper.c`, rather than being rejected.\r\n\r\nThe fix adds `php_win32_ioutil_path_kind_w()` and `php_win32_ioutil_path_kind_a()`, which classify a path as ordinary, a bare device name, or a path containing a reserved component. Reserved components are rejected with `ERROR_INVALID_NAME` before any I/O, while bare device names such as `NUL` and `NUL:` keep working for backwards compatibility, and DOS device paths (`\\\\.\\`, `\\\\?\\` and `\\??\\`) are left alone because Windows does not map device names inside them. Variants such as `NUL.txt`, `aux:stream` and `NUL ` are resolved through `RtlIsDosDeviceName_U` so that PHP follows the behaviour of the Windows version it runs on.\r\n\r\n### PoC\r\n\r\n```php\r\n<?php\r\n$base = 'C:\\\\temp\\\\php-poc';\r\n$file = $_GET['file'] ?? 'test.txt';\r\n$path = $base . DIRECTORY_SEPARATOR . $file;\r\n\r\necho \"path = \" . $path . PHP_EOL;\r\necho file_get_contents($path);\r\n```\r\n\r\nRequesting the script with `?file=CON`, `?file=CONIN$` or `?file=NUL.txt` makes PHP open the corresponding device rather than failing on a missing file. `CONIN$` blocks waiting for console input, which holds the request open.\r\n\r\nThe regression test is `ext/standard/tests/file/ghsa-9f67-6fw4-hpfp-win32.phpt`.\r\n\r\n### Impact\r\n\r\nA PHP application on Windows that builds a path from user input, such as a download endpoint or an upload destination taken from the client-supplied filename, can be made to operate on a device instead of a file. Depending on the device and the operation this blocks or hangs the request, produces unexpected read and write behaviour, or returns errors from the native API. Under concurrency, repeated requests to a blocking device exhaust the worker pool and deny service.\r\n\r\nOnly Windows deployments are affected. Reserved names are a Windows filesystem concept, and paths like `CON.txt` are devices there rather than ordinary filenames, which is why application-level path joining and normalisation does not catch them. The same class of issue has required fixes in other language ecosystems.\r\n",
+    "ghsa_id": "GHSA-9f67-6fw4-hpfp",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-9f67-6fw4-hpfp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9f67-6fw4-hpfp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-17545"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:19Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "PHP on Windows: Reserved Device Names Are Not Rejected Before File/Stream I/O which can cause DoS",
+    "updated_at": "2026-09-25T18:16:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "php-src"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "php-src"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "php-src"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "php-src"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-xf86-hfpm-92xr",
+  "aliases": [],
+  "title": "AI Chat route exposes admin-only tools to non-admin users",
+  "summary": "### Summary\r\n\r\nThe AI Chat endpoint (`POST /ai/chat`) did not enforce the admin-only restriction on AI tools. Any authenticated user with app access could request the `collections`, `fields`, `relations`, `flows` and `operations` tools, which are reserved for administrators. The MCP endpoint enforced this restriction correctly.\r\n\r\n### Impact\r\n\r\nThe tools ran with the requesting user's own accountability, so they did not grant permissions beyond what the user already had:\r\n\r\n- `collections`, `fields` and `relations` are still guarded by the admin checks in their underlying services.\r\n- `flows` and `operations` are subject to the regular permission system. A non-admin user could only read or modify flows and operations their policies already allow, the same as through the REST API.\r\n\r\nThe issue is that the admin-only tool boundary was not applied consistently. Instances where non-admin policies grant access to `directus_flows` or `directus_operations` are most affected. We recommend keeping those collections admin-only, as described in the [security best practices](https://directus.io/docs/configuration/security-best-practices).\r\n\r\nExploitation requires an AI provider to be configured on the instance.\r\n\r\n### Workarounds\r\n\r\n- Disable the AI Chat feature by removing the configured AI provider.\r\n- Make sure non-admin policies have no permissions on `directus_flows` and `directus_operations`.",
+  "published_at": "2026-10-19T20:37:26.000Z",
+  "modified_at": "2026-10-19T20:37:26.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.1,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "11.14.0",
+          "fixed": "12.3.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-xf86-hfpm-92xr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xf86-hfpm-92xr",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-xf86-hfpm-92xr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:9cb8f4b91a4e6a36f7e8019a533c0bd5ddfa4a9bda0a4362b8689cfdb5262372",
+  "note": null
+}

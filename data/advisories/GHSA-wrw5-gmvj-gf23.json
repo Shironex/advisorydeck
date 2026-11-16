@@ -1,0 +1,58 @@
+{
+  "id": "GHSA-wrw5-gmvj-gf23",
+  "aliases": [],
+  "title": "Vulnerability & Content-Trust pull policies bypassable via attacker-controlled `User-Agent` header",
+  "summary": "### Impact\n\nTwo project policies are enforced when an image is pulled: **Prevent vulnerable images from running** and **Content trust** (only allow pulling signed images). Harbor skipped both checks when the puller had push permission on the project and the request's `User-Agent` header contained `cosign` or `notation`. The `User-Agent` header is set by the client, so any user or robot with push permission could pull images that the policies are meant to block, such as unsigned or vulnerable images, by changing one header.\n\nThe policies were not bypassed for users who only have pull permission.\n\n### Am I affected?\n\nYou are affected if all of the following are true:\n\n- At least one project has **Prevent vulnerable images from running** or **Content trust** enabled.\n- You rely on these policies to stop images from being deployed, and some accounts that pull for deployment (users, CI systems, robot accounts) also have push permission on that project. Push permission is held by the Developer, Maintainer and Project Admin roles and by robot accounts granted push.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, the `User-Agent` no longer exempts any pull from either policy. Images that already carry a cosign or notation signature are still recognised as signed and pulled as before.\n\nOne workflow changes: in a project with **Content trust** enabled, cosign and notation need to read the image manifest before they can sign an image for the first time, and that read is now blocked because the image is not signed yet. If you sign images inside a project that already enforces content trust, set the environment variable `CONTENT_TRUST_LEGACY_SIGNER_PULL_ENABLED=true` on core. That restores the old behaviour for the content trust policy only, for clients with push permission whose `User-Agent` contains `cosign` or `notation`. It never affects the vulnerability policy. Only enable it if you trust everyone who has push permission in those projects.\n\n**Until you can upgrade:**\n\n1. Use separate accounts for pushing and for deployment pulls. Give deployment systems (Kubernetes image pull secrets, CD pipelines) robot accounts with pull permission only.\n2. Review which users and robots have push permission on projects that enforce these policies, and remove it where it is not needed.\n3. If you need a hard guarantee, enforce signature and vulnerability checks at deploy time as well, for example with an admission controller in your cluster.",
+  "published_at": "2026-10-06T13:41:58.000Z",
+  "modified_at": "2026-10-06T13:41:59.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-807"
+  ],
+  "affected": [
+    {
+      "product": "harbor",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.6"
+        },
+        {
+          "introduced": "2.14.0",
+          "fixed": "2.14.5"
+        },
+        {
+          "introduced": "2.15.0",
+          "fixed": "2.15.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wrw5-gmvj-gf23",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-wrw5-gmvj-gf23",
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-wrw5-gmvj-gf23",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+  "note": null
+}

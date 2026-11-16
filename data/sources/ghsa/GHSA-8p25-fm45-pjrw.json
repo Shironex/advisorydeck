@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8p25-fm45-pjrw",
+  "repo": {
+    "cve_id": "CVE-2026-45689",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-943"
+    ],
+    "description": "## Summary\r\n\r\nAn unauthenticated network attacker obtains a valid Rocket.Chat OAuth access token for an arbitrary user by sending a single HTTP POST with MongoDB query operators to `/oauth/token`. The Rocket.Chat OAuth2 server does not validate that grant parameters are strings before forwarding them to `findOne({...})` against the `oauth_apps` and `oauth_access_tokens` collections, so an attacker substitutes `{\"$ne\": null}` for `client_id`, `client_secret`, and `refresh_token` and receives a freshly minted `{access_token, refresh_token}` pair bound to whichever user's refresh token Mongo returned first.\r\n\r\nThe resulting access token is a first-class bearer credential against the full `/api/v1/*` surface as that user. By iterating with `$nin` / `$regex` operators the attacker walks the entire `oauth_access_tokens` collection, collecting one fresh access token per user per request. If any matched token belongs to an admin, the stolen bearer gives full admin API access (including Apps-Engine app installation, i.e. server-side code execution). No account, credentials, userId, or prior interaction with the instance are required.\r\n\r\n## Pre-requisites\r\n\r\n- The target instance must have **at least one active OAuth app** registered (Admin → Third-party Login). This is standard on any deployment that uses OAuth integrations (Zapier, n8n, IFTTT, Make, mobile companion apps, \"Sign in with Rocket.Chat\" on internal SaaS, Jenkins/CI automation, custom dashboards).\r\n- **At least one refresh token** must exist in `oauth_access_tokens`. This is populated whenever any user completes the OAuth authorisation flow for any registered app. Refresh tokens persist in the collection (the server rotates but does not clear them on normal use), so a single historical authorisation is sufficient for the vulnerability to remain live indefinitely.\r\n\r\n## Root Cause\r\n\r\n**1. `oauth2-server` validator silently coerces objects to strings:**\r\n\r\n`/oauth/token` is served by `@node-oauth/oauth2-server` from within an Express app configured with `express.json()` at [`apps/meteor/server/oauth2-server/oauth.ts#L24-L34`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/server/oauth2-server/oauth.ts#L24-L34). A POST with `Content-Type: application/json` and a body containing nested objects (e.g. `{\"client_id\": {\"$ne\": null}}`) is parsed as-is - `req.body.client_id` becomes a JavaScript object rather than a string.\r\n\r\nA middleware at [`oauth.ts#L71-L80`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/server/oauth2-server/oauth.ts#L71-L80) rewrites the request's `Content-Type` header to `application/x-www-form-urlencoded` before handing the request to the OAuth2 library, but it does not re-serialise or validate the body - the nested objects remain intact:\r\n\r\n```ts\r\nconst transformRequestsNotUsingFormUrlencodedType = function (req, _res, next) {\r\n    if (!req.is('application/x-www-form-urlencoded') && req.method === 'POST') {\r\n        req.headers['content-type'] = 'application/x-www-form-urlencoded';\r\n        req.body = Object.assign({}, req.body, req.query);\r\n    }\r\n    return next();\r\n};\r\n```\r\n\r\nInside `@node-oauth/oauth2-server`, the refresh-token grant handler validates parameters via `is.vschar(value)`, which internally calls `validator.matches(value, /^[\\u0020-\\u007E]+$/)`. `validator.matches()` coerces non-string inputs to their string representation - `{\"$ne\": null}` becomes `\"[object Object]\"`, which consists entirely of printable ASCII characters and therefore passes the vschar regex. The library then forwards the original object (not the coerced string) to the model layer.\r\n\r\nNotably, `/oauth/authorize` at [`oauth.ts#L95-L98`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/server/oauth2-server/oauth.ts#L95-L98) does include `if (typeof req.query.client_id !== 'string')` as a guard. The same guard is absent on `/oauth/token`.\r\n\r\n**2. Models accept query operators directly into `findOne`:**\r\n\r\n[`packages/models/src/models/OAuthApps.ts#L40-L53`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/packages/models/src/models/OAuthApps.ts#L40-L53):\r\n\r\n```ts\r\nfindOneActiveByClientIdAndClientSecret(\r\n    clientId: string,\r\n    clientSecret: string,\r\n    options?: FindOptions<IOAuthApps>,\r\n): Promise<IOAuthApps | null> {\r\n    return this.findOne(\r\n        {\r\n            active: true,\r\n            clientId,\r\n            clientSecret,\r\n        },\r\n        options,\r\n    );\r\n}\r\n```\r\n\r\nTypeScript's `string` annotations are compile-time only. The runtime value `{\"$ne\": null}` is placed into MongoDB's query document as-is. The resulting query `{active: true, clientId: {$ne: null}, clientSecret: {$ne: null}}` matches the first active OAuth app regardless of its actual `clientId` / `clientSecret` - client authentication is bypassed in one request.\r\n\r\n[`packages/models/src/models/OAuthAccessTokens.ts#L28-L33`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/packages/models/src/models/OAuthAccessTokens.ts#L28-L33) follows the same pattern:\r\n\r\n```ts\r\nasync findOneByRefreshToken(refreshToken: string, options?: FindOptions<IOAuthAccessToken>): Promise<IOAuthAccessToken | null> {\r\n    if (!refreshToken) {\r\n        return null;\r\n    }\r\n    return this.findOne({ refreshToken }, options);\r\n}\r\n```\r\n\r\nThe `if (!refreshToken) return null` guard only rejects falsy values (`null`, `undefined`, `\"\"`, `0`, `false`). An operator object such as `{\"$ne\": null}` is truthy, so it slips past the guard and lands directly in `findOne`. The resulting query `findOne({refreshToken: {$ne: null}})` returns the first document whose `refreshToken` field is any non-null value - i.e. the first refresh token in the collection.\r\n\r\n**3. No cross-check that returned token belongs to returned client on multi-app instances:**\r\n\r\nIn `@node-oauth/oauth2-server`'s `refresh-token-grant-type.js`, after the token is fetched the library verifies `token.client.id === client.id`. In the typical deployment with a single OAuth app registered, the first-matched client (from query 1) and the first-matched refresh token (from query 2, which was originally issued to that same client) share the same `clientId` - the check passes on the first request.\r\n\r\nFor deployments with multiple OAuth apps, the attacker narrows the `client_id` match with `{\"$regex\": \"^<prefix>\"}` via binary search on the 64-char nanoid charset (`[-0-9A-Z_a-z]`) until the regex uniquely matches the client that owns a refresh token. The included `exploit.py` automates this fallback; empirically it resolves in ~30 probes on a 5-app instance, taking well under a second.\r\n\r\n## Impact\r\n\r\nUnauthenticated arbitrary user ATO on any Rocket.Chat instance with an active OAuth app plus at least one completed authorisation in history.",
+    "ghsa_id": "GHSA-8p25-fm45-pjrw",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-8p25-fm45-pjrw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8p25-fm45-pjrw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45689"
+      }
+    ],
+    "published_at": "2026-05-14T07:47:11Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Pre-Auth NoSQL Injection in OAuth2 Token Endpoint leading to Arbitrary User ATO",
+    "updated_at": "2026-05-14T07:47:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.5.0, 8.4.1, 8.3.3, 8.2.3, 8.1.4, 8.0.5, 7.13.7, 7.10.11",
+        "vulnerable_version_range": "<8.5.0, <8.4.1, <8.3.3, <8.2.3, <8.1.4, <8.0.5, <7.13.7, <7.10.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

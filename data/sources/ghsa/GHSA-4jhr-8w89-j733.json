@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-4jhr-8w89-j733",
+  "repo": {
+    "cve_id": "CVE-2026-7263",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-404"
+    ],
+    "description": "**Researcher: Nikita Sveshnikov (Positive Technologies)**\r\n\r\nIn `DOMNode::C14N()`, improper removal of a `xmlns` libxml2 attribute from a doubly linked list can lead to a corrupt, circular linked list. The linked list is iterated in many places in PHP and libxml2, leading to DoS through segfaults, or temporal and spatial resource starvation.\r\n\r\n```php\r\n$doc = Dom\\HTMLDocument::createFromString('<svg foo=\"foo\" xmlns=\"\" bar=\"bar\">');\r\n$doc->C14N();\r\n// Segfault on cleanup\r\n\r\n// Or\r\n\r\n$doc = Dom\\HTMLDocument::createFromString('<svg foo=\"foo\" xmlns=\"\" bar=\"bar\">');\r\n$doc->C14N();\r\n$svg = $doc->documentElement->childNodes[1]->childNodes[0];\r\nforeach ($svg->attributes as $prop) {} // This will loop forever\r\n```\r\n\r\nThe attribute is removed incorrectly here:\r\n\r\nhttps://github.com/php/php-src/blob/f0f28b763c8696511c3b80fb8b25ae8765b2d94b/ext/dom/node.c#L2134-L2141\r\n\r\nNotice the `attr->prev = attr->next;` instead of `attr->prev->next = attr->next;`. The attribute is later (correctly) restored here:\r\n\r\nhttps://github.com/php/php-src/blob/f0f28b763c8696511c3b80fb8b25ae8765b2d94b/ext/dom/node.c#L2182-L2189\r\n\r\nAfter both procedures, the following graph:\r\n\r\n```mermaid\r\nflowchart TD\r\n    A -- \"Next\" --> xmlns\r\n    xmlns -- \"Prev\" --> A\r\n    xmlns -- \"Next\" --> B\r\n    B -- \"Prev\" --> xmlns\r\n```\r\n\r\nWould result in this graph:\r\n\r\n```mermaid\r\nflowchart TD\r\n    A -- \"Next\" --> xmlns\r\n    xmlns -- \"Prev\" --> B\r\n    xmlns -- \"Next\" --> B\r\n    B -- \"Prev\" --> xmlns\r\n    B -- \"Next\" --> xmlns\r\n```\r\n\r\nContinuously following `next` will result in an infinite loop.",
+    "ghsa_id": "GHSA-4jhr-8w89-j733",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-4jhr-8w89-j733",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4jhr-8w89-j733"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7263"
+      }
+    ],
+    "published_at": "2026-05-07T12:54:39Z",
+    "references": [],
+    "severity": "high",
+    "summary": "DoS attack via DOMNode::C14N()",
+    "updated_at": "2026-05-07T14:31:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-dom"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-dom"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

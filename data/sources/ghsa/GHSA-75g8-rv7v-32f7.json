@@ -1,0 +1,121 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-27493",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 9.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94",
+      "CWE-95"
+    ],
+    "description": "## Impact\nA second-order expression injection vulnerability existed in n8n's Form nodes that could allow an unauthenticated attacker to inject and evaluate arbitrary n8n expressions by submitting crafted form data. When chained with an expression sandbox escape, this could escalate to remote code execution on the n8n host.\n\nThe vulnerability requires a specific workflow configuration to be exploitable:\n1. A form node with a field interpolating a value provided by an unauthenticated user, e.g. a form submitted value.\n2. The field value must begin with an `=` character, which caused n8n to treat it as an expression and triggered a double-evaluation of the field content.\nFor example, a workflow uses a multi-step Form where a downstream Form node renders user-provided input back in an HTML field and precedes it with an `=` sign:\n`=<h2>Thank you, {{ $input.first().json[\\\"Name\\\"] }}!</h2>`\n\nThere is no practical reason for a workflow designer to prefix a field with `=` intentionally - the character is not rendered in the output, so the result would not match the designer's expectations. If added accidentally, it would be noticeable and very unlikely to persist. An unauthenticated attacker would need to either know about this specific circumstance on a target instance or discover a matching form by chance.\n\nEven when the preconditions are met, the expression injection alone is limited to data accessible within the n8n expression context. Escalation to remote code execution requires chaining with a separate sandbox escape vulnerability.\n\nDue to these real-world constraints - the unlikely workflow configuration, the need for an additional sandbox escape, and the difficulty of discovery - we have assessed the severity as High rather than Critical, diverging from the base CVSS score to better reflect actual exploitability.\n\n## Patches\nThe issue has been fixed in n8n versions 2.10.1, 2.9.3, and 1.123.22. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Review usage of form nodes manually for above mentioned preconditions.\n- Disable the Form node by adding `n8n-nodes-base.form` to the `NODES_EXCLUDE` environment variable.\n- Disable the Form Trigger node by adding `n8n-nodes-base.formTrigger` to the `NODES_EXCLUDE` environment variable.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-75g8-rv7v-32f7",
+    "html_url": "https://github.com/advisories/GHSA-75g8-rv7v-32f7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-75g8-rv7v-32f7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27493"
+      }
+    ],
+    "published_at": "2026-02-25T21:21:36Z",
+    "references": [
+      "https://github.com/n8n-io/n8n/security/advisories/GHSA-75g8-rv7v-32f7",
+      "https://github.com/n8n-io/n8n/issues/19",
+      "https://github.com/n8n-io/n8n/commit/562d867483e871b0f1e31776252e23bd721df75b",
+      "https://github.com/n8n-io/n8n/releases/tag/n8n@1.123.22",
+      "https://github.com/n8n-io/n8n/releases/tag/n8n@2.10.1",
+      "https://github.com/n8n-io/n8n/releases/tag/n8n@2.9.3",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-27493",
+      "https://github.com/advisories/GHSA-75g8-rv7v-32f7"
+    ],
+    "severity": "critical",
+    "summary": "n8n has Unauthenticated Expression Evaluation via Form Node",
+    "updated_at": "2026-02-27T21:51:05Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "1.123.22",
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "vulnerable_version_range": "< 1.123.22"
+      },
+      {
+        "first_patched_version": "2.9.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "vulnerable_version_range": ">= 2.0.0, < 2.9.3"
+      },
+      {
+        "first_patched_version": "2.10.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "vulnerable_version_range": ">= 2.10.0, < 2.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-75g8-rv7v-32f7",
+  "repo": {
+    "cve_id": "CVE-2026-27493",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94",
+      "CWE-95"
+    ],
+    "description": "## Impact\r\nA second-order expression injection vulnerability existed in n8n's Form nodes that could allow an unauthenticated attacker to inject and evaluate arbitrary n8n expressions by submitting crafted form data. When chained with an expression sandbox escape, this could escalate to remote code execution on the n8n host.\r\nThe vulnerability requires a specific workflow configuration to be exploitable:\r\n1. A form node with a field interpolating a value provided by an unauthenticated user, e.g. a form submitted value.\r\n2. The field value must begin with an `=` character, which caused n8n to treat it as an expression and triggered a double-evaluation of the field content.\r\nFor example, a workflow uses a multi-step Form where a downstream Form node renders user-provided input back in an HTML field and precedes it with an `=` sign:\r\n`=<h2>Thank you, {{ $input.first().json[\\\"Name\\\"] }}!</h2>`\r\n\r\nThere is no practical reason for a workflow designer to prefix a field with `=` intentionally - the character is not rendered in the output, so the result would not match the designer's expectations. If added accidentally, it would be noticeable and very unlikely to persist. An unauthenticated attacker would need to either know about this specific circumstance on a target instance or discover a matching form by chance.\r\nEven when the preconditions are met, the expression injection alone is limited to data accessible within the n8n expression context. Escalation to remote code execution requires chaining with a separate sandbox escape vulnerability.\r\nDue to these real-world constraints - the unlikely workflow configuration, the need for an additional sandbox escape, and the difficulty of discovery - we have assessed the severity as High rather than Critical, diverging from the base CVSS score to better reflect actual exploitability.\r\n\r\n## Patches\r\nThe issue has been fixed in n8n versions 2.10.1, 2.9.3, and 1.123.22. Users should upgrade to one of these versions or later to remediate the vulnerability.\r\n\r\n## Workarounds\r\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\r\n- Review usage of form nodes manually for above mentioned preconditions.\r\n- Disable the Form node by adding `n8n-nodes-base.form` to the `NODES_EXCLUDE` environment variable.\r\n- Disable the Form Trigger node by adding `n8n-nodes-base.formTrigger` to the `NODES_EXCLUDE` environment variable.\r\n\r\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.\r\n\r\n---\r\nn8n has adopted CVSS 4.0 as primary score for all security advisories. CVSS 3.1 vector strings are provided for backwards compatibility.\r\n\r\nCVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H\r\nCVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+    "ghsa_id": "GHSA-75g8-rv7v-32f7",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-75g8-rv7v-32f7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-75g8-rv7v-32f7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27493"
+      }
+    ],
+    "published_at": "2026-02-25T13:38:01Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated Expression Evaluation via Form Node",
+    "updated_at": "2026-02-25T13:38:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": "2.10.1, 2.9.3, 1.123.22",
+        "vulnerable_version_range": "< 1.123.22, >= 2.0.0 < 2.9.3, >= 2.10.0 < 2.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

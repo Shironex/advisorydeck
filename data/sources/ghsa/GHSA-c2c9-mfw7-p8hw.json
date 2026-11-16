@@ -1,0 +1,95 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-56268",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 5.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Summary\n\nThe `/api/v1/chatflows/apikey/:apikey` endpoint (whitelisted, accessible with API key auth only) returns all chatflows bound to the provided API key AND all chatflows across the entire system that have no API key assigned. This crosses workspace boundaries, allowing a user in Workspace A who has a valid API key to read the full configuration (including flowData, chatbotConfig, system prompts, and node configurations) of chatflows from Workspace B, Workspace C, and all other workspaces, as long as those chatflows have no API key assigned.\n\n## Details\n\nThe controller at `packages/server/src/controllers/chatflows/index.ts:90-107` validates the API key and calls the service:\n\n```typescript\nconst getChatflowByApiKey = async (req: Request, res: Response, next: NextFunction) => {\n    try {\n        const apikey = await apiKeyService.getApiKey(req.params.apikey)\n        if (\\!apikey) {\n            return res.status(401).send(\"Unauthorized\")\n        }\n        const apiResponse = await chatflowsService.getChatflowByApiKey(apikey.id, req.query.keyonly)\n        return res.json(apiResponse)  // Returns full chatflow objects with flowData\n    } catch (error) {\n        next(error)\n    }\n}\n```\n\nThe service at `packages/server/src/services/chatflows/index.ts:223-245` builds the database query:\n\n```typescript\nconst getChatflowByApiKey = async (apiKeyId: string, keyonly?: unknown): Promise<any> => {\n    const appServer = getRunningExpressApp()\n    let query = appServer.AppDataSource.getRepository(ChatFlow)\n        .createQueryBuilder(\"cf\")\n        .where(\"cf.apikeyid = :apikeyid\", { apikeyid: apiKeyId })\n    if (keyonly === undefined) {\n        // When keyonly is not set (default), also return ALL chatflows with no API key\n        query = query.orWhere(\"cf.apikeyid IS NULL\").orWhere(\"cf.apikeyid = ''\")\n    }\n    const dbResponse = await query.orderBy(\"cf.name\", \"ASC\").getMany()\n    return dbResponse  // Returns full ChatFlow entities including flowData\n}\n```\n\nWhen `keyonly` is not provided as a query parameter (which is the default case), the query expands to include:\n- All chatflows bound to the provided API key (same workspace, expected behavior)\n- ALL chatflows with `apikeyid IS NULL` (any workspace, no workspace filter)\n- ALL chatflows with empty `apikeyid` (any workspace, no workspace filter)\n\nThere is NO `workspaceId` filter in this query. The response includes the full `ChatFlow` entity, which contains:\n- `flowData` - the complete workflow graph including system prompts, model names, internal URLs, custom code\n- `chatbotConfig` - chatbot configuration including allowed origins\n- `apiConfig` - API configuration and override settings\n- `textToSpeech` / `speechToText` - TTS/STT configuration including credential IDs\n- `analytic` - analytics configuration\n\n## PoC\n\n```bash\n# Step 1: Attacker has a valid API key for Workspace A\nAPI_KEY=\"<attacker-workspace-a-api-key>\"\n\n# Step 2: Query the chatflows/apikey endpoint WITHOUT keyonly parameter\n# Returns the attacker chatflows PLUS all chatflows without API keys from ALL workspaces\ncurl -s \"http://localhost:3000/api/v1/chatflows/apikey/\" | jq \".[].workspaceId\"\n\n# Step 3: With keyonly parameter, only chatflows bound to the API key are returned\ncurl -s \"http://localhost:3000/api/v1/chatflows/apikey/?keyonly=true\" | jq \".[].workspaceId\"\n```\n\n## Impact\n\n- **Cross-Workspace Information Disclosure**: A user in any workspace can read the full configuration of chatflows from all other workspaces that do not have an API key assigned. This breaks workspace isolation.\n- **Intellectual Property Exposure**: System prompts, custom function code, and workflow architecture of chatflows from other workspaces/organizations are exposed.\n- **Credential Reference Leakage**: The `textToSpeech` and `speechToText` fields include credential IDs, which can be abused via the TTS generate endpoint.\n- **Amplified by Default**: Most chatflows are created without an API key assigned (API keys are opt-in), so the majority of chatflows in a multi-workspace deployment are affected.\n\n## Recommended Fix\n\nAdd workspace scoping to the `getChatflowByApiKey` query by passing the API key workspace ID and filtering the OR clause:\n\n```typescript\n// packages/server/src/services/chatflows/index.ts\nconst getChatflowByApiKey = async (apiKeyId: string, keyonly?: unknown, workspaceId?: string): Promise<any> => {\n    const appServer = getRunningExpressApp()\n    let query = appServer.AppDataSource.getRepository(ChatFlow)\n        .createQueryBuilder(\"cf\")\n        .where(\"cf.apikeyid = :apikeyid\", { apikeyid: apiKeyId })\n    if (keyonly === undefined && workspaceId) {\n        // Only include unprotected chatflows from the SAME workspace\n        query = query.orWhere(\n            \"(cf.apikeyid IS NULL OR cf.apikeyid = :empty) AND cf.workspaceId = :workspaceId\",\n            { empty: \"\", workspaceId }\n        )\n    }\n    const dbResponse = await query.orderBy(\"cf.name\", \"ASC\").getMany()\n    return dbResponse\n}\n```",
+    "ghsa_id": "GHSA-c2c9-mfw7-p8hw",
+    "html_url": "https://github.com/advisories/GHSA-c2c9-mfw7-p8hw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c2c9-mfw7-p8hw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-56268"
+      }
+    ],
+    "published_at": "2026-05-20T15:45:19Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-c2c9-mfw7-p8hw",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-56268",
+      "https://www.vulncheck.com/advisories/flowise-cross-workspace-information-disclosure-via-chatflows-apikey-endpoint",
+      "https://github.com/advisories/GHSA-c2c9-mfw7-p8hw"
+    ],
+    "severity": "medium",
+    "summary": "Flowise: Cross-Workspace Chatflow Disclosure via chatflows/apikey Endpoint Returns All Unprotected Chatflows",
+    "updated_at": "2026-07-20T13:35:08Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-c2c9-mfw7-p8hw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\nThe `/api/v1/chatflows/apikey/:apikey` endpoint (whitelisted, accessible with API key auth only) returns all chatflows bound to the provided API key AND all chatflows across the entire system that have no API key assigned. This crosses workspace boundaries, allowing a user in Workspace A who has a valid API key to read the full configuration (including flowData, chatbotConfig, system prompts, and node configurations) of chatflows from Workspace B, Workspace C, and all other workspaces, as long as those chatflows have no API key assigned.\r\n\r\n## Details\r\n\r\nThe controller at `packages/server/src/controllers/chatflows/index.ts:90-107` validates the API key and calls the service:\r\n\r\n```typescript\r\nconst getChatflowByApiKey = async (req: Request, res: Response, next: NextFunction) => {\r\n    try {\r\n        const apikey = await apiKeyService.getApiKey(req.params.apikey)\r\n        if (\\!apikey) {\r\n            return res.status(401).send(\"Unauthorized\")\r\n        }\r\n        const apiResponse = await chatflowsService.getChatflowByApiKey(apikey.id, req.query.keyonly)\r\n        return res.json(apiResponse)  // Returns full chatflow objects with flowData\r\n    } catch (error) {\r\n        next(error)\r\n    }\r\n}\r\n```\r\n\r\nThe service at `packages/server/src/services/chatflows/index.ts:223-245` builds the database query:\r\n\r\n```typescript\r\nconst getChatflowByApiKey = async (apiKeyId: string, keyonly?: unknown): Promise<any> => {\r\n    const appServer = getRunningExpressApp()\r\n    let query = appServer.AppDataSource.getRepository(ChatFlow)\r\n        .createQueryBuilder(\"cf\")\r\n        .where(\"cf.apikeyid = :apikeyid\", { apikeyid: apiKeyId })\r\n    if (keyonly === undefined) {\r\n        // When keyonly is not set (default), also return ALL chatflows with no API key\r\n        query = query.orWhere(\"cf.apikeyid IS NULL\").orWhere(\"cf.apikeyid = ''\")\r\n    }\r\n    const dbResponse = await query.orderBy(\"cf.name\", \"ASC\").getMany()\r\n    return dbResponse  // Returns full ChatFlow entities including flowData\r\n}\r\n```\r\n\r\nWhen `keyonly` is not provided as a query parameter (which is the default case), the query expands to include:\r\n- All chatflows bound to the provided API key (same workspace, expected behavior)\r\n- ALL chatflows with `apikeyid IS NULL` (any workspace, no workspace filter)\r\n- ALL chatflows with empty `apikeyid` (any workspace, no workspace filter)\r\n\r\nThere is NO `workspaceId` filter in this query. The response includes the full `ChatFlow` entity, which contains:\r\n- `flowData` - the complete workflow graph including system prompts, model names, internal URLs, custom code\r\n- `chatbotConfig` - chatbot configuration including allowed origins\r\n- `apiConfig` - API configuration and override settings\r\n- `textToSpeech` / `speechToText` - TTS/STT configuration including credential IDs\r\n- `analytic` - analytics configuration\r\n\r\n## PoC\r\n\r\n```bash\r\n# Step 1: Attacker has a valid API key for Workspace A\r\nAPI_KEY=\"<attacker-workspace-a-api-key>\"\r\n\r\n# Step 2: Query the chatflows/apikey endpoint WITHOUT keyonly parameter\r\n# Returns the attacker chatflows PLUS all chatflows without API keys from ALL workspaces\r\ncurl -s \"http://localhost:3000/api/v1/chatflows/apikey/\" | jq \".[].workspaceId\"\r\n\r\n# Step 3: With keyonly parameter, only chatflows bound to the API key are returned\r\ncurl -s \"http://localhost:3000/api/v1/chatflows/apikey/?keyonly=true\" | jq \".[].workspaceId\"\r\n```\r\n\r\n## Impact\r\n\r\n- **Cross-Workspace Information Disclosure**: A user in any workspace can read the full configuration of chatflows from all other workspaces that do not have an API key assigned. This breaks workspace isolation.\r\n- **Intellectual Property Exposure**: System prompts, custom function code, and workflow architecture of chatflows from other workspaces/organizations are exposed.\r\n- **Credential Reference Leakage**: The `textToSpeech` and `speechToText` fields include credential IDs, which can be abused via the TTS generate endpoint.\r\n- **Amplified by Default**: Most chatflows are created without an API key assigned (API keys are opt-in), so the majority of chatflows in a multi-workspace deployment are affected.\r\n\r\n## Recommended Fix\r\n\r\nAdd workspace scoping to the `getChatflowByApiKey` query by passing the API key workspace ID and filtering the OR clause:\r\n\r\n```typescript\r\n// packages/server/src/services/chatflows/index.ts\r\nconst getChatflowByApiKey = async (apiKeyId: string, keyonly?: unknown, workspaceId?: string): Promise<any> => {\r\n    const appServer = getRunningExpressApp()\r\n    let query = appServer.AppDataSource.getRepository(ChatFlow)\r\n        .createQueryBuilder(\"cf\")\r\n        .where(\"cf.apikeyid = :apikeyid\", { apikeyid: apiKeyId })\r\n    if (keyonly === undefined && workspaceId) {\r\n        // Only include unprotected chatflows from the SAME workspace\r\n        query = query.orWhere(\r\n            \"(cf.apikeyid IS NULL OR cf.apikeyid = :empty) AND cf.workspaceId = :workspaceId\",\r\n            { empty: \"\", workspaceId }\r\n        )\r\n    }\r\n    const dbResponse = await query.orderBy(\"cf.name\", \"ASC\").getMany()\r\n    return dbResponse\r\n}\r\n```\r\n",
+    "ghsa_id": "GHSA-c2c9-mfw7-p8hw",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-c2c9-mfw7-p8hw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c2c9-mfw7-p8hw"
+      }
+    ],
+    "published_at": "2026-05-14T14:14:11Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Cross-Workspace Chatflow Disclosure via chatflows/apikey Endpoint Returns All Unprotected Chatflows",
+    "updated_at": "2026-05-14T14:14:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

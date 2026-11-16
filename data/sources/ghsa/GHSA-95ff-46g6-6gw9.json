@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-24766",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1321"
+    ],
+    "description": "### Summary\n\nAn authenticated user with org-level-creator permissions can exploit prototype pollution in the `/api/v2/meta/connection/test` endpoint, causing all database write operations to fail application-wide until server restart.\n\nWhile the pollution technically bypasses SUPER_ADMIN authorization checks, no practical privileged actions can be performed because database operations fail immediately after pollution.\n\n### Details\n\nThe `deepMerge()` function in `packages/nocodb/src/utils/dataUtils.ts` does not sanitize the following keys: (`__proto__`, `constructor`, `prototype`):\n\n```typescript\nexport const deepMerge = (target: any, ...sources: any[]) => {\n  // ...\n  Object.keys(source).forEach((key) => {\n    if (isMergeableObject(source[key])) {\n      if (!target[key]) target[key] = Array.isArray(source[key]) ? [] : {};\n      deepMerge(target[key], source[key]);  // Recursively merges __proto__\n    } else {\n      target[key] = source[key];\n    }\n  });\n  // ...\n};\n```\n\nThe `testConnection` endpoint (`packages/nocodb/src/controllers/utils.controller.ts`) passes user-controlled input directly to `deepMerge()`:\n\n```typescript\nconfig = await integration.getConfig();\ndeepMerge(config, body);\n```\n\nWhen an attacker sends `{\"__proto__\": {\"super\": true}}`, the `super` property is written to `Object.prototype`, affecting all plain objects in the Node.js process.\n\n## Impact\n\nPollutes Object.prototype globally, breaking all subsequent database write operations for all users until process restart.",
+    "ghsa_id": "GHSA-95ff-46g6-6gw9",
+    "html_url": "https://github.com/advisories/GHSA-95ff-46g6-6gw9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-95ff-46g6-6gw9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24766"
+      }
+    ],
+    "published_at": "2026-01-28T21:41:26Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-95ff-46g6-6gw9",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-24766",
+      "https://github.com/nocodb/nocodb/releases/tag/0.301.0",
+      "https://github.com/advisories/GHSA-95ff-46g6-6gw9"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB has Prototype Pollution in Connection Test Endpoint, Leading to DoS",
+    "updated_at": "2026-01-28T21:41:26Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.301.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "< 0.301.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-95ff-46g6-6gw9",
+  "repo": {
+    "cve_id": "CVE-2026-24766",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1321"
+    ],
+    "description": "### Summary\r\n\r\nAn authenticated user with org-level-creator permissions can exploit prototype pollution in the `/api/v2/meta/connection/test` endpoint, causing all database write operations to fail application-wide until server restart.\r\n\r\nWhile the pollution technically bypasses SUPER_ADMIN authorization checks, no practical privileged actions can be performed because database operations fail immediately after pollution.\r\n\r\n### Details\r\n\r\nThe `deepMerge()` function in `packages/nocodb/src/utils/dataUtils.ts` does not sanitize the following keys: (`__proto__`, `constructor`, `prototype`):\r\n\r\n```typescript\r\nexport const deepMerge = (target: any, ...sources: any[]) => {\r\n  // ...\r\n  Object.keys(source).forEach((key) => {\r\n    if (isMergeableObject(source[key])) {\r\n      if (!target[key]) target[key] = Array.isArray(source[key]) ? [] : {};\r\n      deepMerge(target[key], source[key]);  // Recursively merges __proto__\r\n    } else {\r\n      target[key] = source[key];\r\n    }\r\n  });\r\n  // ...\r\n};\r\n```\r\n\r\nThe `testConnection` endpoint (`packages/nocodb/src/controllers/utils.controller.ts`) passes user-controlled input directly to `deepMerge()`:\r\n\r\n```typescript\r\nconfig = await integration.getConfig();\r\ndeepMerge(config, body);\r\n```\r\n\r\nWhen an attacker sends `{\"__proto__\": {\"super\": true}}`, the `super` property is written to `Object.prototype`, affecting all plain objects in the Node.js process.\r\n\r\n## Impact\r\n\r\nPollutes Object.prototype globally, breaking all subsequent database write operations for all users until process restart.\r\n\r\n",
+    "ghsa_id": "GHSA-95ff-46g6-6gw9",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-95ff-46g6-6gw9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-95ff-46g6-6gw9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24766"
+      }
+    ],
+    "published_at": "2026-01-28T11:30:34Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Prototype Pollution in Connection Test Endpoint Leading to DoS",
+    "updated_at": "2026-01-28T11:30:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "0.301.0",
+        "vulnerable_version_range": "<= 0.265.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

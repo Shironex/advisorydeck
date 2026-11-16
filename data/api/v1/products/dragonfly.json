@@ -1,0 +1,459 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "dragonfly",
+    "name": "Dragonfly",
+    "category": "databases",
+    "homepage": "https://www.dragonflydb.io",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-pmgx-g74v-v37g",
+      "aliases": [],
+      "title": "Malformed hash/zset listpack in an RDB image crashes the server and can leak heap memory",
+      "summary": "## Summary\r\n\r\nDragonfly validated hash and sorted set listpacks deeply only on the `RESTORE` command path.\r\nRDB file loads and replication full syncs used the same deserializer with shallow validation,\r\nso a malformed listpack that `RESTORE` rejects was accepted silently on those paths. The first\r\npairwise read of the resulting key (`HGETALL`, `ZRANK`) then dereferenced a missing value and\r\ncrashed the process. With a shaped entry length the same walk could instead read past the\r\nallocation and return adjacent heap memory to the client.\r\n\r\n## Details\r\n\r\nThe `deep_integrity` flag was set at exactly one call site in the tree:\r\n\r\n```\r\nsrc/server/generic_family.cc:225   config.deep_integrity = true;   // RESTORE\r\nsrc/server/rdb_load.h:191          bool deep_integrity = false;    // default\r\n```\r\n\r\nEvery other consumer of the same deserializer kept the default:\r\n\r\n```\r\nsrc/server/replica.cc:504          RdbLoader loader(NULL, &load_context);        // PSYNC full sync\r\nsrc/server/replica.cc:1232         rdb_loader_ = make_unique<RdbLoader>(...);    // Dragonfly sync\r\nsrc/server/server_family.cc        RdbLoader loader{&service_, load_context};    // RDB file load\r\n```\r\n\r\nIn `HSetFamily::LoadListpackBlob` the guard added for the `RESTORE` fixes was gated on that flag:\r\n\r\n```c\r\nif (deep && lpLength((uint8_t*)blob.data()) % 2 != 0) {\r\n    LOG(ERROR) << \"Hash listpack has an odd number of entries.\";\r\n    return LoadBlobResult::kCorrupted;\r\n}\r\n```\r\n\r\nWith `deep = 0`, `lpValidateIntegrity` checks only the listpack header, that `total_bytes`\r\nmatches the buffer size and that the final byte is the `LP_EOF` terminator. Individual entries\r\nare never walked, so both an odd entry count and a forged per entry length were accepted.\r\n\r\nThe bounds check that would otherwise catch the walk does not exist in a release build.\r\n`lpAssertValidEntry` in `src/redis/listpack.c` is a plain C `assert`, so under `-DNDEBUG` the\r\nentire `lpValidateNext` call is compiled out:\r\n\r\n```c\r\nstatic inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {\r\n    assert(lpValidateNext(lp, &p, lpbytes));\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nTwo outcomes, both from the same unvalidated walk.\r\n\r\n**Denial of service.** An odd entry or count mismatched listpack loads cleanly and reports\r\nsuccess. The next pairwise read crashes the process with SIGSEGV, losing all in memory data:\r\n\r\n```\r\n*** SIGSEGV received at time=1789508473 on cpu 9 ***\r\nPC: @  0xb23c38  lpGet\r\n    @  0x90aa80  dfly::detail::ListpackWrap::GetView()\r\n    @  0x90aacc  dfly::detail::ListpackWrap::Iterator::Read()\r\n    @  0x90ab08  dfly::detail::ListpackWrap::Iterator::operator++()\r\n    @  0x4de218  dfly::(anonymous namespace)::HGetGeneric()::{lambda()#1}::operator()()\r\n```\r\n\r\n**Information disclosure.** A hash listpack whose declared size exceeds\r\n`max_listpack_map_bytes` is converted through `HSetFamily::ConvertToStrMap`, which copies each\r\nvalue into a `StringMap` that the client can read back. Forging one entry's 32 bit string\r\nlength makes that copy read past the end of the allocation, and the bytes are committed to the\r\nlive hash and returned by a plain `HGETALL`. Measured over 30 single attempt runs delivered by\r\nreplication full sync, at the stock default `listpack_max_bytes` of 1024 and with no other\r\nconfiguration changes, 19 runs returned attacker never supplied heap contents without crashing.\r\nRecovered bytes included live heap pointers.\r\n\r\nNeither path requires authentication. Dragonfly runs without authentication by default.\r\n\r\n## Proof of concept\r\n\r\n45 byte RDB image, loaded from disk:\r\n\r\n```\r\n00000000  52 45 44 49 53 30 30 31 31 fe 00 10 03 70 77 6e  |REDIS0011....pwn|\r\n00000010  13 13 00 00 00 03 00 82 66 31 03 82 76 31 03 82  |........f1..v1..|\r\n00000020  66 32 03 ff ff 00 00 00 00 00 00 00 00           |f2...........|\r\n```\r\n\r\n```\r\ndocker run --rm --ulimit memlock=-1 -p 6399:6379 -v /tmp/dfpoc:/data \\\r\n  docker.dragonflydb.io/dragonflydb/dragonfly:latest \\\r\n  --dir /data --dbf...",
+      "published_at": "2026-09-23T10:32:38.000Z",
+      "modified_at": "2026-09-23T10:32:38.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "2.0.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-pmgx-g74v-v37g",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-pmgx-g74v-v37g",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-pmgx-g74v-v37g",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6015e44af36249d6071dd34f542953f3bcbfdca2b362398d27a3586a5733694f",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-104192",
+      "aliases": [
+        "GHSA-cg35-6jf4-crfh"
+      ],
+      "title": "DragonflyDB stream RDB deserialization double-free",
+      "summary": "Dragonfly is an in-memory data store built for modern application workloads. Prior to 1.40, OpaqueObjLoader::CreateStream in src/server/rdb_load.cc can associate one streamNACK with a consumer group's global PEL and a consumer-local PEL, then free the shared object when a duplicate consumer entry is rejected. Cleanup subsequently frees the same object again. In the default configuration, where Dragonfly ships with authentication disabled, an unauthenticated client can trigger the double-free by sending a crafted serialized stream to RESTORE, causing allocator corruption, denial of service, and potentially attacker-controlled code execution as the Dragonfly service account. The source fix has not yet been mapped to a published release.",
+      "published_at": "2026-09-20T14:28:45.000Z",
+      "modified_at": "2026-10-13T15:26:00.663Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.6,
+        "vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00276,
+        "percentile": 0.20274,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-415"
+      ],
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.40"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cg35-6jf4-crfh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/pull/7929",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/commit/6c6b27a5cfd03d67eb9583ab84a0f0709e3bc77e",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-104192",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-104192",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-104192",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-104192",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cg35-6jf4-crfh",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cg35-6jf4-crfh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:29bcbf1717cfca128468954129b2571e1fd8b1e90696d57b0e1857dc6c694071",
+      "note": null
+    },
+    {
+      "id": "GHSA-f4g8-vhw4-36xm",
+      "aliases": [],
+      "title": "Unauthenticated remote code execution in DragonflyDB (stack buffer overflow in `CompactObj::HashCode()`)",
+      "summary": "## Summary\r\n\r\nAn unauthenticated client can install a crafted huffman table with `DEBUG COMPRESSION SET`, store one 14 byte key, and overflow a fixed 128 byte stack buffer in `CompactObj::HashCode()` when the dash table rehashes. The shipped binary is non-PIE with no stack protector, so the overwrite gives deterministic control of the saved return address and, through a single gadget into an internal `system()` wrapper, arbitrary command execution as the Dragonfly service account. Proven end to end on the stock `ghcr.io/dragonflydb/dragonfly:v1.40.1` image in its default configuration, with ASLR enabled and no information leak.\r\n\r\n## Severity\r\n\r\nCritical, CVSS 3.1 base 9.8 (`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`). Default deployments set no password and expose the `DEBUG` family on the ordinary client port.\r\n\r\n## Affected\r\n\r\n| | |\r\n|---|---|\r\n| Product | DragonflyDB |\r\n| Version verified | v1.40.1, commit `434478e00c366c711985d0b3269023fc39db8ad1` |\r\n| Image | `ghcr.io/dragonflydb/dragonfly:v1.40.1`, digest `sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986`, linux/amd64 (also `latest` as of 2026-08-26) |\r\n| Configuration | default, no authentication, no special flags |\r\n| Class | CWE-121 stack-based buffer overflow, CWE-787 out-of-bounds write, CWE-20 |\r\n\r\n## Root cause\r\n\r\n`CompactObj::HashCode() const` decodes an inline huffman value into a fixed stack array with no destination bound:\r\n\r\n```cpp\r\nchar buf[kInlineLen * 8];   // 128 bytes, on the stack\r\nsize_t decoded_len = GetStrEncoding().Decode(string_view{u_.inline_str, taglen_}, buf);\r\n```\r\n\r\nThe safety assumption is that huffman cannot expand more than 8x, so an inline value (16 bytes maximum) cannot decode past 128 bytes. That does not hold: a huff0 table only assigns codes to the symbols it declares, so every byte outside the declared alphabet encodes in zero bits. A value made of out-of-alphabet filler compresses to almost nothing while its header declares a decoded length of about a thousand. `decoded_len` comes from attacker metadata and is never compared against `sizeof(buf)` before the write.\r\n\r\n## Reaching the path\r\n\r\nThe member `HashCode()` runs on stored objects when the dash table rehashes, so no special command is needed after the key is stored: inserting a few thousand short keys is enough. In our runs the overflow fires at roughly 6400 filler keys.\r\n\r\n## Exploitation\r\n\r\nThe binary is non-PIE and built without a stack protector, so both addresses are compile time constants: `base::sh_exec` (a one argument `sh -c` wrapper) at `0x004be2e0`, and the gadget `mov %r8,%rdi ; call *%rbx` at `0x011426e1`. `r8` still points at the decoded buffer when `HashCode()` returns, so the gadget sets `rdi = buf` and calls whatever the overflow placed in `rbx`:\r\n\r\n```\r\nret       -> 0x011426e1   mov %r8,%rdi ; call *%rbx      (gadget, from buf+168)\r\nrbx       =  0x004be2e0   base::sh_exec(char const*)      (from buf+136)\r\nresult    =  sh_exec(buf) = system(\"sh -c \\\"sh *\\\"\")      (buf[0..] decodes to \"sh *\\0\")\r\n```\r\n\r\nThe offsets are arithmetic, not brute force. The decode of an over long inline value is exactly periodic, so a table with period 43 places the two addresses 32 bytes apart at offsets 136 and 168, exactly the frame distance, leaving the first 7 bytes free for the command string. `sh *` fits there and globs onto a snapshot staged beforehand with `CONFIG SET dbfilename x` plus `SAVE`, which `dash` executes as a script. That staging is not part of the vulnerability, only the cheapest way to expand a six character command into a full shell.\r\n\r\n## Proof of concept\r\n\r\nTarget, published image and a port mapping only:\r\n\r\n```sh\r\ndocker run -d --name dfpocrece -p 6331:6379 -m 2g \\\r\n  ghcr.io/dragonflydb/dragonfly:v1.40.1 --logtostderr --proactor_threads=1\r\n```\r\n\r\nFour unauthenticated steps: (1) install the crafted table with `DEBUG COMPRESSION SET`, (2) stage the command body (`CONFIG SET dbfilename x`, one key holding the reverse shell line, `SAVE`), (3...",
+      "published_at": "2026-09-20T14:28:30.000Z",
+      "modified_at": "2026-09-20T14:28:30.000Z",
+      "severity": {
+        "level": "low",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "1.40"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-f4g8-vhw4-36xm",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f4g8-vhw4-36xm",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-f4g8-vhw4-36xm",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6e0b669885ebf85ee036bfdff1b9bf0b43a73d1ce9791a4ef1c7584ef2512d70",
+      "note": null
+    },
+    {
+      "id": "GHSA-9q98-cx72-pg45",
+      "aliases": [],
+      "title": "Unauthenticated remote code execution in DragonflyDB (memcached reply-builder heap overflow)",
+      "summary": "## Summary\r\n\r\nWhen Dragonfly speaks the memcached text protocol, an unauthenticated `get` of an oversized key overflows the 8192 byte reply buffer in `SinkReplyBuilder::WritePieces` and poisons the `next` pointer of an adjacent mimalloc free block (plaintext, `MI_SECURE=0`), so a later allocation is returned at an attacker-chosen fixed address `T`. A second `get` of a big key makes `storage = make_unique<char[]>` land on that block, giving a byte-unrestricted write over the writable GOT. The image sets `__isoc99_sscanf@got` to `base::sh_exec`, and a RESP `RESTORE` of an old string-double sorted set drives `FetchDouble` into `sscanf(score)` == `sh_exec(score)`, running the score string as a shell command. Proven end to end on the stock `ghcr.io/dragonflydb/dragonfly:v1.40.1` image, ASLR on, no information leak, running as the `dfly` service account.\r\n\r\n## Severity\r\n\r\nCritical, CVSS 3.1 base 9.8 (`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`). The one precondition is that the operator enabled the memcached protocol (`--memcached_port`, off by default); once enabled it has no authentication at all.\r\n\r\n## Root cause\r\n\r\nThree pieces of the memcached reply path combine into the overflow.\r\n\r\n1. **The reply buffer is hard capped, the copy is not.** In `src/facade/reply_builder.cc`, `SinkReplyBuilder::WritePieces` calls `Flush(required)`, but `Flush` clamps the buffer to `kMaxBufferSize = 8192`, and `write_piece` is a bare `memcpy` with no destination bound.\r\n\r\n```cpp\r\nif (size_t required = (piece_size(pieces) + ...); buffer_.AppendLen() <= required)\r\n  Flush(required);                       // buffer capped at kMaxBufferSize = 8192\r\nchar* ptr = dest;\r\n([&]() { ptr = write_piece(pieces, ptr); }(), ...);   // unbounded memcpy per piece\r\n```\r\n\r\n2. **The unbounded piece is the echoed key.** `MCReplyBuilder::SendValue` builds `WritePieces(\"VALUE \", key, \" \", mc_flag, \" \", value.size())`. `\"VALUE \"` is 6 bytes, so a key of `8192 - 6 + N` bytes writes `N` attacker bytes past the 8192 byte block.\r\n\r\n3. **The read path skips every guard.** RESP call sites hand any string over `kMaxInlineSize` (32) to the zero-copy `WriteRef`, and the memcached store and meta paths enforce the 250 byte key limit, but `ParseValueless` in `src/facade/memcache_parser.cc` (serving `get`/`gets`/`gat`/`delete`/`incr`/`decr`) applies neither, so an over long `get` key reaches the unbounded copy intact.\r\n\r\n## Why it escalates\r\n\r\nThe shipped binary is non-PIE, GOT writable (no `BIND_NOW`), no stack canary, and the bundled mimalloc has `MI_SECURE=0` (plaintext free-list `next`). Overflowing reply block `n` overwrites the free neighbour's `next` with `T`. Grooming: open N memcached connections (one reply buffer each), close every other one. A later 8192-class `make_unique<char[]>` (the `storage` for a big `get`) pops `T` and copies attacker bytes there, unrestricted.\r\n\r\n## Exploitation\r\n\r\n`T = 0x19ef560` is placed 8 bytes above `memcpy@got` (`0x19ef558`), so the `make_unique` zeroing (`memset@got`, `memcpy@got`, both below `T`) never blanks the slots the copy itself needs. The image overwrites `__isoc99_sscanf@got` (`0x19ef658`, above `T`) with `base::sh_exec` (`0x004be2e0`):\r\n\r\n```\r\nland      -> make_unique<char[]> pops T = 0x19ef560   (poisoned free-list next)\r\nimage     -> sscanf@got (0x19ef658) := base::sh_exec (0x004be2e0)\r\ntrigger   -> RESTORE zset(type 3) -> FetchDouble -> sscanf(score) == sh_exec(score)\r\n```\r\n\r\nThe window image is a faithful copy of the GOT tail with every slot re-armed to its PLT stub (lazy binding re-resolves, process keeps serving), only `sscanf@got` changed plus three ASLR-dependent `.data` pointers neutralized to a fixed readable address. It is precomputed offline from the public binary, so the target's memory is never read: ASLR stays on, no leak. The command uses `bash -c` because `sh_exec` spawns `/bin/sh` (dash), which has no `/dev/tcp`, and is not backgrounded, so the shard thread blocks inside `sh_exec` for the session.\r\n\r\n## Remediation...",
+      "published_at": "2026-09-20T14:28:13.000Z",
+      "modified_at": "2026-09-20T14:28:13.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.40.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-9q98-cx72-pg45",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-9q98-cx72-pg45",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-9q98-cx72-pg45",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:dd28604f8ef138bbd42f90bac4806d1abd93a7c87136f19080ee43ec5c00178d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-62357",
+      "aliases": [
+        "GHSA-cmmv-h748-v93x"
+      ],
+      "title": "DragonflyDB `CMS.INITBYDIM` integer overflow leads to a remote, attacker-controlled heap out-of-bounds write",
+      "summary": "Dragonfly is an in-memory data store built for modern application workloads. Prior to 1.40.0, CMS.INITBYDIM and CMS.INITBYPROB accept dimensions whose width times depth times sizeof(int64_t) overflows in src/core/cms.cc, allocating an undersized counter buffer while CMS.INCRBY and CMS.QUERY use the unbounded dimensions, which allows an unauthenticated remote client to corrupt or disclose adjacent heap memory and crash the server. This issue is fixed in version 1.40.0.",
+      "published_at": "2026-07-15T08:46:10.000Z",
+      "modified_at": "2026-08-19T14:36:42.019Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00524,
+        "percentile": 0.45001,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-190"
+      ],
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.40"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cmmv-h748-v93x",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/pull/7647",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/commit/c004623249fe2151dc5d64e21364fb9fb07c90d3",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/releases/tag/v1.40.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-62357",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-62357",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-62357",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-62357",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cmmv-h748-v93x",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cmmv-h748-v93x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a12afca43b8ec60a13660bd4b3bee7dc3a3428ce1de942b2c2ac0e14349c6229",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-54341",
+      "aliases": [
+        "GHSA-cwjr-j869-h8q9"
+      ],
+      "title": "Dragonfly: RESTORE operations may crash the server",
+      "summary": "Dragonfly is an in-memory data store built for modern application workloads. Prior to 1.39.0, a crafted RESTORE payload triggers an out-of-bounds read in DragonflyDB's listpack collection loaders, crashing the entire server process (SIGSEGV). Because DragonflyDB requires no authentication by default and RESTORE is a normal keyspace command, an unauthenticated remote attacker can crash the server with a single ~24-byte command - a remote, repeatable denial of service. This vulnerability is fixed in 1.39.0.",
+      "published_at": "2026-06-15T15:55:30.000Z",
+      "modified_at": "2026-06-26T18:32:22.364Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00495,
+        "percentile": 0.43012,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-125"
+      ],
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.39"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cwjr-j869-h8q9",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/pull/7502",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-54341",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-54341",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-54341",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-54341",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cwjr-j869-h8q9",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cwjr-j869-h8q9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5e7b39a65a822fc6252af8849703ee814885f1712af23790bcc14b6a907f67fd",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-47206",
+      "aliases": [
+        "GHSA-h77h-c6hc-qc9h"
+      ],
+      "title": "Dragonfly: RESP Protocol Injection via Lua redis.error_reply() in EvalSerializer",
+      "summary": "Dragonfly is an in-memory data store built for modern application workloads. Prior to 1.39.9, Dragonfly has a RESP Protocol Injection via Lua redis.error_reply() in EvalSerializer. An authenticated user can inject arbitrary RESP messages into the connection's response stream, potentially causing response desynchronization in connection-pool clients. This vulnerability is fixed in 1.39.9.",
+      "published_at": "2026-05-19T06:28:23.000Z",
+      "modified_at": "2026-06-26T17:31:48.061Z",
+      "severity": {
+        "level": "low",
+        "score": 2.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:L/SI:L/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0036,
+        "percentile": 0.30205,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-116"
+      ],
+      "affected": [
+        {
+          "product": "dragonfly",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.38.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-h77h-c6hc-qc9h",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/issues/7328",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/dragonflydb/dragonfly/pull/7332",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-47206",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-47206",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-47206",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-47206",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-h77h-c6hc-qc9h",
+          "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-h77h-c6hc-qc9h",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4199763df54d2bb76b8500cb27bd284a02636bf5ae221c1c5d50fff5c967a01",
+      "note": null
+    }
+  ]
+}

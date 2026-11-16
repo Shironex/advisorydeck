@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-46480",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 7.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-915"
+    ],
+    "description": "## Summary\n\n**Type:** Mass assignment via `Object.assign(entity, body)` -> client-controlled `workspaceId` (and on create, `id`) overwritten on the Evaluator entity -> cross-workspace data takeover and IDOR.\n**File:** `packages/server/src/Interface.Evaluation.ts`\n**Root cause:** The Evaluator controller/service constructs a `new Evaluator()` and copies the request body into it via `Object.assign(...)` without an explicit field allowlist. The request body therefore can include `workspaceId`, `id`, `createdDate`, `updatedDate`. The server only rebinds *some* of these after the assign (e.g. on create, it overwrites `workspaceId` but not `id`; on update, it overwrites `id` but not `workspaceId`). The remaining client-controlled values land directly on the persisted row, breaking workspace isolation. Same root pattern as the evaluator entity's sibling controllers and as `DocumentStore` before it was patched in commit 840d2ae.\n\n## Affected Code\n\n**File:** `packages/server/src/Interface.Evaluation.ts`\n\n```ts\n// at line 85\nObject.assign(newEvaluator, body)       // <-- BUG: body.id, body.workspaceId, body.createdDate, body.updatedDate accepted\n```\n\n**Why it's wrong:** `Object.assign(target, source)` copies every own enumerable property of `source` onto `target`. The TypeORM/SQL persistence layer below it does not strip ownership-bearing columns, so `workspaceId` set in the request body lands as the new `workspaceId` of the persisted row. The DocumentStore patch (commit 840d2ae) demonstrated the intended fix shape (explicit field-by-field allowlist) but it has not been applied to this entity.\n\n## Exploit Chain\n\n1. Attacker is an authenticated member of workspace A. They have a session cookie / JWT for the Flowise web UI. State at this point: attacker can read and write entities scoped to workspace A.\n2. Attacker creates a evaluator in workspace A via the documented API (or reuses an existing one they own). They note its entity `id`.\n3. Attacker issues a `PUT /api/v1/evaluators/<id>` (or equivalent endpoint) with a JSON body that includes `\"workspaceId\": \"<workspace-B-id>\"` (an arbitrary other workspace's UUID). State at this point: the request reaches the controller as a workspace-A authenticated request.\n4. The controller calls `Object.assign(updateEntity, body)`. The body's `workspaceId` overwrites the entity's `workspaceId` field. The persistence layer commits the row.\n5. Final state: the evaluator row is now owned by workspace B. Workspace B members can see it, modify it, and use it. Workspace A loses access (it no longer satisfies their workspace filter). The original creator's workspace audit shows nothing because the operation looked like a normal update.\n\n## Security Impact\n\n**Severity:** High. Cross-workspace boundary violation by any authenticated workspace member.\n**Attacker capability:** Any authenticated user with permission to update a evaluator can move it to any workspace whose UUID they can guess or enumerate (workspace UUIDs are exposed in many API responses, so enumeration is trivial). Evaluators score model outputs and can be moved into another workspace via `workspaceId` overwrite, making the evaluator (and its scoring rubric) appear there.\n**Preconditions:** Authenticated session with edit permission for the source evaluator. No second factor required. Workspace UUIDs are exposed via the `/api/v1/workspaces` listing or via any cross-referenced object's `workspaceId` field, so target enumeration is trivial.\n**Differential:** PoC-verified by source inspection of the original GHSA-q4pr-4r26-c69r. Patched build (with the suggested fix below) refuses the `workspaceId` field; vulnerable build accepts it and persists it.\n\n## Suggested Fix\n\nAlready fixed in PR https://github.com/FlowiseAI/Flowise/pull/6050 (allowlist pattern applied).\n\n```ts\n// Allowlist pattern (matches commit 840d2ae for DocumentStore):\nconst updatedEvaluator = new Evaluator()\nif (body.<allowed_field_1> !== undefined) updatedEvaluator.<allowed_field_1> = body.<allowed_field_1>\nif (body.<allowed_field_2> !== undefined) updatedEvaluator.<allowed_field_2> = body.<allowed_field_2>\n// ...whitelist only the documented fields. Never copy id, workspaceId, createdDate, updatedDate from the client.\n```\n\nRegression tests should assert that a request body containing `workspaceId`, `id`, `createdDate`, or `updatedDate` is rejected (or at minimum: does not change those columns on the persisted row) for both create and update paths.",
+    "ghsa_id": "GHSA-wxrr-jp8m-qq7f",
+    "html_url": "https://github.com/advisories/GHSA-wxrr-jp8m-qq7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wxrr-jp8m-qq7f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46480"
+      }
+    ],
+    "published_at": "2026-05-14T16:19:52Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-wxrr-jp8m-qq7f",
+      "https://github.com/FlowiseAI/Flowise/pull/6050",
+      "https://github.com/FlowiseAI/Flowise/commit/dc07f4062b852033554543a3cff3daf3433b0dac",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-46480",
+      "https://github.com/advisories/GHSA-wxrr-jp8m-qq7f"
+    ],
+    "severity": "high",
+    "summary": "FlowiseAI: Evaluator create+update mass-assignment allows cross-workspace evaluator takeover",
+    "updated_at": "2026-06-09T18:40:30Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-wxrr-jp8m-qq7f",
+  "repo": {
+    "cve_id": "CVE-2026-46480",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-915"
+    ],
+    "description": "## Summary\r\n\r\n**Type:** Mass assignment via `Object.assign(entity, body)` -> client-controlled `workspaceId` (and on create, `id`) overwritten on the Evaluator entity -> cross-workspace data takeover and IDOR.\r\n**File:** `packages/server/src/Interface.Evaluation.ts`\r\n**Root cause:** The Evaluator controller/service constructs a `new Evaluator()` and copies the request body into it via `Object.assign(...)` without an explicit field allowlist. The request body therefore can include `workspaceId`, `id`, `createdDate`, `updatedDate`. The server only rebinds *some* of these after the assign (e.g. on create, it overwrites `workspaceId` but not `id`; on update, it overwrites `id` but not `workspaceId`). The remaining client-controlled values land directly on the persisted row, breaking workspace isolation. Same root pattern as the evaluator entity's sibling controllers and as `DocumentStore` before it was patched in commit 840d2ae.\r\n\r\n## Affected Code\r\n\r\n**File:** `packages/server/src/Interface.Evaluation.ts`\r\n\r\n```ts\r\n// at line 85\r\nObject.assign(newEvaluator, body)       // <-- BUG: body.id, body.workspaceId, body.createdDate, body.updatedDate accepted\r\n```\r\n\r\n**Why it's wrong:** `Object.assign(target, source)` copies every own enumerable property of `source` onto `target`. The TypeORM/SQL persistence layer below it does not strip ownership-bearing columns, so `workspaceId` set in the request body lands as the new `workspaceId` of the persisted row. The DocumentStore patch (commit 840d2ae) demonstrated the intended fix shape (explicit field-by-field allowlist) but it has not been applied to this entity.\r\n\r\n## Exploit Chain\r\n\r\n1. Attacker is an authenticated member of workspace A. They have a session cookie / JWT for the Flowise web UI. State at this point: attacker can read and write entities scoped to workspace A.\r\n2. Attacker creates a evaluator in workspace A via the documented API (or reuses an existing one they own). They note its entity `id`.\r\n3. Attacker issues a `PUT /api/v1/evaluators/<id>` (or equivalent endpoint) with a JSON body that includes `\"workspaceId\": \"<workspace-B-id>\"` (an arbitrary other workspace's UUID). State at this point: the request reaches the controller as a workspace-A authenticated request.\r\n4. The controller calls `Object.assign(updateEntity, body)`. The body's `workspaceId` overwrites the entity's `workspaceId` field. The persistence layer commits the row.\r\n5. Final state: the evaluator row is now owned by workspace B. Workspace B members can see it, modify it, and use it. Workspace A loses access (it no longer satisfies their workspace filter). The original creator's workspace audit shows nothing because the operation looked like a normal update.\r\n\r\n## Security Impact\r\n\r\n**Severity:** High. Cross-workspace boundary violation by any authenticated workspace member.\r\n**Attacker capability:** Any authenticated user with permission to update a evaluator can move it to any workspace whose UUID they can guess or enumerate (workspace UUIDs are exposed in many API responses, so enumeration is trivial). Evaluators score model outputs and can be moved into another workspace via `workspaceId` overwrite, making the evaluator (and its scoring rubric) appear there.\r\n**Preconditions:** Authenticated session with edit permission for the source evaluator. No second factor required. Workspace UUIDs are exposed via the `/api/v1/workspaces` listing or via any cross-referenced object's `workspaceId` field, so target enumeration is trivial.\r\n**Differential:** PoC-verified by source inspection of the original GHSA-q4pr-4r26-c69r. Patched build (with the suggested fix below) refuses the `workspaceId` field; vulnerable build accepts it and persists it.\r\n\r\n## Suggested Fix\r\n\r\nAlready fixed in PR https://github.com/FlowiseAI/Flowise/pull/6050 (allowlist pattern applied).\r\n\r\n```ts\r\n// Allowlist pattern (matches commit 840d2ae for DocumentStore):\r\nconst updatedEvaluator = new Evaluator()\r\nif (body.<allowed_field_1> !== undefined) updatedEvaluator.<allowed_field_1> = body.<allowed_field_1>\r\nif (body.<allowed_field_2> !== undefined) updatedEvaluator.<allowed_field_2> = body.<allowed_field_2>\r\n// ...whitelist only the documented fields. Never copy id, workspaceId, createdDate, updatedDate from the client.\r\n```\r\n\r\nRegression tests should assert that a request body containing `workspaceId`, `id`, `createdDate`, or `updatedDate` is rejected (or at minimum: does not change those columns on the persisted row) for both create and update paths.\r\n",
+    "ghsa_id": "GHSA-wxrr-jp8m-qq7f",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-wxrr-jp8m-qq7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wxrr-jp8m-qq7f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46480"
+      }
+    ],
+    "published_at": "2026-05-14T14:18:32Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Evaluator create+update mass-assignment allows cross-workspace evaluator takeover",
+    "updated_at": "2026-05-14T19:20:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.2",
+        "vulnerable_version_range": "<= 3.1.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

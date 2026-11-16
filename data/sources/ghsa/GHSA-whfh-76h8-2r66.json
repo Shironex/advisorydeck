@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-whfh-76h8-2r66",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-212"
+    ],
+    "description": "The `--help` and `-h` output of seven commands shows the current values of credential environment variables in clear text:\n\n| Command | Values in the help output |\n|---|---|\n| `surreal start` | `SURREAL_PASS` |\n| `surreal sql` | `SURREAL_PASS`, `SURREAL_TOKEN` |\n| `surreal import` | `SURREAL_PASS`, `SURREAL_TOKEN` |\n| `surreal export` | `SURREAL_PASS`, `SURREAL_TOKEN` |\n| `surreal mcp` | `SURREAL_PASS` |\n| `surreal ml import` | `SURREAL_PASS`, `SURREAL_TOKEN` |\n| `surreal ml export` | `SURREAL_PASS`, `SURREAL_TOKEN` |\n\nVersions: we reproduced this on seven official Docker images: `v2.7.0`, `v3.2.0`, `v3.2.4`, `v3.2.5`, `v3.3.0`, `v3.3.2`, and `v3.3.4`. The last one reports `3.3.4 for linux on x86_64`. Version 2.7.0 does not have the `mcp` command. We did not run other 2.x versions or versions before 2.7.0.\n\nSteps to reproduce:\n\n```sh\ndocker run --rm -e SURREAL_PASS=example-password -e SURREAL_TOKEN=example-token \\\n  surrealdb/surrealdb:v3.3.4 export --help | grep -E 'SURREAL_(PASS|TOKEN)='\n```\n\nOutput:\n\n```text\n          [env: SURREAL_PASS=example-password]\n          [env: SURREAL_TOKEN=example-token]\n```\n\nImpact: in container deployments, the server credentials are usually in the environment of the server container. A Kubernetes Secret or `docker run -e` puts them there. An operator can run `surreal export --help` or `surreal sql --help` in that container, for example with `kubectl exec`. The root password then goes to the terminal output. Terminal output can go to shell logs, CI logs, screen shares, and support tickets. Operators do not expect a secret in help output, so they do not protect it. This is not a privilege escalation, because a person who can run commands in the container can also read its environment. The risk is accidental disclosure.\n\nCause: clap shows the value of an `env` variable in the help text unless the argument sets `hide_env_values = true`. These arguments do not set it. The line numbers are for tag `v3.3.0`, and the `surrealdb-server` 3.3.4 crate has the same files:\n\n- `surrealdb/server/src/cli/abstraction/mod.rs`, line 19: `env = \"SURREAL_PASS\"` on `password`. The `sql`, `import`, `export`, `ml import`, and `ml export` commands use this argument.\n- `surrealdb/server/src/cli/abstraction/mod.rs`, line 28: `env = \"SURREAL_TOKEN\"` on `token`. The same five commands use this argument.\n- `surrealdb/server/src/cli/start.rs`, line 195: `env = \"SURREAL_PASS\"` on the `password` of the `start` command.\n- `surrealdb/server/src/cli/mcp.rs`, line 52: `env = \"SURREAL_PASS\"` on the `password` of the `mcp` command.\n\nAt tags `v1.0.0` and `v2.0.0`, the `password` argument in `src/cli/abstraction/mod.rs` also does not set `hide_env_values`.\n\nSuggested fix: set `hide_env_values = true` on each of the four arguments above. These four changes cover all seven commands. The help text then shows `[env: SURREAL_PASS]` without the value. For example, the `password` argument in `abstraction/mod.rs` becomes:\n\n```rust\n#[arg(\n    env = \"SURREAL_PASS\",\n    hide_env_values = true,\n    short = 'p',\n    long = \"password\",\n    visible_alias = \"pass\",\n    requires = \"username\"\n)]\npub(crate) password: Option<String>,\n```\n\nThe `token` argument in the same file, and the `password` arguments in `start.rs` and `mcp.rs`, get the same added line.\n\nWe did not include `SURREAL_KEY` in `start.rs`, because it sets `hide = true`. `SURREAL_KVS_KEY` and `SURREAL_WEB_KEY` hold file paths, not secret values.\n\nIf you do not think that this is a vulnerability, please tell us, and we will open a public issue instead.\n\nAn AI coding agent (Claude Code) ran the reproduction and drafted this report. I examined the results before I sent it.\n\n### Patches\n\nA patch has been created that redacts the values of SURREAL_PASS and SURREAL_TOKEN from the CLI `--help` output.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealDB Documentation - CLI](https://surrealdb.com/docs/surrealdb/cli/start)\n- `fix(cli): CLI --help prints the values of SURREAL_PASS and SURREAL_TOKEN` (commit `2afc241798`)\n",
+    "ghsa_id": "GHSA-whfh-76h8-2r66",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-whfh-76h8-2r66",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whfh-76h8-2r66"
+      }
+    ],
+    "published_at": "2026-11-03T15:51:08Z",
+    "references": [],
+    "severity": "low",
+    "summary": "CLI help output prints the values of SURREAL_PASS and SURREAL_TOKEN",
+    "updated_at": "2026-11-03T15:51:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "4.0.0",
+        "vulnerable_version_range": "< 4.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

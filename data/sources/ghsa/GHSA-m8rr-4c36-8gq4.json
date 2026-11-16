@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-m8rr-4c36-8gq4",
+  "repo": {
+    "cve_id": "CVE-2026-7258",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "description": "Consider the following snippet within `php_url_decode_ex()` at `ext/standard/url.c`, called from PHPs `urldecode()` function:\r\n\r\nhttps://github.com/php/php-src/blob/dcf653339c245e25ea319248d0fc071a9405d688/ext/standard/url.c#L592-L593\r\n\r\nAccording to the C11 specification, `isxdigit()`'s (and all other `ctype.h` functions') only argument is of type `int`, and any value passed to it must be representable by `unsigned char`, i.e. 0-255.\r\n\r\n§7.4:\r\n\r\n> The header <ctype.h> declares several functions useful for classifying and mapping characters. In all cases the argument is an int, the value of which shall be representable as an unsigned char or shall equal the value of the macro EOF. If the argument has any other value, the behavior is undefined.\r\n\r\nOn platforms where plain `char` is signed (which is most), passing a `char` with a value <0 to `int` (or casting to `int` explicitly as in this case) will lead to signed integer extension, leading to a negative `int` value. Instead, the `char` value should be cast to `unsigned char`, so that no sign extension occurs.\r\n\r\nMost platforms account for this common mistake. However, on NetBSD passing negative values to `isxdigit()` lead to an out-of-bounds read, leading to a segfault.\r\n\r\n```php\r\nurldecode(\"%\\x80\");\r\n```",
+    "ghsa_id": "GHSA-m8rr-4c36-8gq4",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-m8rr-4c36-8gq4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m8rr-4c36-8gq4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7258"
+      }
+    ],
+    "published_at": "2026-05-07T12:56:13Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Out-of-bounds read in urldecode()",
+    "updated_at": "2026-05-07T12:56:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "php-src"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

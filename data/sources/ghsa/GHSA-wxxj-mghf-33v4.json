@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-wxxj-mghf-33v4",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe base-scoped integration read returned a private integration's connection configuration, including its stored credentials, whenever the request omitted the query flag that was supposed to opt into returning configuration at all.\n\n### Details\n\nIn `base-integrations.service.ts`, the read handler removed the configuration only inside the branch that handled an explicit request for it, and the ownership test for private integrations lived inside that same branch. With the flag absent, the branch was skipped altogether and the integration record was returned as loaded, configuration attached, regardless of whether the integration was flagged private or created by someone else. The database-connection mask that runs afterwards operated on the configuration in its stored string form and silently redacted nothing. The base-scoped integration list, by contrast, filtered out other users' private integrations and reduced configuration to a fixed non-secret allow-list.\n\n### Impact\n\nAny authenticated member of a base could read the connection configuration of another user's private integration attached to that base, including the credentials stored for that connection, by leaving a single query parameter off the request.\n\n### Credit\n\nThis issue was reported by [@watermelon1221](https://github.com/watermelon1221) and [@meifukun](https://github.com/meifukun).\n",
+    "ghsa_id": "GHSA-wxxj-mghf-33v4",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-wxxj-mghf-33v4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wxxj-mghf-33v4"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:36Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Private Integration Configuration Exposure via Base Read",
+    "updated_at": "2026-10-27T10:06:36Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.07.0",
+        "vulnerable_version_range": "< 2026.07.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

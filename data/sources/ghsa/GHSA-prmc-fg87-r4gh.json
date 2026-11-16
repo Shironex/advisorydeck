@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-prmc-fg87-r4gh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nWhen an HTTP request made by a credential-authenticated node followed a redirect to a different origin, n8n re-attached the `Authorization` header and basic auth credentials to the redirected request. The internal helper that builds the redirect configuration defaulted `sendCredentialsOnCrossOriginRedirect` to `true`. The HTTP Request node v4.4 opted out of this default, but other credential-using nodes did not. Where a workflow makes authenticated HTTP requests and the redirect target can be influenced by untrusted data, such as an expression-fed URL or a redirect issued by an attacker-controlled endpoint, the stored credential could be forwarded to an unintended destination.\n\n## Patches\n\nThe issue has been fixed in n8n versions 2.46.1, 2.45.5 and v3.0.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Audit active workflows that use credential-authenticated HTTP requests and ensure that request URLs and any data that could influence redirect targets do not incorporate untrusted external input.\n- Apply network-level controls to restrict outbound HTTP requests from the n8n process to known, trusted destinations.\n- Enable SSRF protection by setting `N8N_SSRF_PROTECTION_ENABLED=true` to reduce the risk of attacker-influenced outbound requests.\n- Rotate any credentials used by workflows that may have been exposed to untrusted redirect targets.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-prmc-fg87-r4gh",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-prmc-fg87-r4gh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-prmc-fg87-r4gh"
+      }
+    ],
+    "published_at": "2026-10-28T08:49:03Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Credential-Using Nodes Forward Authentication Headers on Cross-Origin Redirects",
+    "updated_at": "2026-10-28T08:49:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.46.1",
+        "vulnerable_version_range": "< 2.46.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.45.5",
+        "vulnerable_version_range": "< 2.45.5"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 3.0.1",
+        "vulnerable_version_range": "< 3.0.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

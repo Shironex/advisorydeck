@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-84w9-87hm-mxqx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-248",
+      "CWE-617"
+    ],
+    "description": "An embedded JavaScript function could crash a SurrealDB server by reading a header value that contained a non-ASCII character.\n\nThe `Headers` class available to scripts, which `fetch()` uses for requests and responses and which a script can also construct directly, converted each header value to a string on the assumption that it was plain ASCII, and panicked when it was not. HTTP allows other bytes in header values, so such a value could come from a remote server's response (for example a UTF-8 file name in `Content-Disposition`) or from a value the script set itself. SurrealDB's release builds, including the official binaries and Docker images, abort on a panic, so reading such a value with `get()`, `entries()`, `values()` or `getSetCookie()` terminated the whole server process rather than failing the query.\n\n### Impact\n\nOnly servers with embedded scripting enabled are affected. Scripting is disabled by default and is enabled with `--allow-scripting` (or `--allow-all`).\n\nWhat an attacker **can** do:\n\n- Crash the server with a single query, as any user allowed to run queries (a record user is enough, and so is a guest where guest access is enabled), by reading back a non-ASCII value from a `Headers` object the script creates itself. No outbound network access is involved, so restricting `--allow-net` does not prevent this.\n- Where a script reads the headers of a `fetch()` response, crash the server from any endpoint that script is allowed to reach, by returning a header that contains non-ASCII bytes. This can also happen without an attacker, because such values occur in ordinary responses.\n- Deny service to every namespace and database on the instance until the server is restarted.\n\nWhat it **can't** do:\n\n- Affect servers with scripting disabled, which is the default.\n- Read or modify data; this is an availability issue only.\n\n### Patches\n\nThe `Headers` accessors no longer assume a value is plain ASCII. A value made only of visible ASCII is returned exactly as before; any other value is decoded as UTF-8, with invalid byte sequences replaced by U+FFFD, so reading a header always returns a string. The JavaScript API is unchanged.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Leave embedded scripting disabled (the default). If you start the server with `--allow-all`, add `--deny-scripting`.\n- If you need scripting, limit who can write scripts: keep guest access disabled, and use `--deny-arbitrary-query` (where available) for user groups that should not run their own queries.\n- Where stored scripts call `fetch()`, restrict `--allow-net` to endpoints you trust, and avoid reading response headers from endpoints you do not control.\n- Run SurrealDB under an orchestrator or process manager that restarts it automatically on exit (e.g. Kubernetes, systemd `Restart=on-failure`, or a Docker restart policy). This limits downtime but does not prevent the crash.\n\n### References\n\n- [SurrealQL Documentation - Embedded scripting functions](https://surrealdb.com/docs/surrealql/functions/script)\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- `fix(script): stop response Headers accessors panicking on non-ASCII values` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [gigioneggiando](https://github.com/gigioneggiando) for reporting this issue.\n",
+    "ghsa_id": "GHSA-84w9-87hm-mxqx",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-84w9-87hm-mxqx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-84w9-87hm-mxqx"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:28Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Denial of Service via non-ASCII header values in embedded JavaScript",
+    "updated_at": "2026-09-28T11:15:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": "< 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

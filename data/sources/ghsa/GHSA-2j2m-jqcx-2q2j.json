@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-2j2m-jqcx-2q2j",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400"
+    ],
+    "description": "### Summary\n\nThe public shared-view bulk endpoints iterated a caller-supplied filter array with no cap on its length, running a full data query for every element of an unauthenticated request.\n\n### Details\n\nThe bulk data-list and bulk aggregate handlers in `public-datas.service.ts` walked the request's filter list and issued one complete data-list operation per entry, each carrying its own SQL execution and formula evaluation. Nothing bounded the array: in the Community Edition the public-API limiter guard on these routes admits every request unconditionally, and the JSON body parser accepts payloads up to 50MB, so a body of minimal filter objects a few dozen bytes each converted into on the order of a million database queries in a single request. Query cost grew linearly with array length, taking CPU time and resident memory with it.\n\n### Impact\n\nAn attacker could exhaust CPU and memory and take the NocoDB process down with one POST request. No authentication is required - only the UUID of a shared view, which is the very value these links are meant to be distributed by and which routinely reaches search indexes and messaging apps.\n\n### Credit\n\nThis issue was reported by [@pavanchow](https://github.com/pavanchow).\n",
+    "ghsa_id": "GHSA-2j2m-jqcx-2q2j",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2j2m-jqcx-2q2j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2j2m-jqcx-2q2j"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:08Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Uncontrolled Resource Consumption via Shared View Bulk API",
+    "updated_at": "2026-10-27T10:06:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.1",
+        "vulnerable_version_range": "< 2026.08.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

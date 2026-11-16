@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-r872-6prr-v2jc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nOAuth access tokens are signed with the same secret as first-party session tokens, and the session\nstrategy short-circuits on the OAuth marker claim and returns the payload unchanged. Presenting an\nOAuth token through the session header therefore bypasses the revocation check, client-existence\ncheck, route allowlist and scope enforcement that apply on the bearer path.\n\n### Details\n\nEvery OAuth-specific control lives in the bearer strategy: the revocation lookup, the client-existence check, the route allowlist and `granted_resources` scoping. `GlobalGuard` attempted the JWT strategy first, and that strategy returned the payload as-is when the OAuth marker claim was present, with no database lookup, no blocked-account check and no `token_version` comparison. Routes carrying an `@Acl` decorator refused it, but routes without one were reachable, among them the current-user, profile update and sign-out routes and the storage upload routes. In the Enterprise build, the exchange in `short-lived-token.strategy.ts` that turns a single sign-on token into a session also accepted an OAuth access token, revoked or not, and issued a full session with a refresh token, and the socket handshake in `NocoSocket.ts` accepted it as well. The session strategy, the exchange and the socket handshake now refuse OAuth access tokens, and the socket handshake also checks the user's current token version.\n\n### Impact\n\nA revoked OAuth access token continues to authenticate as its user for the remainder of the token's\nlifetime. A third-party integration or MCP client that holds, or has leaked, an access token retains\nauthenticated write access after the user explicitly revokes the grant, can modify the victim's\nprofile, and can force a global sign-out at will. The same path bypasses client deletion, the\n`granted_resources` scope restrictions, and the password-change revocation introduced for\nCVE-2026-53926. Any deployment using OAuth or MCP integrations is affected.\n\n### Credit\n\nThis issue was reported by uu K.\n",
+    "ghsa_id": "GHSA-r872-6prr-v2jc",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-r872-6prr-v2jc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r872-6prr-v2jc"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:14Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Revoked OAuth Access Tokens Accepted as First-Party Sessions",
+    "updated_at": "2026-11-02T08:48:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

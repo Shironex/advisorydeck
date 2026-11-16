@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-68cv-hq5f-g6xv",
+  "repo": {
+    "cve_id": "CVE-2026-47207",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nEnvoy crashes if an ext_proc server sends a single gRPC message containing multiple, specially crafted `ProcessingResponse` messages. This can occur when the first response in the batch causes the gRPC stream object to be destroyed, leading to a use-after-free error when Envoy attempts to process subsequent responses in the same gRPC message.\r\n\r\n### Details\r\n\r\nEnvoy crashes when call: callbacks_.onReceiveMessageRaw() in the function AsyncStreamImpl::onData().\r\n\r\nThe crash happens in this case:\r\n1) ext_proc server packs two unexpected responses into one gRPC message and sends to Envoy.\r\n2) Upon receiving the first `ProcessingResponse`, Envoy call `callbacks_.onReceiveMessageRaw()`.  As the `ProcessingResponse` is unexpected, this function call caused the destruction of this callbacks_ object.\r\n3) In the next iteration of the for loop, Envoy accesses the already freed `callbakcs_` object,  and crashes.\r\n\r\n### PoC\r\n\r\n1) To reproduce this issue, just configure ext_proc filter under the HTTP filter chain.\r\n2) Run the Envoy binary with trace log enabled.\r\n3) Run the ext_proc server.  Upon receiving a ProcessingRequest, it packs two ProcessingResponse messages in one gRPC message and sends back to Envoy. \r\n4) From a client VM, sends a HTTP request to Envoy which hits the ext_proc filter.\r\n\r\n### Impact\r\n\r\nThis vulnerability will cause Denial of Service (DoS). The severity is high.  It impacts all supported release versions.  Anyone who uses ext_proc in their deployment might be impacted. \r\n",
+    "ghsa_id": "GHSA-68cv-hq5f-g6xv",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-68cv-hq5f-g6xv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-68cv-hq5f-g6xv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47207"
+      }
+    ],
+    "published_at": "2026-06-23T14:03:02Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Envoy crashes if multiple unexpected ext_proc responses are packed into one gRPC message ",
+    "updated_at": "2026-06-23T14:03:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "envoy proxy",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "patched_versions": "1.35.13 1.36.9 1.37.5 1.38.3",
+        "vulnerable_version_range": ">= v1.34, <1.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

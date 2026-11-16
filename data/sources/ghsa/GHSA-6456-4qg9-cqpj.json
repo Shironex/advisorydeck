@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-6456-4qg9-cqpj",
+  "repo": {
+    "cve_id": "CVE-2026-91131",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-184",
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nHome Assistant is vulnerable to a blind Server-Side Request Forgery (SSRF) via the SSDP integration. An unauthenticated attacker on the local network can send a crafted SSDP `NOTIFY` announcement with an attacker-controlled `LOCATION` header, causing Home Assistant to issue an HTTP request to that URL. The location filter rejected loopback addresses written as IP literals but not the `localhost` hostname, so the request could be directed at services bound to the loopback interface that are not otherwise reachable from the network. The SSDP integration processes announcements automatically, without any user interaction or authentication, and is enabled by default as part of `default_config`.\r\n\r\n## Details\r\n\r\nHome Assistant listens for SSDP announcements on UDP port 1900. When a `NOTIFY` announcement is received, the device description is fetched from the URL given in the `LOCATION` header.\r\n\r\nBefore making that request, the location is checked by `is_valid_location` in the `async_upnp_client` library:\r\n\r\n```python\r\ndef is_valid_location(location: str) -> bool:\r\n    \"\"\"Validate if this location is usable.\"\"\"\r\n    return location.startswith(\"http\") and not (\r\n        \"://127.0.0.1\" in location or \"://[::1]\" in location or \"://169.254\" in location\r\n    )\r\n```\r\n\r\nThe check is a set of substring comparisons against literal addresses. It rejects `127.0.0.1`, `[::1]` and the `169.254` link-local range, but it does not account for hostnames that resolve to a loopback address. A `LOCATION` value using `localhost` passes validation and is then resolved and fetched, reaching the same interface the literal checks were intended to protect.\r\n\r\nThe attacker cannot read the response to the request, so this is a blind SSRF. The scheme, host, port, path and query string are all attacker-controlled.\r\n\r\n## PoC\r\n\r\n### Prerequisites\r\n\r\n* Attacker machine on the same local network as the Home Assistant instance\r\n\r\n### Exploit\r\n\r\nSend an SSDP `NOTIFY` announcement to the target with the `LOCATION` header set to an attacker-chosen URL:\r\n\r\n```\r\nNOTIFY * HTTP/1.1\r\nHOST: <HOME_ASSISTANT_IP>:1900\r\nNTS: ssdp:alive\r\nNT: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\nUSN: uuid:89a5dcd6-c11a-4287-92db-e8f0143d7f5b\r\nAL: http://<ATTACKER_IP>:4444/foo?bar=qaz\r\nLOCATION: http://<ATTACKER_IP>:4444/foo?bar=qaz\r\n```\r\n\r\nHome Assistant issues an HTTP GET to the supplied URL, including the query string, which can be observed with a listener on the attacker's machine.\r\n\r\nSubstituting a loopback target demonstrates the filter bypass. A `LOCATION` of `http://127.0.0.1:<port>/<path>` is rejected. A `LOCATION` of `http://localhost:<port>/<path>` is accepted and the request is made.\r\n\r\n### Exploit Flow\r\n\r\n1. The attacker sends an SSDP `NOTIFY` announcement to UDP port 1900 on the target\r\n2. The `LOCATION` header carries a URL using the `localhost` hostname\r\n3. The location filter finds no matching IP literal and accepts the value\r\n4. Home Assistant resolves `localhost` and issues the HTTP request to the loopback interface\r\n5. The request reaches a service that is not otherwise accessible from the network\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker on the same local network can cause Home Assistant to issue arbitrary HTTP GET requests, including to services bound to the loopback interface that are not otherwise reachable. Exploitation requires no user interaction, no authentication and no prior configuration, as SSDP announcements are processed automatically and the integration is enabled by default.\r\n\r\nThe response is not returned to the attacker, which limits direct data disclosure. The primary risk is reaching internal services as a step towards a further vulnerability in one of them.\r\n\r\nHome Assistant fetches device descriptions from discovery announcements by design, and requests to other hosts on the local network are expected behaviour. The issue addressed here is specifically that the loopback restriction could be bypassed.\r\n\r\n## Mitigations\r\n\r\nThe reported issue was addressed in Home Assistant 2025.11.3, which added the `localhost` hostname to the rejected locations.\r\n\r\nThe validation was strengthened further in Home Assistant 2026.8.0. It no longer matches against a list of address strings but parses the hostname out of the URL and checks the address itself, so loopback is rejected however it is written.\r\n\r\n## Acknowledgements\r\n\r\nDiscovered Trend Micro ZDI (ZDI-CAN-28279).",
+    "ghsa_id": "GHSA-6456-4qg9-cqpj",
+    "html_url": "https://github.com/home-assistant/core/security/advisories/GHSA-6456-4qg9-cqpj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6456-4qg9-cqpj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91131"
+      }
+    ],
+    "published_at": "2026-10-29T10:13:20Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SSRF in Service Discovery Protocol service (SSDP) ",
+    "updated_at": "2026-10-29T10:13:20Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "pip",
+          "name": "homeassistant"
+        },
+        "patched_versions": "2026.8.0",
+        "vulnerable_version_range": "< 2026.8.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "home-assistant/core"
+}

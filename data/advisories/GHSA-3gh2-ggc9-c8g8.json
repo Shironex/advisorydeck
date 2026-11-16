@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3gh2-ggc9-c8g8",
+  "aliases": [],
+  "title": "Unsupported S3 bucket-policy conditions make Allow statements unconditional",
+  "summary": "### Summary\r\nSeaweedFS fails open on unsupported S3 bucket-policy condition operators. An unauthenticated attacker can bypass a nonmatching condition and read private objects; an explicit empty-permission anonymous identity can also permit writes and deletion.\r\n\r\n\r\n### Details\r\nPolicy validation accepts unknown operators. GetConditionEvaluator returns an error for StringEqualsIgnoreCase, but EvaluateConditions skips the error and ultimately returns true, making the conditional Allow unconditional: [source](https://github.com/seaweedfs/seaweedfs/blob/d997fba1575583a89cf0cc50dc0150642286c86d/weed/s3api/policy_engine/conditions.go#L643-L755)\r\n\r\n### PoC\r\nOn SeaweedFS 4.46, create a private object and apply a wildcard-principal s3:GetObject policy conditioned on StringEquals: {\"aws:username\":\"alice\"}. An anonymous GET returns 403. Change only StringEquals to StringEqualsIgnoreCase, reapply the policy, and repeat the same GET: it returns 200 with the exact private object bytes. Restoring StringEquals restores the 403. Full runnable commands are in the linked local draft.\r\n\r\n\r\n### Impact\r\nUnauthenticated confidentiality bypass affecting private bucket inventory and objects: 7.5 High. With an explicit anonymous identity configured with actions: [], testing also reproduced unauthenticated LIST, GET, PUT, and DELETE, reaching Critical impact.",
+  "published_at": "2026-11-09T19:48:43.000Z",
+  "modified_at": "2026-11-09T19:48:43.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-636"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3gh2-ggc9-c8g8",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3gh2-ggc9-c8g8",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3gh2-ggc9-c8g8",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:736fd29d268f9dcb0fb7d96ec04f40446d7a4aa09b8129cb911263ec222c388f",
+  "note": null
+}

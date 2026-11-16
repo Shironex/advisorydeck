@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-rmxc-x5g2-h52m",
+  "aliases": [],
+  "title": "Hidden Column Disclosure via Shared View Group-By Column Names",
+  "summary": "### Summary\n\nThe public group-by endpoint of a shared view checked the requested column against the view's visible columns by title or id only, while the query builder also accepts a column's physical name, and it did not check the sub-group column at all. Anyone holding the share link could group by a column the owner hid from the view.\n\n### Details\n\n`restrictSharedViewColumnReferences` in `sharedViewQueryHelpers.ts` resolved each group-by reference through the model's titles and ids, rejected one that resolved to a hidden column, and let through any it could not resolve. The group-by builder in `BaseModelSqlv2/group-by.ts` resolves a reference by title or by physical column name, so a hidden column named by its physical name passed the check and was grouped on, returning its distinct values with their counts. The sub-group parameter was not among the checked keys; the builder resolved it the same way and returned, for each group, the number of distinct values of the named column. The group-by count builder also resolved physical names without a visibility check. Both builders now check every resolved column against the view's exposed columns and answer a hidden column the same way as an unknown one, and the service check also inspects the sub-group parameter.\n\n### Impact\n\nNo authentication is required: the attacker needs the link to a shared view, and its password if it has one. They could read the values of columns the owner hid from that view, for the rows its filter allows, and learn which hidden columns exist and how many distinct values each holds.\n\n### Credit\n\nThis issue was reported by [@nkedia9009-crypto](https://github.com/nkedia9009-crypto) (Naman Kedia).",
+  "published_at": "2026-11-02T08:47:27.000Z",
+  "modified_at": "2026-11-02T08:47:27.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-rmxc-x5g2-h52m",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rmxc-x5g2-h52m",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-rmxc-x5g2-h52m",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0bd916850f33abbfaeacef411d77b94dd77b5c79a922fafa29011f9fb7536020",
+  "note": null
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-353r-pj87-54hc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-362"
+    ],
+    "description": "### Summary\n\nOAuth refresh-token rotation was not atomic, so two concurrent presentations of the same refresh token could each be exchanged for a distinct valid `(access_token, refresh_token)` pair, breaking the single-use guarantee that rotation depends on.\n\n### Details\n\nThe refresh grant in `oauth-token.service.ts` loaded the stored token record, checked that it was not revoked, then marked it revoked and inserted the replacement as separate steps, without confirming that its own revocation had taken effect. Two requests arriving together both passed the revocation check against the same row and both reached `OAuthToken.insert`, so each caller walked away with a valid new chain. Because refresh-token reuse detection rests on the rotated token being consumable exactly once, the race also removed the signal that would otherwise mark a token as stolen.\n\n### Impact\n\nAn attacker holding a captured refresh token could race the legitimate client's rotation and obtain an access token plus a fresh long-lived refresh token of their own, retaining access to the granted scopes after the captured token should have been consumed - and without the legitimate client's chain breaking, so the theft left no trace. Exploitation requires possession of a refresh token previously issued to a registered OAuth client; no NocoDB session is required.\n\n### Credit\n\nThis issue was reported by [@bytejmp](https://github.com/bytejmp).\n",
+    "ghsa_id": "GHSA-353r-pj87-54hc",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-353r-pj87-54hc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-353r-pj87-54hc"
+      }
+    ],
+    "published_at": "2026-10-27T10:05:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "OAuth Refresh Token Rotation Race Condition",
+    "updated_at": "2026-10-27T10:05:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.2",
+        "vulnerable_version_range": "< 2026.06.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

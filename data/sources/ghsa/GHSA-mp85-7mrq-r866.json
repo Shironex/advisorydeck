@@ -1,0 +1,120 @@
+{
+  "global": {
+    "cve_id": "CVE-2025-64527",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-476"
+    ],
+    "description": "### Summary\nEnvoy crashes when JWT authentication is configured with the remote JWKS fetching, `allow_missing_or_failed` is enabled, multiple JWT tokens are present in the request headers and the JWKS fetch fails.\n\n### Details\nThis is caused by a re-entry bug in the `JwksFetcherImpl`. When the first token's JWKS fetch fails, `onJwksError()` callback triggers processing of the second token, which calls fetch() again on the same fetcher object.\n\nThe original callback's reset() then clears the second fetch's state (`receiver_ and request_`) which causes a crash when the async HTTP response arrives.\n\n### PoC\n* `allow_missing_or_failed` or `allow_missing` is enabled\n* The client send 2 Authorization headers\n* the remote JWKS fetching failed\n* There will be crash\n\n### Impact\nDoS and Crash\n\n### Mitigation\n* Disable the `allow_missing_or_failed` or `allow_missing`",
+    "ghsa_id": "GHSA-mp85-7mrq-r866",
+    "html_url": "https://github.com/advisories/GHSA-mp85-7mrq-r866",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mp85-7mrq-r866"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64527"
+      }
+    ],
+    "published_at": "2025-12-05T18:12:39Z",
+    "references": [
+      "https://github.com/envoyproxy/envoy/security/advisories/GHSA-mp85-7mrq-r866",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-64527",
+      "https://github.com/advisories/GHSA-mp85-7mrq-r866"
+    ],
+    "severity": "medium",
+    "summary": "Envoy crashes when JWT authentication is configured with the remote JWKS fetching",
+    "updated_at": "2025-12-05T18:12:39Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "1.36.3",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": ">= 1.36.0, <= 1.36.2"
+      },
+      {
+        "first_patched_version": "1.35.7",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": ">= 1.35.0, <= 1.35.6"
+      },
+      {
+        "first_patched_version": "1.34.11",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": ">= 1.34.0, <= 1.34.10"
+      },
+      {
+        "first_patched_version": "1.33.13",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "vulnerable_version_range": "<= 1.33.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-mp85-7mrq-r866",
+  "repo": {
+    "cve_id": "CVE-2025-64527",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nEnvoy crashes when JWT authentication is configured with the remote JWKS fetching, `allow_missing_or_failed` is enabled, multiple JWT tokens are present in the request headers and the JWKS fetch fails.\r\n\r\n### Details\r\nThis is caused by a re-entry bug in the `JwksFetcherImpl`. When the first token's JWKS fetch fails, `onJwksError()` callback triggers processing of the second token, which calls fetch() again on the same fetcher object.\r\n\r\nThe original callback's reset() then clears the second fetch's state (`receiver_ and request_`) which causes a crash when the async HTTP response arrives.\r\n\r\n### PoC\r\n* `allow_missing_or_failed` or `allow_missing` is enabled\r\n* The client send 2 Authorization headers\r\n* the remote JWKS fetching failed\r\n* There will be crash\r\n\r\n### Impact\r\nDoS and Crash\r\n\r\n### Mitigation\r\n* Disable the `allow_missing_or_failed` or `allow_missing`\r\n",
+    "ghsa_id": "GHSA-mp85-7mrq-r866",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-mp85-7mrq-r866",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mp85-7mrq-r866"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-64527"
+      }
+    ],
+    "published_at": "2025-12-03T17:02:06Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Envoy crashes when JWT authentication is configured with the remote JWKS fetching",
+    "updated_at": "2025-12-03T17:02:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "patched_versions": "1.33.13 1.34.11 1.35.7 1.36.3",
+        "vulnerable_version_range": "<= 1.36.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

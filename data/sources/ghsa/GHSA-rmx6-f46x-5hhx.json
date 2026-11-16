@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-rmx6-f46x-5hhx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\n\nThe unauthenticated OAuth client lookup endpoint, which supplies client metadata to the consent screen, returned the entire stored client record including the hashed client secret and the dynamic-registration management credentials.\n\n### Details\n\nThe public client route in `oauth.controller.ts` returned the `OAuthClient` record exactly as loaded from storage. Beyond the client name, logo and redirect URIs that the consent screen actually renders, that record carries the bcrypt hash of the client secret, the registration access token, the registration client URI, and the owning user's internal identifier. The route is deliberately unauthenticated so the consent page can render before sign-in, and it served any client identifier presented to it, with no ownership scoping of the response.\n\n### Impact\n\nNo authentication is required. Anyone who knew or guessed a client identifier could retrieve that client's registration access token - a live bearer credential for the client-registration management API, usable to read, modify or delete the registration - together with the bcrypt hash of its client secret for offline cracking and the internal identifier of the user who owns it.\n\n### Credit\n\nThis issue was reported by [@bytejmp](https://github.com/bytejmp).\n",
+    "ghsa_id": "GHSA-rmx6-f46x-5hhx",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-rmx6-f46x-5hhx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rmx6-f46x-5hhx"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Credential Disclosure via Public OAuth Client Endpoint",
+    "updated_at": "2026-10-27T10:06:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.2",
+        "vulnerable_version_range": "< 2026.06.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

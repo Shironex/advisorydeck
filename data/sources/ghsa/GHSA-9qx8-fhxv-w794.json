@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-9qx8-fhxv-w794",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nWhen the Browser Use feature is enabled, the `browser_upload` tool accepted absolute file paths and passed them to Playwright. Because the browser session is connected remotely, Playwright resolved and read those paths on the n8n server rather than on the user's machine. An authenticated member who connects their own browser session could supply arbitrary absolute paths and have the file contents delivered into the page the assistant drives, where they could be retrieved. The approval prompt shown to the user named only the active page host; the file path was never surfaced or gated. Files readable by the n8n process user, including instance configuration files, were within scope.\n\nExploitation requires that Browser Use is explicitly enabled on the instance (`N8N_INSTANCE_AI_BROWSER_USE_ENABLED=true`).\n\n## Patches\n\nThe issue has been fixed in n8n versions 2.46.1, 2.45.5 and 3.0.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Disable the Browser Use feature by setting `N8N_INSTANCE_AI_BROWSER_USE_ENABLED=false` or leaving it unset.\n- Restrict n8n instance access to fully trusted users only.\n- Remove `global:member` access from any users who are not fully trusted until the instance is patched.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-9qx8-fhxv-w794",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-9qx8-fhxv-w794",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9qx8-fhxv-w794"
+      }
+    ],
+    "published_at": "2026-10-28T08:48:04Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Browser Use Upload Tool Reads Arbitrary Files from the n8n Server",
+    "updated_at": "2026-10-28T08:48:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.46.1",
+        "vulnerable_version_range": "< 2.46.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.45.5",
+        "vulnerable_version_range": "< 2.45.5"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 3.0.1",
+        "vulnerable_version_range": "< 3.0.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

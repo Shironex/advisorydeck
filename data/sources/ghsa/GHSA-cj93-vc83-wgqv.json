@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-cj93-vc83-wgqv",
+  "repo": {
+    "cve_id": "CVE-2025-14181",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe SOAP HTTP client guards its response buffer growth with a check that relies on signed integer overflow, which is undefined behaviour and is not guaranteed to trigger. When the check is optimised away, a malicious SOAP server can make the client allocate a buffer far smaller than the data it then writes into it, producing a heap buffer overflow.\r\n\r\n### Details\r\n\r\n`get_http_body()` in `ext/soap/php_http.c` accumulates chunked response data and checks for overflow like this:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/soap/php_http.c#L1494-L1499\r\n\r\n`http_buf_size` and `buf_size` are both `int`, so `http_buf_size + buf_size + 1 < 0` can only become true through signed integer overflow. That is undefined behaviour, and a compiler is free to assume it never happens and remove the branch. This was tested with Clang 20.1.7 and GCC 15.1.1, where the check did not trigger; other compilers and versions may behave differently, so the check cannot be relied upon.\r\n\r\nOnce the check is gone, `zend_string_realloc()` is reached with a length such as `18446744073709551614`. Adding the `zend_string` header overflows again, far too few bytes are allocated, and the following read loop writes past the end of the allocation.\r\n\r\nThe fix switches the accumulated size to `size_t`, bounds each growth step against `ZSTR_MAX_LEN` before allocating, and uses `zend_string_safe_realloc()` so the multiplication and addition are checked.\r\n\r\n### PoC\r\n\r\nA SOAP server that responds with `Transfer-Encoding: chunked` and declares a chunk size of `0x7fffffff`, followed by a second chunk header of the same size, drives the buffer size past `INT_MAX` on the reallocation for the second chunk. The regression test `ext/soap/tests/bugs/GHSA-cj93-vc83-wgqv.phpt` reproduces this against a local server. It needs several gigabytes of free memory, since the overflow is only reached after a genuinely large buffer has been built.\r\n\r\n### Impact\r\n\r\nA malicious SOAP server, or a man-in-the-middle on a plaintext SOAP connection, can overflow a heap buffer in a `SoapClient` that talks to it. The consequences depend on the heap layout and the compiler used to build PHP, ranging from a crash to memory corruption.\r\n\r\nThe bug only manifests on builds where the compiler discards the undefined signed-overflow check, and it requires the client to accept a multi-gigabyte response. Setting a low `memory_limit` causes an out-of-memory error before the overflow is reached and serves as a workaround.\r\n",
+    "ghsa_id": "GHSA-cj93-vc83-wgqv",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-cj93-vc83-wgqv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cj93-vc83-wgqv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-14181"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Integer overflow to buffer overflow in soap HTTP parsing",
+    "updated_at": "2026-09-25T20:22:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-soap"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

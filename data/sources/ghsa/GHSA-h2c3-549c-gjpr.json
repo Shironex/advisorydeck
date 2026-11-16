@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-h2c3-549c-gjpr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200",
+      "CWE-863"
+    ],
+    "description": "A caller with table-level write permission on a record - `UPDATE`, and equally `CREATE`, `UPSERT`, `RELATE`, or `INSERT` - could read a field hidden from them by a field-level `PERMISSIONS FOR select` clause by moving it through a JSON Patch data clause.\n\nThe `SET`, `CONTENT`, `MERGE`, and `REPLACE` clauses compute their right-hand sides against a permission-reduced view of the record, so a restricted field reads as `NONE`. `PATCH` was the exception: its operations were applied to the full record loaded from storage, and the `copy`/`move` `from` pointer and the `test` `path` pointer were resolved against that full record. A previous fix (GHSA-fpxg-5xmv-922m, patched in 3.1.0) rejected only the empty root pointer; any pointer naming a field, a nested field, an element of an array, or an object that contained a restricted field still resolved against the unreduced record.\n\nSo a caller could copy a value they were not allowed to read into a destination field they chose, receive it in the statement result, and persist it where anyone who can select that destination can read it. `move` did the same and additionally removed the source field. `test` reported the value it found in its mismatch error, acting as a direct disclosure oracle without any durable write.\n\nFor example, given `DEFINE FIELD secret ON person PERMISSIONS FOR select NONE`, a record user with table-level update permission could run:\n\n```surql\nUPDATE person:1 PATCH [{ op: 'copy', from: '/secret', path: '/leak' }];\n-- result: [{ id: person:1, leak: 'shh', ... }]\n```\n\nand read `secret` back under the name `leak`.\n\n### Impact\n\nThis affects any deployment that uses field-level `PERMISSIONS FOR select` to hide fields from principals who nonetheless hold table-level write permission - for example multi-tenant tables, user-profile tables, or partial-field redaction where record users can update rows.\n\nWhat an attacker **can** do:\n\n- With table-level write permission (`UPDATE`, `CREATE`, `UPSERT`, `RELATE`, or `INSERT`) on a table, read the value of a field on that table denied to them by a field-level `PERMISSIONS FOR select` clause, by copying it into an unrestricted destination and reading it back, or by using `test` as a disclosure oracle.\n- Persist the copied value into a destination field, where it is then readable by anyone who can select that field.\n- With `move`, additionally remove the restricted source field as part of the same operation.\n- Reach a restricted field named directly, nested inside an object, inside an array element, or by naming an ancestor object or array that contains it.\n\nWhat it **can't** do:\n\n- Reach records, tables, namespaces, or databases the caller cannot already access - this issue does not bypass table-level permissions, and the disclosure is confined to the field-permission layer within records the caller can already reach and write.\n- Escalate to namespace- or root-level privileges.\n- Bypass anything through the `add` or `change` operations, or through the `value::patch` function, which operates only on values the caller already supplies.\n\n### Patches\n\nA `PATCH` `copy`/`move` `from` pointer, and a `test` `path` pointer, are now rejected when they read a field the caller may not select. Each pointer is judged by comparing what it resolves to on the record against what it resolves to on the permission-reduced view of that record; any difference - whether the pointer names the restricted field directly or an object or array that contains it - fails the statement rather than carrying the value out. The check is applied for every statement type with a `PATCH` clause and shares the pointer-resolution logic used to apply the patch, so a numeric token that reaches into an array is judged at the element the patch actually reads, and a shift from an earlier operation in the same patch cannot move a restricted field into range of a later pointer. The `add` and `change` operations are not gated, because each writes its result back to the path it read and so carries nothing out of the field.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Do not grant table-level write permission (`UPDATE`, `CREATE`, `UPSERT`, `RELATE`, or `INSERT`) to principals who must not read one of the table's SELECT-restricted fields. Restrict at the table level instead, or move sensitive fields to a table those principals cannot write.\n- Where less-trusted principals only need to write through controlled paths, route their writes through `DEFINE API` endpoints or functions, and deny them arbitrary queries with `--deny-arbitrary-query` (env `SURREAL_CAPS_DENY_ARBITRARY_QUERY`).\n\n### References\n\n- [SurrealQL Documentation - UPDATE statement](https://surrealdb.com/docs/surrealql/statements/update)\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- `fix(doc): reject PATCH read pointers into SELECT-restricted fields` (included in SurrealDB 3.3.0)\n- `fix(expr): resolve a JSON Patch array index as the element it names` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [Yanhaoxi](https://github.com/Yanhaoxi) for reporting this issue.\n",
+    "ghsa_id": "GHSA-h2c3-549c-gjpr",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-h2c3-549c-gjpr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h2c3-549c-gjpr"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:23Z",
+    "references": [],
+    "severity": "high",
+    "summary": "PATCH copy/move/test JSON Pointer operations bypass field-level SELECT permissions",
+    "updated_at": "2026-09-28T11:15:23Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": "< 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

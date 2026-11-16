@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-r95v-74w9-c83f",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nThe public group-by endpoint of a shared view checked a requested column list as a single reference, while the query builder splits it on commas. A list pairing a visible column with a hidden one passed the check and returned the hidden column's values.\n\n### Details\n\n`restrictSharedViewColumnReferences` in `sharedViewQueryHelpers.ts` resolved the whole group-by column value against the view's columns, rejected it only when it resolved to a hidden column, and let through any value it could not resolve. The group-by builder in `BaseModelSqlv2/group-by.ts` splits that value on commas and groups by each part, looking each one up among all of the table's columns. A comma-joined list naming a visible and a hidden column resolved to no single column, passed the check, and returned the hidden value of each group next to the visible one, which ties hidden values to individual rows when the visible column is unique. The group-by count route accepted the same list. The builders now check each part against the view's exposed columns and answer a hidden column the same way as an unknown one, and the service check validates every comma-separated part.\n\n### Impact\n\nNo authentication is required: the attacker needs the link to a shared view, and its password if it has one. They could read the values of any column the owner hid from that view, for the rows its filter allows, paired with the values of a visible column.\n\n### Credit\n\nThis issue was reported by [@SamCyber001](https://github.com/SamCyber001). It was independently reported by [@nkedia9009-crypto](https://github.com/nkedia9009-crypto) (Naman Kedia).\n",
+    "ghsa_id": "GHSA-r95v-74w9-c83f",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-r95v-74w9-c83f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r95v-74w9-c83f"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Hidden Column Disclosure via Comma-Separated Group-By Columns",
+    "updated_at": "2026-11-02T08:47:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.0",
+        "vulnerable_version_range": "< 2026.10.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

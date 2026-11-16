@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-53929",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:N/VI:N/VA:N/SC:L/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\nWith `NC_SECURE_ATTACHMENTS=true`, an authenticated uploader could deliver `.html` or\n`.svg` attachments that the browser rendered inline from the NocoDB origin instead of\nforcing a download.\n\n### Details\nThe signed attachment handler stored response-header overrides under PascalCase keys\n(`ResponseContentDisposition`, `ResponseContentType`) while the controller that served\nthe file read them under lowercase-hyphen names (`response-content-disposition`). The\nmismatch dropped the `Content-Disposition: attachment` header, leaving Express to\nauto-render `.html`, `.svg`, and similar inline. The fix corrects the key case and\nadditionally forces `Content-Disposition: attachment` and\n`Content-Type: application/octet-stream` for any MIME type not on the preview\nallowlist.\n\n### Impact\nStored Cross-Site Scripting in the NocoDB origin from inline-rendered uploads. Script\nexecuting in the victim's browser can read the auth JWT from `localStorage`.\nExploitation requires authenticated upload permission and the secure-attachment mode\nto be enabled.\n\n### Credit\nThis issue was reported by [@bugbunny-research](https://github.com/bugbunny-research).\nIt was independently reported by [@DavidCarliez](https://github.com/DavidCarliez).",
+    "ghsa_id": "GHSA-6mhr-74x2-98v9",
+    "html_url": "https://github.com/advisories/GHSA-6mhr-74x2-98v9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6mhr-74x2-98v9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53929"
+      }
+    ],
+    "published_at": "2026-06-17T14:07:52Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-6mhr-74x2-98v9",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-53929",
+      "https://github.com/advisories/GHSA-6mhr-74x2-98v9"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Stored Cross-Site Scripting via Secure Attachment",
+    "updated_at": "2026-07-20T21:20:14Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 0.301.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-6mhr-74x2-98v9",
+  "repo": {
+    "cve_id": "CVE-2026-53929",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\nWith `NC_SECURE_ATTACHMENTS=true`, an authenticated uploader could deliver `.html` or\r\n`.svg` attachments that the browser rendered inline from the NocoDB origin instead of\r\nforcing a download.\r\n\r\n### Details\r\nThe signed attachment handler stored response-header overrides under PascalCase keys\r\n(`ResponseContentDisposition`, `ResponseContentType`) while the controller that served\r\nthe file read them under lowercase-hyphen names (`response-content-disposition`). The\r\nmismatch dropped the `Content-Disposition: attachment` header, leaving Express to\r\nauto-render `.html`, `.svg`, and similar inline. The fix corrects the key case and\r\nadditionally forces `Content-Disposition: attachment` and\r\n`Content-Type: application/octet-stream` for any MIME type not on the preview\r\nallowlist.\r\n\r\n### Impact\r\nStored Cross-Site Scripting in the NocoDB origin from inline-rendered uploads. Script\r\nexecuting in the victim's browser can read the auth JWT from `localStorage`.\r\nExploitation requires authenticated upload permission and the secure-attachment mode\r\nto be enabled.\r\n\r\n### Credit\r\nThis issue was reported by [@bugbunny-research](https://github.com/bugbunny-research).\r\nIt was independently reported by [@DavidCarliez](https://github.com/DavidCarliez).\r\n",
+    "ghsa_id": "GHSA-6mhr-74x2-98v9",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-6mhr-74x2-98v9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6mhr-74x2-98v9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53929"
+      }
+    ],
+    "published_at": "2026-06-13T11:23:57Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Stored Cross-Site Scripting via Secure Attachment",
+    "updated_at": "2026-06-13T11:23:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-4524-6p82-5896",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-352"
+    ],
+    "description": "Summary: /api/oidc/device/verify accepts a query code and ambient browser session without Origin or CSRF proof.\r\n\r\nDescription:\r\nThe handler reads code from the query string and calls acceptDeviceCode using the authenticated userID. It does not validate Origin, Sec-Fetch-Site, or a CSRF token. The session cookie is SameSite=Lax, which blocks ordinary cross-site POSTs but still sends the cookie to a malicious HTTPS sibling origin in the same schemeful site.\r\n\r\nRelevant locations: backend/internal/oidc/device_handler.go:41-62; backend/internal/oidc/device_service.go:137-157; backend/internal/utils/cookie/add_cookie.go:31-34.\r\n\r\nReproduction:\r\nIsolated Chromium confirmed that a form POST from a sibling same-site origin carries the Lax cookie while a cross-site origin does not. runtime-device-poc.go creates a real device authorization, calls verifyDeviceCode with Origin https://evil.example.com and the victim session context, exchanges the code through the real token handler, and verifies that the access-token subject is the victim user. It uses RequiresReauthentication=false and contacts no production instance.\r\n\r\nImpact:\r\nA same-site attacker who obtains a device code/user code can cause a logged-in victim to authorize the attacker-held grant, then exchange it for a token representing the victim, subject to normal client and group restrictions.\r\n\r\nSuggested remediation:\r\nRequire a session-bound CSRF token and validate the exact allowed Origin before changing device state. JSON is an additional barrier, not a replacement for CSRF protection.",
+    "ghsa_id": "GHSA-4524-6p82-5896",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-4524-6p82-5896",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4524-6p82-5896"
+      }
+    ],
+    "published_at": "2026-10-28T09:38:48Z",
+    "references": [],
+    "severity": "low",
+    "summary": "/api/oidc/device/verify accepts a query code and ambient browser session without Origin or CSRF proof.",
+    "updated_at": "2026-10-28T09:38:48Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v2.19.0",
+        "vulnerable_version_range": "<= v2.18.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

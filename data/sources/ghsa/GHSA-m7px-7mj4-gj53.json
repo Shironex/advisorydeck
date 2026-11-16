@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-m7px-7mj4-gj53",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-841"
+    ],
+    "description": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/commit/0d7eeedf49dff7496de933d015d3a0b4b55b247b). Changing the interaction event now discards the identified user, together with the MFA factors staged for them and their trusted-device opt-in, so an interaction switched from sign-in to registration can no longer finish without the second factor. An email or phone MFA challenge is also bound to the user it was created for.\n>\n> Upgrade to 1.46.0; no configuration change is needed. The MFA policy setting does not mitigate this on earlier versions. Until you can upgrade, setting the sign-in mode to sign-in only (registration disabled) blocks the event switch.\n>\n> GHSA-f78f-ghjf-hrx2 covers a related gap in the same check and is also fixed in 1.46.0.\n\n---\n\n## Summary\r\n\r\nMFA bypass: switching interaction event SignIn→Register after identification skips second-factor verification\r\n\r\n## Affected code\r\n\r\n`packages/core/src/routes/experience/classes/experience-interaction.ts`:546\r\n\r\nexperience-interaction.ts:545-548 (the flawed gate):\r\n545  // Verified, only SignIn requires MFA verification, for register, it does not make sense to verify MFA\r\n546  if (this.#interactionEvent === InteractionEvent.SignIn) {\r\n547    await this.guardMfaVerificationStatus(log);\r\n548  }\r\n\r\nexperience-interaction.ts:192-211 (event switch keeps the identified user; only profile is cleared):\r\n206  if (this.#interactionEvent !== interactionEvent) {\r\n207    this.profile.cleanUp();\r\n208  }\r\n209  this.#interactionEvent = interactionEvent;   // this.userId is never reset\r\n\r\nexperience-interaction.ts:229-265 (identifyUser sets userId; only blocks the Register event at entry, so it runs under SignIn):\r\n230  assertThat(this.interactionEvent !== InteractionEvent.Register, new RequestError({ code: 'session.invalid_interaction_type', status: 400 }));\r\n264  this.userCache = user;\r\n265  this.userId = id;\r\n\r\nsign-in-experience-validator.ts:114-122 (switch to Register allowed whenever registration is enabled):\r\n114  case InteractionEvent.Register: {\r\n115    assertThat(signInMode !== SignInMode.SignIn || hasVerifiedOneTimeToken, new RequestError({ code: 'auth.forbidden', status: 403 }));\r\n\r\nmfa.ts:520-529 (residual Register-time check only requires factors BOUND, not verified):\r\n521  assertThat(\r\n522    configuredFactors.some((factor) => linkedFactors.includes(factor)),\r\n523    new RequestError({ code: 'user.missing_mfa', status: 422 }, ...)\r\n524  );\r\n\r\nindex.ts:101-126 (the PUT /experience/interaction-event route with no re-identification/MFA guard):\r\n118  await experienceInteraction.setInteractionEvent(interactionEvent);\r\n\r\nCorroborating test - an existing identified user under a Register event submits successfully with no MFA verification (experience-interaction.test.ts:345-354): createSignInInteraction({ interactionEvent: InteractionEvent.Register }) with userId = existing mockUser, then experienceInteraction.submit() resolves.\r\n\r\n## Attacker model\r\n\r\nAn unauthenticated attacker who knows only the victim's password (the first factor). No bearer token, no admin, no second factor. They drive their own OIDC sign-in interaction (they hold the interaction cookie from PUT /api/experience). Requires the tenant to have registration enabled (signInMode = SignInAndRegister, the Logto default) and password sign-in enabled.\r\n\r\n## Details\r\n\r\nExperienceInteraction.submit() only verifies the user's second factor (MFA) when the interaction event is SignIn: `if (this.#interactionEvent === InteractionEvent.SignIn) { await this.guardMfaVerificationStatus(log); }` (experience-interaction.ts:546-548). The comment on line 545 states the assumption 'for register, it does not make sense to verify MFA' - i.e., the code assumes a Register submit is always a brand-new user. That assumption is violated: an attacker can (1) identify an EXISTING victim under a SignIn interaction using only the password (identifyUser sets this.userId = victim, experience-interaction.ts:264-265), then (2) call PUT /api/experience/interaction-event to switch the event to Register. setInteractionEvent (experience-interaction.ts:192-211) keeps this.userId intact - it only calls profile.cleanUp() (lines 206-208) and never clears the identified user; guardInteractionEvent permits the switch whenever signInMode !== SignIn (sign-in-experience-validator.ts:114-122). Now submit() runs the Register branch: guardMfaVerificationStatus (the ONLY place a verified MFA verification record is required) is skipped. The residual MFA check, mfa.assertMfaFulfilled() -> assertUserMandatoryMfaFulfilled (mfa.ts:520-529), only asserts that the required factors are BOUND to the account (`configuredFactors.some(factor => linkedFactors.includes(factor))`, where linkedFactors is derived from the victim's existing user.mfaVerifications), NOT that any second factor was verified in this interaction. A victim who has MFA configured passes this trivially. submit() then calls provider.interactionResult({ login: { accountId: victim.id } }) (experience-interaction.ts:670-674), completing OIDC login as the victim. Net effect: password-only login despite mandatory MFA.\r\n\r\n## Proof of concept\r\n\r\n**Entrypoint:** `Experience API (interaction-session cookie, anonymous end-user mid-sign-in): PUT /api/experience, POST /api/experience/verification/password, POST /api/experience/identification, PUT /api/experience/interaction-event, POST /api/experience/submit`\r\n\r\n1. POST/PUT /api/experience  body {\"interactionEvent\":\"SignIn\"}  (creates interaction, obtains interaction cookie).\r\n2. POST /api/experience/verification/password  body {\"identifier\":{\"type\":\"username\",\"value\":\"<victim>\"},\"password\":\"<victim password>\"}  -> {verificationId}. The password record is now verified.\r\n3. POST /api/experience/identification  body {\"verificationId\":\"<verificationId>\"}  -> 204. identifyUser() runs under SignIn (allowed), sets interaction.userId = victim's id. No MFA performed yet (MFA is only checked at submit).\r\n4. PUT /api/experience/interaction-event  body {\"interactionEvent\":\"Register\"}  -> 204. setInteractionEvent(Register) succeeds because signInMode is SignInAndRegister; this.userId (victim) is preserved, only the staged profile is cleared.\r\n5. POST /api/experience/submit  -> 200 {redirectTo}. submit() takes the non-SignIn path: guardMfaVerificationStatus is NOT called; assertUserMandatoryProfileFulfilled passes (victim already has all mandatory profile fields); assertMfaFulfilled passes because the victim already has the required MFA factor bound. provider.interactionResult logs in accountId = victim. Following the returned redirectTo completes the OIDC flow and issues tokens for the victim.\r\nResult: full authenticated session as the victim using only the password, with MFA (TOTP/WebAuthn/backup-code/email/phone second factor) never verified.\r\n\r\n## Impact\r\n\r\nComplete bypass of multi-factor authentication for any MFA-enrolled account whose password is known/compromised. This defeats the exact control MFA exists to provide (protection against a compromised password), yielding full account takeover: a valid OIDC session and tokens for the victim, including access to any first-party app and the account-management (Account Center) surface. Works under Mandatory as well as optional/user-controlled MFA policies, and does not require the victim to interact.\r\n\r\n## Verification notes\r\n\r\nClaim's mfa.ts citation \"520-529\" is off by one: the assertThat begins at line 521 and the configuredFactors.some(...) is at line 522 (file read confirms). All experience-interaction.ts (546-548, 206-210, 230-265) and sign-in-experience-validator.ts (114-122) citations are accurate. The residual-check semantics, event-switch preservation of userId, and single-call-site of the in-interaction MFA verification are all confirmed as described.",
+    "ghsa_id": "GHSA-m7px-7mj4-gj53",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-m7px-7mj4-gj53",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m7px-7mj4-gj53"
+      }
+    ],
+    "published_at": "2026-11-09T07:01:27Z",
+    "references": [],
+    "severity": "high",
+    "summary": "MFA bypass: switching interaction event SignIn→Register after identification skips second-factor verification",
+    "updated_at": "2026-11-09T07:01:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": "<= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

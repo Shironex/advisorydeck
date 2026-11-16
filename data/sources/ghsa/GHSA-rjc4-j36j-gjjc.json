@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-rjc4-j36j-gjjc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-522"
+    ],
+    "description": "### Summary\n\nReading a base's data source returned the source's decrypted connection configuration through a mask that redacted only the connection password, leaving the external database's TLS client-certificate private key in the response.\n\n### Details\n\nThe source read handler in `sources.controller.ts` calls into `sources.service.ts` for the fully decrypted connection config and then sanitizes it with the single helper in `responseHelpers.ts`, which nulled `connection.password` and nothing else. For a source configured with TLS client-certificate authentication, the same connection object also carries the CA certificate, the client certificate and the client private key - stored inline, encrypted at rest, and decrypted on this path - and all three were returned verbatim. Every sibling exit for a source record (list, update, delete, and the socket broadcast) drops the configuration entirely; the one path that is meant to return it relied on a single-field mask. The read permission for that route is granted to the base Viewer role, while reading the equivalent workspace integration credential requires a workspace Creator.\n\n### Impact\n\nA read-only member of a base obtained the TLS client-certificate private key, client certificate and CA for the base's external database, alongside its host and username. Where the backing database accepts client-certificate authentication, that material is sufficient to open a direct, authenticated connection to it, bypassing every NocoDB view, row and column permission the viewer is subject to. Authentication as a base Viewer - the lowest role with base access - is required.\n\n### Credit\n\nThis issue was reported by [@CoryRoo](https://github.com/CoryRoo).\n",
+    "ghsa_id": "GHSA-rjc4-j36j-gjjc",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-rjc4-j36j-gjjc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rjc4-j36j-gjjc"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:38Z",
+    "references": [],
+    "severity": "high",
+    "summary": "TLS Client Private Key Exposure via Data Source Read",
+    "updated_at": "2026-10-27T10:06:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

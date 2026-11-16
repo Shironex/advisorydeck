@@ -1,0 +1,116 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-69263",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-184"
+    ],
+    "description": "## Summary\n\nThe mitigation shipped for CVE-2025-8943 blocks the `-y` and `--yes` flags on `npx` to stop auto-installation of arbitrary packages. That flag filter works. The environment-variable check in the same patch denies only four variable names by exact string match, and `npm` reads its configuration directly from `npm_config_*` environment variables. Setting `npm_config_yes=true` reproduces the `--yes` behaviour the flag filter is meant to prevent, so `npx` auto-installs and executes the named package. The mitigation is fully bypassed.\n\nThis works with the MCP security check enabled (`CUSTOM_MCP_SECURITY_CHECK=true`). On a default Flowise deployment, which ships with no authentication, the result is unauthenticated remote code execution.\n\n## Root cause\n\nThe patch treats this as a flag-filtering problem, but the behaviour gated by `--yes` is also reachable through `npm`'s environment-based configuration. The same is true for the other permitted interpreters, `node` and `python3`. A denylist of variable names cannot enumerate every environment variable that alters execution, so the control is incomplete by construction. The fix is to allowlist (or strip) the environment before it reaches the child process, not to extend the denylist.\n\n## Affected version\n\nFlowise 3.1.1, current as of 2026-03-29.\n\n## Details\n\nValidation happens in `packages/components/nodes/tools/MCP/core.ts`. Two functions run in sequence before any MCP server launches: `validateCommandFlags` and `validateEnvironmentVariables`.\n\n`validateCommandFlags` is thorough. It blocks `-y` and `--yes` along with a comprehensive set of dangerous flags across `npx`, `node`, `python`, `python3`, and `docker`. That part of the patch is sound.\n\nThe gap is in `validateEnvironmentVariables`:\n\n```typescript\nexport const validateEnvironmentVariables = (env: Record<string, any>): void => {\n    const dangerousEnvVars = ['PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS']\n    for (const [key, value] of Object.entries(env)) {\n        if (dangerousEnvVars.includes(key)) {\n            throw new Error(`Environment variable '${key}' modification is not allowed`)\n        }\n        if (typeof value === 'string' && value.includes('\\0')) {\n            throw new Error(`Environment variable '${key}' contains null byte`)\n        }\n    }\n}\n```\n\nThe blocklist is a hardcoded four-item array checked by exact match. Any variable not in that list passes through unchecked. `npm_config_yes` is npm's documented mechanism for setting the `yes` config via the environment. Set to `true`, it causes `npx` to auto-install without prompting, which is exactly what the `-y` and `--yes` flag blocks are intended to prevent.\n\n## Proof of concept\n\nThe following MCP server configuration bypasses the patch with `CUSTOM_MCP_SECURITY_CHECK=true`:\n\n```json\n{\n  \"mcpServers\": {\n    \"bypass\": {\n      \"command\": \"npx\",\n      \"args\": [\"malicious-package\"],\n      \"env\": {\n        \"npm_config_yes\": \"true\"\n      }\n    }\n  }\n}\n```\n\nExecution path:\n\n1. `validateCommandFlags` passes, because `args` contains no blocked flags.\n2. `validateEnvironmentVariables` passes, because `npm_config_yes` is not in the four-item blocklist.\n3. `npx` auto-installs and executes the named package with the privileges of the Flowise process.\n\nOn a default deployment with no authentication, any unauthenticated user who can reach the Flowise API can trigger this.\n\n## Additional bypass vectors (same root cause)\n\nThe following variables are also absent from the blocklist and influence execution through the other permitted interpreters:\n\n| Variable | Command | Effect |\n|---|---|---|\n| `npm_config_prefix` | `npx` | Redirects package installation to attacker-controlled path |\n| `npm_config_userconfig` | `npx` | Loads attacker-controlled `.npmrc` configuration |\n| `NODE_PATH` | `node` | Loads modules from attacker-controlled path |\n| `PYTHONPATH` | `python3` | Loads modules from attacker-controlled path |\n| `PYTHONSTARTUP` | `python3` | Executes a file on interpreter startup (interactive sessions only) |\n\n## Impact\n\nFull remote code execution with the privileges of the Flowise process. On default deployments with no authentication, no credentials are required.\n\n## Remediation\n\nStrip the `env` object before passing it to the child process, or replace the name blocklist with an allowlist of explicitly permitted variables.\n\nAdding the known dangerous variables to the blocklist (`npm_config_yes`, `npm_config_prefix`, `npm_config_userconfig`, `NODE_PATH`, `PYTHONPATH`, `PYTHONSTARTUP`) narrows the immediate gap but is a stopgap. Any future permitted interpreter reintroduces the same class of bypass.\n\n## References\n\n- CVE-2025-8943\n- CWE-184: Incomplete List of Disallowed Inputs",
+    "ghsa_id": "GHSA-xc48-889x-5qmw",
+    "html_url": "https://github.com/advisories/GHSA-xc48-889x-5qmw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xc48-889x-5qmw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69263"
+      }
+    ],
+    "published_at": "2026-08-04T17:09:48Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-xc48-889x-5qmw",
+      "https://github.com/FlowiseAI/Flowise/pull/6471",
+      "https://github.com/FlowiseAI/Flowise/commit/a4c4e4988cded15edf725e762560575b889ae351",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise@3.1.3",
+      "https://github.com/advisories/GHSA-xc48-889x-5qmw"
+    ],
+    "severity": "high",
+    "summary": "Flowise: CVE-2025-8943 Patch Bypass: npm_config_yes bypasses MCP environment variable blocklist (Unauthenticated RCE)",
+    "updated_at": "2026-08-04T17:09:49Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-xc48-889x-5qmw",
+  "repo": {
+    "cve_id": "CVE-2026-69263",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-184"
+    ],
+    "description": "# Patch bypass of CVE-2025-8943: MCP environment-variable blocklist bypass leads to unauthenticated RCE in Flowise 3.1.1\r\n\r\n## Summary\r\n\r\nThe mitigation shipped for CVE-2025-8943 blocks the `-y` and `--yes` flags on `npx` to stop auto-installation of arbitrary packages. That flag filter works. The environment-variable check in the same patch denies only four variable names by exact string match, and `npm` reads its configuration directly from `npm_config_*` environment variables. Setting `npm_config_yes=true` reproduces the `--yes` behaviour the flag filter is meant to prevent, so `npx` auto-installs and executes the named package. The mitigation is fully bypassed.\r\n\r\nThis works with the MCP security check enabled (`CUSTOM_MCP_SECURITY_CHECK=true`). On a default Flowise deployment, which ships with no authentication, the result is unauthenticated remote code execution.\r\n\r\n## Root cause\r\n\r\nThe patch treats this as a flag-filtering problem, but the behaviour gated by `--yes` is also reachable through `npm`'s environment-based configuration. The same is true for the other permitted interpreters, `node` and `python3`. A denylist of variable names cannot enumerate every environment variable that alters execution, so the control is incomplete by construction. The fix is to allowlist (or strip) the environment before it reaches the child process, not to extend the denylist.\r\n\r\n## Affected version\r\n\r\nFlowise 3.1.1, current as of 2026-03-29.\r\n\r\n## Details\r\n\r\nValidation happens in `packages/components/nodes/tools/MCP/core.ts`. Two functions run in sequence before any MCP server launches: `validateCommandFlags` and `validateEnvironmentVariables`.\r\n\r\n`validateCommandFlags` is thorough. It blocks `-y` and `--yes` along with a comprehensive set of dangerous flags across `npx`, `node`, `python`, `python3`, and `docker`. That part of the patch is sound.\r\n\r\nThe gap is in `validateEnvironmentVariables`:\r\n\r\n```typescript\r\nexport const validateEnvironmentVariables = (env: Record<string, any>): void => {\r\n    const dangerousEnvVars = ['PATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'NODE_OPTIONS']\r\n    for (const [key, value] of Object.entries(env)) {\r\n        if (dangerousEnvVars.includes(key)) {\r\n            throw new Error(`Environment variable '${key}' modification is not allowed`)\r\n        }\r\n        if (typeof value === 'string' && value.includes('\\0')) {\r\n            throw new Error(`Environment variable '${key}' contains null byte`)\r\n        }\r\n    }\r\n}\r\n```\r\n\r\nThe blocklist is a hardcoded four-item array checked by exact match. Any variable not in that list passes through unchecked. `npm_config_yes` is npm's documented mechanism for setting the `yes` config via the environment. Set to `true`, it causes `npx` to auto-install without prompting, which is exactly what the `-y` and `--yes` flag blocks are intended to prevent.\r\n\r\n## Proof of concept\r\n\r\nThe following MCP server configuration bypasses the patch with `CUSTOM_MCP_SECURITY_CHECK=true`:\r\n\r\n```json\r\n{\r\n  \"mcpServers\": {\r\n    \"bypass\": {\r\n      \"command\": \"npx\",\r\n      \"args\": [\"malicious-package\"],\r\n      \"env\": {\r\n        \"npm_config_yes\": \"true\"\r\n      }\r\n    }\r\n  }\r\n}\r\n```\r\n\r\nExecution path:\r\n\r\n1. `validateCommandFlags` passes, because `args` contains no blocked flags.\r\n2. `validateEnvironmentVariables` passes, because `npm_config_yes` is not in the four-item blocklist.\r\n3. `npx` auto-installs and executes the named package with the privileges of the Flowise process.\r\n\r\nOn a default deployment with no authentication, any unauthenticated user who can reach the Flowise API can trigger this.\r\n\r\n## Additional bypass vectors (same root cause)\r\n\r\nThe following variables are also absent from the blocklist and influence execution through the other permitted interpreters:\r\n\r\n| Variable | Command | Effect |\r\n|---|---|---|\r\n| `npm_config_prefix` | `npx` | Redirects package installation to attacker-controlled path |\r\n| `npm_config_userconfig` | `npx` | Loads attacker-controlled `.npmrc` configuration |\r\n| `NODE_PATH` | `node` | Loads modules from attacker-controlled path |\r\n| `PYTHONPATH` | `python3` | Loads modules from attacker-controlled path |\r\n| `PYTHONSTARTUP` | `python3` | Executes a file on interpreter startup (interactive sessions only) |\r\n\r\n## Impact\r\n\r\nFull remote code execution with the privileges of the Flowise process. On default deployments with no authentication, no credentials are required.\r\n\r\n## Remediation\r\n\r\nStrip the `env` object before passing it to the child process, or replace the name blocklist with an allowlist of explicitly permitted variables.\r\n\r\nAdding the known dangerous variables to the blocklist (`npm_config_yes`, `npm_config_prefix`, `npm_config_userconfig`, `NODE_PATH`, `PYTHONPATH`, `PYTHONSTARTUP`) narrows the immediate gap but is a stopgap. Any future permitted interpreter reintroduces the same class of bypass.\r\n\r\n## References\r\n\r\n- CVE-2025-8943\r\n- CWE-184: Incomplete List of Disallowed Inputs",
+    "ghsa_id": "GHSA-xc48-889x-5qmw",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-xc48-889x-5qmw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xc48-889x-5qmw"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69263"
+      }
+    ],
+    "published_at": "2026-07-29T21:02:49Z",
+    "references": [],
+    "severity": "high",
+    "summary": "CVE-2025-8943 Patch Bypass: npm_config_yes bypasses MCP environment variable blocklist (Unauthenticated RCE)",
+    "updated_at": "2026-08-04T16:52:17Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

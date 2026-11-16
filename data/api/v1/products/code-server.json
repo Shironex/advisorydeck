@@ -1,0 +1,168 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "code-server",
+    "name": "code-server",
+    "category": "devtools",
+    "homepage": "https://coder.com/docs/code-server",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-jvcp-w94c-mvvh",
+      "aliases": [],
+      "title": "Session cookie exposed to services opened through the port proxy",
+      "summary": "### Summary\r\ncode-server's session cookie could be read by services opened through the built-in port proxy. The cookie was sent to the proxied service on WebSocket connections, and because it was not marked `HttpOnly`, scripts on proxied pages could read it. The cookie acts as a reusable credential, so anyone who obtains it can sign in to code-server as the user.\r\n\r\n### Details\r\ncode-server removes its session cookie from requests it forwards to proxied ports. This was only done for regular HTTP requests. WebSocket connections through `/proxy/<port>/`, `/absproxy/<port>/` and the proxy domain still sent the full `Cookie` header, including the session cookie, to the proxied service. Versions before `4.124.2` also sent the cookie on regular HTTP requests.\r\n\r\nSeparately, the session cookie was set without the `HttpOnly` attribute. Pages served through the path proxy share the code-server origin, so scripts on those pages could read the cookie with `document.cookie`.\r\n\r\n### Impact\r\nA malicious service listening on a port that the user opens through the proxy can capture the session cookie and replay it to get full access to code-server, including the terminal and file system, as the user running code-server. To exploit this, the attacker has to control a service reachable by the proxy, and a signed-in user has to open it.\r\n\r\n### Patches\r\nFixed in 4.145.0. The session cookie is now removed from proxied WebSocket connections and is set with `HttpOnly`. Upgrade to 4.145.0 or later.\r\n\r\n### Workarounds\r\nOnly open trusted services through the code-server proxy. After upgrading, change the code-server password if you previously opened untrusted services through the proxy, since this invalidates any session cookie that may have been captured.\r\n\r\n### References\r\n- https://github.com/coder/code-server/pull/8111\r\n- https://github.com/coder/code-server/pull/8110\r\n- https://github.com/coder/code-server/releases/tag/v4.145.0\r\n\r\n### Credits\r\nThanks to @j9tdsn8nmk-hash, @bl4cksku11 and @Iraianbu-tech for reporting this issue.",
+      "published_at": "2026-11-05T11:16:32.000Z",
+      "modified_at": "2026-11-05T11:16:32.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.4,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:H/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-522",
+        "CWE-1004"
+      ],
+      "affected": [
+        {
+          "product": "code-server",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "4.145.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-jvcp-w94c-mvvh",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jvcp-w94c-mvvh",
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-jvcp-w94c-mvvh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:308b59ad2b220dd41340868cb2e4676fa9faad220eabbde9a42c15a15d3e211c",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-111497",
+      "aliases": [
+        "GHSA-663w-cv8g-jj2p",
+        "GHSA-gcvg-jpfh-4xm8"
+      ],
+      "title": "Out-of-Bounds Write in Google Brotli Decoder",
+      "summary": "A buffer overflow vulnerability in the Brotli decoder (c/dec/decode.c) in Google Brotli versions 1.0.3 through 1.2.0 on all platforms allows a remote unauthenticated attacker to corrupt adjacent decoder state memory, disclose sensitive memory contents, cause a denial of service, or potentially execute arbitrary code using a crafted Brotli-compressed stream.\n\n\n\n\n\nUsers need to update any Brotli libraries or binaries between 1.0.3 through 1.2.0 to the latest available version: 1.0.10 or 1.1.1 or 1.2.1.",
+      "published_at": "2026-10-22T13:35:41.975Z",
+      "modified_at": "2026-11-10T12:50:00.309Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.2,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": true,
+        "added_at": "2026-10-27",
+        "checked": true
+      },
+      "epss": {
+        "score": 0.82641,
+        "percentile": 0.99673,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-252",
+        "CWE-787"
+      ],
+      "affected": [
+        {
+          "product": "bun",
+          "ranges": [
+            {
+              "introduced": "1.0.21",
+              "fixed": "1.4.4"
+            }
+          ]
+        },
+        {
+          "product": "code-server",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "4.141.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases#nodejs-brotli-decoder-out-of-bounds-write-permits-remote-code-execution-cve-2026-111497---high",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/andybalholm/brotli/releases/tag/v1.2.7",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-gcvg-jpfh-4xm8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-111497",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-111497",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-111497",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-111497",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-663w-cv8g-jj2p",
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p",
+          "license": "CC-BY-4.0"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-gcvg-jpfh-4xm8",
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-gcvg-jpfh-4xm8",
+          "license": "CC-BY-4.0"
+        },
+        {
+          "type": "kev",
+          "id": "CVE-2026-111497",
+          "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=CVE-2026-111497",
+          "license": "CC0-1.0"
+        }
+      ],
+      "revision": "sha256:71befe3bb9d927b62c75563a513d06db9cdc09928b6d66b35de0d6ccbe40e67d",
+      "note": null
+    }
+  ]
+}

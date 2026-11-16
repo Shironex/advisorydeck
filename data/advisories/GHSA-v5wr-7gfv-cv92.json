@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-v5wr-7gfv-cv92",
+  "aliases": [],
+  "title": "Missing Authorization and User Interface (UI) Misrepresentation of Critical Information in pocket-id/pocket-id",
+  "summary": "# Summary\r\n\r\nThe page that finishes a device sign-in accepts the device's code in the address itself. When a signed-in user opens such a link, the authorization completes during the page load: the code is never presented for confirmation, the user is never asked whether it matches what the device is showing, and there is no approve or deny step. Whoever composed the link then collects the tokens by polling, as the protocol intends the real device to.\r\n\r\nThis happens in two situations, and between them they cover the ordinary case:\r\n\r\n- the sign-in is for an application the user has approved before, even once, at any time in the past;\r\n- the sign-in is for an application configured to skip the consent screen, **including one the user has never encountered**.\r\n\r\nWe verified both against the published release image, driving a real headless browser with a real signed-in session. The page really does render, and it really does complete the flow with nothing clicked.\r\n\r\nPutting the code in the link is a legitimate optimisation, and RFC 8628 defines it. What the specification also says, in the same section, is that the optimisation removes only the typing: \"the user interaction described in Section 3.3 is still followed, with the optimization that the user does not need to type in the 'user_code'. The server SHOULD display the 'user_code' to the user and ask them to verify that it matches the 'user_code' being displayed on the device to confirm they are authorizing the correct device. As before, in addition to taking steps to confirm the identity of the device, the user should also be afforded the choice to approve or deny the authorization request.\" Its security considerations, on this exact optimisation, add: \"it is particularly important to confirm that the device is in the user's possession, as the user no longer has to type in the code being displayed on the device manually.\" Both of those steps -- the code-matching check and the approve/deny choice -- are the defence against someone else's device being authorized by a user who was simply sent a link. On the paths described here, neither runs.\r\n\r\n# Affected Component and Versions\r\n\r\nAffected component:\r\n\r\n- Docker image: `ghcr.io/pocket-id/pocket-id`\r\n- OIDC device-authorization endpoint and the device verification page\r\n- Related source files: `frontend/src/routes/device/+page.svelte`, `frontend/src/routes/device/+page.ts`, `backend/internal/oidc/device_service.go`, `backend/internal/oidc/authorization_service.go`, `backend/internal/oidc/module.go`\r\n\r\nThe behavior was reviewed at:\r\n\r\n- release tag `v2.13.0` (repository commit `f39f59e9e0dcf0957c83872e60093cebb90ca596`)\r\n- published image `ghcr.io/pocket-id/pocket-id:v2.13.0`\r\n\r\nDirect static review on 2026-08-17 confirmed that the same relevant behavior remains on the current default branch at commit `22354581` (approximately 25 commits after `v2.13.0`); where line references differ from `v2.13.0` the behaviour is unchanged, and the run is the authority.\r\n\r\nWe re-ran the reproduction end to end on 2026-08-18 against the published image `ghcr.io/pocket-id/pocket-id:v2.13.0`, driven by the file at `review/shared/repro-plans-20260818/pocket-id-pocket-id-poc.mjs`. Every oracle passed and the run reported `RESULT: REPRODUCED` with exit status 0. The transcript is preserved at `review/pocket-id-pocket-id/pocket-id-e2e-transcript-20260818.txt`. So this is not stale against something already fixed on `main`.\r\n\r\n`v2.13.0` is the current release at the time of writing, and the current default branch carries the same behaviour. No patched version was identified.\r\n\r\n# Security Boundary and Preconditions\r\n\r\nThe practical scenario requires:\r\n\r\n1. the ability to make one device-authorization request against the deployment -- authenticating as a client at `POST /api/oidc/device/authorize`; for a public client that is the client identifier alone, an operator-chosen and often human-readable string that any signed-in user of the deployment can...",
+  "published_at": "2026-09-19T18:51:09.000Z",
+  "modified_at": "2026-09-19T18:51:09.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:L/VI:L/VA:N/SC:L/SI:L/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-451",
+    "CWE-862"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.15.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-v5wr-7gfv-cv92",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v5wr-7gfv-cv92",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-v5wr-7gfv-cv92",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:568c660f2a2358c6f1b54e72d18e263214732fe3e74eefdd775513573e41b0c0",
+  "note": null
+}

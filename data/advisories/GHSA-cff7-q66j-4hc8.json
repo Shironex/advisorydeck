@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-cff7-q66j-4hc8",
+  "aliases": [],
+  "title": "UNIQUE-Index Conflict Errors Disclose SELECT-Restricted Field Values and Record Ids in SurrealDB",
+  "summary": "### Summary\n\nWhen a write conflicts with a UNIQUE index, SurrealDB returns the error `Database index `<index>` already contains `<value>`, with record `<record>`` to the caller verbatim. The message embeds the stored hidden value and the record id of the existing row, and the write path never consults the acting principal's field-level SELECT permissions or the row's table PERMISSIONS before doing so. Any authenticated principal with write access to a table therefore obtains a reliable existence oracle over field values and rows its SELECT permissions forbid reading: a probe write either succeeds (value unused) or returns the hidden value and record id (value in use). Verified on the official v3.3.0 Docker image (2026-09-24, current release) and by source review on main `18971ffb` (2026-09-04).\r\n\n\n### Details\n\nSurrealDB treats error text as permission-relevant: GHSA-6g9v-7gq3-p2c6 (fixed 3.1.0) stripped raw operands from arithmetic error messages for exactly this reason, and the September 2026 security wave hardened the indexed read paths (restricted-field indexes withheld from query planning in GHSA-x6mm-9295-rvph; indexed COUNT/ORDER BY fast paths guarded in GHSA-c8j9-96c9-8xrp and GHSA-h4h3-3rfj-x6fq). The unique-index write-conflict path was not covered.\r\n\r\n- `surrealdb/core/src/err/mod.rs:541` (main `18971ffb`): `Error::IndexExists { record, index, value }` formats as `Database index `{index}` already contains `{value}`, with record `{record}``.\r\n- Raised by `surrealdb/core/src/idx/index.rs::err_index_exists` (line 398, raise at line 205) during unique-index maintenance in the document write pipeline (`doc/create.rs`, `doc/insert.rs`, `doc/upsert.rs`).\r\n- Nothing on this path consults the acting principal's `PERMISSIONS FOR select` on the field or the table before including the stored value and record id.\r\n\r\nBoth restriction models are bypassed:\r\n\r\n- Field-level: `DEFINE FIELD email ON users PERMISSIONS FOR select NONE` - a principal with CREATE but no SELECT on `email` receives the stored `email` value verbatim in the conflict error.\r\n- Row-level: `DEFINE TABLE secrets PERMISSIONS FOR select NONE` - a principal with INSERT permission on the table receives the fully invisible record's unique field value and its record id.\r\n\r\nThe uniqueness enforcement itself is correct (the write is rejected); the flaw is the content of the failure observable, which turns a rejected write into a read oracle.\n\n### Proof of concept\n\nEnvironment: official `surrealdb/surrealdb:latest` image (v3.3.0) on 127.0.0.1:16451, root user bootstraps the schema, a record user `alice` with CREATE/INSERT permission only. All data synthetic. The attached archive automates every step; the container is removed on exit.\r\n\r\nControls: the boundary is real and active - the unauthenticated caller is denied, root sees the protected value, and alice's SELECT reveals nothing:\r\n\r\n```text\r\n[PASS] C1 unauthenticated SELECT denied\r\n[PASS] C2 privileged SELECT sees field (schema active)\r\n[PASS] C3 alice SELECT does not reveal protected values\r\n```\r\n\r\nPayload A (field-level restriction): `email` carries a UNIQUE index and `PERMISSIONS FOR select NONE`. alice probes with a candidate value:\r\n\r\n```text\r\nCREATE users SET email = 'victim@example.com';\r\n→ Database index 'users_email_uniq' already contains 'victim@example.com', with record 'users:victim'\r\n[PASS] A1 conflict error echoes probed value + record id (field-restricted)\r\n[PASS] A2 non-conflicting probe succeeds (differential confirmed)\r\n```\r\n\r\nThe rejected write returns the stored hidden value (`victim@example.com`) and the record id (`users:victim`). A probe with an unused value succeeds, completing the existence oracle.\r\n\r\nPayload B (row-level restriction): a fully invisible record `secrets:s1` (table `PERMISSIONS FOR select NONE`) with a UNIQUE field leaks its existence, value echo, and record id the same way:\r\n\r\n```text\r\n[PASS] B1 invisible record leaks existence + record id (row-restricted)\r\n```\r\n\r\nAutomated ru...",
+  "published_at": "2026-11-03T15:50:56.000Z",
+  "modified_at": "2026-11-03T15:50:56.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-203"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cff7-q66j-4hc8",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cff7-q66j-4hc8",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cff7-q66j-4hc8",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

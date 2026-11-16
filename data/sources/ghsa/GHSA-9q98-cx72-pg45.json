@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-9q98-cx72-pg45",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nWhen Dragonfly speaks the memcached text protocol, an unauthenticated `get` of an oversized key overflows the 8192 byte reply buffer in `SinkReplyBuilder::WritePieces` and poisons the `next` pointer of an adjacent mimalloc free block (plaintext, `MI_SECURE=0`), so a later allocation is returned at an attacker-chosen fixed address `T`. A second `get` of a big key makes `storage = make_unique<char[]>` land on that block, giving a byte-unrestricted write over the writable GOT. The image sets `__isoc99_sscanf@got` to `base::sh_exec`, and a RESP `RESTORE` of an old string-double sorted set drives `FetchDouble` into `sscanf(score)` == `sh_exec(score)`, running the score string as a shell command. Proven end to end on the stock `ghcr.io/dragonflydb/dragonfly:v1.40.1` image, ASLR on, no information leak, running as the `dfly` service account.\r\n\r\n## Severity\r\n\r\nCritical, CVSS 3.1 base 9.8 (`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`). The one precondition is that the operator enabled the memcached protocol (`--memcached_port`, off by default); once enabled it has no authentication at all.\r\n\r\n## Root cause\r\n\r\nThree pieces of the memcached reply path combine into the overflow.\r\n\r\n1. **The reply buffer is hard capped, the copy is not.** In `src/facade/reply_builder.cc`, `SinkReplyBuilder::WritePieces` calls `Flush(required)`, but `Flush` clamps the buffer to `kMaxBufferSize = 8192`, and `write_piece` is a bare `memcpy` with no destination bound.\r\n\r\n```cpp\r\nif (size_t required = (piece_size(pieces) + ...); buffer_.AppendLen() <= required)\r\n  Flush(required);                       // buffer capped at kMaxBufferSize = 8192\r\nchar* ptr = dest;\r\n([&]() { ptr = write_piece(pieces, ptr); }(), ...);   // unbounded memcpy per piece\r\n```\r\n\r\n2. **The unbounded piece is the echoed key.** `MCReplyBuilder::SendValue` builds `WritePieces(\"VALUE \", key, \" \", mc_flag, \" \", value.size())`. `\"VALUE \"` is 6 bytes, so a key of `8192 - 6 + N` bytes writes `N` attacker bytes past the 8192 byte block.\r\n\r\n3. **The read path skips every guard.** RESP call sites hand any string over `kMaxInlineSize` (32) to the zero-copy `WriteRef`, and the memcached store and meta paths enforce the 250 byte key limit, but `ParseValueless` in `src/facade/memcache_parser.cc` (serving `get`/`gets`/`gat`/`delete`/`incr`/`decr`) applies neither, so an over long `get` key reaches the unbounded copy intact.\r\n\r\n## Why it escalates\r\n\r\nThe shipped binary is non-PIE, GOT writable (no `BIND_NOW`), no stack canary, and the bundled mimalloc has `MI_SECURE=0` (plaintext free-list `next`). Overflowing reply block `n` overwrites the free neighbour's `next` with `T`. Grooming: open N memcached connections (one reply buffer each), close every other one. A later 8192-class `make_unique<char[]>` (the `storage` for a big `get`) pops `T` and copies attacker bytes there, unrestricted.\r\n\r\n## Exploitation\r\n\r\n`T = 0x19ef560` is placed 8 bytes above `memcpy@got` (`0x19ef558`), so the `make_unique` zeroing (`memset@got`, `memcpy@got`, both below `T`) never blanks the slots the copy itself needs. The image overwrites `__isoc99_sscanf@got` (`0x19ef658`, above `T`) with `base::sh_exec` (`0x004be2e0`):\r\n\r\n```\r\nland      -> make_unique<char[]> pops T = 0x19ef560   (poisoned free-list next)\r\nimage     -> sscanf@got (0x19ef658) := base::sh_exec (0x004be2e0)\r\ntrigger   -> RESTORE zset(type 3) -> FetchDouble -> sscanf(score) == sh_exec(score)\r\n```\r\n\r\nThe window image is a faithful copy of the GOT tail with every slot re-armed to its PLT stub (lazy binding re-resolves, process keeps serving), only `sscanf@got` changed plus three ASLR-dependent `.data` pointers neutralized to a fixed readable address. It is precomputed offline from the public binary, so the target's memory is never read: ASLR stays on, no leak. The command uses `bash -c` because `sh_exec` spawns `/bin/sh` (dash), which has no `/dev/tcp`, and is not backgrounded, so the shard thread blocks inside `sh_exec` for the session.\r\n\r\n## Remediation\r\n\r\n1. **Bound the reply buffer copy.** `write_piece` in `SinkReplyBuilder::WritePieces` must never write past the buffer `Flush` provided; carry the destination capacity and clamp each `memcpy`, flushing or streaming an oversized piece instead.\r\n2. **Enforce the key length limit on every memcached verb.** `ParseValueless` should apply the same 250 byte key limit the store and meta paths already enforce, rejecting an over long key before the reply builder.\r\n3. **Do not echo an unbounded key into a fixed buffer.** `MCReplyBuilder::SendValue` should route the key to the zero-copy `WriteRef` path above `kMaxInlineSize` rather than `memcpy` into the 8192 byte scratch.\r\n4. **Harden release builds.** Full PIE and `BIND_NOW` (read-only GOT), stack protectors, and hardened mimalloc (`MI_SECURE`, encoded free lists) do not fix the bug but remove the deterministic single-gadget path.",
+    "ghsa_id": "GHSA-9q98-cx72-pg45",
+    "html_url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-9q98-cx72-pg45",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9q98-cx72-pg45"
+      }
+    ],
+    "published_at": "2026-09-20T14:28:13Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unauthenticated remote code execution in DragonflyDB (memcached reply-builder heap overflow)",
+    "updated_at": "2026-09-20T14:28:13Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dragonflydb/dragonfly"
+}

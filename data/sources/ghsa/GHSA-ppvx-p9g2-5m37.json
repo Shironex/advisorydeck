@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-ppvx-p9g2-5m37",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-340",
+      "CWE-552"
+    ],
+    "description": "### Summary\n\nData exports were written to the uploads folder under a path built entirely from guessable values, so on installations with local file storage they could be downloaded through the unauthenticated download route without the signed link the export job issues.\n\n### Details\n\n`data-export.processor.ts`, and in the Enterprise build `interface-data-export.processor.ts`, wrote each export to `nc/uploads/data-export/` under a path made of the export date and hour, the table id, and a file name formed from the base, table and view titles (the page title for interface exports) and the export minute. The export job hands the user a signed download link that expires after three hours as the intended way to fetch the file. Unless secure attachments were enabled with `NC_SECURE_ATTACHMENTS`, `attachments.controller.ts` serves every file under `nc/uploads` on local storage through its download route without authentication, so the same export was reachable by anyone who could rebuild its path. The scheduled clean-up of export files was disabled in both job services, so exports remained on disk and reachable indefinitely.\n\nExports are now written under a random 48-character folder, so their paths cannot be derived from known values, and an hourly job deletes them after their download links have expired.\n\n### Impact\n\nNo authentication is required. The attacker needs the table id and the base, table and view titles that form the path, for instance from a public shared view of the table together with the base's name, and a member must have exported that view on an installation that stores files locally without secure attachments enabled. As the rest of the path is the export's date and time, an existing export could then be located and read in full, including fields hidden from the public shared view.\n\n### Credit\n\nThis issue was reported by [@Potatonion](https://github.com/Potatonion).\n",
+    "ghsa_id": "GHSA-ppvx-p9g2-5m37",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-ppvx-p9g2-5m37",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ppvx-p9g2-5m37"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:57Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Unauthenticated Data Export Disclosure via Predictable Paths",
+    "updated_at": "2026-11-02T08:47:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-v879-vjhp-gmhc",
+  "aliases": [],
+  "title": "Stored XSS in the log viewer: log content can inject URL markers (U+E002/U+E003) to forge javascript: links rendered via v-html",
+  "summary": "## Summary\r\n\r\nBefore rendering container logs, the server escapes the message and then replaces \"URL markers\"\r\nwith an anchor tag. The markers are ordinary Private Use Area characters (`U+E002` / `U+E003`) and\r\nthe replacement copies whatever sits between them directly into `href` **without validating the\r\nscheme**. Any log line can contain those characters, so a container can inject\r\n`\\uE002javascript:alert(document.domain)\\uE003` and have the server emit\r\n`<a href=\"javascript:alert(...)\">`.\r\n\r\nThe front end renders log messages with `v-html`, and `ansi-to-html` is configured with\r\n`escapeXML: false`, so there is no second escaping pass. The result is a stored XSS that executes\r\nin the Dozzle origin when a user clicks the forged link.\r\n\r\n## Details\r\n\r\n**Marker replacement without scheme validation** - `internal/support/web/escape.go:48`:\r\n\r\n```go\r\nfunc escapeAndProcessMarkers(value string) string {\r\n    value = html.EscapeString(value)\r\n    value = urlMarkerRegex.ReplaceAllStringFunc(value, func(match string) string {\r\n        url := strings.TrimSuffix(strings.TrimPrefix(match, URLMarkerStart), URLMarkerEnd)\r\n        href := searchMarkerStripper.Replace(url)\r\n        text := searchMarkerHTMLReplacer.Replace(url)\r\n        return \"<a href=\\\"\" + href + \"\\\" target=\\\"_blank\\\" rel=\\\"noopener noreferrer external\\\">\" + text + \"</a>\"\r\n    })\r\n    ...\r\n}\r\n```\r\n\r\n`html.EscapeString` only escapes quotes and angle brackets; it does not stop a `javascript:` URL.\r\nThe code assumes the markers can only be introduced by `MarkURLs` around http(s) URLs, but the\r\nmarker characters themselves are plain text that any log producer can write:\r\n\r\n```go\r\n// internal/support/web/url.go:10-11\r\nURLMarkerStart = \"\\uE002\"\r\nURLMarkerEnd   = \"\\uE003\"\r\n```\r\n\r\n**Front end renders the result as HTML** - `assets/components/logs/entries/SimpleLogItem.vue:6`:\r\n\r\n```html\r\n<div class=\"log-message ...\" v-html=\"colorize(logEntry.message)\"></div>\r\n```\r\n\r\nand `assets/utils/ansi.ts:7` sets `escapeXML: false`, so the injected markup survives.\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\n# U+E002 = e2 80 82, U+E003 = e2 80 83\r\nprintf '\\xEE\\x80\\x82javascript:alert(document.domain)\\xEE\\x80\\x83\\n' > /proc/1/fd/1\r\n```\r\n\r\n1. The line above is written to the container log (any process able to log, including code paths\r\n   that reflect untrusted input such as user agents or request paths, can produce this).\r\n2. A user opens that container in Dozzle. The streamed message contains:\r\n\r\n```html\r\n<a href=\"javascript:alert(document.domain)\" target=\"_blank\" rel=\"noopener noreferrer external\">javascript:alert(document.domain)</a>\r\n```\r\n\r\n3. The user clicks the link and the script executes in the Dozzle origin.\r\n\r\n## Impact\r\n\r\n- Stored XSS in the Dozzle origin, triggered by viewing/clicking content that a monitored container\r\n  controls. All users viewing that container (including administrators) are affected.\r\n- Script execution in the Dozzle UI can act with the victim session: read data the UI can read and\r\n  call the same APIs the UI calls - including container operations the UI exposes (start/stop,\r\n  shell/exec), which can extend the impact well beyond a simple alert.\r\n- Multi-tenant or shared setups (many containers feeding one Dozzle) make the injection path\r\n  realistic without any privileged position.\r\n\r\n## Suggested Fix\r\n\r\n1. In `escapeAndProcessMarkers`, validate the captured URL before using it as `href`:\r\n   `url.Parse` and require `Scheme` in {`http`, `https`} (reject control characters); otherwise\r\n   render the text without a link.\r\n2. Strip the reserved Private Use Area marker characters (`U+E000`-`U+E003`) from log content before\r\n   serializing it to the client (the project already has similar stripping logic on other paths).\r\n3. Defence in depth on the client: sanitize `v-html` input with a whitelist (e.g. DOMPurify) or\r\n   enable `escapeXML` and re-apply only the intended markup.\r\n\r\n## Disclosure\r\n\r\nReported privately; no public disclosure before a fix and an advisory are pu...",
+  "published_at": "2026-09-14T19:26:07.000Z",
+  "modified_at": "2026-09-14T19:26:07.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-79"
+  ],
+  "affected": [
+    {
+      "product": "dozzle",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "11.0.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-v879-vjhp-gmhc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-v879-vjhp-gmhc",
+      "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-v879-vjhp-gmhc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7278691584c23d4b2e6ff1b33b24d755c88da215a992d7939216c881c5320c22",
+  "note": null
+}

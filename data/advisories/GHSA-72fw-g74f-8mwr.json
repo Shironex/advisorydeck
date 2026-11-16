@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-72fw-g74f-8mwr",
+  "aliases": [],
+  "title": "Server-Side Template Injection via Webhook Helpers",
+  "summary": "### Summary\n\nWebhook URL, header and body templates are rendered with Handlebars, and several bundled template helpers resolved attacker-supplied property paths outside the template engine, defeating the engine's protection against prototype-chain property access.\n\n### Details\n\n`webhookHelpers.ts` compiles webhook templates with Handlebars and registers the `handlebars-helpers-v2` helper pack. Handlebars itself denies a template any access to non-own, prototype-chain properties such as `constructor`, `prototype` and `__proto__`; that control is what closes the classic template-to-code escalation, and it is enforced while the engine evaluates the template's own syntax tree. The `pluck`, `sortBy`, `filter` and `withSort` helpers in the bundled pack each accept a dotted property path as an argument and resolve it against the render context with `get-value`, an unguarded property-walk loop that runs as ordinary JavaScript outside the engine's evaluator. A path such as `constructor.constructor` therefore walked from the webhook's data context to the native `Function` constructor without the engine's guard ever observing the access, and the resolved value was rendered into the request NocoDB then sent to the webhook's configured destination. Other helpers in the same pack call the values they are given, so the resolved constructor could also be invoked with a string from the template, compiling and running it as JavaScript in the server process.\n\n### Impact\n\nAn attacker could run arbitrary JavaScript in the NocoDB server process through a crafted webhook template, and through it operating-system commands with the privileges of the server. Short of code execution, the same primitive read prototype-chain-reachable internals of the server process into the outbound request, which goes to a destination the attacker chooses. Exploitation requires an authenticated account with the Creator or Owner base role, since webhook creation and update are restricted to those roles; the Editor role and below can only trigger existing webhooks.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team). It was independently reported by [@utkusen](https://github.com/utkusen).",
+  "published_at": "2026-11-02T08:47:47.000Z",
+  "modified_at": "2026-11-02T08:47:47.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-94",
+    "CWE-1336"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.09.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-72fw-g74f-8mwr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-72fw-g74f-8mwr",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-72fw-g74f-8mwr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d11a1e15247580968d572419c87a3b964ea8760f392380257bb136312d0fdcae",
+  "note": null
+}

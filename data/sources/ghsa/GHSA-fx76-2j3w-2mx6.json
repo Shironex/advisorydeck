@@ -1,0 +1,119 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-19730",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.2,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-459"
+    ],
+    "description": "### Impact\n\nWhen running `podman quadlet install --replace` to replace a Quadlet file, if the original Quadlet is larger than the new Quadlet, the file would not be truncated and content from the original would be preserved. There is no risk of information leakage as the user already had access to the Quadlet in order to replace it, and in most cases, this would only lead to invalid Quadlet files (see https://github.com/podman-container-tools/podman/issues/29013). However, security-related options from the end of the old Quadlet could be included in the new Quadlet, and if the truncation resulted in a valid Quadlet file, this could result in undesirable behavior. For example, running `podman quadlet install --replace` to remove a single line from the end of a Quadlet - including security-sensitive content, like `AddCapability` - will fail, and the option will continue to be used. Further, with Volume Quadlets, this can include additional mounts which can cause content to be unintentionally exposed into containers. If, later, the image is updated then compromised content might be leaked to an attacker.\n\nFirst introduced in commit 0ea4eaee70b7458bcc99d875529761faf5172651 with podman 5.7.0\n\n\n### Patches\na38a9b7d20915c55e6f3c451101ae72d6da33742 (fixed in 6.0.0)\n\nd3adfdeec7d5c9eee5a6978df3bee62a866c958d d4fe9154ec6e32a02d5fcd096c4a27c38f2040f4 (for v5.8 branch, fixed in 5.8.6)\n\n### Workarounds\nManually copy the quadlet files to the quadlet directory.\n\n\n### Credits\n\nPodman thanks Christopher Lusk <clusk@northecho.dev> (North Echo Security Research) for reporting the security impact of this problem.",
+    "ghsa_id": "GHSA-fx76-2j3w-2mx6",
+    "html_url": "https://github.com/advisories/GHSA-fx76-2j3w-2mx6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fx76-2j3w-2mx6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-19730"
+      }
+    ],
+    "published_at": "2026-09-24T16:28:26Z",
+    "references": [
+      "https://github.com/podman-container-tools/podman/security/advisories/GHSA-fx76-2j3w-2mx6",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-19730",
+      "https://github.com/podman-container-tools/podman/issues/29013",
+      "https://github.com/podman-container-tools/podman/pull/27980",
+      "https://github.com/podman-container-tools/podman/commit/0ea4eaee70b7458bcc99d875529761faf5172651",
+      "https://github.com/podman-container-tools/podman/commit/a38a9b7d20915c55e6f3c451101ae72d6da33742",
+      "https://github.com/podman-container-tools/podman/commit/d3adfdeec7d5c9eee5a6978df3bee62a866c958d",
+      "https://github.com/podman-container-tools/podman/commit/d4fe9154ec6e32a02d5fcd096c4a27c38f2040f4",
+      "https://access.redhat.com/errata/RHSA-2026:69961",
+      "https://access.redhat.com/errata/RHSA-2026:70201",
+      "https://access.redhat.com/security/cve/CVE-2026-19730",
+      "https://bugzilla.redhat.com/show_bug.cgi?id=2508234",
+      "https://github.com/podman-container-tools/podman/releases/tag/v5.8.6",
+      "https://github.com/podman-container-tools/podman/releases/tag/v6.0.0",
+      "https://github.com/advisories/GHSA-fx76-2j3w-2mx6"
+    ],
+    "severity": "medium",
+    "summary": "podman quadlet install --replace does not fully replace the old file",
+    "updated_at": "2026-09-24T16:28:27Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.8.6",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v5"
+        },
+        "vulnerable_version_range": ">= 5.7.0, < 5.8.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-fx76-2j3w-2mx6",
+  "repo": {
+    "cve_id": "CVE-2026-19730",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.2,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20"
+    ],
+    "description": "### Impact\r\n\r\nWhen running `podman quadlet install --replace` to replace a Quadlet file, if the original Quadlet is larger than the new Quadlet, the file would not be truncated and content from the original would be preserved. There is no risk of information leakage as the user already had access to the Quadlet in order to replace it, and in most cases, this would only lead to invalid Quadlet files (see https://github.com/podman-container-tools/podman/issues/29013). However, security-related options from the end of the old Quadlet could be included in the new Quadlet, and if the truncation resulted in a valid Quadlet file, this could result in undesirable behavior. For example, running `podman quadlet install --replace` to remove a single line from the end of a Quadlet - including security-sensitive content, like `AddCapability` - will fail, and the option will continue to be used. Further, with Volume Quadlets, this can include additional mounts which can cause content to be unintentionally exposed into containers. If, later, the image is updated then compromised content might be leaked to an attacker.\r\n\r\nFirst introduced in commit 0ea4eaee70b7458bcc99d875529761faf5172651 with podman 5.7.0\r\n\r\n\r\n### Patches\r\na38a9b7d20915c55e6f3c451101ae72d6da33742 (fixed in 6.0.0)\r\n\r\nd3adfdeec7d5c9eee5a6978df3bee62a866c958d d4fe9154ec6e32a02d5fcd096c4a27c38f2040f4 (for v5.8 branch, fixed in 5.8.6)\r\n\r\n### Workarounds\r\nManually copy the quadlet files to the quadlet directory.\r\n\r\n\r\n### Credits\r\n\r\nWe like to thank Christopher Lusk <clusk@northecho.dev> (North Echo Security Research) for reporting the security impact of this problem to us.",
+    "ghsa_id": "GHSA-fx76-2j3w-2mx6",
+    "html_url": "https://github.com/podman-container-tools/podman/security/advisories/GHSA-fx76-2j3w-2mx6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fx76-2j3w-2mx6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-19730"
+      }
+    ],
+    "published_at": "2026-08-13T17:06:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "podman quadlet install --replace does not fully replace the old file",
+    "updated_at": "2026-08-13T17:08:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v5"
+        },
+        "patched_versions": "v5.8.6",
+        "vulnerable_version_range": ">= 5.7.0"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "go.podman.io/podman/v6"
+        },
+        "patched_versions": "v6.0.0",
+        "vulnerable_version_range": "None"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "podman-container-tools/podman"
+}

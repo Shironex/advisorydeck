@@ -1,0 +1,58 @@
+{
+  "id": "GHSA-jw3v-7jvc-pfmx",
+  "aliases": [],
+  "title": "Webhook error responses can cause unbounded decompression in Jobservice",
+  "summary": "### Impact\n\nWhen a webhook receiver answered with an error status, jobservice read the entire response body into memory to put it in the execution log. There was no size limit, and the HTTP client transparently decompresses gzip responses, so a receiver could send a small compressed response that expands to many megabytes inside jobservice. In testing, a 16 KB gzip response grew to 16 MB and raised jobservice memory use by about 120 MB for a single delivery.\n\njobservice is shared by all projects and also runs replication, scanning, garbage collection and retention jobs. Repeated deliveries can drive it into high memory use or an out-of-memory restart, which delays or fails those jobs for every project.\n\n### Am I affected?\n\nYou are affected if both of the following are true:\n\n- You run Harbor v2.15.2, v2.14.4, v2.13.5 or any earlier version with webhooks.\n- Users who are not fully trusted can become project admin. The attacker has to point a webhook at a server they control, which requires the project admin role. With the default setting **Project Creation: Everyone** every registered user can create a project and is its admin.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter the upgrade, jobservice no longer reads the body of a failed webhook response. It discards at most 64 KiB so the connection can be reused, and the execution log records only the status code. Redirects from the receiver are also no longer followed; a 3xx answer is recorded as a failed delivery.\n\n**Until you can upgrade:**\n\n1. Set **Configuration > System Settings > Project Creation** to **Admin Only**, so untrusted users cannot become project admin.\n2. Set a memory limit on the jobservice container or pod, so a spike restarts jobservice instead of starving other components on the same host.",
+  "published_at": "2026-10-06T13:42:45.000Z",
+  "modified_at": "2026-10-06T13:42:45.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-400"
+  ],
+  "affected": [
+    {
+      "product": "harbor",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.13.6"
+        },
+        {
+          "introduced": "2.14.0",
+          "fixed": "2.14.5"
+        },
+        {
+          "introduced": "2.15.0",
+          "fixed": "2.15.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-jw3v-7jvc-pfmx",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jw3v-7jvc-pfmx",
+      "url": "https://github.com/goharbor/harbor/security/advisories/GHSA-jw3v-7jvc-pfmx",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0b5bf7a9550dcf76274a34aff8c0092b9e1327df29f5213b14b70923f2b961c9",
+  "note": null
+}

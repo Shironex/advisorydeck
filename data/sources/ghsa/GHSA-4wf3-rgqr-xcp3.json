@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-4wf3-rgqr-xcp3",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Oracle Database node's Delete Table → Drop operation inserts the table and schema values into a dynamically built PL/SQL statement without neutralising single quotes, so a quote in either field appends attacker-chosen SQL to what runs. Both fields can be bound to upstream data by expression. Where one is bound to an untrusted source, whoever controls that data can run DDL or DML against the connected database, bounded by the credential's privileges - demonstrated as the unrecoverable drop of an arbitrary table. No confidentiality impact was shown.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.80, 2.39.6, and 2.40.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Audit Oracle Database node workflows and ensure the `table` and `schema` fields are not bound to untrusted external data sources.\n- Disable the Oracle Database node by adding `n8n-nodes-base.oracleDatabase` to the `NODES_EXCLUDE` environment variable if it is not required.\n- Restrict the Oracle credential used by affected workflows to the minimum necessary privileges.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-4wf3-rgqr-xcp3",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-4wf3-rgqr-xcp3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4wf3-rgqr-xcp3"
+      }
+    ],
+    "published_at": "2026-09-16T08:23:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SQL Injection in Oracle Database Node Delete Table Drop Operation",
+    "updated_at": "2026-09-16T08:23:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.40.1",
+        "vulnerable_version_range": "< 2.40.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.39.6",
+        "vulnerable_version_range": "< 2.39.6"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.80",
+        "vulnerable_version_range": "< 1.123.80"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

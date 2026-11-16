@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-gcvg-jpfh-4xm8",
+  "repo": {
+    "cve_id": "CVE-2026-111497",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-787"
+    ],
+    "description": "### Summary\r\n\r\nThis advisory covers code-server's exposure to CVE-2026-111497, an out-of-bounds write in the Brotli decoder bundled with Node.js. The vulnerable code is part of Node.js, not code-server. code-server is affected for two reasons: its standalone releases and Docker images bundle a vulnerable Node.js version, and its request handling lets unauthenticated requests reach that decoder.\r\n\r\ncode-server registers `express.json()` and `express.urlencoded()` as global middleware in `src/node/routes/index.ts`, and `express.json()` in `src/node/vscodeSocket.ts`. With Express 5 and body-parser 2, these parsers decompress request bodies according to the `Content-Encoding` header, including Brotli (`br`). Any unauthenticated request with a JSON or form body and `Content-Encoding: br`, for example a `POST` to `/login`, is passed through the Node.js Brotli decoder before code-server checks whether the user is logged in. A crafted Brotli stream can corrupt decoder memory and may lead to code execution.\r\n\r\nStandalone release archives and the `codercom/code-server` Docker images bundle their own Node.js runtime. In 4.141.0 and earlier, that runtime is affected (4.141.0 ships Node.js 24.21.0).\r\n\r\n> **Note:** Exploitation requires network access to code-server. code-server binds to `127.0.0.1:8080` by default, so instances that are only reachable locally or through an authenticated tunnel are not exposed to remote attackers. Researchers have demonstrated code execution against an official Node.js build, though not reliably on every attempt. It has not been reproduced against code-server.\r\n\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker who can reach code-server over the network may be able to run code as the operating system user that runs code-server. That gives access to the user's files, terminals, credentials, and anything else the instance can reach. Where code execution does not succeed, the attacker can still crash the process.\r\n\r\n### Patches\r\n\r\nFixed in code-server [4.141.1](https://github.com/coder/code-server/releases/tag/v4.141.1), which makes two changes:\r\n\r\n- Standalone releases and Docker images now bundle Node.js 24.22.1, which includes the upstream Brotli fix.\r\n- The request body parsers now set `inflate: false`, so code-server responds `415 Unsupported Media Type` to any request with a compressed body (`br`, `gzip`, or `deflate`) instead of decompressing it. This does not affect normal use: browsers and code-server's own clients never send compressed request bodies.\r\n\r\nInstallations from npm run on the system Node.js rather than a bundled runtime. Upgrading to 4.141.1 and later closes the unauthenticated request path described above, but the Brotli decoder in Node.js itself stays vulnerable to other inputs until Node.js is upgraded to 24.22.1 or later (22.23.4 or 26.12.1 on other release lines).\r\n\r\n### Workarounds\r\n\r\nConfigure a reverse proxy or WAF in front of code-server to reject requests whose `Content-Encoding` header contains `br`, compared case-insensitively. This includes multi-value headers such as `gzip, br`. For example, in nginx:\r\n\r\n```nginx\r\nif ($http_content_encoding ~* \"br\") { return 415; }\r\n```\r\n\r\nAlternatively, bind code-server to `127.0.0.1` and reach it only through SSH port forwarding or another authenticated tunnel until you can upgrade.\r\n\r\n### References\r\n\r\n- https://nodejs.org/en/blog/vulnerability/october-2026-security-releases\r\n- https://github.com/coder/code-server/commit/777c493a9b3230a31f6a6cac5fe8ae510ace4fe7\r\n- https://github.com/coder/code-server/releases/tag/v4.141.1\r\n",
+    "ghsa_id": "GHSA-gcvg-jpfh-4xm8",
+    "html_url": "https://github.com/coder/code-server/security/advisories/GHSA-gcvg-jpfh-4xm8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gcvg-jpfh-4xm8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-111497"
+      }
+    ],
+    "published_at": "2026-10-28T09:47:41Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated remote code execution through the bundled Node.js Brotli decoder (CVE-2026-111497)",
+    "updated_at": "2026-10-28T09:47:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "code-server"
+        },
+        "patched_versions": "4.141.1",
+        "vulnerable_version_range": "<= 4.141.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/code-server"
+}

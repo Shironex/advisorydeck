@@ -1,0 +1,70 @@
+{
+  "global": null,
+  "id": "GHSA-r488-76jc-8jp8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1336"
+    ],
+    "description": "### Impact\r\n\r\nOn sites with the Automation plugin enabled, an automation that inserts user-written text using the `%%KEY%%` placeholder syntax (for example `%%TOPIC_TITLE%%`, `%%POST_QUOTE%%`, or a user's name or profile field) evaluated any template tags contained in that text on the server. A user of any trust level could craft a topic title or post that, once processed by such an automation, grants them admin privileges, reads server secrets such as the secret key base, or reads other users' data such as e-mail addresses. `%%REPORT=…%%` placeholders were affected in the same way when the report lists user-written text (for example search terms).\r\n\r\nAutomation templates that only use the `{{key}}` placeholder syntax are not affected. The Automation plugin is disabled by default.\r\n\r\nAdmin privileges granted this way are not recorded in the staff action logs. Administrators of affected sites should review their list of admins for unexpected accounts.\r\n\r\n### Patches\r\n\r\nPlaceholder values are now always inserted as plain text and are never evaluated as template code. Templates can now only look up placeholder values, so dotted method access such as `{{topic_title.length}}` renders as an empty string. Fixed release versions will be added after the fix and backports are released.\r\n\r\n### Workarounds\r\n\r\nDisable the Automation plugin (`discourse_automation_enabled`), or edit automations so that templates use `{{key}}` instead of `%%KEY%%` for user-written values and do not use `%%REPORT=…%%` with reports that list user-written text.\n\nDiscovered by Anthropic's OSS Scanner, as vulnerability ANT-2026-0WFNSUZI.",
+    "ghsa_id": "GHSA-r488-76jc-8jp8",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-r488-76jc-8jp8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r488-76jc-8jp8"
+      }
+    ],
+    "published_at": "2026-11-10T17:37:16Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Template injection in Automation placeholders lets any user become admin",
+    "updated_at": "2026-11-10T17:37:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.11.0-latest.1",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": ">= 2026.10.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.9.2",
+        "vulnerable_version_range": ">= 2026.9.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.7.5",
+        "vulnerable_version_range": ">= 2026.7.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

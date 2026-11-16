@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-c587-qx78-vhmx",
+  "repo": {
+    "cve_id": "CVE-2026-26973",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Impact\r\n\r\nIDOR (Insecure Direct Object Reference) in `ReviewableNotesController`. When `enable_category_group_moderation` is enabled, a user belonging to a  category moderation group can create or delete their own notes on **any** reviewable in the system, including reviewables in categories they do not moderate.\r\n\r\nThe controller used an unscoped `Reviewable.find` and the `ensure_can_see` guard only checked whether the user could access the review queue in general, not whether they could access the specific reviewable.\r\n\r\nOnly instances with `enable_category_group_moderation` enabled are affected. Staff users (admins/moderators) are not impacted as they already have access to all reviewables.\r\n\r\n### Patches\r\n\r\nThe issue is patched by scoping the reviewable lookup through `Reviewable.viewable_by(current_user)`.\r\n\r\n### Workarounds\r\n\r\nDisable the `enable_category_group_moderation` site setting. This removes the attack surface as only staff users will have access to the review queue.",
+    "ghsa_id": "GHSA-c587-qx78-vhmx",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-c587-qx78-vhmx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c587-qx78-vhmx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-26973"
+      }
+    ],
+    "published_at": "2026-02-26T12:52:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Scope reviewable notes to user-visible reviewables",
+    "updated_at": "2026-02-26T12:52:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2025.12.2",
+        "vulnerable_version_range": "< 2025.12.2"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.1.1",
+        "vulnerable_version_range": ">= 2026.1.0-latest, < 2026.1.1"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.2.0",
+        "vulnerable_version_range": ">= 2026.2.0-latest, < 2026.2.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

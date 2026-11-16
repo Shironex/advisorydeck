@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-cprc-whx4-v3f5",
+  "aliases": [],
+  "title": "Unauthenticated SSRF via azure RemoteConf type bypasses the FetchAndWriteNeedle endpoint guard",
+  "summary": "## Summary\n`VolumeServer.FetchAndWriteNeedle` fetches a caller-supplied remote endpoint. CVE-2026-73080 (GHSA-87fv-vqqr-m4jr) added an SSRF endpoint deny-list + rebinding-safe pinned dialer, and the follow-up refactor routes the guard through `S3CompatibleEndpoint(remoteConf)`. The `azure` backend has **no `case \"azure\"`** in that switch, so it takes the unguarded `else` branch and reaches the azblob download sink with an attacker-supplied endpoint. This is a DISTINCT variant from GHSA-8wr4-8f39-p7x2 (which covers only the 9 S3-SDK backends via `aws-sdk-go`): azure uses a different SDK (`azure-sdk-for-go/.../azblob`), a different field (`AzureEndpoint`), a different constructor (`NewAzBlobClient`), and requires a different fix.\n\n## Root Cause\n`weed/server/volume_grpc_remote.go`: `endpoint, isS3Compatible = s3remote.S3CompatibleEndpoint(remoteConf)` (line 244); the deny-list + guarded dialer run only inside `if !vs.AllowUntrustedRemoteEndpoints && isS3Compatible` (line 249). `s3CompatibleClientOptions` (`weed/remote_storage/s3/s3_storage_client.go:68`) switches on `conf.Type` with cases for `s3, aliyun, b2, baidu, contabo, filebase, storj, tencent, wasabi` - **no `azure`** - so `isS3Compatible=false` and azure falls to the `else` at line 260: `remote_storage.GetRemoteStorage(remoteConf)` → `azureRemoteStorageMaker.Make` → `NewAzBlobClient(accountName, accountKey, clientId, conf.AzureEndpoint)`. The only endpoint validation is `azureServiceURL` (`weed/remote_storage/azure/azure_credentials.go:71-84`), which checks solely `url.Parse` success, `Scheme==\"https\"`, and non-empty `Hostname()`. No loopback / link-local / RFC1918 / IMDS deny-list exists on this path (contrast `checkBlockedIP`, wired only into the S3 branch). `remoteConf := req.RemoteConf` is read directly from the gRPC request, so type and endpoint are request-time attacker-controlled.\n\n## Impact\nUnauthenticated (default deployment) blind SSRF: an attacker coerces the volume server into opening TCP+TLS connections to arbitrary internal hosts/ports and distinguishes connect-refused / TLS-failure / HTTP-status via the RPC error string - an internal-network reachability/port-scan error oracle. Constrained relative to CVE-2026-73080: `https`-only (`azureServiceURL` rejects `http://`), so IMDSv1 credential theft is not achievable; the fetched bytes are written to a local needle and success additionally requires `len(data)==req.Size`, so straightforward body read-back is not the primary primitive. Calibrated MEDIUM.\n\n## Proof of Concept\nSingle unauthenticated gRPC `FetchAndWriteNeedle` to `volumeserver:18080` with an existing `VolumeId`, `RemoteConf{Type:\"azure\", AzureAccountName:\"aaaa\", AzureAccountKey:\"AAAA\", AzureEndpoint:\"https://169.254.169.254/\"}`, `RemoteLocation{Bucket:\"probe\", Path:\"/x\"}`. The server dials `169.254.169.254:443`; the returned error distinguishes reachability. Use a valid-base64 account key (e.g. `\"AAAA\"`) so `NewSharedKeyCredential` succeeds locally before the dial. No non-default config required.\n\n## Attack Chain\n1. **Entry** - unauthenticated gRPC `FetchAndWriteNeedle` with `RemoteConf{Type:\"azure\", AzureEndpoint:\"https://169.254.169.254/\", AzureAccountName:\"aaaa\", AzureAccountKey:\"AAAA\"}`.\n   - Guard: `checkGrpcAdminAuth` (`volume_grpc_admin.go:43`) → peer-IP whitelist.\n   - Bypass proof: default `-whiteList \"\"` → `util.StringSplit(\"\")` returns `nil` (`fullpath.go:147-149`) → `isEmptyWhiteList=true` (`guard.go:188`) → `IsWhiteListed` returns `true` for every peer (`guard.go:137`). Same default posture under which CVE-2026-73080 was accepted.\n2. **Volume precondition** - supply a valid existing `VolumeId`.\n   - Guard: `vs.store.GetVolume` existence check (`volume_grpc_remote.go:230-233`).\n   - Bypass proof: volume IDs are small sequential integers; any live volume server has ≥1. Weak precondition, identical to CVE-2026-73080.\n3. **Branch routing** - `Type:\"azure\"`.\n   - Guard: `S3CompatibleEndpoint(remoteConf)` gating `validateRemoteEndpoint` + `...",
+  "published_at": "2026-09-18T20:00:11.000Z",
+  "modified_at": "2026-09-18T20:00:11.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.41"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-cprc-whx4-v3f5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cprc-whx4-v3f5",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-cprc-whx4-v3f5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:00d1e7c10706ef88777f6e00e46155a8af8e3b07da31481181093dd094080d9a",
+  "note": null
+}

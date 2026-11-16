@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-4wph-jpw9-43hh",
+  "aliases": [],
+  "title": "User Enumeration via Sign-Up Endpoint",
+  "summary": "### Summary\n\nThe sign-up endpoint answered differently depending on whether an email address already had an account, letting an unauthenticated caller test addresses.\n\n### Details\n\n`signup` in `users.service.ts`, and its Enterprise override, rejected an address that already had an account with a message saying the user already exists. The Enterprise version also answered an address with a pending invitation with a message saying it had already been invited. On an instance with open signup, an unregistered address simply creates an account. With invite-only signup turned on, an unregistered address was refused by `registerNewUserIfAllowed` with a different message and no account was created, so the two answers told registered and unregistered addresses apart without leaving anything behind. Sign-up now gives one answer for every address that already has an account, registered or invited, and with invite-only signup on, registered and unregistered addresses receive the same answer.\n\n### Impact\n\nNo authentication is required. An attacker could learn whether an email address has an account on the instance and, where the Enterprise sign-up is in use, whether it has a pending invitation. On instances with invite-only signup this needed no account to be created. No account data or credentials were exposed.\n\n### Credit\n\nThis issue was reported by [@NinjaGPT](https://github.com/NinjaGPT).",
+  "published_at": "2026-11-02T08:48:17.000Z",
+  "modified_at": "2026-11-02T08:48:17.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-204"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4wph-jpw9-43hh",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4wph-jpw9-43hh",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4wph-jpw9-43hh",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b44f77e3aa560e71b388c6e5a4187a226741f40c32c248fb0a3adec5e3f66513",
+  "note": null
+}

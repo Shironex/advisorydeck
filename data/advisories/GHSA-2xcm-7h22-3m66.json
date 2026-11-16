@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-2xcm-7h22-3m66",
+  "aliases": [],
+  "title": "Update and delete by query evaluate filters without read permissions, leaking hidden field values",
+  "summary": "## Summary\r\n\r\nUpdate-by-query and delete-by-query requests resolved their target items with a read that skipped permission checks. The request's `filter` was therefore evaluated against every row and every field in the collection, including fields and rows the user is not allowed to read. Because the response lists which items were updated or deleted, a user with update or delete permission on a collection could use it as a boolean oracle to recover the values of fields hidden from them by their read permissions.\r\n\r\n## Details\r\n\r\n`ItemsService.getKeysByQuery`, used by `updateByQuery` and `deleteByQuery`, read the matching primary keys through a new `ItemsService` created without the caller's accountability. Without accountability the permission layer applies no field or row restrictions, so a filter on a field the user cannot read was accepted and evaluated normally. The subsequent `updateMany` / `deleteMany` only checks update or delete permission on the resolved keys, not whether the user could have read the fields used to find them.\r\n\r\nThe affected path is reachable wherever a query is passed to an update or delete, including the REST `PATCH` and `DELETE` endpoints for items and system collections (`{ \"query\": { \"filter\": ... }, \"data\": ... }`), the WebSocket `items` handler, and the MCP item tools.\r\n\r\nA probe such as the following reveals whether a hidden `salary` field of item `1` is greater than a given value, depending on whether item `1` appears in the response:\r\n\r\n```json\r\nPATCH /items/employees\r\n{\r\n  \"query\": { \"filter\": { \"_and\": [{ \"id\": { \"_eq\": 1 } }, { \"salary\": { \"_gt\": 100000 } }] } },\r\n  \"data\": { \"name\": \"unchanged\" }\r\n}\r\n```\r\n\r\nRepeating this with range operators or `_starts_with` recovers the full value.\r\n\r\n## Impact\r\n\r\nAn authenticated user with update or delete permission on a collection can recover the values of fields in that collection that their read permissions hide from them. Each probe performs a real update or delete on the matched items, but only one the user was already permitted to make, so the impact is limited to confidentiality.\r\n\r\n## Workarounds\r\n\r\nUntil upgrading, avoid granting update or delete permission on collections that contain fields hidden from the same role by its read permissions.",
+  "published_at": "2026-10-19T19:24:53.000Z",
+  "modified_at": "2026-10-19T19:24:53.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.4.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-2xcm-7h22-3m66",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-2xcm-7h22-3m66",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-2xcm-7h22-3m66",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:86656468b071514ed8d8bbf22b270f9687f22684f315c50965f1d7a6dde6f3cd",
+  "note": null
+}

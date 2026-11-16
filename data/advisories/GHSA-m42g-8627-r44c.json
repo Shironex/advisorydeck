@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-m42g-8627-r44c",
+  "aliases": [],
+  "title": "OAuth device-flow user code approval can be accepted more than once due to non-atomic state transition",
+  "summary": "### Summary\r\nPocket ID's OAuth 2.0 Device Authorization Grant approval path checks whether a user code is unused before accepting it, but the storage update that marks it accepted does not enforce that precondition atomically. If two approval requests load the same unused user-code session before either write completes, both can call `AcceptDeviceCodeSessionByUserCodeSignature` successfully. The later write wins and can overwrite the device-code session with a different authenticated user session.\r\n\r\n## Affected area\r\n\r\n- `backend/internal/oidc/device_service.go`\r\n- `backend/internal/oidc/store.go`\r\n- Local audit commit: `6e859de2dd55dfc59d9cde3fab5d7a9789c6aca9`\r\n\r\n## Root cause\r\n\r\n`acceptDeviceCode` checks `request.GetUserCodeState() != fosite.UserCodeUnused` after loading the user-code request:\r\n\r\n```go\r\nif request.GetUserCodeState() != fosite.UserCodeUnused {\r\n        return &common.OidcInvalidDeviceCodeError{}\r\n}\r\n```\r\n\r\nBut `AcceptDeviceCodeSessionByUserCodeSignature` later updates both the device-code and user-code rows by `request_id` only:\r\n\r\n```go\r\nWhere(\"kind IN ? AND request_id = ?\", []string{sessionKindDeviceCode, sessionKindUserCode}, userCodeSession.RequestID).\r\nUpdates(map[string]any{\r\n        \"request_data\": requestData,\r\n})\r\n```\r\n\r\nThere is no conditional write proving the stored user-code session is still unused at update time. The method also mutates the caller-supplied stale request with `request.SetUserCodeState(fosite.UserCodeAccepted)` before writing it.\r\n\r\n## Impact\r\n\r\nAn OAuth device-flow user code is intended to be approved once. Under a race, two approvals can succeed against the same pending device authorization. If an attacker obtains or social-engineers the user code and races the legitimate user, they may be able to bind the pending device authorization to their account before the device polls the token endpoint. At minimum, the authorization server records multiple successful approvals for a single-use user code, and the final persisted authenticated session is determined by the last write.\r\n\r\n## Local proof\r\n\r\nAdd this regression test to `backend/internal/oidc/device_service_test.go`:\r\n\r\n```go\r\nfunc TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept(t *testing.T) {\r\n        const (\r\n                userID   = \"test-user\"\r\n                clientID = \"test-client\"\r\n        )\r\n        service, store, _, userCode, _ := newTestDeviceServiceWithCode(t, clientID, userID, false, nil)\r\n\r\n        firstRequest, userCodeSignature, err := service.deviceRequestFromUserCode(t.Context(), userCode)\r\n        require.NoError(t, err)\r\n        secondRequest, _, err := service.deviceRequestFromUserCode(t.Context(), userCode)\r\n        require.NoError(t, err)\r\n\r\n        _, err = store.AcceptDeviceCodeSessionByUserCodeSignature(t.Context(), userCodeSignature, firstRequest)\r\n        require.NoError(t, err)\r\n\r\n        _, err = store.AcceptDeviceCodeSessionByUserCodeSignature(t.Context(), userCodeSignature, secondRequest)\r\n        require.Error(t, err)\r\n}\r\n```\r\n\r\nRun:\r\n\r\n```bash\r\ncd backend\r\ngo test -tags=exclude_frontend,unit ./internal/oidc -run 'TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept' -count=1 -v\r\n```\r\n\r\nObserved result:\r\n\r\n```text\r\nError: An error is expected but got nil.\r\nTest: TestStoreAcceptDeviceCodeSessionByUserCodeSignatureRejectsSecondAccept\r\n```\r\n\r\nThe SQL log shows both accept calls updating both rows:\r\n\r\n```text\r\nUPDATE `oauth2_sessions` SET `request_data`=... WHERE kind IN ('device_code','user_code') AND request_id = ...\r\n```\r\n\r\n## Suggested fix\r\n\r\nMake the acceptance a compare-and-set operation inside the same transaction as the approval:\r\n\r\n- Re-read or lock the current user-code row during acceptance.\r\n- Decode/verify the stored request still has `UserCodeUnused`.\r\n- Update only if that condition is true.\r\n- Return an invalid/expired device-code error if no row was updated.\r\n\r\nA stronger schema-level fix would store `user_code_state` as a real index...",
+  "published_at": "2026-07-29T23:03:16.000Z",
+  "modified_at": "2026-07-29T23:03:16.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:U/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-362"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.12.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-m42g-8627-r44c",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-m42g-8627-r44c",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-m42g-8627-r44c",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:9afc9b87a185fa1e1507b0883f58c236536b8baec14bf60ae0cc36e358fc8afe",
+  "note": null
+}

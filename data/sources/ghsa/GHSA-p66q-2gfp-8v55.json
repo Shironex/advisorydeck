@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-p66q-2gfp-8v55",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-863"
+    ],
+    "description": "## Summary\n\nThe cloud OAuth callback route is registered outside the RequireAuthentication group, so with authentication enabled it is still reachable unauthenticated and can force-link the instance to an attacker cloud account; and the MCP read tools use the server-global label filter instead of the requesting user's filter. Confirmed at HEAD af38e3a.\n\n## D1 (Medium, verified): the callback is outside the auth group\n\ninternal/web/routes.go:\n\n```go\nr.Group(func(r chi.Router) {                    // line 155\n    r.Use(auth.RequireAuthentication)           // line 157\n    ...\n    r.Get(\"/cloud/status\", h.cloudStatus)       // line 213, INSIDE the auth group\n    ...\n})                                              // auth group closes\n...\nr.Get(\"/cloud/callback\", h.cloudCallback)       // line 234, OUTSIDE the auth group\n```\n\nSo even with authentication enabled, /cloud/callback is reachable UNAUTHENTICATED. It processes an attacker-supplied token and calls SetCloudConfig, which persists and broadcasts a cloud API key to all agents. An attacker can force-link the instance to an attacker-controlled cloud account and cause notification and log content to stream to it. Verified empirically with a Go test: the sibling routes /cloud/status, /cloud/config and /api/version all return 401 (negative controls), while /cloud/callback runs the handler (400 without a token, 500 with one). The one assumed link is the full cloud-side exfiltration, not driven against a live cloud backend.\n\n## D2 (Medium, conditional): MCP read tools use the global filter\n\nThe MCP read tools (/api/mcp) use the server-global s.labels instead of the requesting user's filter, so any authenticated user meant to be restricted to a subset of containers can read logs and stats of out-of-scope containers when MCP is enabled. Same class as GHSA-m855 on a newer surface. Read-only and conditional on MCP being enabled.\n\n## Suggested fixes\n\n1. Move /cloud/callback inside the RequireAuthentication group, or add an explicit auth check to the handler.\n2. In the MCP tools, apply the requesting user's filter rather than the server-global labels, matching the normal log and stats paths.\n\nAlso checked and sound: the existing CVEs are patched and correctly scoped (GHSA-m855 agent-label bypass fixed in 9.0.3, GHSA-j643 CSWSH fixed, GHSA-3v9w test-webhook SSRF now behind auth).\n\n## Tooling\n\nI used AI assistance while investigating. D1 was verified with a Go test showing the sibling cloud routes return 401 while /cloud/callback runs the handler, and I confirmed at HEAD that the callback is registered after the RequireAuthentication group closes.\n\nI manually verified this finding against the project's source at the location cited above before reporting it; the AI assistance noted above was for the audit and the drafting.",
+    "ghsa_id": "GHSA-p66q-2gfp-8v55",
+    "html_url": "https://github.com/amir20/dozzle/security/advisories/GHSA-p66q-2gfp-8v55",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p66q-2gfp-8v55"
+      }
+    ],
+    "published_at": "2026-09-13T13:36:51Z",
+    "references": [],
+    "severity": "high",
+    "summary": "The /cloud/callback OAuth route is registered outside the RequireAuthentication group",
+    "updated_at": "2026-09-13T13:36:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/amir20/dozzle"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 10.6.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "amir20/dozzle"
+}

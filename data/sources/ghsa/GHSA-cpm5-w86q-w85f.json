@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-cpm5-w86q-w85f",
+  "repo": {
+    "cve_id": "CVE-2026-54714",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\r\n`@logto/core` reflected the SAML `RelayState` (and the `SAMLResponse`/`actionUrl`) into a\r\nLogto-origin auto-submit HTML form without HTML-attribute escaping. A SAML application flow\r\nwith a crafted `RelayState` could inject script that runs on the Logto tenant origin after the\r\nuser completes login.\r\n\r\n### Affected code\r\n- Sink: `packages/core/src/saml-application/SamlApplication/utils.ts` - `generateAutoSubmitForm()`\r\n- Source: `packages/core/src/routes/saml-application/anonymous.ts` - `RelayState` from\r\n  `GET`/`POST /api/saml/:id/authn` (unrestricted string).\r\n\r\n### Impact\r\nCross-site scripting on the Logto IdP origin during the SAML login response. The Experience CSP\r\npermits `'unsafe-inline'`, so injected script executes and can act in the user's session\r\ncontext (session/cookie theft, credential harvesting).\r\n\r\n### Preconditions\r\nRequires a SAML AuthnRequest that passes parsing and issuer (`spEntityId`) validation for a\r\nconfigured SAML application. Deployments requiring **signed** AuthnRequests limit this to an\r\nattacker who can produce a valid signed request.\r\n\r\n### Patch\r\nAffected values are HTML-attribute-escaped (`& < > \" '`) at the sink before interpolation.\r\nBrowsers decode the entities before POSTing, so the values delivered to the service provider\r\nare unchanged (backward compatible).\r\n",
+    "ghsa_id": "GHSA-cpm5-w86q-w85f",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-cpm5-w86q-w85f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cpm5-w86q-w85f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54714"
+      }
+    ],
+    "published_at": "2026-07-01T03:53:38Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "XSS via unescaped RelayState in SAML auto-submit form",
+    "updated_at": "2026-07-01T03:53:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.41.0",
+        "vulnerable_version_range": "<= 1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-5wr4-942j-h43m",
+  "aliases": [],
+  "title": "JWT Customizer node:vm execution has no effective timeout, allowing full-process or tenant-wide DoS",
+  "summary": "# VULN-005 - JWT Customizer Local-VM Timeout Is Ineffective, Allowing Tenant-Wide / Cross-Tenant DoS\r\n\r\n## Status\r\nCONFIRMED\r\n\r\n## Classification\r\n- **Vulnerability**: Uncontrolled Resource Consumption / Missing Timeout Enforcement on Untrusted Script Execution\r\n- **CWE**: CWE-400 - Uncontrolled Resource Consumption (contributing: CWE-834 - Excessive Iteration; CWE-1088 not applicable)\r\n- **Severity**: High\r\n- **CVSS (estimate)**: 8.2 - CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:N/A:H\r\n\r\n## Location\r\n- **File**: `packages/core/src/utils/local-vm/index.ts` (`runScriptFunctionInLocalVm`, lines 12-41)\r\n  - Line 20: first `runInNewContext(script + `;${functionName};`, globalContext)` call - compiles the script **and runs all of its top-level statements**, with **no `timeout` option at all**.\r\n  - Lines 33-38: second `runInNewContext('(async () => customFunction(payload))();', ..., { timeout: 3000 })` - the `timeout` only bounds the *synchronous* evaluation of that one statement (which just returns a `Promise` almost immediately); it does **not** bound the actual asynchronous execution of `customFunction(payload)` that happens afterward.\r\n- **File**: `packages/core/src/oidc/extra-token-claims.ts` (line 337) and `packages/core/src/routes/logto-config/jwt-customizer.ts` (line 244) - both `await` the result with no additional outer timeout.\r\n- **Function / Route / Endpoint**: OIDC token issuance (`getExtraTokenClaimsForJwtCustomization`, every access-token / client-credentials grant once a JWT customizer is configured) and Management API `POST /configs/jwt-customizer/test`.\r\n\r\n## Vulnerable Code\r\n```ts\r\n// packages/core/src/utils/local-vm/index.ts:12-41\r\nexport const runScriptFunctionInLocalVm = async (\r\n  script: string,\r\n  functionName: string,\r\n  payload: unknown\r\n) => {\r\n  const globalContext = Object.freeze({\r\n    fetch: async (...args: Parameters<typeof fetch>) => fetch(...args),\r\n  });\r\n  // (1) NO timeout option here -- any top-level busy loop in `script` blocks\r\n  //     the single-threaded Node event loop for as long as it runs.\r\n  const customFunction: unknown = runInNewContext(script + `;${functionName};`, globalContext);\r\n\r\n  if (typeof customFunction !== 'function') {\r\n    throw new TypeError(`The script does not have a function named \\`${functionName}\\``);\r\n  }\r\n\r\n  // (2) `timeout: 3000` only bounds the synchronous statement\r\n  //     `(async () => customFunction(payload))();`, i.e. the creation of the\r\n  //     Promise -- NOT the asynchronous continuation of `customFunction`\r\n  //     (e.g. an unresolved `fetch()` or an intentionally-never-resolving Promise).\r\n  const result: unknown = await runInNewContext(\r\n    '(async () => customFunction(payload))();',\r\n    Object.freeze({ customFunction, payload }),\r\n    { timeout: 3000 }\r\n  );\r\n\r\n  return result;\r\n};\r\n```\r\n\r\n## Why It's Vulnerable\r\nThe code comment claims *\"Limit the execution time to 3 seconds, throws error if the script takes too long to execute\"* - but this guarantee does not actually hold for two independent reasons, each individually sufficient to cause denial of service:\r\n\r\n1. **No timeout on the compile/top-level-execution call.** `runInNewContext(script + ';functionName;', globalContext)` is called with no third `options` argument, so `node:vm`'s `timeout` protection is not applied at all to this call. Any code the script places *outside* the `getCustomJwtClaims` function body (e.g. a top-level `while (true) {}`, or a large synchronous computation) executes synchronously and unconditionally, blocking Node's single-threaded event loop for as long as it runs - with a genuine infinite loop, forever, requiring a process restart to recover.\r\n\r\n2. **The `timeout: 3000` on the second call does not bound the actual script execution.** `node:vm`'s `timeout` option only limits the *synchronous* portion of the code string being run. The code string here - `(async () => customFunction(payload))();` - is an IIFE that returns immediately with a `Promise` (invoking an `...",
+  "published_at": "2026-09-01T07:57:07.000Z",
+  "modified_at": "2026-09-01T07:57:07.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.43.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-5wr4-942j-h43m",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-5wr4-942j-h43m",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-5wr4-942j-h43m",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2c11c4906e14fefc7fabad17f6fe2289c2c203a3f37e713b0ba3888d104ce886",
+  "note": null
+}

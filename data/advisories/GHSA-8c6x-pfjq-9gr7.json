@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-8c6x-pfjq-9gr7",
+  "aliases": [],
+  "title": "Non-Superusers can delete Superusers",
+  "summary": "## Summary\r\n\r\n`UserViewSet` defines `create()` and `update()` with superuser-protection checks, but inherits `destroy()` from `DestroyModelMixin` with no override. The Django `User` model has no `owner` field, so `PaperlessObjectPermissions.has_object_permission()` returns `True`. A non-superuser with `delete_user` permission can delete superuser accounts.\r\n\r\n## Description\r\n\r\n`UserViewSet` (`src/paperless/views.py:143-192`) checks `request.user.is_superuser` before allowing `is_superuser=True` or `is_staff=True` in `create()` and `update()`. The `destroy()` method inherits from `DestroyModelMixin` with no such check. The `User` model lacks an `owner` field, so `PaperlessObjectPermissions.has_object_permission()` (`src/documents/permissions.py:44-51`) falls through to its \"no owner\" branch and returns `True` for all user objects.\r\n\r\n### Attack scenario and impact\r\n\r\n_Further details redacted to reduce exploitation._",
+  "published_at": "2026-04-27T03:11:39.000Z",
+  "modified_at": "2026-04-27T03:11:40.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-266"
+  ],
+  "affected": [
+    {
+      "product": "paperless-ngx",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.20.15"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-8c6x-pfjq-9gr7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8c6x-pfjq-9gr7",
+      "url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-8c6x-pfjq-9gr7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:0dce14ef775577d2a01c576b5c2b67a2ab6a40fddd49eccb3399444c403f17b2",
+  "note": null
+}

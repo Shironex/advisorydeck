@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-7q3f-gwg7-j8g4",
+  "repo": {
+    "cve_id": "CVE-2026-48706",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-120"
+    ],
+    "description": "### Impact\r\n\r\nVulnerability Type: Heap Out-of-Bounds Write / Memory Corruption \r\n\r\nSeverity: High\r\n\r\nDescription: A vulnerability exists in Envoy's TCP StatsD sink (TcpStatsdSink), where the thread-local flusher buffer can be overflowed by exceptionally long statistic names (e.g., >16KiB).\r\n\r\nDuring formatting, TcpStatsdSink reserves a single contiguous memory slice of 16KiB (FLUSH_SLICE_SIZE_BYTES). If formatting a single metric exceeds the remaining capacity, the flusher initiates a buffer rotation but incorrectly continues to allocate another fixed 16KiB slice.\r\n\r\nIf an attacker can trigger a statistic name longer than 16KiB-for example, by sending an HTTP or gRPC request with an extremely long request path (:path) that is recorded by the grpc_stats filter configured with stats_for_all_methods: true-the flusher will attempt to copy the metric name using memcpy operations beyond the allocated heap buffer boundaries. This leads to a heap write overflow, which can cause immediate denial-of-service (process crash) or potential remote code execution (RCE).\r\n\r\nWho is Impacted?: Any Envoy deployment is vulnerable if it:\r\n\r\nConfigures a TCP-based StatsD sink (envoy.stat_sinks.statsd).\r\nEmits dynamic statistics whose names can be influenced or controlled by downstream clients (e.g., enabling grpc_stats with stats_for_all_methods: true).\r\n\r\n### Patches\r\n\r\nThe problem exists in Envoy latest main and all supported release branches.\r\n\r\n\r\n\r\n### Workarounds\r\n\r\nUsers can mitigate this vulnerability through any of the following operations:\r\n\r\nSwitch to UDP StatsD: Configure envoy.stat_sinks.statsd to use UDP instead of TCP. The UDP statsd flusher path utilizes safe, dynamic buffer appending and is not vulnerable to this heap buffer overflow.\r\n\r\nDisable Method Cardinality Stats: Disable stats_for_all_methods on grpc_stats and avoid dynamic path-based or client-controlled metrics generation in your configuration.\r\n\r\n### References\r\n\r\n",
+    "ghsa_id": "GHSA-7q3f-gwg7-j8g4",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-7q3f-gwg7-j8g4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7q3f-gwg7-j8g4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-48706"
+      }
+    ],
+    "published_at": "2026-06-23T14:08:58Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Envoy Heap Buffer Overflow in TcpStatsdSink",
+    "updated_at": "2026-06-23T14:08:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "envoy proxy",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "patched_versions": "1.35.13 1.36.9 1.37.5 1.38.3",
+        "vulnerable_version_range": ">=v1.34,<1.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

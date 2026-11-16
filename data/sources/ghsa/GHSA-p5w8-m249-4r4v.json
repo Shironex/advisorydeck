@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-69262",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# summary:\nIn Flowise, `DELETE /api/v1/chatflows/:id` authorizes requests with `checkAnyPermission('chatflows:delete,agentflows:delete')`. Possession of either permission is sufficient to reach the delete path. The delete logic does not validate the target resource `type`, allowing a caller with only `agentflows:delete` to delete a `CHATFLOW`, and a caller with only `chatflows:delete` to delete an `AGENTFLOW`.\n\n# details:\nThe delete route accepts either `chatflows:delete` or `agentflows:delete`. The subsequent logic only resolves the target record by `id` and `workspaceId`, then deletes by `id` without checking whether the target resource type matches the granted permission domain.\n\nAs a result, there is no binding between permission scope and flow type:\n\n- `agentflows:delete` can be used to delete `CHATFLOW`\n- `chatflows:delete` can be used to delete `AGENTFLOW`\n\nThis breaks the intended RBAC separation between Chatflows and Agentflows.\n\n# impact:\nUsers authorized to manage only one flow type can delete the other flow type within the same workspace, resulting in unauthorized deletion and configuration loss.\n\n# reproduction steps:\n\n1. Log in as a user who can create API keys.\n2. Create a normal `CHATFLOW` and record its `id`.\n3. Create an API key with only `agentflows:delete`.\n4. Use that API key to send:\n\n```bash\ncurl -i -X DELETE \\\n  -H 'Authorization: Bearer <agentflows_delete_only_key>' \\\n  http://localhost:8080/api/v1/chatflows/<chatflow_id>\n```\n\n5. Observe a `200 OK` response, for example:\n\n```json\n{\"raw\":[],\"affected\":1}\n```\n\n6. Read the same `id` again and observe `404 Not Found`.",
+    "ghsa_id": "GHSA-p5w8-m249-4r4v",
+    "html_url": "https://github.com/advisories/GHSA-p5w8-m249-4r4v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p5w8-m249-4r4v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69262"
+      }
+    ],
+    "published_at": "2026-08-04T16:50:32Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-p5w8-m249-4r4v",
+      "https://github.com/FlowiseAI/Flowise/pull/6445",
+      "https://github.com/FlowiseAI/Flowise/commit/2f528ceced74afaa95fc7a282965e7788796448b",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise@3.1.3",
+      "https://github.com/advisories/GHSA-p5w8-m249-4r4v"
+    ],
+    "severity": "high",
+    "summary": "Flowise: `DELETE /api/v1/chatflows/:id` does not validate resource type, allowing `agentflows:delete` and `chatflows:delete` to delete each other’s flow type",
+    "updated_at": "2026-08-04T16:50:35Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-p5w8-m249-4r4v",
+  "repo": {
+    "cve_id": "CVE-2026-69262",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# summary:\r\nIn Flowise , `DELETE /api/v1/chatflows/:id` authorizes requests with `checkAnyPermission('chatflows:delete,agentflows:delete')`. Possession of either permission is sufficient to reach the delete path. The delete logic does not validate the target resource `type`, allowing a caller with only `agentflows:delete` to delete a `CHATFLOW`, and a caller with only `chatflows:delete` to delete an `AGENTFLOW`.\r\n\r\n# details:\r\nThe delete route accepts either `chatflows:delete` or `agentflows:delete`. The subsequent logic only resolves the target record by `id` and `workspaceId`, then deletes by `id` without checking whether the target resource type matches the granted permission domain.\r\n\r\nAs a result, there is no binding between permission scope and flow type:\r\n\r\n- `agentflows:delete` can be used to delete `CHATFLOW`\r\n- `chatflows:delete` can be used to delete `AGENTFLOW`\r\n\r\nThis breaks the intended RBAC separation between Chatflows and Agentflows.\r\n\r\n# impact:\r\nUsers authorized to manage only one flow type can delete the other flow type within the same workspace, resulting in unauthorized deletion and configuration loss.\r\n\r\n# reproduction steps:\r\n\r\n1. Log in as a user who can create API keys.\r\n2. Create a normal `CHATFLOW` and record its `id`.\r\n3. Create an API key with only `agentflows:delete`.\r\n4. Use that API key to send:\r\n\r\n```bash\r\ncurl -i -X DELETE \\\r\n  -H 'Authorization: Bearer <agentflows_delete_only_key>' \\\r\n  http://localhost:8080/api/v1/chatflows/<chatflow_id>\r\n```\r\n\r\n5. Observe a `200 OK` response, for example:\r\n\r\n```json\r\n{\"raw\":[],\"affected\":1}\r\n```\r\n\r\n6. Read the same `id` again and observe `404 Not Found`.\r\n\r\n",
+    "ghsa_id": "GHSA-p5w8-m249-4r4v",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-p5w8-m249-4r4v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-p5w8-m249-4r4v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69262"
+      }
+    ],
+    "published_at": "2026-07-29T21:06:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "`DELETE /api/v1/chatflows/:id` does not validate resource type, allowing `agentflows:delete` and `chatflows:delete` to delete each other’s flow type",
+    "updated_at": "2026-08-04T16:14:08Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

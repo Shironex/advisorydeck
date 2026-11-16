@@ -1,0 +1,91 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A record user could learn the value of a hidden field by counting how many records match a guess.\n\nWhen `DEFINE FIELD ... PERMISSIONS FOR select WHERE ...` hides a field's contents from a caller, and that field is indexed, running `SELECT count() FROM t WHERE hidden_field = \"guess\" GROUP ALL` returned a count greater than zero whenever a record actually had that value - even though the caller was never allowed to read the field directly. The query planner used an indexed-COUNT shortcut (`Index::Count`, `IndexCountScan`, or the legacy `Iterate Index Count` / `Iterate Index Keys` paths) that counts matching index entries and skips the permission check that would normally hide the value. The same query with `WITH NOINDEX` correctly returned `[]`, confirming the gap.\n\nBy repeating the count query with different guesses, an attacker can confirm or recover the contents of any restricted field they could not read through a normal `SELECT`.\n\n### Impact\n\nWhat an attacker **can** do:\n\n- Confirm or recover values of a field protected by field-level SELECT permissions on any table they hold table-level SELECT on, provided the field is indexed.\n- Repeat the query with different guesses to read restricted field contents one value at a time.\n\nWhat it **can't** do:\n\n- Read fields that are not indexed (the shortcut only fires when an index covers the predicate column).\n- Cross table, database or namespace isolation boundaries.\n- Modify data, escalate privileges, or affect availability.\n\n### Patches\n\nThe legacy planner (`surrealdb/core/src/idx/planner/tree.rs`) and the streaming planner (`surrealdb/core/src/exec/planner/select/mod.rs`) now both refuse the indexed fast path when the WHERE / ORDER tree references a field governed by a non-`Full` SELECT permission:\n\n- `resolve_indexes` skips any B-tree / unique index whose columns are governed by such a permission.\n- A new `cond_touches_restricted_field` flag is propagated; `eval_count` refuses a dedicated `Index::Count` when set.\n- The streaming planner adds `cond_touches_restricted_select_field`, a `RestrictedIdiomChecker` visitor that matches each idiom against the table's field-permission prefixes (loaded via the plan-time txn), and gates `IndexCountScan` emission on it.\n- The fast paths are preserved for root / owner sessions via `should_check_perms_for_view`.\n\nVersions 3.1.0 and later are not affected.\n\n### Workarounds\n\nUsers unable to patch are advised to consider the following workarounds:\n\n- Avoid `DEFINE INDEX` on fields whose values are protected by field-level SELECT permissions. The class of attack is specific to the indexed fast paths.\n- Restrict the ability of record users to issue arbitrary `SELECT count() … GROUP ALL` queries against tables containing field-protected columns.\n- Use namespace / database isolation as the primary boundary where feasible.",
+    "ghsa_id": "GHSA-c8jx-96c9-8xrp",
+    "html_url": "https://github.com/advisories/GHSA-c8jx-96c9-8xrp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c8jx-96c9-8xrp"
+      }
+    ],
+    "published_at": "2026-07-01T20:22:06Z",
+    "references": [
+      "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-c8jx-96c9-8xrp",
+      "https://github.com/surrealdb/surrealdb/pull/240",
+      "https://github.com/surrealdb/surrealdb/commit/0c6dd021bb55b32a78a553c72bb9c0cdd414825f",
+      "https://github.com/advisories/GHSA-c8jx-96c9-8xrp"
+    ],
+    "severity": "medium",
+    "summary": "SurrealDB: Field-level SELECT permissions bypassed via indexed COUNT fast paths",
+    "updated_at": "2026-07-01T20:22:07Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "vulnerable_version_range": "< 3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-c8jx-96c9-8xrp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A record user could learn the value of a hidden field by counting how many records match a guess.\r\n\r\nWhen `DEFINE FIELD ... PERMISSIONS FOR select WHERE ...` hides a field's contents from a caller, and that field is indexed, running `SELECT count() FROM t WHERE hidden_field = \"guess\" GROUP ALL` returned a count greater than zero whenever a record actually had that value - even though the caller was never allowed to read the field directly. The query planner used an indexed-COUNT shortcut (`Index::Count`, `IndexCountScan`, or the legacy `Iterate Index Count` / `Iterate Index Keys` paths) that counts matching index entries and skips the permission check that would normally hide the value. The same query with `WITH NOINDEX` correctly returned `[]`, confirming the gap.\r\n\r\nBy repeating the count query with different guesses, an attacker can confirm or recover the contents of any restricted field they could not read through a normal `SELECT`.\r\n\r\n### Impact\r\n\r\nWhat an attacker **can** do:\r\n\r\n- Confirm or recover values of a field protected by field-level SELECT permissions on any table they hold table-level SELECT on, provided the field is indexed.\r\n- Repeat the query with different guesses to read restricted field contents one value at a time.\r\n\r\nWhat it **can't** do:\r\n\r\n- Read fields that are not indexed (the shortcut only fires when an index covers the predicate column).\r\n- Cross table, database or namespace isolation boundaries.\r\n- Modify data, escalate privileges, or affect availability.\r\n\r\n### Patches\r\n\r\nThe legacy planner (`surrealdb/core/src/idx/planner/tree.rs`) and the streaming planner (`surrealdb/core/src/exec/planner/select/mod.rs`) now both refuse the indexed fast path when the WHERE / ORDER tree references a field governed by a non-`Full` SELECT permission:\r\n\r\n- `resolve_indexes` skips any B-tree / unique index whose columns are governed by such a permission.\r\n- A new `cond_touches_restricted_field` flag is propagated; `eval_count` refuses a dedicated `Index::Count` when set.\r\n- The streaming planner adds `cond_touches_restricted_select_field`, a `RestrictedIdiomChecker` visitor that matches each idiom against the table's field-permission prefixes (loaded via the plan-time txn), and gates `IndexCountScan` emission on it.\r\n- The fast paths are preserved for root / owner sessions via `should_check_perms_for_view`.\r\n\r\nVersions 3.1.0 and later are not affected.\r\n\r\n### Workarounds\r\n\r\nUsers unable to patch are advised to consider the following workarounds:\r\n\r\n- Avoid `DEFINE INDEX` on fields whose values are protected by field-level SELECT permissions. The class of attack is specific to the indexed fast paths.\r\n- Restrict the ability of record users to issue arbitrary `SELECT count() … GROUP ALL` queries against tables containing field-protected columns.\r\n- Use namespace / database isolation as the primary boundary where feasible.\r\n\r\n### References\r\n\r\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\r\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\r\n- [SurrealQL Documentation - DEFINE INDEX](https://surrealdb.com/docs/surrealql/statements/define/indexes)\r\n- `fix(security): plug field-permission leak in indexed COUNT fast paths` (commit `0c6dd021b`)\r\n",
+    "ghsa_id": "GHSA-c8jx-96c9-8xrp",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-c8jx-96c9-8xrp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c8jx-96c9-8xrp"
+      }
+    ],
+    "published_at": "2026-05-27T17:38:18Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Field-level SELECT permissions bypassed via indexed COUNT fast paths",
+    "updated_at": "2026-05-27T17:38:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<3.1.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

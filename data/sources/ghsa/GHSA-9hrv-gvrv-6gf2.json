@@ -1,0 +1,109 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-56275",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 6,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\n\nThe attacker provides an intranet address through the base url field configured in the Execute Flow node \n→ Bypass checkDenyList / resolveAndValidate in httpSecurity.ts (not called)\n→ Causes the server to initiate an HTTP request to any internal network address, read cloud metadata, or detect internal network services \n\n### Details\n\n<img width=\"1280\" height=\"860\" alt=\"9a52a74e6fe2fd78e4962d1d68057fc2\" src=\"https://github.com/user-attachments/assets/20df0006-9129-4886-8928-16d19a617c23\" />\n\nThen initiate the call: \n\n```\nPOST /api/v1/prediction/d6739838-d3b3-43d9-86ff-911a3d757a7e HTTP/1.1\nHost: 127.0.0.1:3000\nContent-Type: application/json\nAuthorization: Bearer apikey\nContent-Length: 17\n\n{\"question\": \"1\"}\n```\n\nServer received a request:\n\n<img width=\"1432\" height=\"172\" alt=\"f45c757fec408e13739db068252ff21b\" src=\"https://github.com/user-attachments/assets/d3dfe0f5-83ec-4c79-ab32-754382a68d5f\" />\n\nAnd there is an echo: \n\n<img width=\"1280\" height=\"666\" alt=\"fa0caf0deb306cfeeea8fdf8941a287e\" src=\"https://github.com/user-attachments/assets/55a94d25-120b-4e9c-9517-46c2fc2b667f\" />\n\nFix:\nCall secureFetch for verification\n\n\n\n### Impact\n\nThis is a Server-Side Request Forgery (SSRF) vulnerability that may lead to the following risks: \n- Explore Internal Web Applications\n- Access sensitive management interfaces\n- Leak internal configuration, credentials, or confidential information\n\nThis vulnerability significantly increases the risk of internal service enumeration and potential lateral movement in enterprise environments.",
+    "ghsa_id": "GHSA-9hrv-gvrv-6gf2",
+    "html_url": "https://github.com/advisories/GHSA-9hrv-gvrv-6gf2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9hrv-gvrv-6gf2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-56275"
+      }
+    ],
+    "published_at": "2026-04-16T21:23:17Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-9hrv-gvrv-6gf2",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-56275",
+      "https://www.vulncheck.com/advisories/flowise-server-side-request-forgery-via-execute-flow-base-url",
+      "https://github.com/advisories/GHSA-9hrv-gvrv-6gf2"
+    ],
+    "severity": "medium",
+    "summary": "Flowise Execute Flow function has an SSRF vulnerability",
+    "updated_at": "2026-09-23T21:24:58Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-9hrv-gvrv-6gf2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe attacker provides an intranet address through the base url field configured in the Execute Flow node \r\n→ Bypass checkDenyList / resolveAndValidate in httpSecurity.ts (not called)\r\n→ Causes the server to initiate an HTTP request to any internal network address, read cloud metadata, or detect internal network services \r\n\r\n### Details\r\n\r\n<img width=\"1280\" height=\"860\" alt=\"9a52a74e6fe2fd78e4962d1d68057fc2\" src=\"https://github.com/user-attachments/assets/20df0006-9129-4886-8928-16d19a617c23\" />\r\n\r\nThen initiate the call: \r\n\r\n```\r\nPOST /api/v1/prediction/d6739838-d3b3-43d9-86ff-911a3d757a7e HTTP/1.1\r\nHost: 127.0.0.1:3000\r\nContent-Type: application/json\r\nAuthorization: Bearer apikey\r\nContent-Length: 17\r\n\r\n{\"question\": \"1\"}\r\n```\r\n\r\nServer received a request:\r\n\r\n<img width=\"1432\" height=\"172\" alt=\"f45c757fec408e13739db068252ff21b\" src=\"https://github.com/user-attachments/assets/d3dfe0f5-83ec-4c79-ab32-754382a68d5f\" />\r\n\r\nAnd there is an echo: \r\n\r\n<img width=\"1280\" height=\"666\" alt=\"fa0caf0deb306cfeeea8fdf8941a287e\" src=\"https://github.com/user-attachments/assets/55a94d25-120b-4e9c-9517-46c2fc2b667f\" />\r\n\r\nFix:\r\nCall secureFetch for verification\r\n\r\n\r\n\r\n### Impact\r\n\r\nThis is a Server-Side Request Forgery (SSRF) vulnerability that may lead to the following risks: \r\n- Explore Internal Web Applications\r\n- Access sensitive management interfaces\r\n- Leak internal configuration, credentials, or confidential information\r\n\r\nThis vulnerability significantly increases the risk of internal service enumeration and potential lateral movement in enterprise environments. ",
+    "ghsa_id": "GHSA-9hrv-gvrv-6gf2",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-9hrv-gvrv-6gf2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9hrv-gvrv-6gf2"
+      }
+    ],
+    "published_at": "2026-04-15T14:13:45Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Flowise Execute Flow function has an SSRF vulnerability",
+    "updated_at": "2026-04-15T14:13:45Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

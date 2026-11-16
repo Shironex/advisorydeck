@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-h7gx-hhq2-v3v7",
+  "aliases": [],
+  "title": "Residual authorization bypass after CVE-2026-55873 fix in Iceberg `stage-create`",
+  "summary": "## Original issue\r\nThis is a fix omission related to `CVE-2026-55873`.\r\n\r\n- Original fix commit: `b13463880c1fa62e255c058a9228b63cc95b4b36`\r\n- Commit subject: `s3tables: scope management authorization to the caller's identity (#9961)`\r\n\r\n## Summary\r\nThe fix for `CVE-2026-55873` tightened S3Tables authorization around the caller's identity. The Iceberg REST Catalog still exposes a residual authorization bypass in the `stage-create` flow.\r\n\r\nAn authenticated low-privileged caller without `CreateTable` permission on a target bucket / namespace can send:\r\n\r\n- `POST /v1/{bucket}/namespaces/{namespace}/tables`\r\n- with JSON containing `\"stage-create\": true`\r\n\r\nThe request reaches Iceberg `handleCreateTable`. That handler performs a `GetTable` existence check first. In S3Tables, `GetTable` returns `NoSuchTable` before any table or bucket authorization when table metadata is absent. Iceberg then enters the `stage-create` branch and writes staged metadata and a stage marker into the target bucket before any `CreateTable`-equivalent authorization.\r\n\r\nThis gives an unauthorized caller a write primitive inside `.iceberg_staged` for a bucket / namespace they are not allowed to manage. While the marker remains live, a later create-on-commit flow for the same bucket / namespace / table name loads the latest marker and uses the staged metadata as the creation template when the staged file is present and parseable.\r\n\r\nCurrent HEAD also exposes a credential-vending impact path when `-iceberg.credentialRole` is enabled and the catalog advertises an S3 endpoint. In that configuration, the same unauthorized `stage-create` response returns temporary S3 credentials for an attacker-chosen same-bucket prefix via `X-Iceberg-Access-Delegation: vended-credentials`, even though the caller never passed `CreateTable` authorization.\r\n\r\n## Impact\r\n\r\n- Unauthorized integrity modification in the target bucket's Iceberg staging tree\r\n- Unauthorized creation of staged metadata and marker files under `.iceberg_staged`\r\n- Subsequent create-on-commit operations for the same namespace / table name consume attacker-controlled staged metadata\r\n- Unauthorized resource consumption / storage growth in the target bucket; expired-marker pruning removes only marker JSON files, so staged metadata can be orphaned and accumulate\r\n- Unauthorized issuance of temporary S3 credentials scoped to an attacker-chosen same-bucket prefix\r\n- If the chosen prefix matches an existing table location, the returned credentials grant direct read/write access to that table prefix\r\n\r\n## Preconditions\r\n- The Iceberg REST Catalog is enabled (`-port.iceberg` is non-zero; default is `8181`)\r\n- `stage-create` is not explicitly disabled via `ICEBERG_ENABLE_STAGE_CREATE=0|false|no|off` (it is enabled by default when unset)\r\n- The attacker has valid credentials and can authenticate to the Iceberg Catalog, either through a Bearer token accepted by the Iceberg OAuth flow or through the same authenticated request path accepted by `S3ApiServer`\r\n- The attacker does **not** have `CreateTable` permission on the target bucket / namespace\r\n- The chosen table name is not already registered in the target namespace, so the request reaches the `GetTable == NoSuchTable` path\r\n- For the credential-vending variant only:\r\n  - the server is started with `-iceberg.credentialRole`\r\n  - the catalog advertises a non-empty S3 endpoint, such as via `-externalUrl` / `S3_EXTERNAL_URL` or an explicit non-wildcard bind IP\r\n  - the S3 API server has working IAM / STS integration, so `VendTableCredentials` returns credentials\r\n\r\n## Proof of concept\r\n### Request 1: unauthorized stage-create\r\n```http\r\nPOST /v1/victim-bucket/namespaces/finance/tables HTTP/1.1\r\nHost: <iceberg-host>:8181\r\nAuthorization: <valid authenticated request for a low-privileged S3 identity>\r\nContent-Type: application/json\r\n\r\n{\r\n  \"name\": \"quarterly_reports\",\r\n  \"location\": \"s3://victim-bucket/finance/quarterly_reports\",\r\n  \"stage-create\": true\r\n}\r\n```\r\n\r\nExpect...",
+  "published_at": "2026-11-09T19:44:27.000Z",
+  "modified_at": "2026-11-09T19:44:27.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.44"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-h7gx-hhq2-v3v7",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-h7gx-hhq2-v3v7",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-h7gx-hhq2-v3v7",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6973d6b823899f75daba99ddab22967dcecabde347653a1ab4f1ded65a1215b4",
+  "note": null
+}

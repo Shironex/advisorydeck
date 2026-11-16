@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-hp74-gm6m-2qm5",
+  "aliases": [],
+  "title": "Reauthentication bypass via one-time access token login - passkey step-up requirement defeated by JWT freshness check that accepts any login method",
+  "summary": "# Reauthentication Bypass via One-Time Access Token Login\r\n\r\n## Summary\r\n\r\nA weaker authentication method (OTA token or signup token) is accepted as passkey step-up proof, yielding unauthorized renewable 30-day OIDC refresh tokens for clients explicitly configured with `RequiresReauthentication: true`. The `POST /api/webauthn/reauthenticate` endpoint's access-token fallback checks only JWT freshness (`IssuedAt` within 60 seconds), not the authentication method used. The session cookie gate is also non-validating -- any arbitrary cookie value (e.g. `session=deadbeef`) is accepted, collapsing the reauth boundary to token recency alone.\r\n\r\nThe bypass needs to succeed only once. The resulting OIDC grant includes a 30-day refresh token that can be rotated indefinitely, providing persistent victim-impersonation access to the protected downstream service. The attacker obtains `access_token` (1-hour TTL), `id_token` (victim's name, email, profile), and `refresh_token` (30-day TTL, renewable) for a client that was explicitly configured to require passkey step-up authentication. The attacker can perform victim-scoped actions at the downstream relying party indefinitely.\r\n\r\n## Root Cause\r\n\r\n`CreateReauthenticationTokenWithAccessToken` (webauthn_service.go:362-403) only checks that the access token's `IssuedAt` claim is less than 60 seconds old:\r\n\r\n```go\r\n// webauthn_service.go:378-381\r\ntokenExpiration, ok := token.IssuedAt()\r\nif !ok || time.Since(tokenExpiration) > time.Minute {\r\n    return \"\", &common.ReauthenticationRequiredError{}\r\n}\r\n```\r\n\r\nIt does not check HOW the user originally authenticated. The `reauthenticateHandler` (webauthn_controller.go:179-207) falls into this path whenever the request body cannot be parsed as a WebAuthn credential assertion:\r\n\r\n```go\r\n// webauthn_controller.go:189-199\r\ncredentialAssertionData, err := protocol.ParseCredentialRequestResponseBody(c.Request.Body)\r\nif err == nil {\r\n    token, err = wc.webAuthnService.CreateReauthenticationTokenWithWebauthn(...)\r\n} else {\r\n    // FALLBACK: Only checks access token age, not auth method\r\n    accessToken, _ := c.Cookie(cookie.AccessTokenCookieName)\r\n    token, err = wc.webAuthnService.CreateReauthenticationTokenWithAccessToken(c.Request.Context(), accessToken)\r\n}\r\n```\r\n\r\nAdditionally, the handler's session cookie check (line 180) only verifies that a cookie named `session` exists -- it does not validate the cookie value against any server-side session store. Any arbitrary value (e.g. `session=deadbeef`) satisfies the check:\r\n\r\n```go\r\n// webauthn_controller.go:180-184\r\nsessionID, err := c.Cookie(cookie.SessionIdCookieName)\r\nif err != nil {\r\n    _ = c.Error(&common.MissingSessionIdError{})\r\n    return\r\n}\r\n// sessionID is passed to CreateReauthenticationTokenWithWebauthn but NOT\r\n// to CreateReauthenticationTokenWithAccessToken (the fallback path)\r\n```\r\n\r\nIn the fallback path, the `sessionID` variable is never used. The session cookie is a gate check only -- presence, not validity. This means the reauth boundary is not bound to a real authenticated browser session.\r\n\r\nMeanwhile, `GenerateAccessToken` (jwt_service.go:190-195) always sets `IssuedAt(now)` regardless of how authentication was performed:\r\n\r\n```go\r\n// jwt_service.go:191-195\r\nnow := time.Now()\r\ntoken, err := jwt.NewBuilder().\r\n    Subject(user.ID).\r\n    Expiration(now.Add(...)).\r\n    IssuedAt(now).  // Always \"now\" - regardless of auth method\r\n```\r\n\r\nThis function is called by:\r\n1. WebAuthn login (intended passkey path)\r\n2. One-time access token exchange (one_time_access_service.go:200)\r\n3. User signup (user_signup_controller.go:182)\r\n\r\nAll three produce tokens that bypass the reauthentication freshness check.\r\n\r\n## Attack Chain\r\n\r\n**Precondition**: An OIDC client has `RequiresReauthentication: true`. The attacker has obtained a one-time access token (via email compromise, admin-issued token, or if unauthenticated OTP emails are enabled).\r\n\r\n1. **Exchange OTA for fresh JWT**: `POST /api/one-time-access-...",
+  "published_at": "2026-04-26T17:46:15.000Z",
+  "modified_at": "2026-07-26T18:32:19.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.6.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-hp74-gm6m-2qm5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-hp74-gm6m-2qm5",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-hp74-gm6m-2qm5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:195219c8f0abae6722fef6481d86a2ab74a1d79a66b73f635f6631ccf4a85669",
+  "note": null
+}

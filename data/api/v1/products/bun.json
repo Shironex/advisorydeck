@@ -1,0 +1,292 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "bun",
+    "name": "Bun",
+    "category": "runtimes",
+    "homepage": "https://bun.sh",
+    "version_scheme": "semver",
+    "branches": [
+      {
+        "name": "1",
+        "eol": false,
+        "eol_date": null,
+        "latest": "1.4.4"
+      }
+    ]
+  },
+  "advisories": [
+    {
+      "id": "GHSA-cf8x-9m69-3gg3",
+      "aliases": [],
+      "title": "HTTP/3 QPACK amplification allows remote memory exhaustion and CPU stall",
+      "summary": "### Summary\n\nA remote, unauthenticated peer can exhaust memory or stall a Bun process that uses HTTP/3. A small request can decode to a very large set of headers, and Bun 1.4.3 and earlier do not limit the decoded size.\n\nThis is the \"Header Accordions\" QPACK amplification attack that FoxIO published on October 20, 2026. The write-up lists Bun as affected.\n\nBun 1.4.4 fixes the bug.\n\n### Details\n\nQPACK is the header compression of HTTP/3. A peer can add one large entry to the dynamic table and then refer to that entry many times, with one byte for each reference. Each reference decodes to a full copy of the entry.\n\n`Bun.serve` advertised a limit of 16 KB for a set of request headers, but it did not enforce the limit. It checked only the size of each single header. It also did not limit the number of fields.\n\nAffected:\n\n- `Bun.serve` with `http3: true`. HTTP/3 is off by default.\n- The HTTP/3 client of `fetch`. `fetch` uses HTTP/3 only when you ask for it, with `fetch(url, { protocol: \"http3\" })` or the `--experimental-http3-fetch` flag. A malicious server can attack the client in the same way.\n\nHTTP/1.1 and HTTP/2 are not affected by this bug.\n\nExecutables built with `bun build --compile` embed the Bun runtime. An executable built with an affected version stays affected until it is rebuilt.\n\n### Impact\n\nDenial of service. No credentials are necessary. In our tests on Bun 1.4.3:\n\n- About 6 MB of traffic made a server with a 2 GB memory limit run out of memory and get killed.\n- One request of about 20 KB stalled the server for more than a minute, and other requests were not answered during that time.\n- A request of about 530 KB kept the server at 100% CPU, and it answered no other requests.\n\nA handler does not need to read the headers. The work happens before Bun calls the handler.\n\n### Patches\n\nUpgrade to Bun 1.4.4, and rebuild any `bun build --compile` executables with it.\n\nBun 1.4.4 enforces a limit on the decoded size of a set of headers, counted as in RFC 9114 section 4.2.2, and limits the number of fields (#46392).\n\nThis changes behavior for large headers over HTTP/3:\n\n- A `Bun.serve` request over the limit (16 KB by default, set with `--max-http-header-size`) gets a `431` response.\n- A much larger request closes the connection.\n- `fetch` over HTTP/3 rejects a response with more than 256 KB of headers.\n\n### Workarounds\n\nDo not enable `http3` on a server that untrusted clients can reach, and do not use the HTTP/3 client of `fetch` with untrusted servers. HTTP/1.1 and HTTP/2 are not affected.\n\n### References\n\n- https://foxio.io/blog/header-accordions-qpack-amplification-attacks-against-http-3-servers\n- https://github.com/oven-sh/bun/issues/46475\n- https://github.com/oven-sh/bun/pull/46392",
+      "published_at": "2026-10-24T00:13:31.000Z",
+      "modified_at": "2026-10-24T00:13:31.000Z",
+      "severity": {
+        "level": "high",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "bun",
+          "ranges": [
+            {
+              "introduced": "1.3.14",
+              "fixed": "1.4.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-cf8x-9m69-3gg3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-cf8x-9m69-3gg3",
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-cf8x-9m69-3gg3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7d24855caabcb7ece35287ecf1a949fca0be9991dc18c816d7887da57085c341",
+      "note": null
+    },
+    {
+      "id": "GHSA-26q8-h657-pf84",
+      "aliases": [],
+      "title": "Bundled root certificates trust compromised eMudhra (emSign) intermediate CAs",
+      "summary": "### Summary\n\nBun's bundled root certificates included `emSign ECC Root CA - G3`. Eight eMudhra (emSign) intermediate CAs were revoked for key compromise in October 2026, and the six of them that issue TLS certificates chain to that root. Bun 1.4.3 and earlier accept certificates issued by those intermediates. The private keys have been independently recovered by multiple people and some have been disclosed publicly, so any attacker in the network path can impersonate any TLS server to Bun.\n\nBun 1.4.4 removes the root from the bundle and rejects any certificate chain that contains one of the eight compromised public keys.\n\nThis is a compromise of a certificate authority's keys, not a bug in Bun's certificate validation. Other projects that ship their own trust store were affected in the same way.\n\n### Details\n\nAny TLS client connection that uses Bun's default trust store is affected. That includes `fetch`, `bun install`, `bun add`, `bunx`, `node:https`, `node:tls`, `WebSocket`, `Bun.connect` and `fetch` over HTTP/3.\n\nA TLS server that sets `requestCert: true` without a `ca` also verifies client certificates against the default trust store, so it is affected in the same way.\n\nBun checks revocation only against a CRL passed in the `crl` option, so the CA's revocation of the intermediates does not protect affected versions by default.\n\nExecutables built with `bun build --compile` embed the Bun runtime and its trust store. An executable built with an affected version stays affected until it is rebuilt.\n\n### Impact\n\nAn attacker in the network path can present a forged certificate that Bun accepts as valid for any hostname. They can then read and modify the traffic. For `bun install` and `bunx` this includes the packages that are downloaded.\n\n### Patches\n\nUpgrade to Bun 1.4.4, and rebuild any `bun build --compile` executables with it.\n\nBun 1.4.4 has two changes:\n\n- **Three emSign roots are removed and the bundle is updated to NSS 3.131.1** (#46159, #46300). This removes `emSign ECC Root CA - G3`, `emSign Root CA - C1` and `emSign ECC Root CA - C3`. `emSign Root CA - G1` stays in the bundle, as it does in NSS 3.131.1.\n- **A chain that contains one of the eight compromised public keys fails with `CERT_REVOKED`** (#46300). The check matches the key rather than the certificate, and it applies whichever root the chain ends at. It therefore also covers cross-signed copies of the intermediates, roots loaded from the system store, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`, and a `ca` option. It applies to TLS over TCP, the HTTP/3 client and `node:quic`, and to client certificates that a server verifies. `fetch` over HTTP/3 reports the failure as `HTTP3HandshakeFailed`. The list of keys is the one Node.js, Go and Chrome block.\n\n### Workarounds\n\nThere is no process-wide workaround for affected versions.\n\n- `--use-system-ca` and `NODE_USE_SYSTEM_CA=1` do not help. They add the system's certificates to the bundled ones and do not replace them.\n- Updating the operating system's certificates does not help, for the same reason.\n- Passing an explicit `ca` (or `tls.ca`) on a connection replaces the default trust store for that connection only. A list that leaves out the emSign roots protects that connection.\n- `bun install --cafile <path>` (or `--ca`) does the same for that install. `bunx` does not accept those flags before 1.4.4.\n- `cafile` under `[install]` in `bunfig.toml` does the same for `bun install`. In `~/.bunfig.toml` it also applies to `bunx`.\n\n### References\n\n- https://github.com/oven-sh/bun/pull/46159\n- https://github.com/oven-sh/bun/pull/46300\n- https://github.com/oven-sh/bun/issues/46526\n- Mozilla incident report: https://bugzilla.mozilla.org/show_bug.cgi?id=2083449\n- uv: https://github.com/astral-sh/uv/security/advisories/GHSA-hq85-5cpj-mr62\n- certifi: https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2\n- Go: CVE-2026-111943\n- Rust: https://rustsec.org/advisories/RUSTSEC-2026-0381.html, ht...",
+      "published_at": "2026-10-23T02:02:06.000Z",
+      "modified_at": "2026-10-23T02:02:06.000Z",
+      "severity": {
+        "level": "high",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-295"
+      ],
+      "affected": [
+        {
+          "product": "bun",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.4.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-26q8-h657-pf84",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-26q8-h657-pf84",
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-26q8-h657-pf84",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:5fe4286fd63f615ff0e698685a79c886910fd4203ff701f71e4612e50c62b459",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-111497",
+      "aliases": [
+        "GHSA-663w-cv8g-jj2p",
+        "GHSA-gcvg-jpfh-4xm8"
+      ],
+      "title": "Out-of-Bounds Write in Google Brotli Decoder",
+      "summary": "A buffer overflow vulnerability in the Brotli decoder (c/dec/decode.c) in Google Brotli versions 1.0.3 through 1.2.0 on all platforms allows a remote unauthenticated attacker to corrupt adjacent decoder state memory, disclose sensitive memory contents, cause a denial of service, or potentially execute arbitrary code using a crafted Brotli-compressed stream.\n\n\n\n\n\nUsers need to update any Brotli libraries or binaries between 1.0.3 through 1.2.0 to the latest available version: 1.0.10 or 1.1.1 or 1.2.1.",
+      "published_at": "2026-10-22T13:35:41.975Z",
+      "modified_at": "2026-11-10T12:50:00.309Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.2,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": true,
+        "added_at": "2026-10-27",
+        "checked": true
+      },
+      "epss": {
+        "score": 0.82641,
+        "percentile": 0.99673,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-252",
+        "CWE-787"
+      ],
+      "affected": [
+        {
+          "product": "bun",
+          "ranges": [
+            {
+              "introduced": "1.0.21",
+              "fixed": "1.4.4"
+            }
+          ]
+        },
+        {
+          "product": "code-server",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "4.141.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://nodejs.org/en/blog/vulnerability/october-2026-security-releases#nodejs-brotli-decoder-out-of-bounds-write-permits-remote-code-execution-cve-2026-111497---high",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/andybalholm/brotli/releases/tag/v1.2.7",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-gcvg-jpfh-4xm8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-111497",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-111497",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-111497",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-111497",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-663w-cv8g-jj2p",
+          "url": "https://github.com/oven-sh/bun/security/advisories/GHSA-663w-cv8g-jj2p",
+          "license": "CC-BY-4.0"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-gcvg-jpfh-4xm8",
+          "url": "https://github.com/coder/code-server/security/advisories/GHSA-gcvg-jpfh-4xm8",
+          "license": "CC-BY-4.0"
+        },
+        {
+          "type": "kev",
+          "id": "CVE-2026-111497",
+          "url": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=CVE-2026-111497",
+          "license": "CC0-1.0"
+        }
+      ],
+      "revision": "sha256:71befe3bb9d927b62c75563a513d06db9cdc09928b6d66b35de0d6ccbe40e67d",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-24910",
+      "aliases": [],
+      "title": "In Bun before 1.3.5, the default trusted dependencies list (aka trust allow list) can be spoofed by a non-npm package in the case of a matching name (for file, link, git, or github).",
+      "summary": "In Bun before 1.3.5, the default trusted dependencies list (aka trust allow list) can be spoofed by a non-npm package in the case of a matching name (for file, link, git, or github).",
+      "published_at": "2026-01-27T22:26:26.801Z",
+      "modified_at": "2026-01-28T21:19:54.515Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.9,
+        "vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:C/C:N/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00121,
+        "percentile": 0.01939,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-348"
+      ],
+      "affected": [
+        {
+          "product": "bun",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "1.3.5"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://www.scworld.com/news/six-javascript-zero-day-bugs-lead-to-fears-of-supply-chain-attack",
+          "type": "web"
+        },
+        {
+          "url": "https://bun.com/blog/bun-v1.3.5",
+          "type": "web"
+        },
+        {
+          "url": "https://www.koi.ai/blog/packagegate-6-zero-days-in-js-package-managers-but-npm-wont-act",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-24910",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-24910",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-24910",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-24910",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:213dbce005493c99b9233e33d927d227d5acfc9acf2f9f08f2312d454869fc2d",
+      "note": null
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-7fw3-5g74-c7p9",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Summary\n\nThe volume server gRPC RPCs `ReceiveFile` and `CopyFile` build on-disk file paths from the client-supplied `Ext` and `Collection` fields without validation. Both are intentionally unauthenticated peer-to-peer RPCs used for replica sync and EC shard distribution between volume servers. A client that can reach the volume server gRPC port can put a traversal value in `Ext` or `Collection` and make the RPC write (`ReceiveFile`) or read (`CopyFile`) a file outside the volume data directory, anywhere the volume server process user can reach.\n\nThe fact that these RPCs are unauthenticated is a documented, accepted trade-off. What this issue reports, and what the fix addresses, is that the same call could act on paths outside the set of volume files the RPC is meant to manage.\n\n### Details\n\n`weed/server/volume_grpc_copy.go`:\n\n- `ReceiveFile` builds the write target from `fileInfo.Ext` / `fileInfo.Collection` and calls `os.Create`.\n- `CopyFile` builds the read source from `req.Ext` / `req.Collection` and calls `os.Open`.\n\nThe EC-shard branches build the path through `util.Join` / `path.Join`, which call `filepath.Clean`. Cleaning collapses a `..` sequence lexically before the syscall, so `Ext = \"/../../x\"` resolves outside the volume directory. `Collection` is folded into a path component as `<collection>_<vid>` by `VolumeFileName` and `EcShardBaseFileName`, so a separator in the collection (for example `Collection = \"../../x\"`) escapes the same way.\n\n### PoC and scope corrections\n\n- The reliably exploitable path is the EC-shard branch. A `ReceiveFile` with `is_ec_volume = true` and a traversal `ext` or `collection` writes attacker-controlled content outside the volume directory, and does not require a pre-existing volume. A `CopyFile` with the same shape reads an arbitrary file the process can access. Both were reproduced end to end.\n- The originally reported regular-volume PoC (`ext = \"/../../../name.txt\"` on a normal volume, which goes through raw string concatenation in `Volume.FileName`) does not reproduce as written: the concatenated path keeps a literal `..` after a non-existent `<vid>` element, so `os.Create` fails with `ENOENT`. The regular and staged-volume branches are hardened as defense in depth.\n- The confidentiality impact is not \"none\": `CopyFile` with a traversal value is an arbitrary file read (a planted file outside the volume directory was read back in testing).\n\n### Impact\n\nA client with access to the volume server gRPC port - an internal cluster/replication port, plaintext by default - can, with no credentials:\n\n- write a file with fully attacker-controlled content outside the volume data directory (corrupt other volumes' `.dat`/`.idx`/`.vif`, write into a co-located filer mount, or overwrite process-writable files), and\n- read a file outside the volume data directory (any file the process user can read).\n\nScope is bounded by the volume server process user's filesystem permissions. In the intended deployment this port sits on a trusted intra-cluster network, and an attacker who can already reach it has unauthenticated volume data read/write through other peer RPCs; the additional exposure specific to this issue is escaping the volume directory to arbitrary host paths. The CVSS vector reflects that context: an attacker on the cluster/replication network (AV:A), high confidentiality, integrity, and availability impact.\n\n### Fix\n\nValidate the client-supplied `Ext` and `Collection` before they are used to build any path, at the entry of both RPCs:\n\n- `Ext` must be a leading dot followed by alphanumerics (`.dat`, `.idx`, `.vif`, `.ecx`, `.ecj`, `.ecsum`, `.ec00`..), checked by character class so custom EC ratios keep working.\n- `Collection` must be a single path element: separators and a bare `.`/`..` are rejected, while ordinary names (including `.` and `-`) still pass.\n\nFixed in https://github.com/seaweedfs/seaweedfs/pull/10644.\n\n### Credit\n\nReported by @0xVijay.\n",
+    "ghsa_id": "GHSA-7fw3-5g74-c7p9",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-7fw3-5g74-c7p9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7fw3-5g74-c7p9"
+      }
+    ],
+    "published_at": "2026-09-18T19:59:03Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Path traversal in the volume server ReceiveFile and CopyFile RPCs lets a client on the cluster network read and write files outside the volume data directory",
+    "updated_at": "2026-09-18T19:59:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 3.97"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

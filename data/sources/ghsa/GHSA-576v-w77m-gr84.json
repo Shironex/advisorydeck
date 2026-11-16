@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-576v-w77m-gr84",
+  "repo": {
+    "cve_id": "CVE-2026-72836",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-178"
+    ],
+    "description": "## Summary\r\n\r\nFileBrowser v2.63.18 still allows two distinct self-registered accounts to receive the same physical home directory on a supported case-insensitive filesystem. The v2.63.17 remediation for GHSA-7rc3-g7h6-22m7 checks whether the derived `User.Scope` is already owned, but `GetByScope` compares the persisted scope as an exact case-sensitive string.\r\n\r\n`cleanUsername` preserves ASCII letter case and raw usernames are also unique case-sensitively. On Windows/NTFS, therefore, `CaseVictim` and `casevictim` are accepted as separate accounts with distinct database values (`/users/CaseVictim` and `/users/casevictim`) while both scoped filesystems resolve to the same directory. The second registrant can read, overwrite, and delete the first account's files through ordinary authenticated HTTP endpoints.\r\n\r\nThis was reproduced on current `master` / v2.63.18 at commit `fe7efb2e6afe66774cd86a5b0a03033bd514d0c0` on Windows. I have not tested macOS, so the platform claim below is limited to Windows.\r\n\r\n## Preconditions\r\n\r\n- `Signup=true`\r\n- `CreateUserDir=true`\r\n- FileBrowser's root is on a case-insensitive Windows filesystem\r\n- The attacker can reach the public signup endpoint\r\n\r\nThe attacker does not need an existing account or victim interaction.\r\n\r\n## Root cause\r\n\r\n`settings.cleanUsername` permits both upper- and lower-case ASCII and preserves their case:\r\n\r\n```go\r\ninvalidFilenameChars = regexp.MustCompile(`[^0-9A-Za-z@_\\-.]`)\r\n```\r\n\r\n`signupHandler` derives and creates the home directory, then checks ownership:\r\n\r\n```go\r\nuserHome, err := d.settings.MakeUserDir(user.Username, user.Scope, d.server.Root)\r\nuser.Scope = userHome\r\n\r\nif d.settings.CreateUserDir {\r\n    switch _, err := d.store.Users.GetByScope(user.Scope); {\r\n    case err == nil:\r\n        return http.StatusConflict, fberrors.ErrExist\r\n    // ...\r\n    }\r\n}\r\n```\r\n\r\nThe Bolt implementation uses an exact database comparison:\r\n\r\n```go\r\nerr := st.db.Select(q.Eq(\"Scope\", scope)).First(user)\r\n```\r\n\r\nThat comparison says `/users/CaseVictim` and `/users/casevictim` are different. NTFS path lookup says they are the same directory. When each account is loaded, `User.Clean` constructs a scoped filesystem from its stored string, so both accounts receive a filesystem rooted at the same physical object.\r\n\r\n## Plaintext reproduction\r\n\r\nThe following request sequence was exercised through FileBrowser's actual `signupHandler`, `resourcePostHandler`, `rawHandler`, and `resourceDeleteHandler` with the v2.63.18 storage backend:\r\n\r\n1. Enable `Signup` and `CreateUserDir`, set default users to have Create, Modify, Delete, and Download permissions.\r\n2. `POST /api/signup` with `{\"username\":\"CaseVictim\",\"password\":\"CaseFoldPw123!\"}` returns HTTP 200.\r\n3. `POST /api/signup` with `{\"username\":\"casevictim\",\"password\":\"CaseFoldPw123!\"}` also returns HTTP 200.\r\n4. The database now contains:\r\n\r\n   ```text\r\n   CaseVictim -> /users/CaseVictim\r\n   casevictim -> /users/casevictim\r\n   ```\r\n\r\n5. `os.SameFile` confirms both account roots identify the same NTFS directory.\r\n6. As `CaseVictim`, `POST /api/resources/secret.txt?override=true` with body `victim-private-content` returns HTTP 200.\r\n7. As `casevictim`, `GET /api/raw/secret.txt` returns HTTP 200 and `victim-private-content`.\r\n8. As `casevictim`, overwrite the same resource with `tampered-by-second-account`; the victim subsequently reads the tampered value.\r\n9. As `casevictim`, `DELETE /api/resources/secret.txt` returns HTTP 204; the victim subsequently receives HTTP 404.\r\n\r\nObserved test output before remediation:\r\n\r\n```text\r\nnew user: CaseVictim, home dir: [/users/CaseVictim].\r\nnew user: casevictim, home dir: [/users/casevictim].\r\nreproduced through HTTP handlers: persisted scopes \"/users/CaseVictim\" and \"/users/casevictim\" resolve to one directory; second account read, overwrote, and deleted the victim's file\r\nPASS\r\n```\r\n\r\n## Impact\r\n\r\n- Cross-account disclosure of every file in the victim's automatically provisioned home directory.\r\n- Cross-account overwrite and tampering through normal resource APIs.\r\n- Cross-account deletion and denial of access.\r\n- The accounts remain independent in the database and UI, so neither user is warned that storage is shared.\r\n\r\nSuggested CVSS v3.1: `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (9.8 Critical). The deployment settings are environmental preconditions; once enabled, exploitation is a normal unauthenticated signup with no victim interaction.\r\n\r\nSuggested CWEs: CWE-178 (Improper Handling of Case Sensitivity), CWE-706 (Use of Incorrectly-Resolved Name or Reference).\r\n\r\n## Recommended remediation\r\n\r\nCompare derived scope ownership according to a case-insensitive canonical rule before saving the account. A minimal patch changes the existing unindexed `GetByScope` query to an anchored, escaped case-insensitive match:\r\n\r\n```go\r\npattern := `(?i)^` + regexp.QuoteMeta(scope) + `$`\r\nerr := st.db.Select(q.Re(\"Scope\", pattern)).First(user)\r\n```\r\n\r\nThis preserves the current schema and directory naming. It does not change the query's asymptotic complexity because `Scope` is already unindexed, and it only runs during automatic signup rather than on file-access hot paths. Applying the conservative comparison on every platform also keeps a database safe if it is later moved to Windows.\r\n\r\nThe regression test registers both the original lossy-normalization pair and `CaseVictim` / `casevictim`; the second signup must return HTTP 409 in each case. Existing installations should additionally audit already-stored scopes case-insensitively and relocate any duplicate physical homes, because code cannot safely choose which existing account owns shared data.\r\n\r\n## Validation\r\n\r\n- New portable regression: `go test ./http -run '^TestSignupRejectsCollidingScope$' -count=1` passes.\r\n- `go test ./storage/bolt ./users -count=1` passes.\r\n- `go vet ./http ./storage/bolt ./users` passes.\r\n- Full `go test ./...` was run on Windows. Its failures were reproduced unchanged in a detached, unmodified v2.63.18 worktree; they are existing Windows-specific failures involving symlinks, backslash filenames, and parallel share tests.\r\n\r\nI have a minimal three-file patch ready and request that GitHub create a temporary private fork so the fix can be reviewed without publicly disclosing the issue.\r\n",
+    "ghsa_id": "GHSA-576v-w77m-gr84",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-576v-w77m-gr84",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-576v-w77m-gr84"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-72836"
+      }
+    ],
+    "published_at": "2026-07-25T14:13:45Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Case-folded signup usernames share one home directory on case-insensitive filesystems",
+    "updated_at": "2026-08-21T06:38:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.63.19",
+        "vulnerable_version_range": "<= 2.63.18"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

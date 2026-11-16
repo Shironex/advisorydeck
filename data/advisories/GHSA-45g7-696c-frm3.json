@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-45g7-696c-frm3",
+  "aliases": [],
+  "title": "Unauthenticated SSRF in SeaweedFS filer lazy-remote fetch/list/delete via unguarded GetRemoteStorage",
+  "summary": "## Summary\r\nThe SeaweedFS filer's lazy-remote metadata trio - `maybeLazyFetchFromRemote` (StatFile→HeadObject), `maybeLazyListFromRemote` (ListDirectory→ListObjectsV2), and `maybeDeleteFromRemote` (DeleteFile/RemoveDirectory) - builds its remote-storage client via the **unguarded** `remote_storage.GetRemoteStorage` (`weed/filer/remote_storage.go:137`), bypassing the SSRF chokepoint `BuildGuardedRemoteStorageClient` (endpoint deny-list + DNS-rebinding-safe pinned dialer) that the CVE-2026-73080 remediation wired into every *other* remote-dial path. On a default (unauthenticated) filer this yields a server-side request forgery to arbitrary internal hosts / cloud metadata endpoints, with an object-metadata + reachability read-back oracle on the fetch path and an outbound state-changing request on the delete path. CWE-918.\r\n\r\n## Root Cause\r\nCVE-2026-73080 (GHSA-87fv-vqqr-m4jr) added a single chokepoint, `BuildGuardedRemoteStorageClient`, and wired it into exactly three dial paths that read a stored `/etc/remote/<name>.conf` mount RemoteConf: volume `FetchAndWriteNeedle` (`weed/server/volume_grpc_remote.go:405`), filer body-streaming `mountedRemoteClient`/`streamFromRemote` (`weed/server/filer_server_handlers_read.go:351`), and s3 `openRemoteStream` (`weed/s3api/s3api_object_handlers.go:3323`). The filer **lazy-remote trio** resolves the *identical* stored RemoteConf but constructs its client through the unguarded `remote_storage.GetRemoteStorage(remoteConf)` (`weed/filer/remote_storage.go:137`) → `makeRemoteStorageClient` → `s3RemoteStorageMaker.MakeWithHTTPClient(conf, nil)` (`weed/remote_storage/s3/s3_storage_client.go:42`). With `httpClient==nil` the AWS SDK default transport is used - **no** pinned/rebinding-safe dialer, **no** `validateRemoteEndpoint` deny-list, and `AllowUntrustedRemoteEndpoints` is never consulted. The lazy files pre-existed the fix (feature introduced in commit `4f692bf`, in tags 4.41-4.46) and were simply missed by the fix commit `0b5fff2`.\r\n\r\n## Impact\r\nAn unauthenticated request can coerce the filer into issuing attacker-directed requests to arbitrary internal hosts/ports (loopback, RFC1918, link-local `169.254.169.254` IMDS). On the fetch path the HEAD result - reachability, `FileSize`, `ETag`, `ContentEncoding`, `Last-Modified` - is surfaced to the caller (Content-Length/Last-Modified/Etag on `filer_server_handlers_read.go:51/186/197`), giving an internal-network port/host scanning oracle plus S3 object-metadata disclosure. The DELETE path (`maybeDeleteFromRemote`→`DeleteFile`) issues outbound S3-DELETE-shaped requests to internal hosts (write-side SSRF). Because the lazy path lacks the rebinding-safe pinned dialer, a mount whose hostname flips to an internal IP is also reachable (DNS-rebinding sub-mode) with no filer write required. The response **body** is NOT surfaced (body streaming stays on the guarded `streamFromRemote`), so read-back is metadata-only.\r\n\r\n## Proof of Concept\r\nDefault filer (unauthenticated):\r\n1. `POST http://filer:8888/etc/remote/evil.conf` with a protobuf-marshalled `RemoteConf{Name:\"evil\", Type:\"s3\", S3Endpoint:\"http://169.254.169.254\", ...}`.\r\n2. `POST http://filer:8888/etc/remote/mount.mapping` with `RemoteStorageMapping{Mappings:{\"/buckets/evil\": {Name:\"evil\", Bucket:\"b\", Path:\"/\"}}}`.\r\n3. `GET http://filer:8888/buckets/evil/probe` (uncached key) → filer issues `HeadObject` to `http://169.254.169.254/b/probe`; the HEAD outcome (reachable? size/etag) is reflected to the caller.\r\n4. `DELETE http://filer:8888/buckets/evil/probe` → outbound DELETE to the internal endpoint.\r\n\r\n## Attack Chain\r\n1. **Entry:** unauth `POST /etc/remote/evil.conf` (protobuf `RemoteConf`, `S3Endpoint` = internal host). **Guard:** `/etc` write path `weed/server/filer_server_handlers_write.go:134` - `strings.HasPrefix(r.URL.Path,\"/etc\")` only sets `so.SaveInside=true`. **Bypass proof:** no rejection; `checkPermissions` (write_autochunk.go:165) is WORM-only; default filer guard inactive (see Bypass Ev...",
+  "published_at": "2026-11-09T19:50:28.000Z",
+  "modified_at": "2026-11-09T19:50:28.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.2,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-918"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "4.41",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-45g7-696c-frm3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-45g7-696c-frm3",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-45g7-696c-frm3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:3df66c64293dfa22c8dd887ffe6d8e2f2206508c79bfe94b1461cc63efe616e6",
+  "note": null
+}

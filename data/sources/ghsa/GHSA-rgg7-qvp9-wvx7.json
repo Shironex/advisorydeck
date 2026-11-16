@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rgg7-qvp9-wvx7",
+  "repo": {
+    "cve_id": "CVE-2026-46423",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-347"
+    ],
+    "description": "Rocket.Chat's SAML service provider implementation silently skips both SAML Response and Assertion signature validation when the configured IdP certificate field is empty. The `verifySignatures` routine performs an early `return` when `serviceProviderOptions.cert` is falsy, which is the default state of the setting. Because provider registration only gates on the SAML \"enabled\" toggle and not on the presence of a certificate, an administrator who enables SAML without pasting an IdP certificate obtains a fully wired, publicly reachable SAML login endpoint that accepts unsigned or attacker-supplied assertions. This is a default-configuration authentication-bypass class: the fail-open branch is reached with no misconfiguration beyond leaving a field at its shipped default.\r\n\r\n## Details\r\n\r\n### Vulnerable sink - fail-open early return\r\n`apps/meteor/app/meteor-accounts-saml/server/lib/parsers/Response.ts:243-245`\r\n```ts\r\nverifySignatures(response, assertionData, xml): void {\r\n    if (!this.serviceProviderOptions.cert) {\r\n        return;\r\n    }\r\n    // ... signature verification logic below is never reached\r\n}\r\n```\r\nWhen `cert` is an empty string, `undefined`, or otherwise falsy, the method returns before any XML-DSig verification runs. Both the outer `<samlp:Response>` signature and the inner `<saml:Assertion>` signature are skipped. The caller treats a successful (non-throwing) return from `verifySignatures` as proof that the message is authentic, so the authentication flow proceeds and a session is minted for whatever `NameID` the unsigned assertion carries.\r\n\r\n### Setting default is empty string\r\n`apps/meteor/app/meteor-accounts-saml/server/lib/settings.ts:196`\r\n```ts\r\n// cert setting registration - default value:\r\n''\r\n```\r\nThe shipped default for the IdP certificate field is the empty string. No deployment action is required to reach the vulnerable state; the field simply has to be left untouched.\r\n\r\n### Normalization does not convert empty to a sentinel\r\n`apps/meteor/app/meteor-accounts-saml/server/lib/settings.ts:48`\r\n```ts\r\n// normalizeCert('') returns '' unchanged\r\n```\r\n`normalizeCert` is a pass-through for empty input. There is no place in the pipeline where an empty cert is rewritten to `null`, rejected, or logged as a misconfiguration; the empty string flows directly into `serviceProviderOptions.cert` and then into the `!this.serviceProviderOptions.cert` branch above.\r\n\r\n### Provider registration does not require a cert\r\n`apps/meteor/app/meteor-accounts-saml/server/lib/settings.ts:122-148`\r\n```ts\r\n// loadSamlServiceProviders - gated only on the SAML enable toggle\r\n```\r\n`loadSamlServiceProviders` iterates configured providers and registers them whenever the SAML enable flag is on. There is no check that `cert` is non-empty, and no refusal to register a provider whose certificate is missing. An administrator toggling SAML \"on\" - whether to test the flow, to stage an upcoming IdP rollout, or by accident - immediately exposes a live SAML ACS endpoint whose signature verification is short-circuited.\r\n\r\n### Result\r\nThe three conditions above compose into a single reachable fail-open path:\r\n1. Setting default is `''`.\r\n2. `normalizeCert` preserves `''`.\r\n3. `loadSamlServiceProviders` registers the provider anyway.\r\n4. `verifySignatures` early-returns on `!cert`.\r\n\r\nAny unauthenticated client that can reach the SAML assertion consumer endpoint can submit a crafted assertion naming an arbitrary user and obtain a valid Rocket.Chat session for that user, including administrator accounts whose `NameID`/email mapping is known or guessable.\r\n\r\n## Impact\r\n\r\nThis is an unauthenticated, pre-session authentication bypass against the SAML login flow. In any deployment where SAML has been enabled without a pasted IdP certificate - including short-lived \"try it out\" states, staging environments, and deployments where an operator intended to fill in the certificate later - a remote attacker can impersonate any user whose identifier the SAML mapping accepts. Because Rocket.Chat treats a successful SAML login as full interactive authentication, the attacker obtains the targeted user's workspace membership, direct messages, channel history, integrations/webhooks, and - if an administrator account is impersonated - full tenant administrative control, including the ability to install apps, modify authentication settings, and exfiltrate stored credentials.\r\n\r\nConfidentiality, integrity, and availability of the workspace are all directly affected: chat content and files are readable, messages can be sent as the impersonated user, and administrative impersonation permits destructive configuration changes. The attack requires no prior credentials, no user interaction, and no privileged network position beyond reachability of the SAML endpoint, which is the same reachability as the login page itself.\r\n\r\nThis advisory intentionally does not include a weaponized request. The class is fully specified by the code paths above, and the maintainers have everything needed to reproduce and fix the fail-open branch without an exploit payload.\r\n\r\n## Remediation\r\n\r\n### Required - fail closed in the signature verifier\r\nAt `apps/meteor/app/meteor-accounts-saml/server/lib/parsers/Response.ts:243-245`, replace the early `return` with an explicit error when `cert` is not provided:\r\n```ts\r\nverifySignatures(response, assertionData, xml): void {\r\n    if (!this.serviceProviderOptions.cert) {\r\n        throw new Error('SAML provider has no IdP certificate configured; refusing to accept assertion');\r\n    }\r\n    // ... existing verification logic\r\n}\r\n```\r\nThis ensures that even if a misconfigured provider is somehow registered, no assertion is ever accepted without cryptographic verification.\r\n\r\n### Required - reject empty cert at provider configuration time\r\nIn `configureSamlService` (and any sibling helper that builds `serviceProviderOptions`), validate that `cert` is a non-empty PEM-looking string before the provider is returned. Providers that fail this check should be skipped with a logged warning rather than silently registered.\r\n\r\n### Required - settings UI validator\r\nAdd a server-side settings validator that refuses to persist the SAML provider \"enabled\" toggle while the associated `cert` field is empty, and that refuses to persist an empty value into `cert` while the provider is enabled. The UI should surface this as a blocking validation error on the SAML settings page so administrators cannot reach the fail-open state through the normal configuration flow.\r\n\r\n### Defense in depth\r\n1. Emit a startup log line at `WARN` or `ERROR` level when `loadSamlServiceProviders` encounters an enabled provider with an empty cert, and include a pointer to the setting that needs attention.\r\n2. Add a regression test that feeds an unsigned assertion through `verifySignatures` with an empty `cert` and asserts that the call throws.\r\n3. Audit other SAML options whose \"empty means skip\" semantics may create similar fail-open branches (for example signing-key material, Assertion decryption keys, and `idpSLORedirectURL` trust anchors).\r\n4. Consider shipping the IdP certificate field as a required setting at the schema level so that the SAML feature cannot be toggled on without it.\r\n\r\n## Affected files\r\n- `apps/meteor/app/meteor-accounts-saml/server/lib/parsers/Response.ts` (lines 243-245)\r\n- `apps/meteor/app/meteor-accounts-saml/server/lib/settings.ts` (lines 48, 122-148, 196)\r\n",
+    "ghsa_id": "GHSA-rgg7-qvp9-wvx7",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-rgg7-qvp9-wvx7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rgg7-qvp9-wvx7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-46423"
+      }
+    ],
+    "published_at": "2026-05-14T07:49:09Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SAML signature validation skipped when IdP certificate field is empty",
+    "updated_at": "2026-05-14T18:19:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.5.0, 8.4.1, 8.3.3, 8.2.3, 8.1.4, 8.0.5, 7.13.7, 7.10.11",
+        "vulnerable_version_range": "<8.5.0, <8.4.1, <8.3.3, <8.2.3, <8.1.4, <8.0.5, <7.13.7, <7.10.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

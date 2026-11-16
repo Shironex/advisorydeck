@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-982h-vc99-prcr",
+  "aliases": [],
+  "title": "Metadata Database Exposure via Client-Controlled Source Flag",
+  "summary": "### Summary\n\nThe data source creation and base creation endpoints accepted the server-owned flags that mark a source as NocoDB's own database, letting a user with the Creator role attach NocoDB's internal database to their base.\n\n### Details\n\nSource creation in `sources.service.ts`, and base creation with inline sources in `bases.service.ts`, passed the request's `is_meta` and `is_local` flags through to `Source.createBase`, whose allow-list stored them. A source carrying these flags is treated as one of NocoDB's own: `Source.getConfig` and `getConnectionConfig` ignore the configuration supplied with it and return NocoDB's own database configuration, and `NcConnectionMgrv2` hands out the internal database connection for it. When the source was added, `populateMeta` introspected that connection and registered the tables it found, including the user, token and integration tables, as tables of the caller's base, where the ordinary table and record APIs serve them. Both endpoints now discard the two flags from the request, so only the server sets them.\n\n### Impact\n\nAn attacker needs an account with the Creator role, on a base to add a data source or in a workspace to create a base. They could expose NocoDB's internal tables in their own base, read them, including user accounts and the token and integration tables, and change those records through the same APIs, including user roles. On the community edition, and on Enterprise installations without a separate data database, the database reached this way is the metadata database of the whole instance.\n\n### Credit\n\nThis issue was reported by [@james-yusuke](https://github.com/james-yusuke).",
+  "published_at": "2026-11-02T08:47:53.000Z",
+  "modified_at": "2026-11-02T08:47:53.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863",
+    "CWE-915"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-982h-vc99-prcr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-982h-vc99-prcr",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-982h-vc99-prcr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7863c84a2e80dd778ead0ba1aa001938d6154bf819cc36d907c5f0dc5e0facf8",
+  "note": null
+}

@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-c9wc-jcr5-8974",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "# IPv6 transition address bypass of SSRF guard in FilteringResolver\n\n## Summary\n\nThe `is_private_ip` function in `surrealdb/core/src/net/mod.rs` classifies IP addresses for the `FilteringResolver` network capability enforcement. It uses `to_canonical()` to unwrap IPv4-mapped IPv6 addresses before checking standard private/special-use ranges. However, `to_canonical()` only handles `::ffff:x.x.x.x` (IPv4-mapped), not NAT64, 6to4, or Teredo transition addresses that also embed IPv4 destinations.\n\nOn hosts with NAT64, 6to4, or Teredo connectivity, these transition addresses route to the embedded IPv4 target, bypassing the SSRF guard.\n\n## Affected code\n\n`surrealdb/core/src/net/mod.rs`:\n\n```rust\nfn is_private_ip(ip: IpAddr) -> bool {\n    match ip.to_canonical() {\n        IpAddr::V4(v4) => {\n            v4.is_loopback()\n                || v4.is_private()\n                || v4.is_link_local()\n                || v4.is_broadcast()\n                || v4.is_unspecified()\n                || (u32::from(v4) & 0xFFC0_0000) == 0x6440_0000 // CGNAT 100.64.0.0/10\n        }\n        IpAddr::V6(v6) => {\n            v6.is_loopback()\n                || v6.is_unspecified()\n                || (v6.segments()[0] & 0xFE00) == 0xFC00 // ULA\n                || (v6.segments()[0] & 0xFFC0) == 0xFE80 // link-local\n        }\n    }\n}\n```\n\n`to_canonical()` converts `::ffff:x.x.x.x` to `x.x.x.x` (IPv4), so IPv4-mapped addresses are correctly checked. But it does NOT unwrap:\n\n| Mechanism | Prefix | RFC | Embedding |\n|-----------|--------|-----|-----------|\n| NAT64 well-known prefix | `64:ff9b::/96` | RFC 6052 | Last 32 bits = IPv4 |\n| 6to4 | `2002::/16` | RFC 3056 | Bits 16-47 = IPv4 |\n| Teredo | `2001:0000::/32` | RFC 4380 | Last 32 bits = IPv4 XOR `0xffffffff` |\n\nThese remain as IPv6 addresses after `to_canonical()`, and the IPv6 branch only checks loopback, unspecified, ULA, and link-local, none of which match.\n\n## Bypass vectors\n\n### NAT64 -- targeting localhost 127.0.0.1\n\n```\n64:ff9b::7f00:1\n```\n\n`to_canonical()` returns the address unchanged (not IPv4-mapped). The IPv6 branch checks: not loopback, not unspecified, not ULA, not link-local. Returns `false`. On a NAT64-enabled host, this routes to `127.0.0.1`.\n\n### 6to4 -- targeting cloud metadata 169.254.169.254\n\n```\n2002:a9fe:a9fe::\n```\n\nEmbeds `169.254.169.254` in bits 16-47. Not caught by any IPv6 check.\n\n### Teredo -- targeting 10.0.0.1\n\n```\n2001:0000:4136:e378:8000:63bf:f5ff:fffe\n```\n\nLast 32 bits XOR `0xffffffff` = `10.0.0.1`. Not caught.\n\n## Attack surface\n\nThe `FilteringResolver` is used by SurrealDB's `reqwest`-based HTTP client to enforce network capabilities. Any outbound HTTP request (e.g., from SurrealQL `http::get`/`http::post` functions, webhook deliveries, or OIDC metadata fetches) checks resolved IPs against `is_private_ip`.\n\n## Impact\n\nAn authenticated user who can trigger outbound HTTP requests (via SurrealQL functions or configuration) can bypass the network capability filter by using transition addresses to reach private/internal IPv4 targets:\n\n- Cloud instance metadata (AWS/GCP/Azure IMDS at 169.254.169.254)\n- Internal services on private networks\n- Localhost services\n\n## Suggested fix\n\nExtract the embedded IPv4 from transition addresses and re-check:\n\n```rust\nfn is_private_ip(ip: IpAddr) -> bool {\n    match ip.to_canonical() {\n        IpAddr::V4(v4) => is_private_ipv4(v4),\n        IpAddr::V6(v6) => {\n            v6.is_loopback()\n                || v6.is_unspecified()\n                || (v6.segments()[0] & 0xFE00) == 0xFC00\n                || (v6.segments()[0] & 0xFFC0) == 0xFE80\n                || is_private_transition_ipv6(&v6)\n        }\n    }\n}\n\nfn is_private_transition_ipv6(v6: &Ipv6Addr) -> bool {\n    let s = v6.segments();\n    // NAT64 64:ff9b::/96\n    if s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0 {\n        return is_private_ipv4(Ipv4Addr::new((s[6]>>8) as u8, s[6] as u8, (s[7]>>8) as u8, s[7] as u8));\n    }\n    // 6to4 2002::/16\n    if s[0] == 0x2002 {\n        return is_private_ipv4(Ipv4Addr::new((s[1]>>8) as u8, s[1] as u8, (s[2]>>8) as u8, s[2] as u8));\n    }\n    // Teredo 2001:0000::/32\n    if s[0] == 0x2001 && s[1] == 0x0000 {\n        return is_private_ipv4(Ipv4Addr::new(((s[6]^0xffff)>>8) as u8, (s[6]^0xffff) as u8, ((s[7]^0xffff)>>8) as u8, (s[7]^0xffff) as u8));\n    }\n    false\n}\n```\n\n## Credit\n\ntonghuaroot (https://github.com/tonghuaroot)\n",
+    "ghsa_id": "GHSA-c9wc-jcr5-8974",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-c9wc-jcr5-8974",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c9wc-jcr5-8974"
+      }
+    ],
+    "published_at": "2026-10-19T08:51:38Z",
+    "references": [],
+    "severity": "high",
+    "summary": "IPv6 transition address bypass of SSRF guard in FilteringResolver",
+    "updated_at": "2026-10-19T08:51:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.2.0, < 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

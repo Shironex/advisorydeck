@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-mv76-wx4x-68pm",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-862"
+    ],
+    "description": "## Summary\nThe SeaweedFS S3 gateway registers `SeaweedS3IamCacheServer` on its internal gRPC port (default `0.0.0.0:18333`) with no per-RPC authentication, no default TLS/mTLS, and no auth interceptor. The `PutIdentity` RPC writes an attacker-chosen access key with `Actions:[\"Admin\"]` directly into the live `accessKeyIdent` map that the S3 HTTP SigV4 path reads. An unauthenticated network attacker can inject an admin credential and then make ordinary SigV4-signed S3 requests (signed with their own secret) that resolve to full S3 administrator, gaining read/write/delete over all buckets/objects and the ability to rewrite policies or lock out legitimate users.\n\n## Root Cause\n- `weed/command/s3.go:437-438` - `grpcS := pb.NewGrpcServer(security.LoadServerTLS(util.GetViper(), \"grpc.s3\"))` then `RegisterSeaweedS3IamCacheServer(grpcS, s3ApiServer)`. The port binds `0.0.0.0:18333` by default (`s3.go:342-346`: `portGrpc = 10000 + port`, `bindIp = \"0.0.0.0\"`).\n- `weed/pb/grpc_client_server.go:183-208` - `NewGrpcServer` installs ONLY `requestIDUnaryInterceptor` (a request-ID stamper); there is no auth interceptor for `grpc.s3`.\n- `weed/security/tls.go:79-81` - `LoadServerTLS(cfg, \"grpc.s3\")` returns `(nil, nil)` when `grpc.s3.cert`/`.key` are unset → plaintext, no client cert (default).\n- `weed/s3api/s3api_server_grpc.go:16-27` - `PutIdentity` performs zero authentication (unlike the filer sibling `SeaweedIdentityAccessManagement`, which received `checkAdminAuth` in the CVE-2026-72920 fix).\n- `weed/s3api/auth_credentials.go` - `UpsertIdentity` → `MergeS3ApiConfiguration(cfg,false,false)` builds an `Identity` from attacker input, writes `accessKeyIdent[cred.AccessKey] = t` (:1092), atomically swaps the live table (:1216-1224), and `updateAuthenticationState(len>0)` one-way-enables auth enforcement.\n- `CanDo` short-circuits `return true` when `isAdmin()` is true; `isAdmin()` = `slices.Contains(Actions, \"Admin\")`; `ACTION_ADMIN = \"Admin\"`.\n\n## Impact\nUnauthenticated → full S3 administrator: read/write/delete any bucket/object, rewrite authorization policies (`PutPolicy`), and remove legitimate identities (`RemoveIdentity`) to lock out real users. An operator who applied the documented CVE-2026-72920 remediation (filer IAM signing key) still leaves THIS service fully open - it directly edits the table that authenticates live S3 traffic.\n\n## Proof of Concept\n1. Reach the S3 internal gRPC port (default `0.0.0.0:18333`).\n2. Call `PutIdentity{Identity:{Name:\"pwn\", Credentials:[{AccessKey:\"AKIAPWN\", SecretKey:\"s3cr3t\"}], Actions:[\"Admin\"]}}`.\n3. Issue `aws s3 --endpoint http://s3host:8333 ls` (and any mutating op) signed with `AKIAPWN/s3cr3t` - resolves to admin.\n\n## Attack Chain\n1. Entry: unauth TCP → `0.0.0.0:18333` → gRPC `PutIdentity{...Actions:[\"Admin\"]}`. Guard: per-RPC auth / interceptor / mTLS. Bypass proof: `s3api_server_grpc.go:16-27` has no auth call; `NewGrpcServer` installs only the request-ID unary interceptor (`grpc_client_server.go:200`); `LoadServerTLS(\"grpc.s3\")` returns `(nil,nil)` with no cert (`tls.go:79-81`). The filer sibling got `checkAdminAuth`; this service got nothing.\n2. Guard: read-only mode. Bypass proof: `-s3.iam.readOnly` (default true) only reaches the HTTP embedded IAM API (`s3api_embedded_iam.go`); the gRPC `PutIdentity` handler never references it.\n3. Sink: `UpsertIdentity` → `MergeS3ApiConfiguration` writes `accessKeyIdent[\"AKIAPWN\"]=t` (`auth_credentials.go:1092`) with `t.Actions=[\"Admin\"]` and swaps the live table (:1216-1224).\n4. Sink 2: SigV4-signed S3 request with `AKIAPWN/s3cr3t`. Guard: SigV4. Bypass proof: `lookupByAccessKey` returns the injected identity; signature verifies against the attacker's OWN secret; `isAdmin()` true → `CanDo` returns true.\n5. Impact: full read/write/delete over all buckets/objects; policy rewrite; lockout of legitimate users.\n\n## Bypass Evidence\n- No auth call anywhere in `s3api_server_grpc.go` (grep for auth/token/readOnly = none).\n- `iamReadOnly` reference exists only on the HTTP embedded IAM path, never the gRPC handler.\n- `LoadServerTLS(\"grpc.s3\")` default return = `(nil,nil)` (plaintext).\n- `NewGrpcServer` interceptor chain = request-ID only (no auth).\n- `isAdmin() = slices.Contains(Actions, \"Admin\")`; `CanDo` returns true unconditionally when admin.\n- No existing SeaweedFS advisory (15 repo + 7 global) covers `SeaweedS3IamCacheServer`; CVE-2026-72920 covered only the FILER `SeaweedIdentityAccessManagement` service (`filer_server_handlers_iam_grpc.go`).\n\n## Affected Versions\n`<= 4.45` - present verbatim on latest release tag `4.45` and master HEAD `68a175ef6`; module path `github.com/seaweedfs/seaweedfs` unchanged; no fix commit exists on the S3 gRPC IAM-cache handler.\n\n## Suggested Fix\nGate the S3 gRPC IAM-cache RPCs the way the filer service was fixed - require a per-RPC Bearer token signed with an admin signing key (mirror `checkAdminAuth`), or verify a per-RPC mTLS identity - instead of accepting unauthenticated `PutIdentity`/`PutPolicy`/`RemoveIdentity`.\n\n---\nReported by **zx (Jace)** - GitHub: @manus-use",
+    "ghsa_id": "GHSA-mv76-wx4x-68pm",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-mv76-wx4x-68pm",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mv76-wx4x-68pm"
+      }
+    ],
+    "published_at": "2026-11-09T19:47:58Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated S3 IAM-cache gRPC service allows credential injection and full S3 admin takeover",
+    "updated_at": "2026-11-09T19:47:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": null,
+        "vulnerable_version_range": "<= 4.45"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

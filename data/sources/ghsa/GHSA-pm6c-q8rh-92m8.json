@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-pm6c-q8rh-92m8",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "A subscriber to a `LIVE SELECT` query could read a field that field-level `SELECT` permissions should have hidden from them, by projecting it out of the `$after` or `$before` event parameter instead of selecting the field by name.\n\nA `LIVE SELECT` delivers a per-subscriber document that has field-level `PERMISSIONS FOR select` applied, so a field the subscriber may not read is cut from the notification payload. The `$value`, `$before`, and `$after` parameters, however, were bound to the unreduced record. A subscriber authorised for the table but not for a field could root a projection at one of those parameters and copy the restricted value straight into the notification:\n\n```surql\nLIVE SELECT $after.hidden AS leaked FROM test;\n```\n\n`$after` carried the new record on `CREATE` and the post-update record on `UPDATE`; `$before` carried the pre-delete record on `DELETE`. The alias placed the value under a name the payload's field filter did not treat as the restricted field, so it survived into the result. The table's own `SELECT` permission was still enforced, so the subscriber only received records they were already entitled to see - the disclosure was confined to fields within those records.\n\nA related path, testing the restricted field in the `WHERE` clause and observing whether a notification arrives, is covered by [GHSA-jm88-9wvx-6h4q](https://github.com/surrealdb/surrealdb/security/advisories/GHSA-jm88-9wvx-6h4q). The same change in 3.3.0 fixes both.\n\n### Impact\n\nOnly databases that use field-level `SELECT` permissions - `DEFINE FIELD ... PERMISSIONS FOR select NONE`, or a restricting `WHERE` - to hide a field from users who can otherwise read the table are affected. This is a confidentiality issue at the field-permission boundary.\n\nWhat an attacker **can** do:\n\n- With permission to run a `LIVE SELECT` on a table (a record user is enough) but no permission to read a particular field, receive that field's value in notifications by projecting it out of `$before` / `$after`, for every record the subscription already delivers, across `CREATE`, `UPDATE`, and `DELETE`.\n- Recover the exact stored value, not merely its presence.\n\nWhat it **can't** do:\n\n- Reach records the subscription is not already entitled to. This issue does not bypass table-level permissions, and exposes nothing across tables, namespaces, or databases.\n- Modify data - this is read-only disclosure.\n- Escape field-level scope: only fields on the subscribed table's own records are exposed. System users (root, namespace or database users) are unaffected, as they may already read every field.\n\n### Patches\n\n`LIVE SELECT` now binds `$value`, `$before`, and `$after` to the same per-subscriber reduced views used for the notification payload, so a projection rooted at those parameters can no longer read a field the subscriber may not select. Both the pre- and post-mutation images are reduced, so `CREATE`, `UPDATE`, and `DELETE` are all covered, in full-document and `DIFF` mode alike.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Do not rely on field-level `SELECT` permissions to hide values on a table that untrusted users can subscribe to; keep sensitive fields in a separate table or database those users cannot read at all, or restrict at the table level.\n- Deny live and arbitrary queries to untrusted principal classes with `--deny-arbitrary-query` (env `SURREAL_CAPS_DENY_ARBITRARY_QUERY`), for example for `guest` and `record`, which also blocks the `LIVE` RPC for those classes.\n\n### References\n\n- [SurrealQL Documentation - LIVE SELECT](https://surrealdb.com/docs/surrealql/statements/live)\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- `fix(doc): bind LIVE $value/$after/$before to reduced views` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [arbor-s](https://github.com/arbor-s) for reporting this issue.\n",
+    "ghsa_id": "GHSA-pm6c-q8rh-92m8",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-pm6c-q8rh-92m8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pm6c-q8rh-92m8"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Field-level SELECT permissions bypassed in LIVE query projections via `$before` / `$after`",
+    "updated_at": "2026-09-28T11:15:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": "< 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-pfc5-x523-xcj4",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\n\nThe webhook plugin listing endpoint returned every configured notification plugin's stored configuration, including plaintext Slack, Teams, Discord and Mattermost incoming-webhook URLs, to any workspace-level collaborator.\n\n### Details\n\nNotification and storage plugins are an instance-wide administrative resource: the plugin list, read, update and test operations in `plugins.controller.ts` are all declared at organization scope and resolve only through the super-admin wildcard grant. The webhook listing route was a second, independently wired read over the same plugin rows, returning them unredacted, but it was declared at workspace scope and granted to the workspace Creator role in `acl.ts` - so the authorization middleware never evaluated an organization role for it.\n\n### Impact\n\nAn authenticated user holding the Creator role on any workspace could read every notification webhook URL configured on the instance in plaintext, with no organization role, super-admin privilege, or access to the bases those notifications belong to. Those URLs are bearer-token equivalents and can be replayed directly against the messaging provider, outside NocoDB entirely, to post arbitrary messages into the organization's real chat channels.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team).\n",
+    "ghsa_id": "GHSA-pfc5-x523-xcj4",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-pfc5-x523-xcj4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pfc5-x523-xcj4"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:02Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Webhook Credential Exposure via Plugin List Endpoint",
+    "updated_at": "2026-11-02T08:48:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

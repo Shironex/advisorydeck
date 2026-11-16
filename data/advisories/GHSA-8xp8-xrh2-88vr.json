@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-8xp8-xrh2-88vr",
+  "aliases": [],
+  "title": "Public registration sends the verification email to the submitted address instead of the matched account",
+  "summary": "## Summary\r\n\r\nPublic registration resolves existing accounts with a case-normalized email comparison, but it builds the email verification token and selects the email recipient from the address exactly as submitted in the request. On MySQL and MariaDB, whose default collations are accent insensitive, an accented variant of an existing address matches that account's row while the verification link is delivered to the mailbox of the submitted variant. This separates the account that gets verified from the address that receives the verification link.\r\n\r\n## Details\r\n\r\nRegistration matches an existing account with a lowercased comparison against the stored email. When a matching account is found and its status is `unverified`, the request is treated as a verification resend rather than rejected. The token payload and the mail recipient are then taken from the submitted address rather than from the account that was matched, and the verification endpoint resolves the address in the token back to an account through the same collation-sensitive comparison.\r\n\r\nUnder an accent-insensitive collation, `vïctïm@example.com` and `victim@example.com` are the same row for the lookup and two different mailboxes for delivery. An attacker registers the victim's canonical address, which creates an unverified account with a password the attacker chooses, then registers an accented variant of that same address. The second request matches the account created by the first, takes the resend path because the account is still unverified, and mails a verification link addressed to the accented variant, which the attacker controls. Following that link resolves back to the account holding the victim's canonical address and activates it.\r\n\r\nThis was confirmed against MariaDB 11.8.8 with no collation configured, where the server default is `utf8mb4_uca1400_ai_ci` and the accented variant matches the stored canonical address. PostgreSQL, SQLite and SQL Server do not compare accented characters as equal under their default collations, so those deployments are not affected.\r\n\r\nThe related email canonicalization issue in password reset and invite was addressed in CVE-2024-27295. Public registration was introduced after that fix and did not adopt the same handling.\r\n\r\n## Impact\r\n\r\nAn unauthenticated attacker can obtain an active account whose stored email address is one they do not control, with credentials they set themselves. Any downstream behavior that treats the stored email as an identity, such as SSO account linking, notification routing, allowlisting by domain, or manual review of registered users, then points at the victim's address for an account held by the attacker. The account's permissions are those of the role configured for public registration.\r\n\r\nThe same mechanism also allows an attacker to complete verification for a pending registration that the victim started, activating the account without the victim's involvement.\r\n\r\n## Preconditions\r\n\r\nPublic registration and email verification must be enabled, and the database must be MySQL or MariaDB with an accent-insensitive collation, which is the default on both. The attacker must be able to receive mail at the accented variant of the target address, which they can host themselves.\r\n\r\n## Workarounds\r\n\r\nDisable public registration, or disable email verification for registration, or configure an accent-sensitive collation for the email column on MySQL and MariaDB deployments.",
+  "published_at": "2026-09-02T15:07:13.000Z",
+  "modified_at": "2026-09-02T15:07:13.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-706"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "10.11.0",
+          "fixed": "12.3.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-8xp8-xrh2-88vr",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8xp8-xrh2-88vr",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-8xp8-xrh2-88vr",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6718a710ff4b2496e5ade539e0434d7dfbfc73af4f1e048a55311b54068b2829",
+  "note": null
+}

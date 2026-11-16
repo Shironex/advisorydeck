@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-j9wh-4qfm-wf2v",
+  "repo": {
+    "cve_id": "CVE-2026-47220",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nWhen the `%REQUESTED_SERVER_NAME(X:Y)%` is used in log format and host related options is specified, like `HOST_FIRST`, `SNI_FIRST`, it's possible to crash Envoy when the specified host header is missing in the request headers.\r\n\r\n### Details\r\n\r\nAt https://github.com/envoyproxy/envoy/pull/42659, we introduced enhanced `%REQUESTED_SERVER_NAME(X:Y)%` which support additional options to fallback to `:authority` header or `x-envoy-original-host` header. However, the `x-envoy-original-host` or `:authority` (especially the `x-envoy-original-host`) may be null but the handler of `%REQUESTED_SERVER_NAME(X:Y)%` doesn't check it.\r\n\r\n### PoC\r\n\r\nSet `%REQUESTED_SERVER_NAME(SNI_FIRST:ORIG)%` in the log format and send a request without host rewriting, then it will crash.\r\n\r\n### Impact\r\n\r\nCrash Envoy if specific configuration is configured.",
+    "ghsa_id": "GHSA-j9wh-4qfm-wf2v",
+    "html_url": "https://github.com/envoyproxy/envoy/security/advisories/GHSA-j9wh-4qfm-wf2v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j9wh-4qfm-wf2v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-47220"
+      }
+    ],
+    "published_at": "2026-06-23T14:03:33Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Segmentation fault when using %REQUESTED_SERVER_NAME% in log format",
+    "updated_at": "2026-06-23T14:03:33Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/envoyproxy/envoy"
+        },
+        "patched_versions": "1.37.5 1.38.3",
+        "vulnerable_version_range": ">=v1.37.0,<1.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "envoyproxy/envoy"
+}

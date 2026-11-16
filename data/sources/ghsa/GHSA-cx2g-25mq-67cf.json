@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-cx2g-25mq-67cf",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-640"
+    ],
+    "description": "### Summary\n\nA batch invitation issued one shared invite token to every recipient, so any one invitee could complete another invitee's signup and take control of that pending account.\n\n### Details\n\nThe organisation, base and workspace invite paths - `org-users.service.ts`, `base-users.service.ts` and `workspace-users.service.ts`, with the enterprise overrides of the latter two carrying the same shape independently - generated a single token value outside the per-recipient loop and stored it on every user row the operation created. Signup acceptance in `users.service.ts` looked the pending user up by the submitted email address and then compared the submitted token against that row's own token, so a token shared across the batch validated for every address in it; the holder could set the password on an account that was never theirs. A defective expiry check compounded this: the invite token's expiry was compared as a stored string against a `Date`, a comparison that never evaluated true, so tokens did not age out.\n\n### Impact\n\nA user who received one invitation could take over the pending account of any other user invited in the same operation, including an account invited at a higher role, by completing that signup and choosing its password. Exploitation requires holding a valid invitation issued in the same batch as the target.\n\n### Credit\n\nThis issue was reported by [@aisle-research](https://github.com/aisle-research) (AISLE).\n",
+    "ghsa_id": "GHSA-cx2g-25mq-67cf",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-cx2g-25mq-67cf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cx2g-25mq-67cf"
+      }
+    ],
+    "published_at": "2026-11-02T08:46:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Account Takeover via Shared Invitation Token",
+    "updated_at": "2026-11-02T08:46:55Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.3",
+        "vulnerable_version_range": "< 2026.05.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

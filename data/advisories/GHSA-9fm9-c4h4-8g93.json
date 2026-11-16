@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-9fm9-c4h4-8g93",
+  "aliases": [],
+  "title": "Safe-code out-of-bounds read in `surrealkv`'s `InternalKeyRef` decoder (`len-16`/`len-8` underflow)",
+  "summary": "### Summary\r\n\r\n`surrealkv` exports `InternalKeyRef<'a>` at the crate root and a **safe** constructor `InternalKeyRef::from_encoded(&[u8])`. The only length guard is a `debug_assert!(encoded.len() >= 16)` (compiled out in release builds), and every accessor performs unchecked length arithmetic on the slice: `user_key()` slices `&encoded[..len - 16]`, `trailer()`/`seq_num()` compute `let n = len - 16` and pass it to `read_u64_be`, and `timestamp()` computes `let n = len - 8`. `read_u64_be` performs `buffer.as_ptr().add(offset)` followed by an 8-byte typed load. A short slice therefore underflows `usize` in release builds, wraps the pointer to `base - k`, and reads 8 bytes **before** the allocation - an out-of-bounds read (undefined behavior), confirmed with AddressSanitizer (`heap-buffer-overflow`, `READ of size 8`, address exactly `base - 4` for a 4-byte slice). In debug builds the same call panics (`attempt to subtract with overflow`, or the `debug_assert!`), i.e. the only guard is debug-only. No `unsafe` is required at the call site, and `surrealkv` is a published crate, so any downstream Rust code can trigger it. The same ≥16-byte invariant is also absent at the on-disk decode boundary: `BlockIterator::seek_next_entry` reconstructs `current_key` from block bytes with only upper-bound checks, and `BlockIterator::key()` wraps it in `InternalKeyRef` (debug assert only). SurrealDB's `kv-surrealkv` wrapper calls `key_ref.timestamp()` directly on those refs (`surrealdb/core/src/kvs/surrealkv/mod.rs`), so a crafted or corrupted SSTable can reach the same unchecked subtraction in the product that ships this engine.\r\n\r\n### Details\r\n\r\n**Verified snapshot.** `surrealkv 0.21.2` (crates.io, checksum `b0672cbbe282723a62ccee14b95232ca0b4c9bf44ea22fb520c43e7c517fb8ec`), repository tag `v0.21.2` (commit `d7e85669f59493c9501adcf0289e497ee206ffae`). Consumer verified: `surrealdb/surrealdb` `3.3.0-nightly` (commit `18971ffba781a796c0ad3897bb4b82432c241e4c`) pins `surrealkv = \"0.21.2\"` at workspace `Cargo.toml:88`, enables it via `surrealdb/core/Cargo.toml:35,76` (`kv-surrealkv`), `surrealdb/server/Cargo.toml:51` (`storage-surrealkv`) and `surrealdb/Cargo.toml:26` (SDK). We verified only this snapshot; earlier/later releases should be checked for the same `from_encoded`/accessor shape, and the maintainers should set the final affected/patched ranges.\r\n\r\n**Root cause.** `InternalKeyRef` and its accessors (`surrealkv-0.21.2/src/lib.rs:904-942`):\r\n\r\n```rust\r\n#[derive(Clone, Copy)]\r\npub struct InternalKeyRef<'a> {\r\n    encoded: &'a [u8],\r\n}\r\n\r\nimpl<'a> InternalKeyRef<'a> {\r\n    #[inline]\r\n    pub fn from_encoded(encoded: &'a [u8]) -> Self {\r\n        debug_assert!(encoded.len() >= 16);\r\n        Self { encoded }\r\n    }\r\n\r\n    #[inline]\r\n    pub fn user_key(&self) -> &'a [u8] { InternalKey::user_key_from_encoded(self.encoded) }\r\n\r\n    #[inline]\r\n    pub fn trailer(&self) -> u64 { InternalKey::trailer_from_encoded(self.encoded) }\r\n\r\n    #[inline]\r\n    pub fn seq_num(&self) -> u64 { InternalKey::seq_num_from_encoded(self.encoded) }\r\n\r\n    #[inline]\r\n    pub fn timestamp(&self) -> u64 {\r\n        let n = self.encoded.len() - 8;\r\n        read_u64_be(self.encoded, n)\r\n    }\r\n}\r\n```\r\n\r\nand the helpers it delegates to (`src/lib.rs:696-702,798-828`):\r\n\r\n```rust\r\nfn read_u64_be(buffer: &[u8], offset: usize) -> u64 {\r\n    // SAFETY: Caller must ensure buffer has at least offset + 8 bytes\r\n    unsafe { u64::from_be_bytes(*(buffer.as_ptr().add(offset) as *const [u8; 8])) }\r\n}\r\n\r\nimpl InternalKey {\r\n    pub(crate) fn decode(encoded_key: &[u8]) -> Self {\r\n        let n = encoded_key.len() - 16;          // unchecked subtraction\r\n        let trailer = read_u64_be(encoded_key, n);\r\n        let timestamp = read_u64_be(encoded_key, n + 8);\r\n        ...\r\n    }\r\n    pub(crate) fn user_key_from_encoded(encoded: &[u8]) -> &[u8] {\r\n        &encoded[..encoded.len() - 16]           // safe slicing: panics on short input\r\n    }\r\n    pub(crate) fn trailer_from_encoded(encoded:...",
+  "published_at": "2026-11-03T15:51:21.000Z",
+  "modified_at": "2026-11-03T15:51:21.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.9,
+    "vector": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-125",
+    "CWE-191"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.2.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-9fm9-c4h4-8g93",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9fm9-c4h4-8g93",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-9fm9-c4h4-8g93",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:73254b08d30b454e64d071175300450e03f0e524fd018344398a08dbc207aa8a",
+  "note": null
+}

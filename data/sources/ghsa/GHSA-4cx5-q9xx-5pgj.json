@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-4cx5-q9xx-5pgj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:L/AC:L/AT:N/PR:N/UI:P/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-287"
+    ],
+    "description": "### Summary\n\nThe OAuth token endpoint treated PKCE as a substitute for client authentication, so a confidential client's authorization code could be exchanged for tokens without the registered client secret ever being presented.\n\n### Details\n\nClient authentication in `oauth-token.service.ts` was keyed off whether the authorization code carried a PKCE challenge rather than off the client's registered type. The authorization endpoint in `oauth-authorization.service.ts` required a `code_challenge` on every request, so every issued code was classified as a PKCE flow, and on that branch the client secret was verified only when the caller volunteered one - omitting it skipped verification entirely and the exchange continued. The branch that required a secret for confidential clients was therefore unreachable for the authorization-code grant, even though the refresh-token grant on the same service still enforced it. PKCE and client authentication protect different things: the verifier proves possession of the code, while the secret authenticates the registered client itself.\n\n### Impact\n\nPossession of an authorization code and its matching PKCE verifier was sufficient to mint an access token and a 60-day refresh token in the name of a confidential client, with no knowledge of that client's secret. An attacker who captured a code and verifier - through a leaked redirect, a malicious component in the client application, or a raced exchange - needed no second factor to complete the exchange, and the confidential-client registration provided no defence in depth for initial token issuance. No NocoDB session is required at the token endpoint.\n\n### Credit\n\nThis issue was reported by [@mantraak](https://github.com/mantraak).\n",
+    "ghsa_id": "GHSA-4cx5-q9xx-5pgj",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4cx5-q9xx-5pgj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4cx5-q9xx-5pgj"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Client Authentication Bypass in OAuth Token Exchange",
+    "updated_at": "2026-10-27T10:06:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.1",
+        "vulnerable_version_range": "< 2026.08.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

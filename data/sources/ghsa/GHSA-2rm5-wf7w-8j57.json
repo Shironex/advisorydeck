@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-2rm5-wf7w-8j57",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-346",
+      "CWE-348"
+    ],
+    "description": "### Summary\n\nNocoDB enabled Express's proxy trust unconditionally at startup, so the client address of every request was taken from caller-supplied `X-Forwarded-For` headers even when no trusted proxy sat in front of the instance. Any caller, including an anonymous public-form submitter, could choose the source IP address recorded in the audit log.\n\n### Details\n\nThe server entry files (`run/local.ts`, `run/docker.ts` and their Enterprise counterparts) called `server.enable('trust proxy')` with no way to turn it off, so Express derived `req.ip`, which audit records store, from the forwarding headers of each request. Other consumers, among them telemetry, exception logs and the public API rate limiter, read the address through the `request-ip` middleware, which parses the same headers on its own. The fix, in `Noco.ts` and `utils/trustProxy.ts`, turns proxy trust off by default and enables it only for the topology an operator sets in `NC_TRUST_PROXY`, and every consumer now reads the trust-aware `req.ip`.\n\n### Impact\n\nNo authentication is required. On an instance reachable directly, or through a proxy that passes client-supplied forwarding headers on, a caller could write an arbitrary source IP address into the audit log and other request logs, misleading investigation and attribution, and could evade the per-address limit of the public API rate limiter. No authentication bypass or IP-based access-control bypass is involved. After the fix, setting `NC_TRUST_PROXY=true` without a proxy that overwrites `X-Forwarded-For` restores the earlier behaviour, by design.\n\n### Credit\n\nThis issue was reported by [@5255fgh](https://github.com/5255fgh) (白墨).\n",
+    "ghsa_id": "GHSA-2rm5-wf7w-8j57",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-2rm5-wf7w-8j57",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2rm5-wf7w-8j57"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IP Address Spoofing via Unconditional Proxy Trust",
+    "updated_at": "2026-10-27T10:06:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

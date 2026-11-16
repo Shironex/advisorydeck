@@ -1,0 +1,52 @@
+{
+  "global": null,
+  "id": "GHSA-68j5-4m99-w9w9",
+  "repo": {
+    "cve_id": "CVE-2026-32761",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-284",
+      "CWE-639",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\nA permission enforcement flaw allows users without download privileges (`download=false`) to still expose and retrieve file content via public share links when they retain share privileges (`share=true`). This bypasses intended access control policy and enables unauthorized data exfiltration to unauthenticated users. Where download restrictions are used for data-loss prevention or role separation.\r\n\r\n### Details\r\nThe backend applies inconsistent authorization checks across download paths:\r\n\r\n- Direct raw download correctly enforces `Perm.Download`:\r\n  - [[raw.go](https://github.com/filebrowser/filebrowser/blob/master/http/raw.go#82)](filebrowser/http/raw.go:82)\r\n- Share creation only enforces `Perm.Share`:\r\n  - [[share.go](https://github.com/filebrowser/filebrowser/blob/master/http/share.go#21)](filebrowser/http/share.go:21)\r\n- Public share/download handlers serve shared content without verifying owner `Perm.Download`:\r\n  - [public.go](https://github.com/filebrowser/filebrowser/blob/master/http/public.go#18)(filebrowser/http/public.go:18)\r\n  - [public.go](https://github.com/filebrowser/filebrowser/blob/master/http/public.go#116)(filebrowser/http/public.go:116)\r\n\r\nAs a result, a user who is blocked from direct downloads can create a share and obtain the same file via `/api/public/dl/<hash>`.\r\n\r\n### PoC\r\n\r\n1. Create a non-admin user with:\r\n- `perm.share = true`\r\n- `perm.download = false`\r\n\r\n2. Login as that user and upload a **PDF** file:\r\n- `POST /api/resources/nodl_secret_<rand>.pdf` with `Content-Type: application/pdf`\r\n\r\n3. Verify direct raw download is denied:\r\n- `GET /api/raw/nodl_secret_<rand>.pdf`\r\n- Expected and observed: `202 Accepted` (blocked)\r\n\r\n4. Create share for same file:\r\n- `POST /api/share/nodl_secret_<rand>.pdf`\r\n- Observed: `200`, response includes `hash` (example: `qxfK3JMG`)\r\n\r\n5. Download publicly without authentication:\r\n- `GET /api/public/dl/<hash>`\r\n- Observed (vulnerable): `200`, `Content-Type: application/pdf`, and PDF bytes are returned\r\n\r\nLive evidence captured (March 1, 2026):\r\n- `create user`: `201`\r\n- `create file`: `200`\r\n- `direct /api/raw`: `202 Accepted`\r\n- `create share`: `200`\r\n- `public download /api/public/dl/mxK-ppZb`: `200`\r\n- `public download content-type`: `application/pdf`\r\n- `public download body length`: `327` bytes\r\n\r\n### Impact\r\nThis is an **access control / authorization policy bypass** vulnerability.\r\n\r\n- **Who can exploit:** Any authenticated user granted `share=true` but denied `download`.\r\n- **Who is impacted:** Operators and organizations relying on download restrictions to prevent data export.\r\n- **What can happen:** Restricted users can still distribute and retrieve files publicly, including unauthenticated access through share URLs.\r\n",
+    "ghsa_id": "GHSA-68j5-4m99-w9w9",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-68j5-4m99-w9w9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-68j5-4m99-w9w9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32761"
+      }
+    ],
+    "published_at": "2026-03-17T07:15:40Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Authorization Policy Bypass in Public Share Download Flow",
+    "updated_at": "2026-03-17T07:15:40Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "https://github.com/filebrowser/filebrowser"
+        },
+        "patched_versions": "2.62.0",
+        "vulnerable_version_range": "<=2.61.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

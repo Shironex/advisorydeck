@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-c464-fpq6-p3hp",
+  "aliases": [],
+  "title": "Insecure Direct Object Reference in Shared View Record Read",
+  "summary": "### Summary\n\nPublic shared-view handlers accepted a caller-supplied primary key as a direct object reference and resolved it through a single-record read that never applied the view's row filter, making records the filter hides reachable through the share link.\n\n### Details\n\nIn `BaseModelSqlv2.ts` the list path composed its WHERE clause from row-level security plus the view's root filter list, while the single-record read composed it from the primary-key match, row-level security, and the soft-delete flag only. In community builds row-level security resolves to an empty set, so \"primary key equals the supplied id and not soft-deleted\" was the complete row constraint on that path.\n\nThe public handlers in `public-datas.service.ts` that take a record id straight from the request URL - the attachment-download read and the many-to-many and has-many link listings - all resolved rows through it. For the attachment case, `attachments.service.ts` then read the attachment value out of the excluded record, matched it against the caller-supplied path, and minted a short-lived signed URL for the file.\n\n### Impact\n\nNo authentication is required; the attacker needs the shared-view link and, if the owner set one, the share password. No public route returns a filtered-out record's scalar fields, so the disclosure was bounded by what those two handlers return: the attachment files of excluded records, and the identity of their linked records - that is, the file contents and relationship graph of records the publisher intended to withhold from the share.\n\n### Credit\n\nThis issue was reported by [@arpitjain099](https://github.com/arpitjain099).",
+  "published_at": "2026-11-02T08:47:05.000Z",
+  "modified_at": "2026-11-02T08:47:05.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-c464-fpq6-p3hp",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-c464-fpq6-p3hp",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-c464-fpq6-p3hp",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ec0d1d4081b2bc0e13ac286a23c51db5d61779a942cb9f2e6bc6732ca292239b",
+  "note": null
+}

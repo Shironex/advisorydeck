@@ -1,0 +1,86 @@
+{
+  "global": null,
+  "id": "GHSA-2x8w-q434-f76p",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-201"
+    ],
+    "description": "### Summary\r\n\r\nThe web dashboard replaced the `$SESSION_TOKEN` placeholder in external workspace-app URLs with a newly minted API key without checking whether the app belonged to a sub-agent. Sub-agent apps are registered at runtime by code running in the workspace, so their URLs are not trusted. A sub-agent could register an external app with an allowed custom protocol (for example `vscode:`) whose URL carries the placeholder alongside an attacker-chosen destination. When the workspace owner clicked the app in the dashboard, the dashboard minted a full-access API key and opened the crafted URL with the key in it. The dashboard also did not check where any external app link sent the token: it did not verify that the link opened a known Coder IDE handler or that its `url` pointed to this deployment.\r\n\r\n`coder open app` already refuses this substitution for sub-agent apps (GHSA-v54h-cp2w-9x4g). The dashboard did not apply the same check.\r\n\r\n> **Note:** Exploitation requires code running as a sub-agent in the victim's workspace (for example a devcontainer or an AI agent), and the victim clicking the malicious app in the dashboard.\r\n\r\n### Impact\r\n\r\nAn attacker who can run code inside a workspace can obtain a full-access API key for the workspace owner, and act as that user for the key's lifetime. The attacker controls the app's name and icon, so the app can impersonate a legitimate launcher.\r\n\r\n### Patches\r\n\r\nThe dashboard no longer substitutes a session token for external apps that belong to a sub-agent, matching the CLI. For other external apps, the dashboard now only substitutes a session token when the link opens a known Coder IDE handler and points to this deployment. Other links are shown as disabled and no key is minted.\r\n\r\n[#31208](https://github.com/coder/coder/pull/31208)\r\n\r\nBackported to `2.38.2`, `2.37.6`, `2.36.9`, `2.34.14`, and `2.29.23`. Release line 2.35 and other end-of-life lines will not receive a patch; upgrade to a supported release.\r\n\r\n\r\n### Workarounds\r\n\r\nDo not click external apps listed under devcontainer or other sub-agents in the dashboard unless you trust the code running in the workspace.\r\n\r\n### References\r\n\r\n- Fix: #31208\r\n- Related: GHSA-v54h-cp2w-9x4g\r\n\r\n### Credits\r\n\r\nWe'd like to thank a customer security team and @manus-pi for reporting this issue!",
+    "ghsa_id": "GHSA-2x8w-q434-f76p",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-2x8w-q434-f76p",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2x8w-q434-f76p"
+      }
+    ],
+    "published_at": "2026-10-27T10:31:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Session token leaked to arbitrary hosts via web dashboard for sub-agent external apps",
+    "updated_at": "2026-10-27T10:31:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.2",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.2"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.6",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.6"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.9",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.9"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.14",
+        "vulnerable_version_range": ">= 2.30.0, < 2.34.14"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.29.23",
+        "vulnerable_version_range": ">= 2.24.0, < 2.29.23"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

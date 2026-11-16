@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-8f9m-v436-wr3x",
+  "repo": {
+    "cve_id": "CVE-2026-53961",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Impact\r\n\r\nThe AWS SES bounce webhook (POST /webhooks/aws) verifies that an SNS message is signed by Amazon, but not that it came from a trusted SNS topic (no TopicArn allowlist). Any AWS account holder can create their own SNS topic, subscribe a target's webhook URL to it, and publish validly-signed but forged SES \"Bounce\" notifications for any email address. Two forged permanent bounces (defaults: hard_bounce_score = 2, bounce_score_threshold = 4) revoke the targeted user's email, so Discourse stops sending them notifications and password-reset / login emails. The attack needs no forum account and no victim interaction.\r\n\r\nSites that expose the email webhooks endpoint and use AWS SES + SNS for bounces are impacted.\r\n\r\n###  Patches\r\n\r\nA new site setting `allowed_aws_sns_topic_arns` is added so the subscription-confirmation and notification jobs now reject any SNS message whose TopicArn isn't on the allowlist.\r\n\r\n### Workarounds\r\n\r\nDon't use AWS SES/SNS. Alternatively block POST `/webhooks/aws` at your reverse proxy (or leave the email-webhooks feature disabled).",
+    "ghsa_id": "GHSA-8f9m-v436-wr3x",
+    "html_url": "https://github.com/discourse/discourse/security/advisories/GHSA-8f9m-v436-wr3x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8f9m-v436-wr3x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53961"
+      }
+    ],
+    "published_at": "2026-06-30T14:31:04Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Forged AWS SNS bounce notifications can disable a targeted user's email (missing TopicArn binding)",
+    "updated_at": "2026-06-30T14:31:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.6.0",
+        "vulnerable_version_range": ">= 0"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.5.1",
+        "vulnerable_version_range": ">= 2026.5.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.4.2",
+        "vulnerable_version_range": ">= 2026.4.0-latest"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "Discourse"
+        },
+        "patched_versions": "2026.1.5",
+        "vulnerable_version_range": ">= 2026.1.0-latest"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "discourse/discourse"
+}

@@ -1,0 +1,147 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-57231",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "## Summary\n\nAn container image that contains a environment variable with just a key and no value can trick podman into passing that variable from the host into the container. This is made worse by the fact that using an asterisk (*) will cause podman to pass all host variables into the container. So essentially a malicious image can exfiltrate all podman environment variables that are set in the session from where the container is launched.\n\n## Details\n\npodman run allows `--env VAR1` or `--env VAR*` which will read the variable values from the current environment and then passes them into the container. However because the same parsing logic was reused for the image config env section that means that an image variable could also gain access to that.\n\n## Patch\n\nThat image spec requires the env variables to be in the form of `key=value`, so to address this invalid formatted variables get rejected and the container will not run.\n\nFixed in https://github.com/podman-container-tools/podman/commit/6c431b73dbf8e4b20b778644d7a80caebdb75050\n\n## Workaround\n\nDo not run untrusted images. Before running an image consider inspecting the config with `podman image inspect --format '{{.Config.Env}}' <image>` and check for any variables that do not have a value assigned.",
+    "ghsa_id": "GHSA-4hq8-gpf5-8p68",
+    "html_url": "https://github.com/advisories/GHSA-4hq8-gpf5-8p68",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4hq8-gpf5-8p68"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-57231"
+      }
+    ],
+    "published_at": "2026-09-24T19:40:20Z",
+    "references": [
+      "https://github.com/podman-container-tools/podman/security/advisories/GHSA-4hq8-gpf5-8p68",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-57231",
+      "https://github.com/podman-container-tools/podman/commit/6c431b73dbf8e4b20b778644d7a80caebdb75050",
+      "https://github.com/podman-container-tools/podman/releases/tag/v5.8.4",
+      "https://github.com/podman-container-tools/podman/releases/tag/v6.0.0",
+      "https://github.com/advisories/GHSA-4hq8-gpf5-8p68"
+    ],
+    "severity": "high",
+    "summary": "Podman: Malformed Image can trick podman run into leaking host environment variables into the container",
+    "updated_at": "2026-09-24T19:40:22Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.8.4",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v5"
+        },
+        "vulnerable_version_range": "< 5.8.4"
+      },
+      {
+        "first_patched_version": "6.0.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "go.podman.io/podman/v6"
+        },
+        "vulnerable_version_range": "< 6.0.0"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v4"
+        },
+        "vulnerable_version_range": "<= 4.9.5"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v3"
+        },
+        "vulnerable_version_range": "<= 3.4.7"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v2"
+        },
+        "vulnerable_version_range": "<= 2.2.1"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman"
+        },
+        "vulnerable_version_range": ">= 1.8.1, < 5.8.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4hq8-gpf5-8p68",
+  "repo": {
+    "cve_id": "CVE-2026-57231",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\nAn container image that contains a environment variable with just a key and no value can trick podman into passing that variable from the host into the container. This is made worse by the fact that using an asterisk (*) will cause podman to pass all host variables into the container. So essentially a malicious image can exfiltrate all podman environment variables that are set in the session from where the container is launched.\r\n\r\n## Details\r\n\r\npodman run allows `--env VAR1` or `--env VAR*` which will read the variable values from the current environment and then passes them into the container. However because the same parsing logic was reused for the image config env section that means that an image variable could also gain access to that.\r\n\r\n## Patch\r\n\r\nThat image spec requires the env variables to be in the form of `key=value`, so to address this invalid formatted variables get rejected and the container will not run.\r\n\r\nFixed in https://github.com/podman-container-tools/podman/commit/6c431b73dbf8e4b20b778644d7a80caebdb75050\r\n\r\n## Workaround\r\n\r\nDo not run untrusted images. Before running an image consider inspecting the config with `podman image inspect --format '{{.Config.Env}}' <image>` and check for any variables that do not have a value assigned.\r\n\r\n\r\n\r\n\r\n",
+    "ghsa_id": "GHSA-4hq8-gpf5-8p68",
+    "html_url": "https://github.com/podman-container-tools/podman/security/advisories/GHSA-4hq8-gpf5-8p68",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4hq8-gpf5-8p68"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-57231"
+      }
+    ],
+    "published_at": "2026-06-24T18:17:15Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Malformed Image can trick podman run into leaking host environment variables into the container",
+    "updated_at": "2026-06-24T18:21:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman"
+        },
+        "patched_versions": "v5.8.4",
+        "vulnerable_version_range": ">= v1.8.1, <= v5.8.3"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "go.podman.io/podman/v6"
+        },
+        "patched_versions": "v6.0.0",
+        "vulnerable_version_range": "< v6.0.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "podman-container-tools/podman"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-6q3f-6mpq-cqgc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-441",
+      "CWE-918"
+    ],
+    "description": "### Summary\n\nThe data-import URL fetch helper shared its internal-network exemption with webhooks, so an instance that allowed webhooks to reach local or private addresses also let a user with data-import permission make the server fetch internal URLs and read the responses.\n\n### Details\n\nThe outbound request behind the data-import fetch endpoint in `utils.service.ts` attaches request-filtering agents that reject addresses resolving to loopback, link-local, private and other internal ranges. The helper requested those agents under the webhook operation source, and `ssrf.ts` skips filtering for that source when `NC_ALLOW_LOCAL_HOOKS` or `NC_WEBHOOK_ALLOW_PRIVATE_NETWORK` is set, so a setting documented only for webhooks also turned the protection off for data imports. The response body was returned to the caller, making the request non-blind. The fix gives data import its own operation source with a separate opt-in, `NC_ALLOW_LOCAL_DATA_IMPORT`.\n\n### Impact\n\nOn an instance with either webhook override set, a user with at least the base Editor role could make the NocoDB server request services on its internal network and read their responses, provided the requested URL path ended in a CSV or spreadsheet extension. Default configurations were not affected.\n\n### Credit\n\nThis issue was reported by [@456789TZ](https://github.com/456789TZ).\n",
+    "ghsa_id": "GHSA-6q3f-6mpq-cqgc",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-6q3f-6mpq-cqgc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6q3f-6mpq-cqgc"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:32Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Server-Side Request Forgery via Data Import URL",
+    "updated_at": "2026-10-27T10:06:32Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.07.0",
+        "vulnerable_version_range": ">= 2026.05.2, < 2026.07.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

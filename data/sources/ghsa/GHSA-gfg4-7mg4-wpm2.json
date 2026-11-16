@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-gfg4-7mg4-wpm2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-345"
+    ],
+    "description": "### Summary\n\n`@logto/connector-apple` takes a user's email from the `user` field of Apple's sign-in callback in preference to the email claim in Apple's signed ID token. Apple delivers `user` as an ordinary form field that the browser relays to Logto (`response_mode=form_post`), and it is not covered by any signature, so the person signing in can replace it with any address. Logto then treats that address as the Apple account's email.\n\nAn attacker with any Apple ID can therefore use a victim's email address to get into the victim's existing Logto account, or to register an account under the victim's address before the victim does.\n\n### Impact\n\nEvery tenant that enables the Apple social connector is affected. The attacker needs only their own Apple ID and the victim's email address. The victim does not have to do anything.\n\n- **Takeover of an existing account.** When a social sign-in carries an email that already belongs to a Logto user, Logto offers to link the new social identity to that user, and the linking request is not tied to any proof that the person signing in owns the address. With a forged email, the attacker's Apple ID is linked to the victim's account and the attacker is signed in as the victim.\n- **Pre-account takeover.** If no user has the address yet, social sign-up creates a new user with the forged address as its primary email, without verifying it. When the real owner later signs in to that tenant with an email verification code, they land in the account the attacker created, which the attacker can still enter with their Apple ID.\n\n### Patches\n\nFixed in `@logto/connector-apple` 1.6.11 and Logto 1.46.0. The connector now uses only the email in Apple's signed ID token, and only when Apple marks it as verified.\n\n### Workarounds\n\nDisable the Apple social connector until you can upgrade.\n\n### Details\n\n`packages/connectors/connector-apple/src/index.ts`, `getUserInfo`:\n\n```ts\nemail:\n  user?.email ??\n  (payload.email && payload.email_verified === true ? String(payload.email) : undefined),\n```\n\n`payload` holds the verified claims of Apple's ID token. `user` is parsed from the callback form data, so `??` lets the unsigned value win. This was introduced in `@logto/connector-apple` 1.2.0 (Logto 1.14.0) by \"support apple sign-in with email\" (#5454).\n\nCore uses the email the connector returns without verifying it again:\n\n- `packages/core/src/libraries/social.ts`, `findSocialRelatedUser`, looks up an existing user by that email so the identity can be linked to them.\n- `packages/core/src/routes/experience/classes/verifications/social-verification.ts`, `toSyncedProfile`, sets it as a new user's `primaryEmail` when no other user has it. The deprecated `/api/interaction` API does the same in `packages/core/src/routes/interaction/actions/helpers.ts`.\n\nApple includes the `email` claim in the ID token on every authorization when the email scope was granted, so the form field is never needed for the email. Apple may send `email_verified` as either a boolean or the string `\"true\"`.\n",
+    "ghsa_id": "GHSA-gfg4-7mg4-wpm2",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-gfg4-7mg4-wpm2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gfg4-7mg4-wpm2"
+      }
+    ],
+    "published_at": "2026-11-09T07:00:51Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Apple connector trusts the unsigned user.email form field, allowing account takeover",
+    "updated_at": "2026-11-09T07:00:52Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/connector-apple"
+        },
+        "patched_versions": "1.6.11",
+        "vulnerable_version_range": ">= 1.2.0, <= 1.6.10"
+      },
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "logto-io/logto"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": ">= 1.14.0, <= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

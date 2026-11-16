@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-pfc5-x523-xcj4",
+  "aliases": [],
+  "title": "Webhook Credential Exposure via Plugin List Endpoint",
+  "summary": "### Summary\n\nThe webhook plugin listing endpoint returned every configured notification plugin's stored configuration, including plaintext Slack, Teams, Discord and Mattermost incoming-webhook URLs, to any workspace-level collaborator.\n\n### Details\n\nNotification and storage plugins are an instance-wide administrative resource: the plugin list, read, update and test operations in `plugins.controller.ts` are all declared at organization scope and resolve only through the super-admin wildcard grant. The webhook listing route was a second, independently wired read over the same plugin rows, returning them unredacted, but it was declared at workspace scope and granted to the workspace Creator role in `acl.ts` - so the authorization middleware never evaluated an organization role for it.\n\n### Impact\n\nAn authenticated user holding the Creator role on any workspace could read every notification webhook URL configured on the instance in plaintext, with no organization role, super-admin privilege, or access to the bases those notifications belong to. Those URLs are bearer-token equivalents and can be replayed directly against the messaging provider, outside NocoDB entirely, to post arbitrary messages into the organization's real chat channels.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team).",
+  "published_at": "2026-11-02T08:48:02.000Z",
+  "modified_at": "2026-11-02T08:48:02.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.09.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-pfc5-x523-xcj4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-pfc5-x523-xcj4",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-pfc5-x523-xcj4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:d11a1e15247580968d572419c87a3b964ea8760f392380257bb136312d0fdcae",
+  "note": null
+}

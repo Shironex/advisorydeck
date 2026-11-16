@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-c75c-5hc7-j4vp",
+  "repo": {
+    "cve_id": "CVE-2026-55759",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-294"
+    ],
+    "description": "Rocket.Chat's Apple Sign-In handler verifies JWT signatures but skips claims validation. Any Apple-signed JWT with a non-empty `iss` is accepted regardless of `aud`, `exp`, `nbf`, or `nonce`. An attacker who obtains a target user's Apple identity token (from server logs, an intercepted sign-in flow, or another application sharing the same Apple developer team) can replay it to authenticate as that user, with no expiration on the replay window.\r\n\r\n## The defect\r\n\r\nThe signature verification and claims handling both live in `apps/meteor/app/apple/lib/handleIdentityToken.ts`.\r\n\r\nLine 24:\r\n\r\n​```ts\r\nreturn KJUR.jws.JWS.verify(identityToken, userKey, ['RS256']);\r\n​```\r\n\r\nThe jsrsasign API exposes two distinct functions: `JWS.verify` validates the signature only, and `JWS.verifyJWT` validates signature plus claims (`iss`, `aud`, `exp`, `nbf`). This handler uses `JWS.verify`.\r\n\r\nLines 41-42, after the decoded payload is parsed:\r\n\r\n​```ts\r\nconst { iss, sub } = decodedToken.payloadObj as any;\r\nif (!iss) {\r\n​```\r\n\r\nThis is the only post-verification claim check. `iss` is asserted truthy but is never compared against `https://appleid.apple.com`. There is no `aud` check, no `exp` check, no `nbf` check, and no `nonce` binding anywhere in the function.\r\n\r\nLine 48 spreads the entire decoded payload into `serviceData`:\r\n\r\n​```ts\r\n...decodedToken.payloadObj,\r\n​```\r\n\r\nand the function returns `serviceData` at line 51.\r\n\r\nThree call sites consume the result and pass it to `Accounts.updateOrCreateUserFromExternalService`:\r\n\r\n- `apps/meteor/app/apple/server/loginHandler.ts:19` (primary login flow), reaching `Accounts.updateOrCreateUserFromExternalService('apple', serviceData, { profile })` at line 32.\r\n- `apps/meteor/app/apple/server/AppleCustomOAuth.ts:19` (custom OAuth flow).\r\n- `apps/meteor/app/apple/server/appleOauthRegisterService.ts:69` (profile-link flow), reaching `Accounts.updateOrCreateUserFromExternalService` at line 80.\r\n\r\nNo upstream layer enforces the missing claims.",
+    "ghsa_id": "GHSA-c75c-5hc7-j4vp",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-c75c-5hc7-j4vp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-c75c-5hc7-j4vp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55759"
+      }
+    ],
+    "published_at": "2026-06-16T09:27:12Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Apple Sign-In skips JWT claims validation, allowing expired and cross-audience token replay",
+    "updated_at": "2026-06-17T14:42:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.5.1, 8.4.4, 8.3.6, 8.2.6, 8.1.6, 8.0.7, 7.10.13",
+        "vulnerable_version_range": "<8.5.1, <8.4.4, <8.3.6, <8.2.6, <8.1.6, <8.0.7, <7.10.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

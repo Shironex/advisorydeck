@@ -1,0 +1,107 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-33414",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.8,
+        "vector_string": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 4,
+        "vector_string": "CVSS:4.0/AV:L/AC:H/AT:N/PR:H/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N/E:U"
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\n\nA command injection vulnerability exists in Podman's HyperV machine backend. The VM image path is inserted into a PowerShell double-quoted string without sanitization, allowing `$()` subexpression injection.\n\n## Affected Code\n\n**File**: `pkg/machine/hyperv/stubber.go:647`\n\n```go\nresize := exec.Command(\"powershell\", []string{\n    \"-command\",\n    fmt.Sprintf(\"Resize-VHD \\\"%s\\\" %d\", imagePath.GetPath(), newSize.ToBytes()),\n}...)\n```\n\n\n\n## Root Cause\n\nPowerShell evaluates `$()` subexpressions inside double-quoted strings before executing the outer command. The `fmt.Sprintf` call places the user-controlled image path directly into double quotes without escaping or sanitization.\n\n## Impact\n\nAn attacker who can control the VM image path (through a crafted machine name or image directory) can execute arbitrary PowerShell commands with the privileges of the Podman process on the Windows host. On typical Windows installations, this means SYSTEM-level code execution.\n\n\n## Patch\n\nhttps://github.com/containers/podman/commit/571c842bd357ee626019ea97d030fb772fc654ed\n\nThe affected code is only used on Windows, all other operating systems are not affected by this and can thus ignore the CVE patch.\n\n## Credit\n\nWe like to thank Sang-Hoon Choi (@KoreaSecurity) for reporting this issue to us.",
+    "ghsa_id": "GHSA-hc8w-h2mf-hp59",
+    "html_url": "https://github.com/advisories/GHSA-hc8w-h2mf-hp59",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hc8w-h2mf-hp59"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33414"
+      }
+    ],
+    "published_at": "2026-04-14T22:30:24Z",
+    "references": [
+      "https://github.com/containers/podman/security/advisories/GHSA-hc8w-h2mf-hp59",
+      "https://github.com/containers/podman/commit/571c842bd357ee626019ea97d030fb772fc654ed",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-33414",
+      "https://github.com/advisories/GHSA-hc8w-h2mf-hp59"
+    ],
+    "severity": "medium",
+    "summary": "PowerShell Command Injection in Podman HyperV Machine",
+    "updated_at": "2026-04-27T16:31:36Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v4"
+        },
+        "vulnerable_version_range": ">= 4.8.0, <= 4.9.5"
+      },
+      {
+        "first_patched_version": "5.8.2",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman/v5"
+        },
+        "vulnerable_version_range": "<= 5.8.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hc8w-h2mf-hp59",
+  "repo": {
+    "cve_id": "CVE-2026-33414",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-78"
+    ],
+    "description": "## Summary\r\n\r\nA command injection vulnerability exists in Podman's HyperV machine backend. The VM image path is inserted into a PowerShell double-quoted string without sanitization, allowing `$()` subexpression injection.\r\n\r\n## Affected Code\r\n\r\n**File**: `pkg/machine/hyperv/stubber.go:647`\r\n\r\n```go\r\nresize := exec.Command(\"powershell\", []string{\r\n    \"-command\",\r\n    fmt.Sprintf(\"Resize-VHD \\\"%s\\\" %d\", imagePath.GetPath(), newSize.ToBytes()),\r\n}...)\r\n```\r\n\r\n\r\n\r\n## Root Cause\r\n\r\nPowerShell evaluates `$()` subexpressions inside double-quoted strings before executing the outer command. The `fmt.Sprintf` call places the user-controlled image path directly into double quotes without escaping or sanitization.\r\n\r\n## Impact\r\n\r\nAn attacker who can control the VM image path (through a crafted machine name or image directory) can execute arbitrary PowerShell commands with the privileges of the Podman process on the Windows host. On typical Windows installations, this means SYSTEM-level code execution.\r\n\r\n\r\n## Patch\r\n\r\nhttps://github.com/containers/podman/commit/571c842bd357ee626019ea97d030fb772fc654ed\r\n\r\nThe affected code is only used on Windows, all other operating systems are not affected by this and can thus ignore the CVE patch.\r\n\r\n## Credit\r\n\r\nWe like to thank Sang-Hoon Choi (@KoreaSecurity) for reporting this issue to us.\r\n\r\n",
+    "ghsa_id": "GHSA-hc8w-h2mf-hp59",
+    "html_url": "https://github.com/podman-container-tools/podman/security/advisories/GHSA-hc8w-h2mf-hp59",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hc8w-h2mf-hp59"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-33414"
+      }
+    ],
+    "published_at": "2026-04-14T13:27:34Z",
+    "references": [],
+    "severity": "low",
+    "summary": "PowerShell Command Injection in Podman HyperV Machine",
+    "updated_at": "2026-04-14T13:27:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/containers/podman"
+        },
+        "patched_versions": "v5.8.2",
+        "vulnerable_version_range": ">= v4.8.0, <= v5.8.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "podman-container-tools/podman"
+}

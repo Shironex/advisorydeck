@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-cpgj-f7g3-2pp2",
+  "repo": {
+    "cve_id": "CVE-2026-49859",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.2,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-693",
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nWhen `fetch()` was called, Deno checked the destination hostname against\r\n`--deny-net` rules but did not re-check the IP addresses that hostname\r\nresolved to. An attacker-controlled script could use a specially crafted domain\r\nname that passes the hostname check yet resolves to a denied IP, bypassing the\r\nnetwork restriction entirely.\r\n\r\n## Impact\r\n\r\nCode running under `--deny-net` could reach hosts that the user intended to\r\nblock. In practice this means network isolation rules - for example, blocking\r\naccess to `localhost` or internal services - could be silently circumvented by\r\na malicious or compromised dependency.\r\n\r\nA companion advisory covers the same class of issue in the WebSocket API.\r\n\r\n## Who is affected\r\n\r\nUsers who:\r\n\r\n- run untrusted or third-party code with `deno run`, and\r\n- rely on `--deny-net` to restrict which hosts that code can reach.\r\n\r\nIf you do not use `--deny-net`, or if you only run fully trusted code, you are\r\nnot affected.\r\n\r\n## Workaround\r\n\r\nNo workaround is available short of upgrading. If upgrading immediately is not\r\npossible, avoid granting `--allow-net` to untrusted code that also has\r\n`--deny-net` restrictions you depend on for security.\r\n\r\n## Fix\r\n\r\nThe `fetch()` DNS resolver now performs a post-resolution check on every IP\r\naddress before passing it to the HTTP connector, consistent with how\r\n`Deno.connect` already behaved.\r\n",
+    "ghsa_id": "GHSA-cpgj-f7g3-2pp2",
+    "html_url": "https://github.com/denoland/deno/security/advisories/GHSA-cpgj-f7g3-2pp2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cpgj-f7g3-2pp2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-49859"
+      }
+    ],
+    "published_at": "2026-05-27T13:07:52Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "`fetch()` API sandbox bypass via missing DNS resolution check",
+    "updated_at": "2026-06-02T19:28:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "deno"
+        },
+        "patched_versions": "2.8.1",
+        "vulnerable_version_range": "<= 2.8.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "denoland/deno"
+}

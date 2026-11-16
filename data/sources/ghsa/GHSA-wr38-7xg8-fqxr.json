@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-wr38-7xg8-fqxr",
+  "repo": {
+    "cve_id": "CVE-2026-49443",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nAn attacker with the ability to change a source connection, and an account in one of the configured sources can log into any account.\r\n\r\n### Details\r\nThe `UserSourceConnectionSerializer` and `GroupSourceConnectionSerializer` do not mark these fields as `read_only`.\r\n\r\n### PoC (for `UserSourceConnection`)\r\n\r\nPrerequisites:\r\n1. Have access to an account in one source\r\n2. Have `(add|change)_usersourceconnection` either globally or on any `UserSourceConnection` object.\r\n\r\nProcess:\r\n1. Get the pk of an admin account.\r\n2. Add/change a `UserSourceConnection` object to have the admin user as `user`, `source` and `identifier` to point to the attacker-accessible account.\r\n3. Log in and enjoy your admin privileges.\r\n\r\n### Impact\r\n`UserSourceConnection.user` and `GroupSourceConnection.group` are changeable through the API. This lets attackers with low privilege (`*_usersourceconnection`, `*_group*sourceconnection`) misrepresent users/groups as if they were coming from a specific source, with a specific identifier, then authenticate as the victim through that source and identifier.\r\n",
+    "ghsa_id": "GHSA-wr38-7xg8-fqxr",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-wr38-7xg8-fqxr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wr38-7xg8-fqxr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-49443"
+      }
+    ],
+    "published_at": "2026-05-28T14:00:27Z",
+    "references": [],
+    "severity": "high",
+    "summary": "`UserSourceConnection.user` and `GroupSourceConnection.group` are changeable through the API",
+    "updated_at": "2026-05-30T05:32:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2025.12.6",
+        "vulnerable_version_range": "<=2025.12.5"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.4",
+        "vulnerable_version_range": "<=2026.2.3"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.5.1",
+        "vulnerable_version_range": "<=2026.5.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

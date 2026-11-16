@@ -1,0 +1,79 @@
+{
+  "global": null,
+  "id": "GHSA-hm3r-4cg2-22xx",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22",
+      "CWE-59"
+    ],
+    "description": "### Summary\r\n\r\nThe Coder Agents `read_skill_file` tool reads supporting files from a skill's directory in the workspace. It checked the requested path lexically, then read the file through the workspace agent's general file reader, which follows symbolic links. A supporting file that was a symlink to a file outside the skill directory returned that file's contents to the model.\r\n\r\n> **Note:** Only deployments using Coder Agents with workspace skills are affected. Release line 2.29 does not include skills and is not affected.\r\n\r\n### Details\r\n\r\n`validateSkillFilePath` in `coderd/x/chatd/chattool/skill.go` rejected absolute paths, `..` components and hidden components, but did not resolve symlinks. `LoadSkillFile` then joined the skill directory and the requested path and passed the result to the agent's `read-file` endpoint, which opened it with no check that the resolved file stayed inside the skill directory.\r\n\r\n### Impact\r\n\r\nA malicious or compromised skill could include an innocent-looking supporting file that is a symlink to another file in the workspace, and instruct the model to read it with `read_skill_file`. The target file's contents would then enter the model context and chat history.\r\n\r\nThe read is limited to files the workspace agent's user can already read inside that workspace. It does not cross workspaces, escape the container or reach the host. An attacker needs a way to place a malicious skill in the victim's workspace, and the victim needs to run a chat that uses it.\r\n\r\n### Patches\r\n\r\nThe agent's `read-file` endpoint now accepts an optional `root` parameter, and `read_skill_file` reads supporting files through it. The agent opens the skill directory with Go's `os.OpenRoot` and the file with `Root.Open`, which follows symlinks only while they stay inside the directory. Absolute symlinks, links that climb out of the skill directory, and a skill directory that is itself a symlink are refused. Relative symlinks that stay inside the skill directory still work.\r\n\r\nThis is a behavior change: workspaces running an agent older than the patched release reject the new parameter, so `read_skill_file` fails until the workspace is restarted with the updated agent.\r\n\r\nThe fix was backported to the following release lines:\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.39 (Mainline) | [v2.39.0](https://github.com/coder/coder/releases/tag/v2.39.0) |\r\n| 2.38 (Stable) | [v2.38.5](https://github.com/coder/coder/releases/tag/v2.38.5) |\r\n| 2.37 (Security Support) | [v2.37.9](https://github.com/coder/coder/releases/tag/v2.37.9) |\r\n| 2.36 | [v2.36.12](https://github.com/coder/coder/releases/tag/v2.36.12) |\r\n| 2.34 (ESR) | [v2.34.17](https://github.com/coder/coder/releases/tag/v2.34.17) |\r\n\r\nRelease lines 2.32, 2.33 and 2.35 are end-of-life and will not receive a patch. Users on these lines should upgrade to a patched release.\r\n\r\n### Workarounds\r\n\r\nUntil you upgrade, only install skills from trusted sources, and review skill directories for symbolic links.\r\n\r\n### References\r\n\r\n- Fix: https://github.com/coder/coder/pull/31462\r\n\r\n### Credits\r\n\r\nWe'd like to thank a customer security team for reporting this issue.",
+    "ghsa_id": "GHSA-hm3r-4cg2-22xx",
+    "html_url": "https://github.com/coder/coder/security/advisories/GHSA-hm3r-4cg2-22xx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hm3r-4cg2-22xx"
+      }
+    ],
+    "published_at": "2026-11-04T13:34:34Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Coder Agents read_skill_file could follow symlinks outside the skill directory",
+    "updated_at": "2026-11-04T13:34:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.38.5",
+        "vulnerable_version_range": ">= 2.38.0, < 2.38.5"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.37.9",
+        "vulnerable_version_range": ">= 2.37.0, < 2.37.9"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.36.12",
+        "vulnerable_version_range": ">= 2.36.0, < 2.36.12"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "2.34.17",
+        "vulnerable_version_range": ">= 2.32.0, < 2.34.17"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/coder/coder/v2"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": ">= 2.35.0, < 2.36.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "coder/coder"
+}

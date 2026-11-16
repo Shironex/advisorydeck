@@ -1,0 +1,67 @@
+{
+  "id": "GHSA-9h3q-h2rh-35gg",
+  "aliases": [],
+  "title": "Crafted workspace agent RPC calls could crash coderd",
+  "summary": "### Summary\r\nA workspace agent could crash the Coder server (`coderd`) by sending certain calls over the agent API connection. A user with access to a workspace could use the agent token inside it to repeatedly crash `coderd` and disrupt the deployment for other users.\r\n\r\n### Details\r\nSeveral handlers reachable from the agent API connection could panic on input from the agent:\r\n\r\n- `UpdateLifecycle`, `UpdateStartup` and `BatchUpdateMetadata` read fields of the request's sub-message without checking that it was set, so a message without the sub-message caused a nil pointer dereference.\r\n- The agent connection also exposed the Tailnet `RefreshResumeToken` and `WorkspaceUpdates` calls, which agents don't use. Their providers aren't set up on agent connections, so calling them caused a nil pointer dereference.\r\n\r\nThe agent API is served over dRPC, which did not recover from panics in handlers, so any of these panics stopped the whole `coderd` process.\r\n\r\n### Impact\r\nAn attacker with a workspace agent token could crash `coderd` with a single call, and repeat it to keep the deployment unavailable. This affects availability only. No data is exposed or modified.\r\n\r\nThe impact is limited in several ways. The attacker needs access to a workspace, and the agent token identifies that workspace and its owner. An administrator can stop the attack by stopping the workspace, which invalidates its agent token, and suspending the user so they can't start it again. `coderd` normally restarts automatically after a crash, so each crash causes a short outage. In deployments with multiple `coderd` replicas, each crash affects only the replica the agent is connected to.\r\n\r\n### Patches\r\nCoder now recovers from panics in its dRPC handlers, so a bad call fails only that request and `coderd` keeps running. Agent connections also no longer expose the unsupported Tailnet calls. Later releases additionally reject agent API messages with a missing sub-message with an `InvalidArgument` error.\r\n\r\n| Release line | Patched version |\r\n|---|---|\r\n| 2.39 (Mainline) | [v2.39.0](https://github.com/coder/coder/releases/tag/v2.39.0) |\r\n| 2.38 (Stable) | [v2.38.0](https://github.com/coder/coder/releases/tag/v2.38.0) |\r\n| 2.37 (Security Support) | [v2.37.1](https://github.com/coder/coder/releases/tag/v2.37.1) |\r\n| 2.34 (ESR) | [v2.34.10](https://github.com/coder/coder/releases/tag/v2.34.10) |\r\n| 2.29 (ESR) | [v2.29.21](https://github.com/coder/coder/releases/tag/v2.29.21) |\r\n\r\nRelease lines 2.30 to 2.33, 2.35 and 2.36 are end-of-life. 2.35 and 2.36 received the fix in v2.35.8 and v2.36.5. Users on any end-of-life line should upgrade to a patched release.\r\n\r\n### Workarounds\r\nNone. Upgrade to a patched release.\r\n\r\n### References\r\n- https://github.com/coder/coder/pull/28429\r\n- https://github.com/coder/coder/pull/29150\r\n\r\n### Credits\r\nWe'd like to thank a customer security team for reporting this issue.",
+  "published_at": "2026-11-06T11:39:21.000Z",
+  "modified_at": "2026-11-06T11:39:21.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-248",
+    "CWE-476"
+  ],
+  "affected": [
+    {
+      "product": "coder",
+      "ranges": [
+        {
+          "introduced": "2.37.0",
+          "fixed": "2.37.1"
+        },
+        {
+          "introduced": "2.36.0",
+          "fixed": "2.36.5"
+        },
+        {
+          "introduced": "2.35.0",
+          "fixed": "2.35.8"
+        },
+        {
+          "introduced": "2.30.0",
+          "fixed": "2.34.10"
+        },
+        {
+          "introduced": "2.0.0",
+          "fixed": "2.29.21"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-9h3q-h2rh-35gg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-9h3q-h2rh-35gg",
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-9h3q-h2rh-35gg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ed8a84e1c9b00ea9e5c264a0648a0d40805aeeb88e863a1ae9ff4b49c7ccf04a",
+  "note": null
+}

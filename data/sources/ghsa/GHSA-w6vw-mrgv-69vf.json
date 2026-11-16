@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-w6vw-mrgv-69vf",
+  "repo": {
+    "cve_id": "CVE-2026-28514",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287"
+    ],
+    "description": "### Issue 1: Users can login with any password via the EE ddp-streamer-service `GHSL-2026-004`)\r\n\r\nA critical authentication bypass vulnerability exists in Rocket.Chat's account service used in the `ddp-streamer` micro service that allows an attacker to log in to the service as any user with a password set, using any arbitrary password. The vulnerability stems from a missing `await` keyword when calling an asynchronous password validation function, causing a Promise object (which is always truthy) to be evaluated instead of the actual boolean validation result. This may lead to account takeover of any user whose username is known or guessable.\r\n\r\nThe vulnerability originates from improper handling of asynchronous password validation in the authentication flow:\r\n\r\n1. **Password Validation Function** - [ee/apps/account-service/src/lib/utils.ts](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/account-service/src/lib/utils.ts#L60-L61)\r\n\r\n   The `validatePassword` function returns a `Promise<boolean>` by calling `bcrypt.compare()`:\r\n   ```typescript\r\n   export const validatePassword = (password: string, bcryptPassword: string): Promise<boolean> =>\r\n       bcrypt.compare(getPassword(password), bcryptPassword);\r\n   ```\r\n\r\n2. **Missing Await in Login Logic** - [ee/apps/account-service/src/lib/loginViaUsername.ts](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/account-service/src/lib/loginViaUsername.ts#L18-L21)\r\n\r\n   The critical flaw occurs when `validatePassword` is called without `await`:\r\n   ```typescript\r\n   const valid = user.services?.password?.bcrypt && validatePassword(password, user.services.password.bcrypt);\r\n\r\n   if (!valid) {\r\n       return false;\r\n   }\r\n   ```\r\n\r\nSince a Promise object is always truthy in JavaScript, the condition `!valid` is never true when a bcrypt hash exists, bypassing password validation entirely.\r\n\r\nThe vulnerability is externally reachable through the [`login`](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/ddp-streamer/src/configureServer.ts#L67-L88) method exposed by the ddp-streamer micro service (reachable via `<rocketchat-host>/websocket`):\r\n\r\n```typescript\r\n   server.methods({\r\n       async login(resume, user, password) {\r\n           const result = await Account.login({ resume, user, password });\r\n           // ...\r\n       }\r\n   });\r\n```\r\n\r\n#### Impact\r\n\r\nThis issue leads to attackers being able to interact with available DDP methods, which may lead to account takeover depending on the attack path.\r\n\r\n#### Remediation\r\n\r\nAdd the missing `await` to the [`validatePassword`](https://github.com/RocketChat/Rocket.Chat/blob/05c415b94cb91907de39a39c6d277579258f334e/ee/apps/account-service/src/lib/loginViaUsername.ts#L18) call.\r\nEnable strict TypeScript compiler options to catch unawaited promises (`@typescript-eslint/no-floating-promises`)\r\n\r\n#### CWEs\r\n\r\n- CWE-287: Improper Authentication\r\n\r\n## Credit\r\n\r\nThese issues were discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [@p- (Peter Stöckli)](https://github.com/p-) and [@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo).\r\n\r\n## Contact\r\n\r\nYou can contact the GHSL team at `securitylab@github.com`, please include a reference to `GHSL-2026-004` or `GHSL-2026-005` in any communication regarding these issues.\r\n\r\n## Disclosure Policy\r\n\r\nThis report is subject to a 90-day disclosure deadline, as described in more detail in our [coordinated disclosure policy](https://securitylab.github.com/advisories#policy).",
+    "ghsa_id": "GHSA-w6vw-mrgv-69vf",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-w6vw-mrgv-69vf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-w6vw-mrgv-69vf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28514"
+      }
+    ],
+    "published_at": "2026-03-05T19:49:21Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Users can login with any password via the EE ddp-streamer-service",
+    "updated_at": "2026-03-05T19:49:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.0.0, 7.13.3, 7.12.4, 7.11.4, 7.10.7, 7.9.8, 7.8.6",
+        "vulnerable_version_range": "< 8.0.0, < 7.13.3, < 7.12.4, < 7.11.4, < 7.10.7, < 7.9.8, < 7.8.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

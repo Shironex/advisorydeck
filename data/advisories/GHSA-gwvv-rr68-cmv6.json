@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-gwvv-rr68-cmv6",
+  "aliases": [],
+  "title": "Unauthenticated persistent Denial of Service via prototype pollution in the `deep` query parameter",
+  "summary": "## Summary\r\n\r\nA single unauthenticated `GET` request to the Directus items API can crash the Node.js process and keep it down. The\r\n`deep` query parameter, when supplied as a JSON string, is parsed and its keys are used to build an object path that is\r\nwritten with a prototype-walking setter, with no validation of the key names. A crafted payload uses inherited built-in\r\nmethod names (rather than `__proto__`, `constructor`, or `prototype`) to corrupt a shared JavaScript built-in. Directus\r\nlater invokes that built-in in its logging path, which now throws outside any request handler and terminates the server.\r\nThe instance stays down until it is restarted, and the same request kills it again.\r\n\r\n## Details\r\n\r\nThe `deep` sanitization runs inside the global query-sanitization middleware, which executes before any per-collection\r\npermission check. A missing token is admitted as the `public` role without throwing, so the vulnerable code path is\r\nreached by a completely unauthenticated request, and even for a collection that does not exist.\r\n\r\nWhen `deep` is provided as a JSON string it is parsed and walked key-by-key into an object path, which is then written\r\nwith a setter that traverses and reuses inherited properties. Because the setter follows the prototype chain, a path\r\nbuilt from attacker-controlled keys named after inherited built-in methods reads the corresponding function on the\r\nprototype and overwrites one of its properties. This corrupts a shared built-in that is used pervasively across Node.js\r\nand Directus's logging stack. The next time that built-in is invoked (on response finalization, outside the request\r\ntry/catch), it throws an unhandled error and the process exits.\r\n\r\nNotably:\r\n\r\n- The write never touches `__proto__`, `constructor`, or `prototype`, so blocklists that only cover those three keys do\r\n  not apply. Several other built-in names are reachable in the same way.\r\n- Query-string bracket notation is not a viable delivery vector because the underlying query parser strips\r\n  prototype-named bracket keys by default. Supplying `deep` as an opaque JSON string bypasses that protection, because\r\n  the string is only parsed later, inside the sanitization routine, which does not strip prototype-named keys.\r\n\r\nCWE-1321 (Improperly Controlled Modification of Object Prototype Attributes / Prototype Pollution) leading to CWE-400\r\n(Uncontrolled Resource Consumption / Denial of Service).\r\n\r\n## Impact\r\n\r\n- **Complete, persistent Denial of Service from one unauthenticated request.** The Node process exits, so the admin app\r\n  and the entire API stay offline until an operator restarts the server.\r\n- **Unauthenticated and pre-authorization.** The request is admitted as `public`, and the vulnerable code runs before\r\n  any permission decision, so no public-read configuration, token, seeded data, or non-default settings are required.\r\n- **Re-triggerable.** Process supervisors (pm2, systemd, Docker `restart: always`) bring the server back, but the same\r\n  request kills it again, keeping the instance in a crash loop.\r\n\r\n## References\r\n\r\n- Fix: https://github.com/directus/directus/pull/27992\r\n- GHSA-gwvv-rr68-cmv6\r\n\r\n## Credits\r\n\r\nReported by Positive Security (https://positive.security/)",
+  "published_at": "2026-08-20T16:44:55.000Z",
+  "modified_at": "2026-08-20T16:44:55.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-1321"
+  ],
+  "affected": [
+    {
+      "product": "directus",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "12.2.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-gwvv-rr68-cmv6",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-gwvv-rr68-cmv6",
+      "url": "https://github.com/directus/directus/security/advisories/GHSA-gwvv-rr68-cmv6",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6eb6345117e5a3be9c601aca38dac119a305356015036e8f59d73cadae2488aa",
+  "note": null
+}

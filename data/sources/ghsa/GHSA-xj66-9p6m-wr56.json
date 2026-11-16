@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-xj66-9p6m-wr56",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "### Summary\n\nThe precision supplied when creating or updating a column was written into the generated data-definition statement without being checked, so a crafted value could append arbitrary SQL to the statement.\n\n### Details\n\nColumn precision is placed inside the type declaration of the emitted data-definition statement. On the MySQL and SQLite clients (`MysqlClient.ts`, `SqliteClient.ts`) and in the column data backup handler, the value travelled from the request body to statement construction with no check that it was numeric, so a value that closed the type declaration turned the rest of the string into additional SQL. The PostgreSQL, SQL Server and Oracle clients were not affected, since they either omit the precision from generated statements or coerce it through integer parsing first.\n\n### Impact\n\nA user able to change a table's schema could execute arbitrary statements against the base's data source, including data-definition and data-manipulation statements well beyond the column change the API exposes. Exploitation requires an authenticated account with schema-edit permission on the base, that is the Creator or Owner base role; the Editor role and below cannot create or alter columns.\n\n### Credit\n\nThis issue was reported by [@meifukun](https://github.com/meifukun).\n",
+    "ghsa_id": "GHSA-xj66-9p6m-wr56",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xj66-9p6m-wr56",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xj66-9p6m-wr56"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:31Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "SQL Injection via Column Precision Value",
+    "updated_at": "2026-11-02T08:47:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.07.0",
+        "vulnerable_version_range": "< 2026.07.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-wcv8-x773-j96r",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:L/VI:N/VA:N/SC:H/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe GraphQL node's `Authentication` parameter accepted expression values, which caused every authentication-gated credential selector to be treated as active. When two credentials of different types were attached and the parameter was expression-valued, the node resolved the allowed-domains policy from only the first credential while still attaching the material from both. A restricted credential whose allowed-domains list would have blocked the request was therefore sent to an attacker-controlled endpoint without enforcement of its domain restriction.\n\nExploitation requires an authenticated user with workflow-authoring rights to set the `Authentication` parameter to expression mode and attach at least two credentials of different types, one of which is unrestricted. The impact is limited to the permissions of the leaked credential.\n\n## Patches\n\nThe issue has been fixed in n8n versions 1.123.69, 2.33.4, and 2.34.1. Users should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Restrict n8n instance access to fully trusted users only.\n- Audit existing workflows for GraphQL nodes where the `Authentication` parameter is set to expression mode with multiple credentials attached, and remove or reconfigure those workflows.\n- Restrict network egress from the n8n host to prevent connections to attacker-controlled endpoints.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-wcv8-x773-j96r",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-wcv8-x773-j96r",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wcv8-x773-j96r"
+      }
+    ],
+    "published_at": "2026-08-05T14:18:59Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "GraphQL Node Allowed-Domains Bypass Permits Restricted Credential Exfiltration",
+    "updated_at": "2026-08-05T14:18:59Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 1.123.69",
+        "vulnerable_version_range": "< 1.123.69"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.34.1",
+        "vulnerable_version_range": "< 2.34.1"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.33.4",
+        "vulnerable_version_range": "< 2.33.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-3rj6-rvwh-j2xg",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1021"
+    ],
+    "description": "### Summary\n\nApplication responses carried no frame-control headers, so the authenticated NocoDB interface could be embedded in a page hosted on any other origin and used for clickjacking.\n\n### Details\n\nNeither an `X-Frame-Options` header nor a Content-Security-Policy `frame-ancestors` directive was emitted on any response. The served application shell is produced by `gui.middleware.ts`, which terminates the request before the global middleware chain runs, so the response that actually renders the authenticated interface carried no frame restriction; API responses from `global.middleware.ts` and from the on-prem variant carried none either. The application also drew no distinction between the routes that are deliberately embeddable - the shared-view and shared-base links offered as iframe snippets in the share dialog - and the rest of the interface, so nothing anywhere told a browser which origins were permitted to frame a signed-in session.\n\n### Impact\n\nA signed-in user who visits an attacker's page could have the NocoDB interface loaded transparently beneath attacker-controlled content and be induced into clicking through to actions in their own session - modifying or deleting records, changing sharing settings, or inviting a collaborator - while believing they were interacting with the attacker's page. No authentication is required to host the framing page; the only requirement is that the victim holds an active session.\n\n### Credit\n\nThis issue was reported by [@kazisabu](https://github.com/kazisabu) and [@iamshafayat](https://github.com/iamshafayat).\n",
+    "ghsa_id": "GHSA-3rj6-rvwh-j2xg",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-3rj6-rvwh-j2xg",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3rj6-rvwh-j2xg"
+      }
+    ],
+    "published_at": "2026-10-27T10:05:30Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Clickjacking via Missing Frame Control Headers",
+    "updated_at": "2026-10-27T10:05:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

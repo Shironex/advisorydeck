@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-53930",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\nThe base-migration endpoint accepted a caller-supplied URL that the migration worker\ndereferenced without enforcing protocol or destination, allowing scheme abuse\n(`file:`, `ftp:`, etc.) and probing of internal HTTP destinations.\n\n### Details\nThe `migrate` endpoint is restricted to the workspace owner role by ACL. The remaining\ngaps were (a) protocol validation - the controller now parses `body.migrationUrl` as a\n`URL` and rejects anything whose protocol is not `http:` or `https:` - and (b) private\ndestination filtering - the worker already runs through `useAgent(targetUrl)` from\n`request-filtering-agent`, which blocks RFC 1918, loopback, and link-local at the\nsocket layer.\n\n### Impact\nWith the workspace owner role, a malformed URL could be used to coerce the migration\nworker into reading local files or talking to non-HTTP services; combined with the\nHTTP-only filter, owner-supplied targets could not reach private ranges.\n\n### Credit\nThis issue was reported by Devel Group Security Research Team through [@TREXNEGRO](https://github.com/TREXNEGRO).\nIt was independently reported by [@Lihfdgjr](https://github.com/Lihfdgjr) and [@bugbunny-research (https://github.com/bugbunny-research).",
+    "ghsa_id": "GHSA-h6vv-pcq8-7xm4",
+    "html_url": "https://github.com/advisories/GHSA-h6vv-pcq8-7xm4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h6vv-pcq8-7xm4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53930"
+      }
+    ],
+    "published_at": "2026-06-17T14:08:04Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-h6vv-pcq8-7xm4",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-53930",
+      "https://github.com/advisories/GHSA-h6vv-pcq8-7xm4"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: Server-Side Request Forgery via Base Migration URL",
+    "updated_at": "2026-07-20T21:20:20Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 0.301.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-h6vv-pcq8-7xm4",
+  "repo": {
+    "cve_id": "CVE-2026-53930",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Summary\r\nThe base-migration endpoint accepted a caller-supplied URL that the migration worker\r\ndereferenced without enforcing protocol or destination, allowing scheme abuse\r\n(`file:`, `ftp:`, etc.) and probing of internal HTTP destinations.\r\n\r\n### Details\r\nThe `migrate` endpoint is restricted to the workspace owner role by ACL. The remaining\r\ngaps were (a) protocol validation - the controller now parses `body.migrationUrl` as a\r\n`URL` and rejects anything whose protocol is not `http:` or `https:` - and (b) private\r\ndestination filtering - the worker already runs through `useAgent(targetUrl)` from\r\n`request-filtering-agent`, which blocks RFC 1918, loopback, and link-local at the\r\nsocket layer.\r\n\r\n### Impact\r\nWith the workspace owner role, a malformed URL could be used to coerce the migration\r\nworker into reading local files or talking to non-HTTP services; combined with the\r\nHTTP-only filter, owner-supplied targets could not reach private ranges.\r\n\r\n### Credit\r\nThis issue was reported by Devel Group Security Research Team through [@TREXNEGRO](https://github.com/TREXNEGRO).\r\nIt was independently reported by [@Lihfdgjr](https://github.com/Lihfdgjr) and [@bugbunny-research (https://github.com/bugbunny-research).\r\n",
+    "ghsa_id": "GHSA-h6vv-pcq8-7xm4",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-h6vv-pcq8-7xm4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-h6vv-pcq8-7xm4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53930"
+      }
+    ],
+    "published_at": "2026-06-13T11:24:02Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Server-Side Request Forgery via Base Migration URL",
+    "updated_at": "2026-06-13T11:24:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

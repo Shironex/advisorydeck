@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-x58f-9m57-qc4m",
+  "repo": {
+    "cve_id": "CVE-2026-73484",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-184"
+    ],
+    "description": "### Summary\r\nThe `pythonCodeValidator.ts` uses a denylist approach to prevent malicious Python execution inside Pyodide. However, this denylist misses native Pandas DataFrame methods (such as `to_csv`, `to_json`, `pipe`, and `query`). An authenticated user interacting with the CSVAgent can trick the LLM into generating these allowed Pandas methods, escaping the intended sandbox restrictions to achieve arbitrary data exfiltration and server filesystem writes.\r\n\r\n### Details\r\nThe core vulnerability lies in `packages/components/src/pythonCodeValidator.ts`. The validator relies on 44 regex patterns to block dangerous strings like `eval()`, `exec()`, `os.`, and `subprocess.`.\r\n\r\nBecause the CSVAgent uses Pandas by default, an attacker can bypass the validator entirely by utilizing Pandas native methods. The validator does not block `df.to_csv()`, `df.to_json()`, `df.query()`, or `df.pipe()`. Because Pyodide executes whatever passes the validator, an attacker can write arbitrary CSV data to the host filesystem or dump all uploaded data.\r\n\r\n### PoC\r\n1. We extracted the exact 44 regex rules from `pythonCodeValidator.ts`.\r\n2. We tested the following payloads, and **all of them successfully bypass the validator**:\r\n\r\n```python\r\n# Bypass 1: Writes arbitrary CSV data to the server's filesystem\r\ndf.query(\"Age > 20\")[\"Name\"].to_csv(\"/tmp/exfil_data.csv\")\r\n\r\n# Bypass 2: Dumps the entire dataset (full exfiltration)\r\ndf.to_json()\r\n\r\n# Bypass 3: Executes arbitrary expressions inside query\r\nresult = df.query(\"Name == Name\")[\"Age\"].sum()\r\n```\r\n\r\nWhen an attacker prompts the CSVAgent with *\"Save the results to a file for me\"*, the LLM naturally generates `df.to_csv(\"/tmp/exfil.csv\")`. This passes the validator and Pyodide executes the file write.\r\n\r\n### Impact\r\nThis is a Sandbox Escape leading to data exfiltration and arbitrary file writes to the host filesystem. Any authenticated user who can interact with a CSVAgent or upload a CSV can extract all dataset records or write files to the server.\r\n",
+    "ghsa_id": "GHSA-x58f-9m57-qc4m",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-x58f-9m57-qc4m",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x58f-9m57-qc4m"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-73484"
+      }
+    ],
+    "published_at": "2026-07-29T21:08:47Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Authenticated Sandbox Escape and Data Exfiltration via Pandas Methods Bypass in pythonCodeValidator",
+    "updated_at": "2026-08-20T17:46:24Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

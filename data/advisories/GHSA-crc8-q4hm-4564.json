@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-crc8-q4hm-4564",
+  "aliases": [],
+  "title": "Third-party application with only the openid scope can set an initial password on a passwordless, email-less, phone-less account, enabling account takeover",
+  "summary": "### Summary\r\n\r\nA third-party OIDC application holding an access token with **only the `openid` scope** could set an initial password on a Logto user account that had no password, no primary email, and no primary phone - without a `logto-verification-id` header or any other security verification.\r\n\r\n`POST /api/my-account/password` deliberately skips the verification-record requirement when the account has no existing credential to verify against, so that a social-only or SSO-only user can establish a first password. The exception was correct for its intended caller, the first-party Account Center. But nothing on the route distinguished a first-party caller from a third-party one:\r\n\r\n- `koaOidcAuth` gates the whole user router on the `openid` scope alone, and `openid` is unconditionally part of every third-party client's scopes.\r\n- This route has no claim-scope check at all - it is the one Account API route where the scope column is empty. Not even `profile` or `email` is required.\r\n\r\nThe result is that a plain `openid` authorization, the minimum any OIDC client asks for and the one users are least likely to scrutinize on the consent screen, carried a latent credential-enrollment capability. Once the password exists the exception closes and further changes require verification, so the window is one-shot - but one shot is enough, because the attacker chooses the password and can then sign in directly as the user through the normal username/password flow.\r\n\r\n### Preconditions\r\n\r\n**This is not exploitable against a default installation, and it is not a consent bypass or an unauthenticated issue.** All of the following must hold:\r\n\r\n1. **Account Center is enabled for the tenant.** It ships disabled - `account_centers.enabled` is seeded `false` for every non-admin tenant. While it is off, every Account API route returns `400 account_center.not_enabled` regardless of the caller.\r\n2. **The `password` field is set to `Edit`** in the Account Center field controls. Field controls are seeded empty, so this defaults to off and an admin has to switch it on.\r\n3. **The tenant admin registered the attacker's application as a third-party application** in the tenant.\r\n4. **The end user completed the consent screen** for that application.\r\n5. **The victim account has no password, no primary email, and no primary phone** - the eligibility condition for the initial-password exception. In practice this means a pure social or enterprise-SSO user who has never set a password or verified a contact identifier. Every other account is protected: the same request against an account with any one of those returns `401 verification_record.permission_denied`.\r\n\r\nCondition 5 is the real limiter. The affected population is a specific and usually small subset of a tenant's users, and it shrinks over time as users add identifiers.\r\n\r\n### Impact\r\n\r\nFull account takeover of an eligible user, by an application the user authorized for `openid` only.\r\n\r\nThe attacker plants a known password on the victim's account, then authenticates as that user through the ordinary username/password sign-in flow - outside the third-party application, with none of the scope restrictions that applied to the original token, and persisting after the user revokes the application's consent.\r\n\r\nReproduced end to end by the reporter on a local deployment of `@logto/core` 1.42.0: `POST /api/my-account/password` with only the third-party Bearer token, no cookies and no verification-record header, returned `204`; the password was persisted and accepted in a fresh username/password login; the same request repeated afterwards returned `401 verification_record.permission_denied`, confirming the exception had closed. No database modification was used to create the vulnerable precondition - the eligible user was produced through a normal social sign-up flow.\r\n\r\n### Related surface fixed in the same patch\r\n\r\nWhile fixing the reported route, we audited the rest of the Account API and Verification API...",
+  "published_at": "2026-09-01T07:54:52.000Z",
+  "modified_at": "2026-09-01T07:54:52.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-620",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.43.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-crc8-q4hm-4564",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-crc8-q4hm-4564",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-crc8-q4hm-4564",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:2c11c4906e14fefc7fabad17f6fe2289c2c203a3f37e713b0ba3888d104ce886",
+  "note": null
+}

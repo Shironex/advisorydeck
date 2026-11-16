@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-7jrw-539f-x6vr",
+  "repo": {
+    "cve_id": "CVE-2026-14355",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\nUsate of AES-WRAP-PAD can result in memory corruption and abort of application. \r\n\r\n### Details\r\n\r\nThe output buffer for the AES key-wrap-with-padding operation is sized from the plaintext length without accounting for RFC 5649 expansion. Key-wrap-with-pad rounds the plaintext up to the next 8-byte boundary and prepends an 8-byte AIV, so ciphertext length is roundup(len, 8) + 8, not a function of the raw input length. The zend_string PHP allocates is therefore too small for what OpenSSL's EVP_EncryptUpdate/EVP_EncryptFinal writes.\r\n\r\nOpenSSL writes the full wrapped output past the end of the undersized heap allocation, corrupting adjacent Zend MM heap metadata. This surfaces as the zend_mm_heap corrupted abort - the allocator detecting corrupted bookkeeping on a later operation, not at the moment of the overflow.\r\n\r\nFurther details in https://github.com/php/php-src/issues/22186 \r\n\r\n### Impact\r\n\r\nIf the attacker is able to find implementation using this rarely used algorithm, it can potentially abort the application and possibly cause DoS for the application.",
+    "ghsa_id": "GHSA-7jrw-539f-x6vr",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-7jrw-539f-x6vr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7jrw-539f-x6vr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-14355"
+      }
+    ],
+    "published_at": "2026-07-02T16:56:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "ext/openssl: Memory corruption (zend_mm_heap corrupted) in openssl_encrypt with AES-WRAP-PAD",
+    "updated_at": "2026-07-02T17:02:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.2.32",
+        "vulnerable_version_range": "< 8.2.32"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.3.32",
+        "vulnerable_version_range": "< 8.3.32"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.4.23",
+        "vulnerable_version_range": "< 8.4.23"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": ""
+        },
+        "patched_versions": "8.5.8",
+        "vulnerable_version_range": "< 8.5.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

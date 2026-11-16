@@ -1,0 +1,62 @@
+{
+  "global": null,
+  "id": "GHSA-qj39-pjf2-wmrc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-35"
+    ],
+    "description": "### Impact\n\nHarbor checked permissions on registry API requests (`/v2/`) against the raw request path, but served the request after `..` segments in the path were resolved. A crafted path could therefore pass the permission check for a repository the caller can access and then operate on a different repository.\n\n- **Anyone, without logging in**, can read image manifests from any project, including private ones, as long as the Harbor instance has at least one public project. Manifests contain image metadata and layer digests.\n- **Any user with push access to at least one project** can change and delete tags and manifests in any project.\n\nThe affected operations are `GET`, `HEAD`, `PUT` and `DELETE` on `/v2/<repository>/manifests/<reference>`.\n\n### Am I affected?\n\nYou are affected if you run Harbor before the fixed releases. Anonymous manifest reads require at least one public project. Changing or deleting content in other projects requires any account with push access to one project, which every user has under the default **Project Creation: Everyone** setting.\n\n### What to do\n\n**Upgrade** to Harbor v2.15.3, v2.14.5 or v2.13.6, or to v2.16.0 or later.\n\nAfter upgrading, `/v2/` requests whose path contains a `.` or `..` segment are rejected with HTTP 400. Docker, containerd, Podman and other OCI clients never send such paths, so normal use is not affected.\n\n**Until you can upgrade:**\n\n1. In the reverse proxy or ingress in front of Harbor, reject requests to `/v2/` whose path contains `/../` or `/./` segments, including percent-encoded forms (`%2e`, `%2E`).\n2. Set **Configuration > System Settings > Project Creation** to **Admin Only**, and review which users have push access.\n3. If you don't need public projects, make them private. This blocks the anonymous read path but not the write path.\n\n### Check for misuse\n\nSearch your reverse proxy, ingress or Harbor nginx access logs for `/v2/` requests containing `/../`, `/./` or `%2e`. Any such request is suspicious, because normal clients never send them.\n",
+    "ghsa_id": "GHSA-qj39-pjf2-wmrc",
+    "html_url": "https://github.com/goharbor/harbor/security/advisories/GHSA-qj39-pjf2-wmrc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-qj39-pjf2-wmrc"
+      }
+    ],
+    "published_at": "2026-10-06T13:42:41Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Path traversal vulnerability in distribution endpoints",
+    "updated_at": "2026-10-06T13:42:41Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.13.6",
+        "vulnerable_version_range": "< 2.13.6"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.14.5",
+        "vulnerable_version_range": ">= 2.14.0, < 2.14.5"
+      },
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/goharbor/harbor"
+        },
+        "patched_versions": "2.15.3, 2.16.0",
+        "vulnerable_version_range": ">= 2.15.0, < 2.15.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goharbor/harbor"
+}

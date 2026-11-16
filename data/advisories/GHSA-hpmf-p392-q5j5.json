@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-hpmf-p392-q5j5",
+  "aliases": [],
+  "title": "Consent Phishing via Unrestricted OAuth Client Registration",
+  "summary": "### Summary\n\nThe OAuth dynamic client registration endpoint is unauthenticated and accepts any HTTPS redirect\nURI, and the consent screen renders the attacker-supplied client name and logo without marking the\nclient unverified or showing where the authorization code will be delivered.\n\n### Details\n\nThe registration route carries only a public rate limiter - no session guard, no token check, no\ninitial access token - and is advertised in the server's OAuth discovery document, so it does not\nhave to be guessed. The redirect-URI validator in the dynamic-registration service accepts any\n`https:` URI as well as loopback, so an arbitrary attacker-controlled callback registers cleanly and\nreceives a unique client id. The consent component then presents `client_name` and the client logo\nwith no unverified-client warning and without displaying the redirect host, leaving the user nothing\nto distinguish a hostile client from a legitimate one. Dynamic registration exists only in the\nenterprise and cloud editions; the community edition's OAuth controller has no registration route. The consent screen now shows the host that receives the authorization code and marks every client not registered by an instance administrator as unverified, without its logo. Dynamic registration also refuses client names that begin with NocoDB, including look-alike spellings.\n\n### Impact\n\nAn unauthenticated attacker can register an OAuth client that presents itself as a trusted\napplication and obtain an authorization code from a single consent click by a workspace owner. The\ncode exchanges for an access token and a refresh token, granting persistent access to read and write\nthe victim's tables and records, read webhook and automation configuration and the integration\nendpoints it exposes, and enumerate workspaces, bases and collaborators. Exploitation requires the\nvictim to approve the consent screen, so the severity rests on how convincingly a hostile client can\nimpersonate a legitimate one.\n\n### Credit\n\nThis issue was reported by Foysal.",
+  "published_at": "2026-11-02T08:48:23.000Z",
+  "modified_at": "2026-11-02T08:48:23.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-451"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-hpmf-p392-q5j5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-hpmf-p392-q5j5",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-hpmf-p392-q5j5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7638d96a9e423cafe4b4963b10eb8df67335acc76bdfa5cff48e036eb6ac6348",
+  "note": null
+}

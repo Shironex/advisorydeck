@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-r3v3-v742-55j5",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-345",
+      "CWE-863"
+    ],
+    "description": "## Summary\r\n\r\n`GHSA-27jx-236m-3f5j` (fixed in 8.6.1) restricted `stream-notify-user`'s `allowWrite` so a client can no longer write arbitrary events directly to another user's notify-user stream (it now only accepts `video-conference` / `media-calls`). However, the sibling stream `stream-notify-room-users` still **forwards an arbitrary, caller-supplied event name to other room members' notify-user streams**, which re-opens the exact primitive GHSA-27jx set out to close - now reachable by any authenticated user who shares a room with the victim.\r\n\r\nBy writing `\"<sharedRoomId>/force_logout\"` to `stream-notify-room-users`, an attacker delivers a `force_logout` event to every other member's notify-user stream, and the client's `useForceLogout` hook wipes local auth - a repeatable, targeted logout (denial of service). The same primitive can inject other high-impact notify-user events such as `uiInteraction` (renders attacker-controlled UIKit modals/banners → UI phishing) and the fake message/notification that GHSA-27jx originally described.\r\n\r\n## Root cause\r\n\r\n`apps/meteor/server/modules/notifications/notifications.module.ts`:\r\n\r\n```ts\r\n// streamUser - the path GHSA-27jx fixed: only 'video-conference' / 'media-calls' are accepted, else return false.\r\nthis.streamUser.allowWrite(async function (eventName, data) {\r\n  const [, e] = eventName.split('/');\r\n  if (e === 'video-conference') { /* VideoConf.validateAction(...) */ }\r\n  if (e === 'media-calls')      { /* ... */ return false; }\r\n  return false;                                   // everything else rejected\r\n});\r\n\r\n// streamRoomUsers - NOT covered by the fix: the event name `e` is taken from the caller and forwarded verbatim.\r\nthis.streamRoomUsers.allowWrite(async function (eventName, ...args) {\r\n  const [roomId, e] = eventName.split('/');       // e is arbitrary at runtime (the type annotation is not a check)\r\n  if (this.userId && (await Subscriptions.countByRoomIdAndUserId(roomId, this.userId)) > 0) {\r\n    const subscriptions = await Subscriptions.findByRoomIdAndNotUserId(roomId, this.userId, {...}).toArray();\r\n    subscriptions.forEach((subscription) => self.notifyUser(subscription.u._id, e, ...args)); // forward to notify-user\r\n  }\r\n  return false;\r\n});\r\n\r\n// notifyUser emits straight onto the notify-user stream:\r\nnotifyUser(userId, eventName, ...args) { return this.streamUser.emit(`${userId}/${eventName}`, ...args); }\r\n```\r\n\r\nTwo things make it exploitable:\r\n\r\n1. **`e` is never whitelisted at runtime.** The TypeScript type says `` `${string}/video-conference` | `${string}/userData` ``, but at runtime `e = eventName.split('/')[1]` is whatever the caller sends, and it is forwarded to `notifyUser(otherMember, e, …)` → `streamUser.emit(`${otherMember}/${e}`, …)`.\r\n2. **The forward is a side-effect inside `allowWrite`.** The streamer method handler (`streamer.module.ts:244-254`) runs `isWriteAllowed()` (which invokes the `allowWrite` callback) *before* deciding to broadcast. The callback performs the `forEach notifyUser(...)` and then returns `false`. Returning `false` only suppresses the notify-room-users broadcast - the forward to notify-user has already happened.\r\n\r\nThe client acts on the injected event without validating its origin, e.g. `apps/meteor/client/views/root/hooks/loggedIn/useForceLogout.ts`:\r\n\r\n```ts\r\ngetNotifyUserStream(`${userId}/force_logout`, () => {\r\n  setForceLogout(true);\r\n  wipeLocalAuth();   // no payload/sender check - any force_logout event logs the user out\r\n});\r\n```",
+    "ghsa_id": "GHSA-r3v3-v742-55j5",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-r3v3-v742-55j5",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r3v3-v742-55j5"
+      }
+    ],
+    "published_at": "2026-08-20T20:38:34Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Arbitrary notify-user event injection via stream-notify-room-users forward (incomplete fix of GHSA-27jx)",
+    "updated_at": "2026-08-20T20:38:34Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.8.0, 8.7.2, 8.6.2, 8.5.3, 8.4.6, 8.3.8, 8.2.8, 8.1.8, 7.10.15",
+        "vulnerable_version_range": "<8.8.0, <8.7.2, <8.6.2, <8.5.3, <8.4.6, <8.3.8, <8.2.8, <8.1.8, <7.10.15"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

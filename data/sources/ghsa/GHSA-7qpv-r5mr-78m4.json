@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-7qpv-r5mr-78m4",
+  "repo": {
+    "cve_id": "CVE-2026-17543",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "`php_pgsql_convert()` is used to convert and escape user-provided parameters in `pg_insert()`, `pg_update()`, `pg_select()`, and `pg_delete()`. It does so using `PQescapeStringConn()` and then wraps the result in an escape string constant, `E'...'` (via `php_pgsql_add_quotes()`).\r\n\r\nhttps://github.com/php/php-src/blob/cbc0489126a7682796aad1e5fb4e51de74af162c/ext/pgsql/pgsql.c#L4751-L4757\r\n\r\nWith `standard_conforming_strings = on` (the default since PostgreSQL 9.1), `PQescapeStringConn()` does not correctly escape values for the escape string constant `E'...'`, as it does not escape `\\` under this configuration. When `PQescapeStringConn()` escapes `'` as `''`, an attacker can trivially terminate the string by escaping the first single quote.\r\n\r\n```php\r\n$result = pg_select($db, 'user', ['name' => \"zzz\\\\' OR 1=1 --\"]);\r\n// SELECT * FROM \"user\" WHERE \"name\"='zzz\\'' OR 1=1 --';\r\nvar_dump($result); // returned all rows\r\n```\r\n\r\nNote that the doubled `\\\\` is a PHP escape sequence and that the `\\` appears only once in the parameter. Also note that `pg_select()` escapes the `'` by doubling it but does not escape the `\\`. Consequently, the first of the two `'` characters is escaped (meaning that it represents a literal `'`), while the second terminates the string. Everything after that is interpreted as part of the query.\r\n\r\nThe solution changes `php_pgsql_convert()` to wrap parameters in non-escaping string constants instead.",
+    "ghsa_id": "GHSA-7qpv-r5mr-78m4",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-7qpv-r5mr-78m4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7qpv-r5mr-78m4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-17543"
+      }
+    ],
+    "published_at": "2026-07-30T11:02:39Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SQL injection in ext-pgsql via E'...' backslash breakout",
+    "updated_at": "2026-07-30T11:02:39Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pgsql"
+        },
+        "patched_versions": "8.2.33",
+        "vulnerable_version_range": "<8.2.33"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pgsql"
+        },
+        "patched_versions": "8.3.33",
+        "vulnerable_version_range": "<8.3.33"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pgsql"
+        },
+        "patched_versions": "8.4.24",
+        "vulnerable_version_range": "<8.4.24"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-pgsql"
+        },
+        "patched_versions": "8.5.9",
+        "vulnerable_version_range": "<8.5.9"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,47 @@
+{
+  "global": null,
+  "id": "GHSA-24x5-wp64-9fcc",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1333",
+      "CWE-400"
+    ],
+    "description": "### Summary\r\n\r\nA Regular Expression Denial of Service (ReDoS) vulnerability exists in document matching functionality. An authenticated user can create a Tag, Correspondent, DocumentType or WorkflowTrigger with a malicious regex pattern that causes exponential CPU consumption when processing documents, then leading to complete service unavailability including database locks and web UI failure.\r\n\r\n### Details\r\n\r\n`src/documents/matching.py` file allows user controlled regex patterns to be executed against potentially large document content without any timeout, complexity limits or pattern validation. The **matching_model.match** field is user controllable via API endpoints as above functions.\r\n\r\nA user with Tag/Correspondent edit permissions.\r\n\r\n\r\n### PoC\r\n\r\nAttacker authenticates as any user with permission to create / edit Tags or Correspondents.\r\nCreates a Tag with matching_algorithm=4 and evil regex pattern\r\nUploads documents containing content that triggers catastrophic backtracking.\r\nEach document causes a worker to consume %100 CPU for 15-20 minutes.\r\nMultiple documents exhaust all workers and causing queue blocking.\r\nDatabase locks due to concurrent worker access.\r\nWeb UI returns 500 errors - entire service becomes unavailable. (Tested on AWS EC2 + Docker)\r\n\r\nTime: 22:44:40 - Attack launched (20 documents).\r\nTime: 22:50:32 - Normal user uploads document.\r\nTime: 22:57:05 - Web UI returns 500 Error.\r\n\r\n### Impact\r\n\r\nComplete Service Denial",
+    "ghsa_id": "GHSA-24x5-wp64-9fcc",
+    "html_url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-24x5-wp64-9fcc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-24x5-wp64-9fcc"
+      }
+    ],
+    "published_at": "2025-12-12T23:49:03Z",
+    "references": [],
+    "severity": "low",
+    "summary": "ReDoS via matching pattern",
+    "updated_at": "2025-12-12T23:49:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "paperless-ngx"
+        },
+        "patched_versions": "2.20.2",
+        "vulnerable_version_range": "<2.20.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "paperless-ngx/paperless-ngx"
+}

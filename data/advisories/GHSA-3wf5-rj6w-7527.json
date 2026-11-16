@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-3wf5-rj6w-7527",
+  "aliases": [],
+  "title": "OAuth2 Redirect URI Poisoning via Auto-Save on Unconfigured Provider",
+  "summary": "### Summary\r\n\r\nWhen an OAuth2/OpenID Connect provider has no redirect URIs configured, the first authorization request permanently saves the attacker-supplied `redirect_uri` into the provider's configuration. This check runs in `pre_permission_check()` which executes BEFORE authentication, meaning an unauthenticated attacker can poison the provider's redirect URI. All subsequent legitimate OAuth2 flows for that provider will validate against the attacker's URI, enabling authorization code interception.\r\n\r\n### Patches\r\n\r\nauthentik 2025.12.5 and 2026.2.3 fix this issue, for other versions the workaround below can be used.\r\n\r\n### Impact\r\n\r\n- **Authorization code theft**: All OAuth2 authorization codes for the poisoned provider are redirected to the attacker\r\n- **Account takeover**: Captured authorization codes can be exchanged for access tokens, granting full access to user accounts on relying applications\r\n- **Silent persistence**: The poisoned redirect URI persists in the database until an admin manually checks and corrects the provider configuration\r\n- **Scope**: Changed scope (S:C) because the vulnerability in the identity provider compromises security of all relying party applications\r\n- **Race condition window**: Exists from provider creation until first redirect URI configuration - automation/API-provisioned providers may have a longer window\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io)",
+  "published_at": "2026-05-12T16:24:16.000Z",
+  "modified_at": "2026-05-12T17:36:04.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.4,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-284"
+  ],
+  "affected": [
+    {
+      "product": "authentik",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2025.12.5"
+        },
+        {
+          "introduced": "2026.0.0",
+          "fixed": "2026.2.3"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-3wf5-rj6w-7527",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3wf5-rj6w-7527",
+      "url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-3wf5-rj6w-7527",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f043ef9b8285af37986b21e1f6e22575ade41d8b1cf089e69372e3e3fa66f2f0",
+  "note": null
+}

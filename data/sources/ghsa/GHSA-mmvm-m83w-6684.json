@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-mmvm-m83w-6684",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "### Summary\n\nThe row-count limit on bulk record insert, update and delete was applied only to requests authenticated with an API token, leaving session-authenticated callers able to submit arrays of unbounded length.\n\n### Details\n\nThe shared payload validator in `dataHelpers.ts` guarded its row-count check behind the flag marking the request as API-token authenticated, and returned without doing anything for any other caller. The limit was written to bound programmatic traffic on the assumption that interactive users were already bounded by the grid's selection limit, but that limit is enforced only in the browser, not on the server. Every v1 and v2 bulk write route - the array-body record endpoints and the bulk data aliases - runs through this validator, so a normal browser session could send the same request directly with an array of essentially arbitrary length, bounded only by the global body-size cap.\n\n### Impact\n\nAny user with write permission on a single table could submit hundreds of thousands of rows in one request, holding a database connection open for the duration of the write and driving sustained CPU use for per-row validation and typecasting plus a large parsed-body footprint in memory - repeatable at will for a resource-exhaustion denial of service, and usable to bulk-pollute a table. An authenticated session with a base Editor role on one table is required; no elevated privilege is needed.\n\n### Credit\n\nThis issue was reported by [@iaohkut-from-NightWolf-Team](https://github.com/iaohkut-from-NightWolf-Team).\n",
+    "ghsa_id": "GHSA-mmvm-m83w-6684",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-mmvm-m83w-6684",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mmvm-m83w-6684"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:10Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Uncontrolled Resource Consumption via Bulk Record Endpoints",
+    "updated_at": "2026-10-27T10:06:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.09.0",
+        "vulnerable_version_range": "< 2026.09.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

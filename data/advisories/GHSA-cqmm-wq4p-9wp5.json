@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-cqmm-wq4p-9wp5",
+  "aliases": [],
+  "title": "Correlated characters in security-sensitive tokens due to incorrect random-buffer indexing",
+  "summary": "### Summary\r\n\r\nPocket ID's cryptographically secure random-string generator indexes its random-byte buffer using the requested output length instead of the buffer size. This causes random bytes to be reused before the buffer is refilled, introducing significant correlations between characters in security-sensitive tokens.\r\n\r\nFor six-character one-time access codes, the first and last characters are equal approximately **34.7%** of the time instead of the expected **1.85%**. Exploitation requires partial knowledge of an active token and substantial online guessing, so rate limiting materially reduces the practical risk.\r\n\r\n**Severity:** Medium  \r\n**CWE:** CWE-331 - Insufficient Entropy  \r\n**CVSS:** `CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N` (6.3)\r\n\r\n### Details\r\n\r\nThe vulnerable code is in `backend/internal/utils/string_util.go:42-55`:\r\n\r\n```go\r\nbufferSize := int(float64(length) * 1.3)\r\nrandomBytes := make([]byte, bufferSize)\r\n\r\nfor i, j := 0, 0; i < length; j++ {\r\n    if j%bufferSize == 0 {\r\n        _, err := io.ReadFull(rand.Reader, randomBytes)\r\n        // ...\r\n    }\r\n\r\n    idx := int(randomBytes[j%length] & letterIdxMask)\r\n```\r\n\r\nThe buffer is refilled according to `j % bufferSize`, but indexed according to `j % length`. Because `bufferSize` is defined as `1.3 * length`, the index wraps before the end of the buffer.\r\n\r\nFor a six-character token:\r\n\r\n- `length = 6`\r\n- `bufferSize = 7`\r\n- Attempts `j=0` and `j=6` both read `randomBytes[0]`\r\n- If accepted by the rejection sampler, both attempts produce the same character\r\n\r\nRejection sampling means attempt positions do not always map directly to output positions, but the resulting output correlation is readily measurable.\r\n\r\nThe generator is used for:\r\n\r\n- 6- and 16-character one-time access tokens\r\n- 16-character one-time-access device tokens\r\n- 16-character signup tokens\r\n- 32-character email-verification tokens\r\n- 32-character WebAuthn reauthentication tokens\r\n- 32-character API keys\r\n- 32-character OIDC client secrets\r\n\r\nThe six-character one-time access code is the most materially affected because it has the smallest nominal search space. It is generated when the TTL is at most 15 minutes in `backend/internal/service/one_time_access_service.go:231-245`.\r\n\r\nThe exchange endpoint is unauthenticated but rate-limited per client IP to one request every 10 seconds with a burst of five:\r\n\r\n- Route: `backend/internal/controller/user_controller.go:55`\r\n- Policy: `backend/internal/middleware/rate_limit.go:54`\r\n\r\nThe fix is to index the buffer using its actual size:\r\n\r\n```diff\r\n- idx := int(randomBytes[j%length] & letterIdxMask)\r\n+ idx := int(randomBytes[j%bufferSize] & letterIdxMask)\r\n```\r\n\r\n### PoC\r\n\r\nNo running Pocket ID instance or special configuration is required.\r\n\r\nCreate `backend/internal/utils/entropy_poc_test.go`:\r\n\r\n```go\r\npackage utils\r\n\r\nimport (\r\n    \"testing\"\r\n)\r\n\r\nfunc TestOneTimeTokenCharacterCorrelation(t *testing.T) {\r\n    const samples = 100_000\r\n\r\n    equal := 0\r\n    for range samples {\r\n        token, err := GenerateRandomUnambiguousString(6)\r\n        if err != nil {\r\n            t.Fatal(err)\r\n        }\r\n\r\n        if token[0] == token[5] {\r\n            equal++\r\n        }\r\n    }\r\n\r\n    rate := float64(equal) / samples\r\n    t.Logf(\"P(token[0] == token[5]) = %.4f\", rate)\r\n\r\n    // A uniform 54-character generator should produce approximately\r\n    // 1/54 = 0.0185. The vulnerable implementation produces ~0.347.\r\n    if rate < 0.30 {\r\n        t.Fatalf(\"expected elevated correlation, got %.4f\", rate)\r\n    }\r\n}\r\n```\r\n\r\nRun from `backend/`:\r\n\r\n```shell\r\ngo test -tags=exclude_frontend,unit \\\r\n  ./internal/utils \\\r\n  -run TestOneTimeTokenCharacterCorrelation \\\r\n  -count=1 -v\r\n```\r\n\r\nObserved against the vulnerable implementation:\r\n\r\n```text\r\n=== RUN   TestOneTimeTokenCharacterCorrelation\r\n    entropy_poc_test.go:23: P(token[0] == token[5]) = 0.3463\r\n--- PASS: TestOneTimeTokenCharacterCorrelation (0.01s)\r\n```\r\n\r\nAfter changing `j%length` to `j%bu...",
+  "published_at": "2026-07-29T23:03:00.000Z",
+  "modified_at": "2026-07-29T23:05:19.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.3,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-331"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0.40.1",
+          "fixed": "2.12.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-cqmm-wq4p-9wp5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cqmm-wq4p-9wp5",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-cqmm-wq4p-9wp5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:396b1deca9e97e0448a3ce9c9f45fb7895b395503c3959f06ff24c94eb333395",
+  "note": null
+}

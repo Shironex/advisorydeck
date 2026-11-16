@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-5379-f5hf-w38v",
+  "repo": {
+    "cve_id": "CVE-2026-22863",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-325"
+    ],
+    "description": "### Summary\r\n\r\nThe vulnerability allows an attacker to have infinite encryptions. \r\n\r\nThis can lead to naive attempts at brute forcing, as well as more refined attacks with the goal to learn the server secrets.\r\n\r\n### PoC\r\n```js\r\nimport crypto from \"node:crypto\";\r\n\r\nconst key = crypto.randomBytes(32);\r\nconst iv = crypto.randomBytes(16);\r\nconst cipher = crypto.createCipheriv(\"aes-256-cbc\", key, iv);\r\ncipher.final()\r\n\r\nconsole.log(cipher);\r\n```\r\n\r\n### Expected Output\r\n```js\r\nCipheriv {\r\n  _decoder: null,\r\n  _options: undefined,\r\n  Symbol(kHandle): CipherBase {}\r\n}\r\n```\r\n\r\n### Actual Output\r\n```js\r\nCipheriv {\r\n  _events: {\r\n    close: undefined,\r\n    error: undefined,\r\n    prefinish: [Function: prefinish],\r\n    finish: undefined,\r\n    drain: undefined,\r\n    data: undefined,\r\n    end: undefined,\r\n    readable: undefined\r\n  },\r\n  _readableState: ReadableState {\r\n    highWaterMark: 65536,\r\n    buffer: [],\r\n    bufferIndex: 0,\r\n    length: 0,\r\n    pipes: [],\r\n    awaitDrainWriters: null,\r\n    [Symbol(kState)]: 1048844\r\n  },\r\n  _writableState: WritableState {\r\n    highWaterMark: 65536,\r\n    length: 0,\r\n    corked: 0,\r\n    onwrite: [Function: bound onwrite],\r\n    writelen: 0,\r\n    bufferedIndex: 0,\r\n    pendingcb: 0,\r\n    [Symbol(kState)]: 17580812,\r\n    [Symbol(kBufferedValue)]: null\r\n  },\r\n  allowHalfOpen: true,\r\n  _final: [Function: final],\r\n  _maxListeners: undefined,\r\n  _transform: [Function: transform],\r\n  _eventsCount: 1,\r\n  [Symbol(kCapture)]: false,\r\n  [Symbol(kCallback)]: null\r\n}\r\n```\r\n\r\n### Mitigations\r\n\r\nAll users should upgrade to Deno v2.6.0 or newer.",
+    "ghsa_id": "GHSA-5379-f5hf-w38v",
+    "html_url": "https://github.com/denoland/deno/security/advisories/GHSA-5379-f5hf-w38v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-5379-f5hf-w38v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-22863"
+      }
+    ],
+    "published_at": "2026-01-15T22:40:46Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "`node:crypto` doesn't finalize cipher",
+    "updated_at": "2026-01-15T22:40:46Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "deno",
+          "name": "node:crypto"
+        },
+        "patched_versions": "2.6.0",
+        "vulnerable_version_range": "<= 2.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "denoland/deno"
+}

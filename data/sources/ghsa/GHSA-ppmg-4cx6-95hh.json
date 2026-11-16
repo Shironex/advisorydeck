@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-ppmg-4cx6-95hh",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-862"
+    ],
+    "description": "# Title\r\n\r\nMissing RBAC checks on Flowise chat message routes allow low-privileged API keys to read and delete chat history\r\n\r\n# Description\r\n\r\nFlowise `flowise@3.1.2` appears to have missing route-level RBAC checks on chat message read/delete routes.\r\n\r\nThe global `/api/v1` middleware validates API keys and assigns `req.user.permissions = apiKey.permissions`, but the affected chat message routes call their controllers directly without `checkAnyPermission(...)`.\r\n\r\nAffected files:\r\n\r\n- `packages/server/src/routes/chat-messages/index.ts`\r\n- `packages/server/src/routes/internal-chat-messages/index.ts`\r\n\r\nAffected routes:\r\n\r\n- `GET /api/v1/chatmessage/:id`\r\n- `GET /api/v1/internal-chatmessage/:id`\r\n- `DELETE /api/v1/chatmessage/:id`\r\n\r\nConfirmed affected release:\r\n\r\n- `flowise@3.1.2`\r\n- tag commit `4114b3b506e7bbee155141175a2ba48e426919dd`\r\n\r\n# Impact\r\n\r\nA valid but low-privileged API key for a workspace can reach chat message read/delete handlers without having the expected flow permissions.\r\n\r\nPotential impact:\r\n\r\n- Read chat histories and internal test chat messages for known flow IDs.\r\n- Access prompts, model responses, source documents, used tools, feedback, and uploaded file metadata serialized in chat messages.\r\n- Delete chat messages and related uploaded files without flow delete permission.\r\n\r\nSuggested CVSS v3.1:\r\n\r\n```text\r\nCVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:L\r\n```\r\n\r\nEstimated severity: High, 8.3.\r\n\r\n# Affected versions\r\n\r\nConfirmed:\r\n\r\n- `flowise@3.1.2`\r\n\r\nBroader affected range:\r\n\r\n- Unknown; maintainers should confirm whether earlier RBAC-enabled releases are also affected.\r\n\r\n# Reproduction steps\r\n\r\n1. Add the test file from the patch package to:\r\n\r\n```text\r\npackages/server/src/routes/chat-messages/authorization.test.ts\r\n```\r\n\r\n2. Before applying the route patch, run:\r\n\r\n```powershell\r\npnpm --dir packages/server exec jest src/routes/chat-messages/authorization.test.ts --runInBand\r\n```\r\n\r\n3. Observe insufficient-permission requests return 200 instead of 403.\r\n\r\n4. Apply the route patch.\r\n\r\n5. Run the same test again.\r\n\r\n6. Observe insufficient-permission requests return 403, while requests with `chatflows:view`, `agentflows:view`, or `agentflows:delete` continue to succeed.\r\n\r\n# Safe PoC\r\n\r\nThe PoC is a Jest/supertest test with mocked controllers. It uses dummy data only and does not touch real users, credentials, or a database.\r\n\r\nPre-patch observed output:\r\n\r\n```text\r\nFAIL src/routes/chat-messages/authorization.test.ts\r\nTests: 3 failed, 3 passed, 6 total\r\nExpected: 403\r\nReceived: 200\r\n```\r\n\r\nPost-patch observed output:\r\n\r\n```text\r\nPASS src/routes/chat-messages/authorization.test.ts\r\nTests: 6 passed, 6 total\r\n```\r\n\r\nI also reproduced the issue against a real local Flowise server with a dummy SQLite database:\r\n\r\n```text\r\nVulnerable local server:\r\nGET /api/v1/chatmessage/:id              -> 200, returned LOCAL_E2E_SECRET_CHAT_CONTENT\r\nGET /api/v1/internal-chatmessage/:id     -> 200, returned LOCAL_E2E_SECRET_CHAT_CONTENT\r\nDELETE /api/v1/chatmessage/:id           -> 200, {\"raw\":[],\"affected\":1}\r\n\r\nPatched local server:\r\nGET /api/v1/chatmessage/:id              -> 403\r\nGET /api/v1/internal-chatmessage/:id     -> 403\r\nDELETE /api/v1/chatmessage/:id           -> 403\r\nGET /api/v1/chatmessage/:id with allowed key -> 200\r\n```\r\n\r\nThe local server E2E used only dummy data and localhost requests.\r\n\r\n# Patch proposal\r\n\r\nAdd route-level permission checks:\r\n\r\n- `GET /chatmessage/:id`: `checkAnyPermission('chatflows:view,agentflows:view')`\r\n- `GET /internal-chatmessage/:id`: `checkAnyPermission('chatflows:view,agentflows:view')`\r\n- `DELETE /chatmessage/:id`: `checkAnyPermission('chatflows:delete,agentflows:delete')`\r\n\r\n\r\n# Credit request\r\n\r\nIf this is accepted as a valid vulnerability, please credit GGBoo as the reporter/researcher.",
+    "ghsa_id": "GHSA-ppmg-4cx6-95hh",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-ppmg-4cx6-95hh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ppmg-4cx6-95hh"
+      }
+    ],
+    "published_at": "2026-09-10T14:18:18Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Missing authorization on Flowise chat message routes allows low-privileged API keys to read and delete chat history",
+    "updated_at": "2026-09-10T14:18:18Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "<= 3.1.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

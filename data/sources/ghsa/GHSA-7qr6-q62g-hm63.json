@@ -1,0 +1,51 @@
+{
+  "global": null,
+  "id": "GHSA-7qr6-q62g-hm63",
+  "repo": {
+    "cve_id": "CVE-2026-30831",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287",
+      "CWE-304"
+    ],
+    "description": "### 2FA bypass and login of deactivated users via EE ddp-streamer (`GHSL-2026-008`)\r\n\r\nAuthentication vulnerabilities exist in Rocket.Chat's enterprise DDP Streamer service. The `Account.login` method exposed through the DDP Streamer does **not enforce Two-Factor Authentication (2FA) or validate user account status** (deactivated users can still login), despite these checks being mandatory in the standard Meteor login flow.\r\n\r\nThe code at [`ee/apps/account-service/src/Account.ts#L31-L40`](https://github.com/RocketChat/Rocket.Chat/blob/develop/ee/apps/account-service/src/Account.ts#L31-L40) does not enforce a 2FA check and it does not validate the account status of a user, whereas [`onValidateLogin`](https://github.com/RocketChat/Rocket.Chat/blob/c5f7dcb80a3b99d6ec7c06a16b2ea6841a06c373/apps/meteor/app/2fa/server/loginHandler.ts#L27C3-L27C18) [checks the TOTP](https://github.com/RocketChat/Rocket.Chat/blob/c5f7dcb80a3b99d6ec7c06a16b2ea6841a06c373/apps/meteor/app/2fa/server/loginHandler.ts#L43) code and [validateLoginAttemptAsync](https://github.com/RocketChat/Rocket.Chat/blob/c5f7dcb80a3b99d6ec7c06a16b2ea6841a06c373/apps/meteor/app/authentication/server/startup/index.js#L391) checks if the [user is active](https://github.com/RocketChat/Rocket.Chat/blob/c5f7dcb80a3b99d6ec7c06a16b2ea6841a06c373/apps/meteor/app/authentication/server/startup/index.js#L420).\r\n\r\n#### Impact\r\n\r\nThis missing user account status checked might lead to deactivated users being able to login. The missing 2FA enforcement might lead to successful account takeover through a brute-force based attack (e.g. password spraying).\r\n\r\n#### Remediation\r\n\r\nEnforce 2FA in `Account.login` and reject logins for users where `active === false` in both `loginViaUsername.ts` and `loginViaResume.ts`.\r\n\r\n**Long-term Recommendations**\r\n- Consolidate authentication logic to ensure all login paths use the same security controls\r\n- Add integration tests that verify 2FA is enforced across all authentication endpoints\r\n\r\n#### CWEs\r\n\r\n- CWE-287: Improper Authentication\r\n- CWE-304: Missing Critical Step in Authentication\r\n\r\n## Credit\r\n\r\nThese issues were discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [@p- (Peter Stöckli)](https://github.com/p-) and [@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo).\r\n\r\n## Contact\r\n\r\nYou can contact the GHSL team at `securitylab@github.com`, please include a reference to `GHSL-2026-008` or `GHSL-2026-009` in any communication regarding these issues.\r\n\r\n## Disclosure Policy\r\n\r\nThis report is subject to a 90-day disclosure deadline, as described in more detail in our [coordinated disclosure policy](https://securitylab.github.com/advisories#policy).",
+    "ghsa_id": "GHSA-7qr6-q62g-hm63",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-7qr6-q62g-hm63",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7qr6-q62g-hm63"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-30831"
+      }
+    ],
+    "published_at": "2026-03-05T20:09:23Z",
+    "references": [],
+    "severity": "high",
+    "summary": "2FA bypass and login of deactivated users via EE ddp-streamer",
+    "updated_at": "2026-03-05T21:34:47Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.2.0, 8.1.1, 8.0.2, 7.13.4, 7.12.5, 7.11.5, 7.10.8",
+        "vulnerable_version_range": "<8.2.0, <8.1.1, <8.0.2, <7.13.4, <7.12.5, <7.11.5, <7.10.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

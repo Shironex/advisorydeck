@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-24768",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 5.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:P"
+      }
+    },
+    "cwe_ids": [
+      "CWE-601"
+    ],
+    "description": "### Summary\n\nAn **unvalidated redirect (open redirect)** vulnerability exists in NocoDB’s login flow due to missing validation of the `continueAfterSignIn` parameter.\n\nDuring authentication, NocoDB processes a user-controlled redirect value and conditionally performs client-side navigation without enforcing any restrictions on the destination’s origin, domain or protocol. This allows attackers to redirect authenticated users to arbitrary external websites after login.\n\n### Root Cause\n\nThe redirect logic relies on a permissive URL check that treats any absolute or protocol-relative URL as safe, and performs navigation without applying an allowlist or origin validation.\n\nIn the redirect plugin:\n\n* The helper function `isFullUrl` uses the following regular expression:\n\n  ```ts\n  /^(https?:)?\\/\\//\n  ```\n\n  This pattern matches any HTTP(S) URL as well as protocol-relative URLs (e.g., `//evil.example`), without restricting allowed domains.\n\n* When the `continueAfterSignIn` query parameter matches this pattern, the application performs an unconditional external navigation:\n\n  ```ts\n  navigateTo(route.value.query.continueAfterSignIn as string, {\n    external: isFullUrl(...)\n  })\n  ```\n\n### Attack Scenario\n\nAn attacker can exploit this issue through a phishing attack:\n\n1. The attacker crafts a malicious login URL containing a controlled redirect target, for example:\n\n   ```\n   https://victim-nocodb.example/#/signin?continueAfterSignIn=https://evil-phishing.com/fake-login\n   ```\n2. The victim clicks the link and is presented with the legitimate NocoDB login page.\n3. The victim authenticates using valid credentials.\n4. After login, NocoDB automatically redirects the victim to the attacker-controlled external site.\n5. The attacker’s site displays a fake error message and prompts the victim to re-enter credentials.\n6. The victim unknowingly submits credentials to the attacker.\n\n### Impact\n\nThis vulnerability enables **phishing attacks** by leveraging user trust in the legitimate NocoDB login flow. While it does not directly expose credentials or bypass authentication, it increases the likelihood of credential theft through social engineering.\n\nThe issue does not allow arbitrary code execution or privilege escalation, but it undermines authentication integrity.\n\n### Credit\n\nThis issue was discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [@p- (Peter Stöckli)](https://github.com/p-) and [@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo).",
+    "ghsa_id": "GHSA-3hmw-8mw3-rmpj",
+    "html_url": "https://github.com/advisories/GHSA-3hmw-8mw3-rmpj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3hmw-8mw3-rmpj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24768"
+      }
+    ],
+    "published_at": "2026-01-28T21:41:10Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-3hmw-8mw3-rmpj",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-24768",
+      "https://github.com/advisories/GHSA-3hmw-8mw3-rmpj"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB has Unvalidated Redirect in Login Flow via continueAfterSignIn Parameter",
+    "updated_at": "2026-01-28T21:41:11Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.301.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "< 0.301.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3hmw-8mw3-rmpj",
+  "repo": {
+    "cve_id": "CVE-2026-24768",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-601"
+    ],
+    "description": "### Summary\r\n\r\nAn **unvalidated redirect (open redirect)** vulnerability exists in NocoDB’s login flow due to missing validation of the `continueAfterSignIn` parameter.\r\n\r\nDuring authentication, NocoDB processes a user-controlled redirect value and conditionally performs client-side navigation without enforcing any restrictions on the destination’s origin, domain or protocol. This allows attackers to redirect authenticated users to arbitrary external websites after login.\r\n\r\n### Root Cause\r\n\r\nThe redirect logic relies on a permissive URL check that treats any absolute or protocol-relative URL as safe, and performs navigation without applying an allowlist or origin validation.\r\n\r\nIn the redirect plugin:\r\n\r\n* The helper function `isFullUrl` uses the following regular expression:\r\n\r\n  ```ts\r\n  /^(https?:)?\\/\\//\r\n  ```\r\n\r\n  This pattern matches any HTTP(S) URL as well as protocol-relative URLs (e.g., `//evil.example`), without restricting allowed domains.\r\n\r\n* When the `continueAfterSignIn` query parameter matches this pattern, the application performs an unconditional external navigation:\r\n\r\n  ```ts\r\n  navigateTo(route.value.query.continueAfterSignIn as string, {\r\n    external: isFullUrl(...)\r\n  })\r\n  ```\r\n\r\n### Attack Scenario\r\n\r\nAn attacker can exploit this issue through a phishing attack:\r\n\r\n1. The attacker crafts a malicious login URL containing a controlled redirect target, for example:\r\n\r\n   ```\r\n   https://victim-nocodb.example/#/signin?continueAfterSignIn=https://evil-phishing.com/fake-login\r\n   ```\r\n2. The victim clicks the link and is presented with the legitimate NocoDB login page.\r\n3. The victim authenticates using valid credentials.\r\n4. After login, NocoDB automatically redirects the victim to the attacker-controlled external site.\r\n5. The attacker’s site displays a fake error message and prompts the victim to re-enter credentials.\r\n6. The victim unknowingly submits credentials to the attacker.\r\n\r\n### Impact\r\n\r\nThis vulnerability enables **phishing attacks** by leveraging user trust in the legitimate NocoDB login flow. While it does not directly expose credentials or bypass authentication, it increases the likelihood of credential theft through social engineering.\r\n\r\nThe issue does not allow arbitrary code execution or privilege escalation, but it undermines authentication integrity.\r\n\r\n### Credit\r\n\r\nThese issue was discovered by an AI agent developed by the GitHub Security Lab and reviewed by GHSL team members [@p- (Peter Stöckli)](https://github.com/p-) and [@m-y-mo (Man Yue Mo)](https://github.com/m-y-mo).\r\n",
+    "ghsa_id": "GHSA-3hmw-8mw3-rmpj",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-3hmw-8mw3-rmpj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3hmw-8mw3-rmpj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24768"
+      }
+    ],
+    "published_at": "2026-01-28T11:28:35Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Unvalidated Redirect in Login Flow via continueAfterSignIn Parameter",
+    "updated_at": "2026-01-28T11:28:35Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "NocoDB"
+        },
+        "patched_versions": "0.301.0",
+        "vulnerable_version_range": "< 0.265.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,60 @@
+{
+  "global": null,
+  "id": "GHSA-9p7v-45m2-wxgj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Impact\n\nThe Function and Function Item nodes run user code in the vm2 sandbox, and the LangChain Code node runs user code in the n8n main process. An authenticated user with permission to create or modify workflows could use these nodes to execute arbitrary code in the n8n main process, outside the task runner isolation that applies to the Code node.\n\n## Patches\n\nIn n8n versions 2.42.6, 2.43.3, 2.44.0 and 3.0.1, the Function, Function Item, and LangChain Code nodes are deprecated and blocked by default. Saving a workflow that adds or modifies one of these nodes is rejected; workflows already saved with these nodes continue to run unchanged. Administrators should review existing workflows and replace these nodes with the Code node.\n\nThe block can be disabled with `N8N_DEPRECATED_NODES_BLOCK=false`, which restores the vulnerable behavior.\n\nUsers should upgrade to one of these versions or later to remediate the vulnerability.\n\n## Workarounds\n\nIf upgrading is not immediately possible, administrators should consider the following temporary mitigations:\n- Add `n8n-nodes-base.function`, `n8n-nodes-base.functionItem`, and `@n8n/n8n-nodes-langchain.code` to the `NODES_EXCLUDE` environment variable to prevent these nodes from being used.\n- Limit workflow creation and editing permissions to fully trusted users only.\n\nThese workarounds do not fully remediate the risk and should only be used as short-term mitigation measures.",
+    "ghsa_id": "GHSA-9p7v-45m2-wxgj",
+    "html_url": "https://github.com/n8n-io/n8n/security/advisories/GHSA-9p7v-45m2-wxgj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9p7v-45m2-wxgj"
+      }
+    ],
+    "published_at": "2026-10-28T08:47:05Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Deprecated Code Nodes Allow Code Execution in the n8n Main Process",
+    "updated_at": "2026-10-28T08:47:05Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.43.3",
+        "vulnerable_version_range": "< 2.43.3"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 2.42.6",
+        "vulnerable_version_range": "< 2.42.6"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "n8n"
+        },
+        "patched_versions": ">= 3.0.1",
+        "vulnerable_version_range": "< 3.0.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "n8n-io/n8n"
+}

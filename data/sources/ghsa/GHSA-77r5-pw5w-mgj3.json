@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-77r5-pw5w-mgj3",
+  "repo": {
+    "cve_id": "CVE-2026-54318",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:C/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-926"
+    ],
+    "description": "# Summary\r\n\r\nThe `LocationSensorManager` `BroadcastReceiver` is exported with no permission. Any installed app, with zero runtime permissions, can broadcast a forged Google Play Services `LocationResult` directly to it; the receiver trusts the extra and forwards it to the user's Home Assistant server as the device's real location. This bypasses Android's developer-mode \"Mock Location\" gate and allows a local malicious app to drive zone-based automations (unlock door / disarm alarm / open garage) by faking the user's GPS position.\r\n\r\n# Affected versions\r\n\r\nHome Assistant Companion for Android (full / Play Store flavor) ≤ 2026.5.2\r\n\r\n# Patched version\r\n\r\nHome Assistant Companion for Android 2026.5.3\r\n\r\n# Impact\r\n\r\nThis issue may lead to location spoofing of the device running the Companion app and, by extension, to smart-home compromise through zone-based automations.\r\n\r\nAny user of the Home Assistant Companion for Android (full / Play Store flavor) who is signed in to a Home Assistant server and has the Background Location sensor enabled is affected. With a single locally installed app, on a stock production device, with no runtime permissions granted and without enabling Android's developer-mode \"Mock Location\", an attacker can:\r\n- Forge GPS positions to enter or exit user-defined zones, triggering automations such as unlocking a door, disarming an alarm, or opening a garage when the system is configured to react to \"owner is home\".\r\n- Hold the reported location at any chosen coordinates for as long as the malicious app runs, by repeatedly broadcasting forged updates that crowd out legitimate GPS fixes.\r\n\r\n# Steps to reproduce\r\n\r\n1. The victim has the Home Assistant Companion for Android (full / Play Store flavor) installed, is signed in to a Home Assistant server, and has the Background Location sensor enabled with location permission granted.\r\n2. The attacker installs any Android app on the same device. No manifest permissions or runtime permissions are required.\r\n3. The attacker's app sends a broadcast Intent with an explicit component target on the `LocationSensorManager` receiver, action `io.homeassistant.companion.android.background.PROCESS_UPDATES`, and the `com.google.android.gms.location.EXTRA_LOCATION_RESULT` extra populated with a Google Play Services `LocationResult` carrying attacker-chosen coordinates.\r\n4. The `LocationSensorManager` `BroadcastReceiver` receives the Intent, extracts the `LocationResult` without verifying the sender, and forwards the attacker-chosen coordinates to the user's Home Assistant server as the device's real location.\r\n5. Home Assistant evaluates zones server-side and triggers any zone-based automations that match the spoofed position (e.g., \"user arrived home → unlock door\").\r\n6. Repeating step 3 at five-second intervals with rotating coordinates holds the reported location at attacker-chosen values for as long as the malicious app runs.\r\n\r\n# Workaround\r\n\r\nThe recommended action is to update to Home Assistant Companion for Android 2026.5.3 or later.\r\nIf you cannot update at this time and want to remove exposure to this issue, disable the Background Location sensor in the Companion app under Settings → Companion app → Sensors. This stops the app from acting on incoming LocationResult broadcasts. In all cases, avoid installing untrusted Android applications on the device where the Companion app is signed in.\r\n\r\n# Fix\r\n\r\nPatched in Home Assistant Companion for Android 2026.5.3 by PR [#6837](https://github.com/home-assistant/android/pull/6837):\r\n- The `LocationSensorManager` `BroadcastReceiver` is now declared with `android:exported=\"false\"` in the Android manifest, so it is no longer reachable by other apps via explicit-component Intents.\r\n- A new `RequestAccurateLocationReceiver` is introduced as a thin exported proxy that preserves the legitimate public use case (external automation tools such as Tasker requesting a fresh accurate location reading). It validates that the incoming Intent's action is exactly `io.homeassistant.companion.android.background.REQUEST_ACCURATE_UPDATE`, drops any extras supplied by the caller, and forwards the request to `LocationSensorManager` via an explicit-component internal broadcast. Any other action or payload is rejected.\r\n\r\n# Acknowledgements\r\n\r\nDiscovered by @waihankan",
+    "ghsa_id": "GHSA-77r5-pw5w-mgj3",
+    "html_url": "https://github.com/home-assistant/core/security/advisories/GHSA-77r5-pw5w-mgj3",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-77r5-pw5w-mgj3"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54318"
+      }
+    ],
+    "published_at": "2026-06-17T08:45:37Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Exported BroadcastReceiver allows local apps to spoof device location",
+    "updated_at": "2026-06-17T08:45:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "android",
+          "name": "Home Assistant Companion app"
+        },
+        "patched_versions": "2026.5.3",
+        "vulnerable_version_range": "≤ 2026.5.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "home-assistant/core"
+}

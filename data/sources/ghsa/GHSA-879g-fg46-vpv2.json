@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-879g-fg46-vpv2",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe public attachment-download endpoint of a shared view resolved records by primary key through a read path that enforced the view's row filter on some database backends but not on others, exposing attachments of filtered-out records on the unenforced ones.\n\n### Details\n\nThe single-record read in `public-datas.service.ts` scopes its base model to the shared view and then fetches the row by primary key. Which implementation served that fetch depended on the edition and the data source engine, as selected by `canUseOptimisedQuery.ts`: the optimised single-query read in `single-query-read.ts`, used for Postgres, MSSQL and Oracle on NocoDB Cloud and licensed self-hosted Enterprise, resolved the view's root filter list and applied it alongside the key predicate, whereas the fallback read in `BaseModelSqlv2.ts` - the path taken by community builds, by unlicensed self-hosted Enterprise, and by MySQL and SQLite data sources - applied only the key, row-level security and the soft-delete filter. On that path a filtered-out record resolved normally by its primary key. The same filter-blind read also backed the parent-visibility checks of the nested-link listing endpoints and the enterprise smart-text read.\n\n### Impact\n\nNo authentication is required; the attacker holds only the public share link and, where configured, the view password. By enumerating sequential primary keys against an attachment column the view shows, an anonymous caller could obtain signed download paths for documents, images and other files attached to records the shared view was explicitly configured to exclude. Community and unlicensed self-hosted Enterprise deployments on any database, and other deployments backed by MySQL or SQLite data sources, were exposed; NocoDB Cloud and licensed self-hosted Enterprise deployments on Postgres, MSSQL or Oracle took the read path that already enforced the filter.\n\n### Credit\n\nThis issue was reported by [@S2Lobby](https://github.com/S2Lobby).\n",
+    "ghsa_id": "GHSA-879g-fg46-vpv2",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-879g-fg46-vpv2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-879g-fg46-vpv2"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:19Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Shared View Attachment Disclosure via Record ID Enumeration",
+    "updated_at": "2026-11-02T08:47:19Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

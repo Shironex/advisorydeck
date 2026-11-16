@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-vrv3-3j98-vfpp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1287",
+      "CWE-287",
+      "CWE-863"
+    ],
+    "description": "### Summary\r\n\r\nThe OAuth 2.0 Token Exchange grant (`POST /oidc/token`) did not validate what kind of credential it was handed as `subject_token`, nor which client that credential belonged to. Two independent flaws in `validateSubjectToken` let a narrowly consented, client-scoped credential be converted into a broader API access token for the same user.\r\n\r\n**1. Token type confusion - an ID token accepted as an access-token subject.** When the subject token is declared as `urn:ietf:params:oauth:token-type:access_token`, the implementation first tries an opaque-token lookup and, on failure, falls back to JWT verification. That fallback verified only the signature and the `issuer`, then trusted `payload.sub`. OIDC ID tokens are signed by the same keys under the same issuer, so an ID token - an authentication assertion scoped to its relying party, carrying no API authorization - passed the check and resolved to the user. RFC 8693 §2.1/§3 require validation appropriate to the declared type; RFC 8725 §3.12 requires different JWT kinds from one issuer to be mutually exclusive.\r\n\r\n**2. Missing first-party check on the subject token's issuing client.** The subject token's issuing client (`token.clientId` on the opaque path, `payload.client_id` on the JWT path) was discarded entirely, so any access token belonging to user U was interchangeable regardless of which client held it. This is exploitable on its own, without any type confusion: a third-party application's ordinary opaque access token could be submitted directly as the subject.\r\n\r\nThe second flaw is the more consequential of the two, because of what token exchange does with the result. The issued token does **not** inherit the subject token's audience or scopes - it carries the *receiver's* authorization for that user. Third-party applications cannot enable token exchange, so the receiver is always first-party, which means the issued token carries every scope the user's roles grant on the requested resource. A credential the user consented to for one narrow purpose was therefore convertible into the user's full first-party authorization.\r\n\r\nThe consent boundary is erased; the user's role assignments still bound the result. Scopes the user's roles do not grant are not issued, and the Logto Management API is not reachable this way.\r\n\r\n### Preconditions\r\n\r\n**This is not exploitable against a default installation, and it is not token forgery or a consent bypass.** All of the following must hold:\r\n\r\n1. **A first-party application in the tenant has token exchange enabled.** `allowTokenExchange` defaults to `false` on every new application and an admin must switch it on. With it off, the same request is rejected with `requested grant type is not allowed for this client`.\r\n2. **The attacker controls a client registered in the tenant** whose credentials the victim can be induced to authorize - in the reported scenario, a third-party application onboarded by the tenant admin.\r\n3. **The victim completed authentication or consent** for the attacker's application, yielding a genuine, unexpired, same-issuer token for that user. `openid` alone is sufficient.\r\n4. **The receiver's `client_id` is known.** No client secret is needed: a first-party *public* client (Native or SPA) may enable token exchange, so knowing the public identifier is enough to act as the receiver.\r\n5. **The exchanged scopes are meaningful at a target resource** - the impact is realized only against an API that trusts the tenant's tokens and enforces those scopes.\r\n\r\nSignature verification was never bypassed. A tampered token is rejected, and declaring the ID token truthfully as `subject_token_type=...:id_token` is rejected.\r\n\r\n### Impact\r\n\r\nAn attacker-controlled application that the victim authorized for authentication only could obtain an API access token carrying the victim's full first-party authorization on a requested resource, then use it for protected reads and state-changing writes as that user.\r\n\r\nBounded by the victim's role assignments: the reporter confirmed that a request including a scope the user's roles did not grant did not receive it, that an exchange aimed at the Logto Management API returned an empty scope with `GET /api/users` yielding `403`, and that no cross-user or cross-tenant access was possible.\r\n\r\nVerified end to end by the reporter against `@logto/core` 1.42.0 on a local deployment: a genuine ID token issued to a third-party application, declared as an access token, returned `200` with a new `at+jwt` API token for the victim subject; a strict local resource server rejected the original ID token with `401` but accepted the converted token for a protected read and a persistent write.\r\n\r\n### Patch\r\n\r\nFixed in https://github.com/logto-io/logto/pull/9457 and https://github.com/logto-io/logto/pull/9458.\r\n\r\n- #9457 asserts the token class before the account is resolved: the JOSE `typ` header must be `at+jwt` (RFC 9068, accepting the `application/at+jwt` media type form), and `client_id` must be present as a second discriminator. Both are set unconditionally by every JWT access token Logto issues, so legitimate subject tokens are unaffected.\r\n- #9458 surfaces the issuing client from both the opaque and the JWT path and requires it to be first-party. An opaque token with no client binding is rejected rather than falling through to the JWT path, and a subject token whose issuing client no longer exists is rejected. Lookup failures are kept distinguishable from \"not first-party\" so that a transient database fault surfaces as a `500` rather than a permanent-looking `invalid_grant`.\r\n\r\nBoth reject with `invalid_grant`.\r\n\r\n**Breaking change:** deliberately exchanging an access token issued to a third-party application now fails. The documented service-to-service delegation flow is unaffected - the subject token there is one your own first-party application received.\r\n\r\n### Workarounds\r\n\r\nFor anyone who cannot upgrade immediately:\r\n\r\n- Disable `allowTokenExchange` on applications that do not require it. This blocks the attack outright and is the single most effective mitigation.\r\n- Prefer confidential clients as token exchange receivers, so that a known `client_id` is not by itself sufficient to act as the receiver.\r\n- Review which applications have token exchange enabled, and review third-party applications registered in the tenant.\r\n\r\nAt the resource server, enforcing `typ: at+jwt`, the expected `aud`, and the expected `client_id` provides defense in depth against tokens that were never intended for it.\r\n\r\n### Credits\r\n\r\nReported by Jaejun Cho, with a full reproduction, negative controls (truthful token-type declaration, tampered signature, receiver feature gate), source-level root-cause analysis, and privilege-boundary controls establishing what the issue does *not* allow. The second flaw was identified during the audit that followed.\r\n",
+    "ghsa_id": "GHSA-vrv3-3j98-vfpp",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-vrv3-3j98-vfpp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vrv3-3j98-vfpp"
+      }
+    ],
+    "published_at": "2026-09-01T07:54:16Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Token exchange accepts an ID token as an access-token subject and ignores the subject token's issuing client, widening a consented credential into the user's full first-party API authorization",
+    "updated_at": "2026-09-01T07:54:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.43.0",
+        "vulnerable_version_range": ">= 1.38.0, <= 1.42.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

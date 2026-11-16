@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-xj66-9p6m-wr56",
+  "aliases": [],
+  "title": "SQL Injection via Column Precision Value",
+  "summary": "### Summary\n\nThe precision supplied when creating or updating a column was written into the generated data-definition statement without being checked, so a crafted value could append arbitrary SQL to the statement.\n\n### Details\n\nColumn precision is placed inside the type declaration of the emitted data-definition statement. On the MySQL and SQLite clients (`MysqlClient.ts`, `SqliteClient.ts`) and in the column data backup handler, the value travelled from the request body to statement construction with no check that it was numeric, so a value that closed the type declaration turned the rest of the string into additional SQL. The PostgreSQL, SQL Server and Oracle clients were not affected, since they either omit the precision from generated statements or coerce it through integer parsing first.\n\n### Impact\n\nA user able to change a table's schema could execute arbitrary statements against the base's data source, including data-definition and data-manipulation statements well beyond the column change the API exposes. Exploitation requires an authenticated account with schema-edit permission on the base, that is the Creator or Owner base role; the Editor role and below cannot create or alter columns.\n\n### Credit\n\nThis issue was reported by [@meifukun](https://github.com/meifukun).",
+  "published_at": "2026-11-02T08:47:31.000Z",
+  "modified_at": "2026-11-02T08:47:31.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-89"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.07.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xj66-9p6m-wr56",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-xj66-9p6m-wr56",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xj66-9p6m-wr56",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:adc70e80b82f8611fac468774d91aa9ef1c92a84817b3541bd2eaac758e5c478",
+  "note": null
+}

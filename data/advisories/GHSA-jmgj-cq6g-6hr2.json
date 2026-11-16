@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-jmgj-cq6g-6hr2",
+  "aliases": [],
+  "title": "Incorrect Authorization via Base Member Removal",
+  "summary": "### Summary\n\nThe check meant to stop a base member from removing someone with a higher base role never took effect, so a base Creator could remove an Owner of the base.\n\n### Details\n\n`baseUserDelete` in `base-users.service.ts`, in both the Community and Enterprise services, compared the target's role power with the caller's through `getProjectRolePower`, which expects a user and reads its `base_roles`. The target side was given `baseUser.base_roles`, the roles themselves, so the helper found no roles on it and returned -1, and the comparison could never refuse the request. Base Creators hold the member removal permission, so a Creator could remove a member with the higher Owner role. The separate checks that keep the last Owner of a base and protect super admins were unaffected. The target user is now passed to the comparison, so removing a member whose role outranks the caller's is refused.\n\n### Impact\n\nAn attacker needs an account with the Creator role on the base. They could remove another Owner of the base, a role above their own, as long as at least one Owner remained. Super admins and the base's last Owner could not be removed this way.\n\n### Credit\n\nThis issue was reported by [@sfwani](https://github.com/sfwani).",
+  "published_at": "2026-11-02T08:47:17.000Z",
+  "modified_at": "2026-11-02T08:47:17.000Z",
+  "severity": {
+    "level": "low",
+    "score": 2.7,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0.253.0",
+          "fixed": "2026.09.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-jmgj-cq6g-6hr2",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jmgj-cq6g-6hr2",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-jmgj-cq6g-6hr2",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1feb43be254a7815160f433a3c47766f32554a7a0ff464c835e2f63dd1fd25e6",
+  "note": null
+}

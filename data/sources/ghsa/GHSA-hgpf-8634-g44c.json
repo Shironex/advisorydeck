@@ -1,0 +1,101 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-55873",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\nSeaweedFS routes requests signed with SigV4 service `s3tables` to the S3Tables\nmanagement API. Authorization on that path collapsed account-less S3 identities\ninto the shared `admin` account and failed open, so a user holding only ordinary\nS3 `Read` credentials - and no S3Tables-specific permission - could invoke\nS3Tables management operations such as `GET /buckets` and enumerate\nadministrator-owned table bucket inventory (names and ARNs). The same handler\nbacks the Iceberg REST catalog, which was affected by the same flaw.\n\n### Impact\nAn authenticated low-privileged S3 user can cross the boundary between ordinary\nS3 object access and S3Tables management. Confirmed impact is disclosure of\nadministrator-owned table bucket inventory (bucket names and ARNs); in shared or\nmulti-tenant deployments this can reveal tenant naming and operational structure.\n\n### Affected versions\nSeaweedFS `>= 4.08, < 4.34` (the S3Tables management API was introduced in 4.08).\n\n### Patched versions\nFixed in **4.34** (#9961). Administrator status is now decided by the\n`ACTION_ADMIN` capability rather than by a collapsed `admin` account id, S3Tables\nauthorization no longer defaults to allow, and the tautological ListTableBuckets\ngate was removed. Related hardening of the same root cause landed in #9962,\n#9963, and #9971.\n\n### Workaround\nNo configuration workaround - upgrade to 4.34 or later.\n\n### Credit\nReported by **TA-MU-TA**.",
+    "ghsa_id": "GHSA-hgpf-8634-g44c",
+    "html_url": "https://github.com/advisories/GHSA-hgpf-8634-g44c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hgpf-8634-g44c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55873"
+      }
+    ],
+    "published_at": "2026-08-28T22:16:43Z",
+    "references": [
+      "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-hgpf-8634-g44c",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-55873",
+      "https://github.com/seaweedfs/seaweedfs/pull/9961",
+      "https://github.com/seaweedfs/seaweedfs/commit/b13463880c1fa62e255c058a9228b63cc95b4b36",
+      "https://github.com/seaweedfs/seaweedfs/releases/tag/4.34",
+      "https://github.com/advisories/GHSA-hgpf-8634-g44c"
+    ],
+    "severity": "medium",
+    "summary": "SeaweedFS: Improper authorization in the S3Tables / Iceberg REST management API lets a low-privileged S3 user enumerate administrator-owned table buckets",
+    "updated_at": "2026-08-28T22:16:43Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.0.0-20260614205536-b13463880c1f",
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "vulnerable_version_range": ">= 0.0.0-20260128085517-09bb90e8dc16, < 0.0.0-20260614205536-b13463880c1f"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hgpf-8634-g44c",
+  "repo": {
+    "cve_id": "CVE-2026-55873",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "### Summary\r\nSeaweedFS routes requests signed with SigV4 service `s3tables` to the S3Tables\r\nmanagement API. Authorization on that path collapsed account-less S3 identities\r\ninto the shared `admin` account and failed open, so a user holding only ordinary\r\nS3 `Read` credentials - and no S3Tables-specific permission - could invoke\r\nS3Tables management operations such as `GET /buckets` and enumerate\r\nadministrator-owned table bucket inventory (names and ARNs). The same handler\r\nbacks the Iceberg REST catalog, which was affected by the same flaw.\r\n\r\n### Impact\r\nAn authenticated low-privileged S3 user can cross the boundary between ordinary\r\nS3 object access and S3Tables management. Confirmed impact is disclosure of\r\nadministrator-owned table bucket inventory (bucket names and ARNs); in shared or\r\nmulti-tenant deployments this can reveal tenant naming and operational structure.\r\n\r\n### Affected versions\r\nSeaweedFS `>= 4.08, < 4.34` (the S3Tables management API was introduced in 4.08).\r\n\r\n### Patched versions\r\nFixed in **4.34** (#9961). Administrator status is now decided by the\r\n`ACTION_ADMIN` capability rather than by a collapsed `admin` account id, S3Tables\r\nauthorization no longer defaults to allow, and the tautological ListTableBuckets\r\ngate was removed. Related hardening of the same root cause landed in #9962,\r\n#9963, and #9971.\r\n\r\n### Workaround\r\nNo configuration workaround - upgrade to 4.34 or later.\r\n\r\n### Credit\r\nReported by **TA-MU-TA**.\r\n",
+    "ghsa_id": "GHSA-hgpf-8634-g44c",
+    "html_url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-hgpf-8634-g44c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hgpf-8634-g44c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55873"
+      }
+    ],
+    "published_at": "2026-06-26T20:26:38Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Improper authorization in the S3Tables / Iceberg REST management API lets a low-privileged S3 user enumerate administrator-owned table buckets",
+    "updated_at": "2026-06-26T20:26:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "go",
+          "name": "github.com/seaweedfs/seaweedfs"
+        },
+        "patched_versions": "4.34",
+        "vulnerable_version_range": ">= 4.08, < 4.34"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "seaweedfs/seaweedfs"
+}

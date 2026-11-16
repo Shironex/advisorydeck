@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-q4h3-38gc-4p4j",
+  "repo": {
+    "cve_id": "CVE-2026-55377",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-287"
+    ],
+    "description": "### Summary\r\n\r\nLogto's Account Center step-up check accepts any active verification record that belongs to the current user and has `isVerified === true`. A WebAuthn registration verification record for binding a new passkey can be created and verified with only an existing Account API bearer token, without first completing a user permission validation step. Once verified, that new-registration record can be sent in the `logto-verification-id` header and is treated as `identityVerified=true` by Account Center routes.\r\n\r\nThis allows a hijacked user session/token with the required Account API scopes to bootstrap its own step-up proof, then manage MFA factors without proving possession of an existing password, identifier, or MFA factor.\r\n\r\n### Affected paths\r\n\r\n- Step-up derivation: `packages/core/src/middleware/koa-auth/koa-oidc-auth.ts`\r\n- WebAuthn registration verification record creation/verification: `packages/core/src/routes/verification/index.ts`\r\n- WebAuthn verification record semantics: `packages/core/src/routes/experience/classes/verifications/web-authn-verification.ts`\r\n- Account Center MFA management: `packages/core/src/routes/account/mfa-verifications.ts`\r\n\r\n### Root cause\r\n\r\n`koaOidcAuth` derives `ctx.auth.identityVerified` by loading the verification record named by the client-controlled `logto-verification-id` header and returning `instance.isVerified` if the record belongs to the authenticated account. This collapses different verification purposes into one boolean.\r\n\r\nA WebAuthn registration record being `verified` only means the browser completed a new credential registration ceremony. It does not prove the current actor re-authenticated using an existing account credential or existing MFA factor. The Account Center step-up gate should accept only verification records whose purpose is user permission validation.\r\n\r\n### Exploit outline\r\n\r\nPreconditions:\r\n\r\n- The attacker can use the victim's Account API bearer token.\r\n- The token has `openid` and the Account API scopes required for identity/MFA management, such as `identities`.\r\n- Account Center is enabled and the MFA field is editable.\r\n\r\nSteps:\r\n\r\n1. Call `POST /api/verifications/web-authn/registration` using the victim's bearer token to create a WebAuthn registration verification record.\r\n2. Complete `POST /api/verifications/web-authn/registration/verify` with an attacker-controlled passkey/authenticator. The verification record now has `verified=true` and belongs to the victim user.\r\n3. Send Account Center requests with `logto-verification-id: <verified WebAuthn registration record id>`.\r\n4. `koaOidcAuth` sets `ctx.auth.identityVerified=true`, allowing sensitive Account Center MFA routes.\r\n5. The attacker can add attacker-controlled MFA factors and/or delete existing MFA factors through `/api/my-account/mfa-verifications`.\r\n\r\n### Impact\r\n\r\nAn attacker who has hijacked a valid user session/token can bypass Account Center step-up re-authentication for MFA factor management. This can allow the attacker to remove the victim's existing MFA factors and bind attacker-controlled replacements, strengthening persistence over the compromised account and weakening account recovery by the legitimate user.\r\n\r\nThis is classified as CWE-287, Improper Authentication. The suggested CVSS 3.1 score is 8.1 High: `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N`.\r\n\r\n### Remediation\r\n\r\nKeep `identityVerified` as the Account Center sensitive-operation gate, but restrict which verification records can produce it. The step-up derivation should accept only records whose purpose is user permission validation, for example:\r\n\r\n- verified password verification records;\r\n- verified email/phone verification-code records created with `TemplateType.UserPermissionValidation`.\r\n\r\nIt should not accept new MFA binding records, WebAuthn registration records, MFA verification records, sign-in passkey records, or other records whose `verified` state means something other than user permission validation.\r\n\r\nA local fix has been prepared on branch `wangsijie-fix-account-center-step-up` with commit `9fa5296b1 fix(core): restrict account center step-up verification`. The fix changes `koa-oidc-auth` to whitelist user-permission verification records and adds regression coverage for password/code success plus WebAuthn registration and BindMfa rejection.\r\n\r\n### Validation\r\n\r\nLocal validation performed on the prepared fix:\r\n\r\n- `pnpm prepack`\r\n- `pnpm build:test` in `packages/core`\r\n- `pnpm exec eslint src/middleware/koa-auth/koa-oidc-auth.ts src/middleware/koa-auth/koa-oidc-auth.test.ts` in `packages/core`\r\n- `pnpm test:only build/middleware/koa-auth/koa-oidc-auth.test.js` in `packages/core`",
+    "ghsa_id": "GHSA-q4h3-38gc-4p4j",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-q4h3-38gc-4p4j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-q4h3-38gc-4p4j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55377"
+      }
+    ],
+    "published_at": "2026-07-01T04:04:02Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Account Center MFA management step-up bypass via WebAuthn registration verification",
+    "updated_at": "2026-07-01T04:04:02Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.41.0",
+        "vulnerable_version_range": "<= 1.40.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

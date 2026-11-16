@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-4j94-335x-8wjj",
+  "aliases": [],
+  "title": "User Enumeration via Sign-In Error Message",
+  "summary": "### Summary\n\nThe sign-in endpoint returned a distinct error for an invited account that had not finished signup, revealing to an unauthenticated caller that the address belonged to a pending invitee.\n\n### Details\n\n`validateUser` in `auth.service.ts` checked whether the account found for the submitted email had a password salt. Accounts created by an invitation can have none until the invitee finishes signup, and for those it raised an error telling the user to finish signing up from the invitation email, without comparing the password. Every other failed sign-in, including one for an unknown address, received the generic invalid-credentials answer from `local.strategy.ts`. Accounts created through Google sign-in have a salt and received the generic answer. Every failed sign-in, including one for an account without a password, now runs the same password comparison and receives the same message.\n\n### Impact\n\nNo authentication is required. An attacker could learn whether an email address belongs to an invited user who has not finished signing up, which also confirms that the address has an account on the instance. No account data or credentials were exposed.\n\n### Credit\n\nThis issue was reported by [@NinjaGPT](https://github.com/NinjaGPT).",
+  "published_at": "2026-11-02T08:48:16.000Z",
+  "modified_at": "2026-11-02T08:48:16.000Z",
+  "severity": {
+    "level": "low",
+    "score": 3.7,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-204"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4j94-335x-8wjj",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-4j94-335x-8wjj",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4j94-335x-8wjj",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:b44f77e3aa560e71b388c6e5a4187a226741f40c32c248fb0a3adec5e3f66513",
+  "note": null
+}

@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-f4g8-vhw4-36xm",
+  "aliases": [],
+  "title": "Unauthenticated remote code execution in DragonflyDB (stack buffer overflow in `CompactObj::HashCode()`)",
+  "summary": "## Summary\r\n\r\nAn unauthenticated client can install a crafted huffman table with `DEBUG COMPRESSION SET`, store one 14 byte key, and overflow a fixed 128 byte stack buffer in `CompactObj::HashCode()` when the dash table rehashes. The shipped binary is non-PIE with no stack protector, so the overwrite gives deterministic control of the saved return address and, through a single gadget into an internal `system()` wrapper, arbitrary command execution as the Dragonfly service account. Proven end to end on the stock `ghcr.io/dragonflydb/dragonfly:v1.40.1` image in its default configuration, with ASLR enabled and no information leak.\r\n\r\n## Severity\r\n\r\nCritical, CVSS 3.1 base 9.8 (`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`). Default deployments set no password and expose the `DEBUG` family on the ordinary client port.\r\n\r\n## Affected\r\n\r\n| | |\r\n|---|---|\r\n| Product | DragonflyDB |\r\n| Version verified | v1.40.1, commit `434478e00c366c711985d0b3269023fc39db8ad1` |\r\n| Image | `ghcr.io/dragonflydb/dragonfly:v1.40.1`, digest `sha256:ebf3c6c213e82fb51b4521660cca13f06f3421dc5b1ed14f2f474c50b5e29986`, linux/amd64 (also `latest` as of 2026-08-26) |\r\n| Configuration | default, no authentication, no special flags |\r\n| Class | CWE-121 stack-based buffer overflow, CWE-787 out-of-bounds write, CWE-20 |\r\n\r\n## Root cause\r\n\r\n`CompactObj::HashCode() const` decodes an inline huffman value into a fixed stack array with no destination bound:\r\n\r\n```cpp\r\nchar buf[kInlineLen * 8];   // 128 bytes, on the stack\r\nsize_t decoded_len = GetStrEncoding().Decode(string_view{u_.inline_str, taglen_}, buf);\r\n```\r\n\r\nThe safety assumption is that huffman cannot expand more than 8x, so an inline value (16 bytes maximum) cannot decode past 128 bytes. That does not hold: a huff0 table only assigns codes to the symbols it declares, so every byte outside the declared alphabet encodes in zero bits. A value made of out-of-alphabet filler compresses to almost nothing while its header declares a decoded length of about a thousand. `decoded_len` comes from attacker metadata and is never compared against `sizeof(buf)` before the write.\r\n\r\n## Reaching the path\r\n\r\nThe member `HashCode()` runs on stored objects when the dash table rehashes, so no special command is needed after the key is stored: inserting a few thousand short keys is enough. In our runs the overflow fires at roughly 6400 filler keys.\r\n\r\n## Exploitation\r\n\r\nThe binary is non-PIE and built without a stack protector, so both addresses are compile time constants: `base::sh_exec` (a one argument `sh -c` wrapper) at `0x004be2e0`, and the gadget `mov %r8,%rdi ; call *%rbx` at `0x011426e1`. `r8` still points at the decoded buffer when `HashCode()` returns, so the gadget sets `rdi = buf` and calls whatever the overflow placed in `rbx`:\r\n\r\n```\r\nret       -> 0x011426e1   mov %r8,%rdi ; call *%rbx      (gadget, from buf+168)\r\nrbx       =  0x004be2e0   base::sh_exec(char const*)      (from buf+136)\r\nresult    =  sh_exec(buf) = system(\"sh -c \\\"sh *\\\"\")      (buf[0..] decodes to \"sh *\\0\")\r\n```\r\n\r\nThe offsets are arithmetic, not brute force. The decode of an over long inline value is exactly periodic, so a table with period 43 places the two addresses 32 bytes apart at offsets 136 and 168, exactly the frame distance, leaving the first 7 bytes free for the command string. `sh *` fits there and globs onto a snapshot staged beforehand with `CONFIG SET dbfilename x` plus `SAVE`, which `dash` executes as a script. That staging is not part of the vulnerability, only the cheapest way to expand a six character command into a full shell.\r\n\r\n## Proof of concept\r\n\r\nTarget, published image and a port mapping only:\r\n\r\n```sh\r\ndocker run -d --name dfpocrece -p 6331:6379 -m 2g \\\r\n  ghcr.io/dragonflydb/dragonfly:v1.40.1 --logtostderr --proactor_threads=1\r\n```\r\n\r\nFour unauthenticated steps: (1) install the crafted table with `DEBUG COMPRESSION SET`, (2) stage the command body (`CONFIG SET dbfilename x`, one key holding the reverse shell line, `SAVE`), (3...",
+  "published_at": "2026-09-20T14:28:30.000Z",
+  "modified_at": "2026-09-20T14:28:30.000Z",
+  "severity": {
+    "level": "low",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dragonfly",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "1.40"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-f4g8-vhw4-36xm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f4g8-vhw4-36xm",
+      "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-f4g8-vhw4-36xm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6e0b669885ebf85ee036bfdff1b9bf0b43a73d1ce9791a4ef1c7584ef2512d70",
+  "note": null
+}

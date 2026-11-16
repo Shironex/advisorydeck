@@ -1,0 +1,52 @@
+{
+  "id": "GHSA-mf7h-mwxr-38r5",
+  "aliases": [],
+  "title": "Account Takeover via Base Invitation Resend",
+  "summary": "### Summary\n\nResending a base invitation writes a fresh signup token onto the target account before any\nauthorization check, and the base member list returns that token to base creators, so a creator can\ntake over any other member's account - including the base owner's or a super admin's.\n\n### Details\n\n`baseUserInviteResend` resolves the caller-supplied global user id and immediately writes a new\n`invite_token` and expiry onto that account, before it checks base membership, pending-invitation\nstate, whether the account already holds credentials, or the target's role. Because the write\nprecedes the email-plugin check, the token is committed even on deployments with no mail plugin\nconfigured, where the call itself returns an error. The base-users controller then selects the full\nmember projection for creators as well as owners, and that projection retains `invite_token`, so the\nattacker reads back the token they just caused to be minted. Signup accepts token equality as proof\nof identity for an already-registered account and replaces `salt` and `password` without requiring\nthe existing credential. `baseUserInviteResend` is absent from the creator exclude lists in both\neditions' ACLs, and the enterprise edition overrides only `userInvite`, so both editions are equally\naffected. Resending now requires the target to be a member of the base, checks for an email plugin before writing anything, and replaces the token only on an account that already holds one. The base member list no longer returns invitation tokens.\n\n### Impact\n\nA user holding the base creator role in a single shared base can take over another member's global\nNocoDB account, inheriting every base, workspace and organization permission resolved for that user.\nTargeting a base owner, workspace owner or super admin therefore yields broad administrative,\ndata-export, membership and deletion authority across tenants the attacker was never invited to, and\nthe victim is locked out because their password has been replaced. No user interaction, race\ncondition or token guessing is involved; email authentication, which is the default, is the only\nprecondition.\n\n### Credit\n\nThis issue was reported by Vivek R and Mufeed VH of Winfunc. It was independently reported by [@dylanzonix](https://github.com/dylanzonix) (Dylan McGuinness, Ambit Security).",
+  "published_at": "2026-11-02T08:48:08.000Z",
+  "modified_at": "2026-11-02T08:48:08.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-640",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.10.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-mf7h-mwxr-38r5",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-mf7h-mwxr-38r5",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-mf7h-mwxr-38r5",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7863c84a2e80dd778ead0ba1aa001938d6154bf819cc36d907c5f0dc5e0facf8",
+  "note": null
+}

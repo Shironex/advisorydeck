@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-pvx5-g9jg-m7wr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-200"
+    ],
+    "description": "### Summary\n\nThe general base metadata endpoint returned the base record's stored password field in plaintext to any holder of a shared-base link, including callers with no account.\n\n### Details\n\nThe dedicated shared-base metadata route was correctly limited to an id and a title, but the general base read in `bases.controller.ts` resolved on the viewer-tier role a shared-base session is granted, and nothing removed the password column from the base row before it was serialized. The sanitizer on that path, `sanitizeBase.ts`, stripped only data-source connection configuration and never touched the password field, and the controller discarded the sanitized copy it received and responded with the original object - so the sanitizer was not load-bearing for anything it did not mutate in place. The base list response carried the field as well. The value itself was vestigial: shared bases have no password feature, and the stored value was never verified against anything.\n\n### Impact\n\nNo authentication is required beyond possession of the share link, which is precisely the artifact a shared base is handed out on. Any recipient of the link could read a stored plaintext password associated with the base; because people reuse passwords across systems, its value is not limited to the base it was set on.\n\n### Credit\n\nThis issue was reported by [@komyunghan](https://github.com/komyunghan).\n",
+    "ghsa_id": "GHSA-pvx5-g9jg-m7wr",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-pvx5-g9jg-m7wr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-pvx5-g9jg-m7wr"
+      }
+    ],
+    "published_at": "2026-11-02T08:47:29Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Shared Base Password Disclosure via Base Metadata Endpoint",
+    "updated_at": "2026-11-02T08:47:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.08.0",
+        "vulnerable_version_range": "< 2026.08.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

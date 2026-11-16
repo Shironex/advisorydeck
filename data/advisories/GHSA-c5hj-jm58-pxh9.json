@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-c5hj-jm58-pxh9",
+  "aliases": [],
+  "title": "Third-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)",
+  "summary": "> [!NOTE]\n> **Fixed in Logto 1.46.0** (https://github.com/logto-io/logto/pull/9855). The third-party token endpoints of the Account API now reject access tokens issued to third-party applications, as the other Account API routes already do.\n>\n> GHSA-mg64-x3xv-96rc and GHSA-cvjg-j6fr-vcjv reported the same issue and were consolidated here; their reporters are credited.\n\n---\n\n## Summary\r\n\r\nThird-party OAuth app can steal a user's live upstream social/SSO provider access tokens via the Account API (missing assertFirstPartyClient on the third-party-token endpoints)\r\n\r\n## Affected code\r\n\r\n`packages/core/src/routes/account/third-party-tokens.ts`:118\r\n\r\nthird-party-tokens.ts (GET social, no first-party/step-up check):\r\nL112  async (ctx, next) => {\r\nL113    const { id: userId, scopes } = ctx.auth;\r\nL114    const { target } = ctx.guard.params;\r\nL118    assertThat(scopes.has(UserScope.Identities), 'auth.forbidden', 403);\r\nL120    const tokenSetSecret = await secretsQueries.findSocialTokenSetSecretByUserIdAndTarget(userId, target);\r\nL132    ctx.body = await getAccessToken(libraries, queries, tokenSetSecret);   // returns decrypted UPSTREAM token\r\n(no assertFirstPartyClient anywhere in this file)\r\n\r\ngetAccessToken returns the plaintext upstream token (third-party-tokens.ts:55-74):\r\nL55   const { access_token, refresh_token } = decryptTokens({ iv, encryptedDek, ciphertext, authTag });\r\nL72   if (!expiresAt || now < expiresAt) { return formatTokenResponse(access_token, metadata, now); }\r\n\r\nThe boundary these endpoints skip (assert-first-party-client.ts:19-23):\r\nL19  export const assertFirstPartyClient = async (queries, clientId?) => {\r\nL20    if (clientId !== undefined && (await isThirdPartyApplication(queries, clientId))) {\r\nL21      throw new RequestError({ code: 'auth.third_party_application_forbidden', status: 403 });\r\n\r\nAuth chain imposes no first-party restriction:\r\nkoa-oidc-auth.ts:91  assertThat(scopes.has('openid'), ...403);   // any app has openid\r\nkoa-account-center.ts:23  assertThat(accountCenter.enabled, 'account_center.not_enabled');  // tenant toggle only\r\n\r\nEvery sibling account route DOES call it, e.g. identities.ts:126,161,194 ; email-and-phone.ts:52,98,139,181 ; mfa-verifications.ts:109,280,424,468 ; sessions.ts:93 ; grants.ts:90 ; logto-config.ts:79 ; index.ts:104,167,192,275 - third-party-tokens.ts has zero occurrences.\r\n\r\nThe route's own test confirms the only gate is the scope (third-party-tokens.test.ts:86-95): a token with just {openid, identities} and no clientId 'passes the scope gate for GET social access-token' (proceeds to reading the stored secret).\r\n\r\n## Attacker model\r\n\r\nOperator of a third-party (non-first-party) OAuth application registered in the Logto tenant, which the victim end-user has signed into and consented the `identities` user scope to. The attacker holds only a normal opaque OIDC access token issued to that app (scopes `openid identities`). No admin, no Management API scope, no server access.\r\n\r\n## Details\r\n\r\nEvery account-mutating/identity endpoint on the userRouter enforces the triad `scopes.has(...)` + (often) `identityVerified` + `assertFirstPartyClient(queries, clientId)`. `assertFirstPartyClient` is the documented boundary that keeps third-party OAuth apps (which always carry `openid`) out of account-management data: its own docstring says enabling a claim scope like `email` for a third-party app only tells the app it may *read* that claim, not act on the account. The two GET handlers (and the PUT) in third-party-tokens.ts break this pattern: they gate ONLY on `scopes.has(UserScope.Identities)` and never call `assertFirstPartyClient`, nor do they require `identityVerified`. The handlers then decrypt and return the *upstream provider's* live access token (the Google/Microsoft/SSO IdP token Logto stored during social/SSO login, refreshing it via the connector if expired). The `identities` scope's semantic grant is 'your social and SSO identity details' (userinfo claims `identities`/`sso_...",
+  "published_at": "2026-11-09T07:10:47.000Z",
+  "modified_at": "2026-11-09T07:10:47.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 6.5,
+    "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:R/S:C/C:H/I:L/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-862",
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "logto",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "1.46.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c5hj-jm58-pxh9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-c5hj-jm58-pxh9",
+      "url": "https://github.com/logto-io/logto/security/advisories/GHSA-c5hj-jm58-pxh9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:5c289d325e279b60a7d48ca4ed9b2e557ebf48187c90c35cde0ef1b53c588f93",
+  "note": null
+}

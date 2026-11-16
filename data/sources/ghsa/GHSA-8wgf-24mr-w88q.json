@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-8wgf-24mr-w88q",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.4,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1236"
+    ],
+    "description": "### Summary\n\nCSV exports reproduced record values and column titles beginning with a formula character verbatim, so a spreadsheet application opening the exported file evaluated them as formulas.\n\n### Details\n\nThe CSV serialiser in `export.service.ts` wrote the header row and every cell value into the export exactly as stored, without prefixing the values whose leading character a spreadsheet treats as the start of a formula - equals, plus, minus, at, tab and carriage return. Any text an attacker could place into a record therefore reached the file intact, as did any column title they could set, and the receiving spreadsheet parsed it as a formula rather than as text. The record path is reachable by anyone who can write a cell value, including an anonymous submitter of a public form attached to the exported table.\n\n### Impact\n\nContent supplied by a low-privileged collaborator or by an entirely anonymous form submitter executed as a spreadsheet formula in the context of whoever opened the export - typically a base owner or administrator on their own workstation. Depending on the spreadsheet application's settings and the user's response to its warning prompts, such a formula can read other local data, exfiltrate cell contents through an outbound request, or invoke an external command. No authentication is required where a public form feeds the exported view.\n\n### Credit\n\nThis issue was reported by [@hunntr](https://github.com/hunntr).\n",
+    "ghsa_id": "GHSA-8wgf-24mr-w88q",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-8wgf-24mr-w88q",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8wgf-24mr-w88q"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:51Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Formula Injection via CSV Export",
+    "updated_at": "2026-10-27T10:06:51Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.1",
+        "vulnerable_version_range": "< 2026.06.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

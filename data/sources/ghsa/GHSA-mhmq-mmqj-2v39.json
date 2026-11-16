@@ -1,0 +1,64 @@
+{
+  "global": null,
+  "id": "GHSA-mhmq-mmqj-2v39",
+  "repo": {
+    "cve_id": "CVE-2026-12184",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nIn `php_stream_url_wrap_http_ex`, when TLS crypto setup fails (via `php_stream_xport_crypto_setup` or `php_stream_xport_crypto_enable`), the stream is closed and reset to `NULL`.\r\nHowever, the subsequent peer name cleanup block unconditionally tries to reset the peer name.\r\nThis is triggerable via a failure to validate the peer name or an expired certificate.\r\n\r\nAs demonstrated by https://github.com/php/php-src/issues/21468 this is triggerable without requiring specially-crafted code, and with a remote server.\r\n\r\n### Details\r\n\r\nPatch available via https://github.com/php/php-src/pull/21031\r\n\r\n### Impact\r\n\r\nThe impact is a remotely-triggerable DoS bringing the entire fpm process down with all its workers.\r\n\r\n### Additional Information\r\n\r\nThis was first discovered by a hybrid static-dynamic analyzer I'm developing.",
+    "ghsa_id": "GHSA-mhmq-mmqj-2v39",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-mhmq-mmqj-2v39",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mhmq-mmqj-2v39"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-12184"
+      }
+    ],
+    "published_at": "2026-07-02T17:01:28Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Failure to setup TLS with a remote server can result in a remote DoS",
+    "updated_at": "2026-07-02T17:01:28Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.3.32",
+        "vulnerable_version_range": "< 8.3.32"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.4.21",
+        "vulnerable_version_range": "< 8.4.21"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.5.6",
+        "vulnerable_version_range": "< 8.5.6"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

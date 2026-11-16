@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-rr54-jf4h-6cj9",
+  "repo": {
+    "cve_id": "CVE-2026-45688",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-943"
+    ],
+    "description": "Rocket.Chat's CAS login handler forwards the client-supplied `options.cas.credentialToken` value straight into a MongoDB `findOne({_id: ...})` query without any runtime type check. TypeScript's `string` parameter annotation is erased at runtime, so an unauthenticated attacker can substitute a MongoDB query operator (`{\"$gt\": \"\"}`, `{\"$ne\": null}`, etc.) for what the server expects to be an opaque ticket string. The injected operator matches the first unexpired document in the `credential_tokens` collection, bypassing the CAS ticket check entirely.\r\n\r\nWhen any legitimate CAS or SAML SSO login is in flight, the attacker's next DDP `login` call matches the same credential-token row via the NoSQL operator and is issued a full Meteor auth token (`userId` + `token`) bound to the victim. The token is immediately usable against the complete REST and DDP surface as that user. If the victim is an administrator, this escalates to full instance compromise via Apps-Engine app install.\r\n\r\nBecause the `credential_tokens` collection is populated by both the CAS middleware and the SAML service, and because the vulnerable CAS handler is registered unconditionally at startup regardless of whether CAS is actually enabled, any Rocket.Chat instance with either SSO provider configured is exploitable.\r\n\r\n## Pre-requisites\r\n\r\n- **No account needed.** Attacker is fully unauthenticated; they only need network reach to the instance's `/websocket` (Meteor DDP) or `/api/v1/login` endpoint.\r\n- The target instance must have **CAS or SAML** configured and actively in use. Both providers write into the same `credential_tokens` collection that the CAS handler reads, so a SAML-only deployment is exploitable through the CAS handler's NoSQL primitive too.\r\n- A legitimate SSO login must occur (or have occurred) within the **60-second credential-token window** (`CredentialTokens.ts:17`, hardcoded `validForMilliseconds = 60000`). On an SSO-backed instance any user logging in creates that window. An attacker polling at sub-second intervals wins the race deterministically when a row appears.\r\n\r\n## Root Cause\r\n\r\n**1. No type validation on `credentialToken` in the CAS handler:**\r\n[`apps/meteor/server/lib/cas/loginHandler.ts#L12-L21`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/server/lib/cas/loginHandler.ts#L12-L21):\r\n\r\n```ts\r\nexport const loginHandlerCAS = async (options: any): Promise<...> => {\r\n    if (!options.cas) {\r\n        return undefined;\r\n    }\r\n\r\n    const credentials = await CredentialTokens.findOneNotExpiredById(options.cas.credentialToken);\r\n    if (credentials === undefined || credentials === null) {\r\n        throw new Meteor.Error(Accounts.LoginCancelledError.numericError, 'no matching login attempt found');\r\n    }\r\n    ...\r\n```\r\n\r\n`options` is typed `any` and `options.cas.credentialToken` is passed straight to the model at line 18. Compare with the SAML sibling handler at [`app/meteor-accounts-saml/server/loginHandler.ts#L14-L17`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/app/meteor-accounts-saml/server/loginHandler.ts#L14-L17), which has the exact guard the CAS handler lacks:\r\n\r\n```ts\r\nAccounts.registerLoginHandler('saml', async (loginRequest) => {\r\n    if (!loginRequest.saml || !loginRequest.credentialToken || typeof loginRequest.credentialToken !== 'string') {\r\n        return undefined;\r\n    }\r\n    ...\r\n```\r\n\r\nThe guard on the SAML handler prevents the equivalent operator-object injection on that path; the CAS handler has no corresponding check.\r\n\r\n**2. Raw query composition in the model:**\r\n[`packages/models/src/models/CredentialTokens.ts#L28-L35`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/packages/models/src/models/CredentialTokens.ts#L28-L35):\r\n\r\n```ts\r\nfindOneNotExpiredById(_id: string): Promise<ICredentialToken | null> {\r\n    const query = {\r\n        _id,\r\n        expireAt: { $gt: new Date() },\r\n    };\r\n\r\n    return this.findOne(query);\r\n}\r\n```\r\n\r\nThe `_id: string` annotation is compile-time only. Whatever the handler passes - string or object - is placed into the query document as-is. `{_id: {$gt: \"\"}}` is a valid Mongo query that matches every document with any non-empty `_id` (i.e. every row in the collection), combined with the existing `expireAt: {$gt: new Date()}` filter, it matches any currently-valid credential token.\r\n\r\n**3. CAS handler registered unconditionally at startup:**\r\n[`apps/meteor/server/configuration/cas.ts#L30-L36`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/server/configuration/cas.ts#L30-L36):\r\n\r\n```ts\r\nAccounts.registerLoginHandler('cas', (options) => {\r\n    const promise = loginHandlerCAS(options);\r\n    return promise as unknown as Awaited<typeof promise>;\r\n});\r\n```\r\n\r\n`configureCAS` runs at server startup with no `CAS_enabled` gate. The DDP `login` method accepts `{cas: {...}}` payloads on every Rocket.Chat instance, and the vulnerable handler is reached regardless of whether CAS has ever been configured in the admin UI. The only thing standing between the attacker and a hit is a non-empty `credential_tokens` collection.\r\n\r\n**4. Cross-provider attack surface via SAML writes into the same collection:**\r\n[`apps/meteor/app/meteor-accounts-saml/server/lib/SAML.ts#L99-L101`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/apps/meteor/app/meteor-accounts-saml/server/lib/SAML.ts#L99-L101):\r\n\r\n```ts\r\npublic static async storeCredential(credentialToken: string, loginResult: { profile: Record<string, any> }): Promise<void> {\r\n    await CredentialTokens.create(credentialToken, loginResult);\r\n}\r\n```\r\n\r\nSAML and CAS share the same `credential_tokens` collection. The vulnerable CAS handler will happily return SAML-populated rows to an attacker injecting through the `cas` login path. This widens the affected population from \"CAS-enabled instances\" to \"CAS-enabled or SAML-enabled instances\" - the latter being substantially larger in enterprise deployments.\r\n\r\n**5. Short but deterministic race window:**\r\n[`packages/models/src/models/CredentialTokens.ts#L16-L26`](https://github.com/RocketChat/Rocket.Chat/blob/8.3.2/packages/models/src/models/CredentialTokens.ts#L16-L26):\r\n\r\n```ts\r\nasync create(_id: string, userInfo: ICredentialToken['userInfo']): Promise<ICredentialToken> {\r\n    const validForMilliseconds = 60000; // Valid for 60 seconds\r\n    const token = {\r\n        _id,\r\n        userInfo,\r\n        expireAt: new Date(Date.now() + validForMilliseconds),\r\n    };\r\n    await this.insertOne(token);\r\n    return token;\r\n}\r\n```\r\n\r\nThe CAS handler does not delete the row on successful read - it only filters on `expireAt`. So for the full 60 seconds after an SSO callback completes, the row remains in the collection and is injectable on any `$gt:\"\"` poll. Mongo's TTL index on `expireAt` sweeps after expiry but the 60-second window is deterministic for the attacker.\r\n\r\n## Impact\r\n\r\n- **Full account takeover** of any user who performs CAS or SAML SSO login while the attacker is polling. Stolen `authToken` is a first-class Meteor session token: usable via `X-Auth-Token` / `X-User-Id` headers against `/api/v1/*`, and via DDP `login` with `{resume: token}` for full WebSocket access.\r\n- **Admin escalation** if the victim is an admin: attacker installs an arbitrary Apps-Engine app for server-side code execution, modifies settings, exfiltrates every user's data.\r\n- **Cross-provider blast radius:** SAML-only instances (which do not use CAS at all) are still exploitable because the CAS handler cross-reads the collection SAML writes into. Operators who disabled CAS long ago remain exposed.\r\n- **No auth, no account, no user interaction with the attacker.** The attacker never touches the IdP; they only hit Rocket.Chat's own `/websocket`.\r\n- **Silent to the victim:** the victim's own CAS login completes normally (the handler does not delete the credential-token row on read), so the attack leaves no user-visible trace. Server-side DDP access logs will record an extra `login` method call per hijack whose params object contains the operator form `{cas:{credentialToken:{\"$gt\":\"\"}}}` - this is *distinguishable* from legitimate client traffic (which sends a string `credentialToken`) and a log reviewer can detect the pattern with a grep for `\"$gt\"` or equivalent in the `method: \"login\"` payloads, but by default RC does not log DDP method bodies, so nothing on disk captures the operator object without extra instrumentation.",
+    "ghsa_id": "GHSA-rr54-jf4h-6cj9",
+    "html_url": "https://github.com/RocketChat/Rocket.Chat/security/advisories/GHSA-rr54-jf4h-6cj9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-rr54-jf4h-6cj9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45688"
+      }
+    ],
+    "published_at": "2026-05-14T07:47:31Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Pre-Auth NoSQL Injection in CAS Login Handler leading to Arbitrary CAS/SAML User Session Hijack",
+    "updated_at": "2026-05-14T07:47:31Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Rocket.Chat"
+        },
+        "patched_versions": "8.5.0, 8.4.1, 8.3.3, 8.2.3, 8.1.4, 8.0.5, 7.13.7, 7.10.11",
+        "vulnerable_version_range": "<8.5.0, <8.4.1, <8.3.3, <8.2.3, <8.1.4, <8.0.5, <7.13.7, <7.10.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "RocketChat/Rocket.Chat"
+}

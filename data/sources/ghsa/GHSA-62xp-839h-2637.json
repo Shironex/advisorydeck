@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-62xp-839h-2637",
+  "repo": {
+    "cve_id": "CVE-2026-91768",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe IPv6 branch of the FastCGI client access check compares only the first 12 bytes of a 16-byte IPv6 address, so `listen.allowed_clients` matches on a /96 prefix instead of the exact address. An attacker who can source an address sharing the first 96 bits with an allowed one passes the check and reaches the FastCGI endpoint.\r\n\r\n### Details\r\n\r\n`fcgi_is_allowed()` in `main/fastcgi.c` compares IPv6 client addresses with a hard-coded length of 12:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/main/fastcgi.c#L1334\r\n\r\nAn exact IPv6 comparison must cover all 16 bytes of `struct in6_addr`. The IPv4 branch above it compares its full 4 bytes correctly, and the `IN6_IS_ADDR_V4MAPPED` branch legitimately uses a 12-byte offset to reach the embedded IPv4 address, but that offset is not a valid length for a plain IPv6 comparison. Allowed addresses are parsed as full addresses with `inet_pton(AF_INET6, ...)`, so the truncated comparison silently widens every configured entry to a /96 network.\r\n\r\nThe fix compares `sizeof(client_sa.sa_inet6.sin6_addr)` bytes.\r\n\r\n### PoC\r\n\r\nTested against a real `php-fpm` (fpm-fcgi), not a mock.\r\n\r\n1. Configure a pool:\r\n\r\n```ini\r\nlisten = [::1]:19091\r\nlisten.allowed_clients = ::2\r\n```\r\n\r\n2. Run php-fpm and send a FastCGI request from `::1` to `[::1]:19091` for a test script.\r\n\r\n3. The request is accepted and the script executes, even though `::1` is not in `listen.allowed_clients`. Both addresses share the first 96 bits.\r\n\r\n4. Control test: set `listen.allowed_clients = 2001:db8::2` and send the same request from `::1`. The connection is denied as expected, because the first 96 bits differ.\r\n\r\n### Impact\r\n\r\nThis is an access control bypass in deployments that use FastCGI over IPv6 TCP and rely on `listen.allowed_clients` as a security boundary. An attacker with network reachability who can source an address within the same /96 as an allowed client bypasses the ACL and reaches the FastCGI endpoint, which in many deployments means executing PHP scripts in the FPM worker context.\r\n\r\nDeployments using Unix sockets, IPv4 only, or an external firewall as the actual boundary are not affected.\r\n\r\n### Credit\r\n\r\nThis issue was originally reported in GHSA-r37j-mv37-rjpc. That advisory could not be used because the reporting account was deleted.\r\n",
+    "ghsa_id": "GHSA-62xp-839h-2637",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-62xp-839h-2637",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-62xp-839h-2637"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-91768"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:55Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IPv6 ACL bypass in FastCGI listen.allowed_clients due to partial address comparison (memcmp 12 bytes)",
+    "updated_at": "2026-09-25T21:04:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "PHP-FPM"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "PHP-FPM"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "PHP-FPM"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "PHP-FPM"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

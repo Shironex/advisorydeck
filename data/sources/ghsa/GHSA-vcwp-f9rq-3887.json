@@ -1,0 +1,55 @@
+{
+  "global": null,
+  "id": "GHSA-vcwp-f9rq-3887",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 9,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H"
+      }
+    },
+    "cwe_ids": [
+      "CWE-78",
+      "CWE-94"
+    ],
+    "description": "# Flowise Authenticated Command Execution via Custom MCP `npx`\r\n\r\n## Summary\r\n\r\nFlowise is an open-source visual platform for building LLM applications, chatflows, agents, and tool integrations. Flowise includes a Custom MCP node that lets users configure Model Context Protocol servers. In Flowise 3.1.2, the Custom MCP stdio configuration allows the command `npx` and only blocks a limited set of dangerous flags. Because `npx` can install and run arbitrary npm package binaries, an authenticated attacker can execute code on the Flowise server without using shell metacharacters, `node -e`, or `python -c`.\r\n\r\nThe issue was validated against the official Docker image running Flowise 3.1.2. A safe proof of concept used `npx shx touch <marker>` through the Custom MCP node load method. Flowise returned a normal \"No Available Actions\" response because `shx` is not an MCP server, but the marker file was created inside the container before MCP initialization failed.\r\n\r\n## Technical Details\r\n\r\n### Root Cause\r\n\r\nThe Custom MCP implementation parses user-supplied MCP server configuration and initializes an MCP toolkit. When the config contains a `command`, Flowise uses stdio transport and spawns the configured command.\r\n\r\nRelevant flow:\r\n\r\n1. `POST /api/v1/node-load-method/customMCP`\r\n2. `nodesService.getSingleNodeAsyncOptions()`\r\n3. `Custom_MCP.loadMethods.listActions()`\r\n4. `Custom_MCP.getTools()`\r\n5. `validateMCPServerConfig(serverParams)`\r\n6. `new MCPToolkit(serverParams, 'stdio')`\r\n7. `StdioClientTransport` starts the configured process\r\n\r\nIn `packages/components/nodes/tools/MCP/core.ts`, Flowise allowlists several commands:\r\n\r\n```ts\r\nconst allowedCommands = ['node', 'npx', 'python', 'python3', 'docker']\r\n```\r\n\r\nIt also blocks obvious dangerous flags:\r\n\r\n```ts\r\nnpx: [\r\n    '-c',\r\n    '--call',\r\n    '--shell-auto-fallback',\r\n    '-y',\r\n    '--yes',\r\n    '--node-options'\r\n]\r\n```\r\n\r\nThese checks block direct payloads such as `node -e`, `python3 -c`, and `npx -c`. However, allowing `npx` still allows arbitrary npm package binaries to execute. The validation does not restrict package names, npm package sources, or package-provided binaries.\r\n\r\n### Why This Bypasses the Intended Allowlist\r\n\r\nThe payload does not rely on shell command injection. It does not use `;`, `&&`, `$()`, backticks, `node -e`, or `python -c`. Instead, it uses the intended behavior of `npx`:\r\n\r\n```bash\r\nnpx shx touch flowise_mcp_report_130e4352\r\n```\r\n\r\n`shx` is an npm package that exposes shell-like utilities through Node.js. The specific proof of concept used the `touch` command to create a harmless marker file. An attacker could instead use an attacker-controlled npm package with a binary that executes arbitrary JavaScript during execution.\r\n\r\n## Proof of Concept\r\n\r\n### Prerequisites\r\n\r\n- A valid authenticated Flowise session.\r\n- Access to the Custom MCP node load method or the ability to configure Custom MCP.\r\n- Network access to the Flowise HTTP API.\r\n\r\n### Request\r\n\r\n```http\r\nPOST /api/v1/node-load-method/customMCP HTTP/1.1\r\nHost: localhost:3000\r\nContent-Type: application/json\r\nX-Request-From: internal\r\nCookie: <authenticated Flowise session>\r\n\r\n{\r\n  \"loadMethod\": \"listActions\",\r\n  \"inputs\": {\r\n    \"mcpServerConfig\": \"{\\\"command\\\":\\\"npx\\\",\\\"args\\\":[\\\"shx\\\",\\\"touch\\\",\\\"flowise_mcp_report_130e4352\\\"]}\"\r\n  }\r\n}\r\n```\r\n\r\n### Observed Response\r\n\r\nFlowise returns an MCP action discovery error because `shx` is not an MCP server:\r\n\r\n```json\r\n[\r\n  {\r\n    \"label\": \"No Available Actions\",\r\n    \"name\": \"error\",\r\n    \"description\": \"No available actions, please check your API key and refresh\"\r\n  }\r\n]\r\n```\r\n\r\nThe error does not prevent exploitation. The process is already spawned before Flowise determines that it is not a valid MCP server.\r\n\r\n### Confirmed Side Effect\r\n\r\nThe marker file was created inside the Flowise container:\r\n\r\n```text\r\n/flowise_mcp_report_130e4352\r\n```\r\n\r\nEvidence screenshot is available on request.\r\n\r\n## Impact\r\n\r\nA successful attacker can execute commands as the Flowise process inside the container. Practical impact includes:\r\n\r\n- Reading Flowise configuration, local files, and environment variables accessible to the process.\r\n- Accessing credentials stored on disk or exposed through the runtime environment.\r\n- Modifying Flowise data and application files accessible to the process.\r\n- Running network tools from the container to pivot to internal services reachable from the Flowise deployment.\r\n- Denial of service by consuming resources, deleting accessible files, or terminating processes.\r\n\r\nThe impact may be higher in deployments where the Flowise container has broad filesystem mounts, cloud credentials, access to internal networks, or elevated Docker privileges.\r\n\r\n## Remediation\r\n\r\nRecommended fixes:\r\n\r\n1. Remove `npx` from the Custom MCP stdio command allowlist.\r\n2. Do not permit runtime package installation or package execution from user-supplied MCP configuration.\r\n3. If stdio MCP is required, allow only administrator-installed MCP server binaries by absolute path.\r\n4. Add a strict package or binary allowlist maintained by administrators, not users.\r\n5. Require route-level authorization for `/api/v1/node-load-method/customMCP` and all Custom MCP configuration paths.\r\n6. Disable Custom MCP stdio execution for untrusted users.\r\n7. Run MCP subprocesses in a sandbox with no secrets, a read-only filesystem, restricted network access, and resource limits.\r\n8. Log and alert on every Custom MCP stdio process launch.\r\n\r\n## Suggested Patch Direction\r\n\r\nAt minimum, the allowlist should remove `npx`:\r\n\r\n```ts\r\nconst allowedCommands = ['node', 'python', 'python3', 'docker']\r\n```\r\n\r\nA safer approach is to remove all generic interpreters and package managers from user-controlled stdio MCP configs and allow only explicit administrator-managed MCP server binaries:\r\n\r\n```ts\r\nconst allowedCommands = process.env.FLOWISE_ALLOWED_MCP_BINARIES?.split(',') ?? []\r\n```\r\n\r\nThe allowed entries should be absolute paths to trusted binaries, and arguments should be validated per binary.\r\n\r\n## Validation Notes\r\n\r\nThe following related paths were tested and did not produce command execution in this validation:\r\n\r\n- Custom Function vm2 escape attempts.\r\n- Direct `node -e` in Custom MCP.\r\n- Direct `python3 -c` in Custom MCP.\r\n- Dangerous Docker subcommands and flags.\r\n\r\nThe confirmed issue is specifically that `npx` package binary execution is allowed by the Custom MCP validator.\r\n",
+    "ghsa_id": "GHSA-vcwp-f9rq-3887",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-vcwp-f9rq-3887",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-vcwp-f9rq-3887"
+      }
+    ],
+    "published_at": "2026-08-31T14:01:01Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Flowise Custom MCP npx package execution leads to authenticated server-side command execution",
+    "updated_at": "2026-08-31T14:01:01Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

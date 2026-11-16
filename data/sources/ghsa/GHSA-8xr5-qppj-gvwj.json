@@ -1,0 +1,82 @@
+{
+  "global": null,
+  "id": "GHSA-8xr5-qppj-gvwj",
+  "repo": {
+    "cve_id": "CVE-2025-14180",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-476"
+    ],
+    "description": "**Product:** PHP\r\n**Version:** 8.5.0-DEV (CLI)\r\n**CWE-ID:** CWE-476: NULL Pointer Dereference\r\n**CVSS vector v.4.0:** 8.2 (AV:N/AC:H/AT:P/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N)\r\n**Description:** A NULL pointer dereference occurs when the application dereferences a pointer that it expects to be valid, but is NULL, typically causing a crash or exit.\r\n**Exploitation conditions:** An unauthorized user\r\n**Mitigation:** Explicitly check whether a NULL pointer exists before dereferencing it.\r\n**Researcher:** Aleksey Solovev (Positive Technologies)\r\n\r\n## Research\r\n\r\nThe vulnerable source code is the `ZSTR_LEN(plc->quoted)` macro call in the `pdo_parse_params` function in `php-src/ext/pdo/pdo_sql_parser.re`. Inside the `ZSTR_LEN(plc->quoted)` macro, the `len` field is accessed.\r\n\r\n_Figure 1. The `ZSTR_LEN` macro_\r\n<img width=\"700\" height=\"250\" alt=\"image\" src=\"https://github.com/user-attachments/assets/7f78a226-b0d2-4794-8b7c-4dd94e54fddc\" />\r\n\r\n\r\nHowever, when using a special character sequence, `plc->quoted` is equal to `0x0`.\r\n\r\n_Figure 2. The vulnerable source code_\r\n<img width=\"975\" height=\"568\" alt=\"image\" src=\"https://github.com/user-attachments/assets/e141b565-6408-4e13-9bfe-e6308c17d154\" />\r\n\r\nThe `plc->quoted` field is generated in this case on line 302 when calling the `stmt->dbh->methods->quoter` function.\r\n\r\n_Figure 3. `plc->quoted` initialization_\r\n<img width=\"975\" height=\"246\" alt=\"image\" src=\"https://github.com/user-attachments/assets/60a42bdc-c951-494f-b05b-ff98bab7c6f5\" />\r\n\r\nWhen calling `stmt->dbh->methods->quoter`, the quoting function `pgsql_handle_quoter` for PG will be called. On line 407, it will call the PG library function `PQescapeStringConn`, which will return an error when processing the special sequence, returning NULL as a result. This result will be assigned to the `plc->quoted` field.\r\n\r\n_Figure 4. Returning NULL when error occurs_\r\n<img width=\"975\" height=\"318\" alt=\"image\" src=\"https://github.com/user-attachments/assets/01b4b7c4-ec38-41cb-a2c9-da60a855d56a\" />\r\n\r\n## Vulnerability reproduction\r\n\r\nThe PHP language was compiled using the following commands.\r\n\r\n_Listing 1. Compiling PHP_\r\n```\r\n$ git clone https://github.com/php/php-src.git\r\n$ cd php-src\r\n$ ./buildconf\r\n$ ./configure CFLAGS=\"-fsanitize=address -g\" CXXFLAGS=\"-fsanitize=address -g\" \r\nLDFLAGS=\"-fsanitize=address\" --with-pdo-pgsql --enable-debug\r\n$ make -j8\r\n$ ./sapi/cli/php -v\r\nPHP 8.5.0-dev (cli) (built: Sep 22 2025 13:24:35) (NTS DEBUG)\r\nCopyright (c) The PHP Group\r\nZend Engine v4.5.0-dev, Copyright (c) Zend Technologies\r\n    with Zend OPcache v8.5.0-dev, Copyright (c), by Zend Technologies\r\n```\r\n\r\nNext, the following PHP code was placed on the server, causing to `Segmentation fault`.\r\nEnabling the `PDO::ATTR_EMULATE_PREPARES` mode is the key element of this code. \r\nThe problem is caused by a non-existent sequence of characters in hexadecimal notation, for example `\\x99`.\r\n\r\n_Listing 2. Source code on the server_\r\n```\r\n<?php\r\n    ini_set('memory_limit', '-1');\r\n\r\n    $dsn        = \"pgsql:host=localhost;port=5432;dbname=db\";\r\n    $username   = 'manager';\r\n    $password   = 'password';\r\n\r\n    try {\r\n        $pdo = new PDO($dsn, $username, $password, [\r\n            PDO::ATTR_EMULATE_PREPARES => true\r\n        ]);\r\n\r\n        $sql = \"SELECT * FROM users where username = :username\";\r\n        $stmt = $pdo->prepare($sql);\r\n        \r\n        $p1 = \"alice\\x99\";\r\n        $stmt->execute(['username' => $p1]);\r\n\r\n        foreach ($stmt as $row) {\r\n            print_r($row);\r\n        }\r\n    } catch (PDOException $e) { echo $e->getMessage(); }\r\n?>\r\n\r\n```\r\n\r\nExecuting the following PHP code results in `Segmentation fault`, which leads to Denial of Service (DoS).\r\n\r\n_Figure 5. Demonstration of the vulnerability_\r\n<img width=\"975\" height=\"875\" alt=\"image\" src=\"https://github.com/user-attachments/assets/e928ad2c-6355-44a0-bd70-f2a2d84da76c\" />\r\n\r\n## Security impact\r\n\r\nIf there is no extra validaiton for zero byte of the quoted user input, then it could lead to a potential DoS and for ZTS mode stopping all other currently served requests in the process.\r\n\r\n## Credits\r\nAleksey Solovev (Positive Technologies)\r\n",
+    "ghsa_id": "GHSA-8xr5-qppj-gvwj",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-8xr5-qppj-gvwj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8xr5-qppj-gvwj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-14180"
+      }
+    ],
+    "published_at": "2025-12-18T16:10:58Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "NULL Pointer Dereference in PDO quoting",
+    "updated_at": "2025-12-18T16:10:58Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.1.34",
+        "vulnerable_version_range": "< 8.1.34"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.2.30",
+        "vulnerable_version_range": "< 8.2.30"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.3.29",
+        "vulnerable_version_range": "< 8.3.29"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.4.16",
+        "vulnerable_version_range": "< 8.4.16"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "8.5.1",
+        "vulnerable_version_range": "< 8.5.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

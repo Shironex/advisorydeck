@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-24767",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\n\nA **blind Server-Side Request Forgery (SSRF)** vulnerability exists in the `uploadViaURL` functionality due to an unprotected `HEAD` request. While the subsequent file retrieval logic correctly enforces SSRF protections, the initial metadata request executes without validation.\n\nThis allows limited outbound requests to arbitrary URLs before SSRF controls are applied.\n\n---\n\n## Vulnerability Details\n\nThe `uploadViaURL()` function issues an `axios.head()` request to retrieve metadata (content type, content length, and final URL after redirects). This request is performed **without SSRF filtering**.\n\nAlthough the actual file download is protected by request filtering, the initial `HEAD` request occurs prior to these checks and can be triggered with an attacker-controlled URL.\n\n### Vulnerable Code\n\n```ts\nif (!url.startsWith('data:')) {\n  response = await axios.head(url, { maxRedirects: 5 });\n  mimeType = response.headers['content-type']?.split(';')[0];\n  size = response.headers['content-length'];\n  finalUrl = response.request.res.responseUrl;\n}\n```\n\n---\n\n## Impact\n\nThe impact of this issue is **limited** due to the following constraints:\n\n* Only `HEAD` requests are affected (no response body is returned)\n* No direct exfiltration of response data occurs\n* The subsequent file-fetching logic enforces SSRF protections\n\nHowever, the vulnerability may still allow:\n\n* **Blind SSRF** via outbound `HEAD` requests\n* **Limited internal service probing** (reachability and response behavior)\n* **Interaction with sensitive internal endpoints** that respond to `HEAD` requests\n\nThis issue does **not** provide arbitrary data access or full internal network compromise on its own.\n\n---\n\n## Severity\n\n**Moderate**\n\nThe vulnerability is limited in scope and impact:\n\n* Only `HEAD` requests are affected\n* No response body or sensitive data is directly returned\n* The actual file download logic enforces SSRF protections\n\nWhile the issue permits blind outbound requests to attacker-controlled URLs, it does not enable direct data exfiltration or full internal network compromise on its own.\n\n---\n\n## Proof of Concept\n\n```bash\ncurl -X POST 'http://localhost:8080/api/v2/storage/upload-by-url' \\\n  -H 'Content-Type: application/json' \\\n  -H 'xc-auth: <token>' \\\n  -d '[{\n    \"url\": \"http://169.254.169.254/latest/meta-data/\",\n    \"fileName\": \"test.txt\"\n  }]'\n```\n\nThis request causes the server to issue an unfiltered `HEAD` request before SSRF protections are applied.\n\n---\n\n## Acknowledgements\n\nThis issue was first identified and responsibly disclosed by Faizan Raza of Kolega.dev as part of a security assessment using Kolega.dev Deep Code Scan, including validation and fix recommendations.\n\nNocoDB also acknowledges Neel B for independently reporting the same issue prior to publication.\n\nNocoDB thanks Kolega.dev for their contribution to improving the security posture of the project.",
+    "ghsa_id": "GHSA-xr7v-j379-34v9",
+    "html_url": "https://github.com/advisories/GHSA-xr7v-j379-34v9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xr7v-j379-34v9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24767"
+      }
+    ],
+    "published_at": "2026-01-28T21:41:18Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-xr7v-j379-34v9",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-24767",
+      "https://github.com/advisories/GHSA-xr7v-j379-34v9"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB has Blind SSRF via Unvalidated HEAD Request in uploadViaURL Functionality",
+    "updated_at": "2026-01-28T21:41:21Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "0.301.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "< 0.301.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-xr7v-j379-34v9",
+  "repo": {
+    "cve_id": "CVE-2026-24767",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nA **blind Server-Side Request Forgery (SSRF)** vulnerability exists in the `uploadViaURL` functionality due to an unprotected `HEAD` request. While the subsequent file retrieval logic correctly enforces SSRF protections, the initial metadata request executes without validation.\r\n\r\nThis allows limited outbound requests to arbitrary URLs before SSRF controls are applied.\r\n\r\n---\r\n\r\n## Vulnerability Details\r\n\r\nThe `uploadViaURL()` function issues an `axios.head()` request to retrieve metadata (content type, content length, and final URL after redirects). This request is performed **without SSRF filtering**.\r\n\r\nAlthough the actual file download is protected by request filtering, the initial `HEAD` request occurs prior to these checks and can be triggered with an attacker-controlled URL.\r\n\r\n### Vulnerable Code\r\n\r\n```ts\r\nif (!url.startsWith('data:')) {\r\n  response = await axios.head(url, { maxRedirects: 5 });\r\n  mimeType = response.headers['content-type']?.split(';')[0];\r\n  size = response.headers['content-length'];\r\n  finalUrl = response.request.res.responseUrl;\r\n}\r\n```\r\n\r\n---\r\n\r\n## Impact\r\n\r\nThe impact of this issue is **limited** due to the following constraints:\r\n\r\n* Only `HEAD` requests are affected (no response body is returned)\r\n* No direct exfiltration of response data occurs\r\n* The subsequent file-fetching logic enforces SSRF protections\r\n\r\nHowever, the vulnerability may still allow:\r\n\r\n* **Blind SSRF** via outbound `HEAD` requests\r\n* **Limited internal service probing** (reachability and response behavior)\r\n* **Interaction with sensitive internal endpoints** that respond to `HEAD` requests\r\n\r\nThis issue does **not** provide arbitrary data access or full internal network compromise on its own.\r\n\r\n---\r\n\r\n## Severity\r\n\r\n**Moderate**\r\n\r\nThe vulnerability is limited in scope and impact:\r\n\r\n* Only `HEAD` requests are affected\r\n* No response body or sensitive data is directly returned\r\n* The actual file download logic enforces SSRF protections\r\n\r\nWhile the issue permits blind outbound requests to attacker-controlled URLs, it does not enable direct data exfiltration or full internal network compromise on its own.\r\n\r\n---\r\n\r\n## Proof of Concept\r\n\r\n```bash\r\ncurl -X POST 'http://localhost:8080/api/v2/storage/upload-by-url' \\\r\n  -H 'Content-Type: application/json' \\\r\n  -H 'xc-auth: <token>' \\\r\n  -d '[{\r\n    \"url\": \"http://169.254.169.254/latest/meta-data/\",\r\n    \"fileName\": \"test.txt\"\r\n  }]'\r\n```\r\n\r\nThis request causes the server to issue an unfiltered `HEAD` request before SSRF protections are applied.\r\n\r\n---\r\n\r\n## Acknowledgements\r\n\r\nThis issue was first identified and responsibly disclosed by Faizan Raza of Kolega.dev as part of a security assessment using Kolega.dev Deep Code Scan, including validation and fix recommendations.\r\n\r\nWe also acknowledge Neel B for independently reporting the same issue prior to publication.\r\n\r\nWe thank Kolega.dev for their contribution to improving the security posture of the project.",
+    "ghsa_id": "GHSA-xr7v-j379-34v9",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-xr7v-j379-34v9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xr7v-j379-34v9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24767"
+      }
+    ],
+    "published_at": "2026-01-28T11:30:15Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Blind SSRF via Unvalidated HEAD Request in uploadViaURL Functionality",
+    "updated_at": "2026-01-28T11:30:15Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "0.301.0",
+        "vulnerable_version_range": "<= 0.265.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

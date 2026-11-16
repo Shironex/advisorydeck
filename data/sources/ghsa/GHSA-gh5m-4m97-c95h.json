@@ -1,0 +1,58 @@
+{
+  "global": null,
+  "id": "GHSA-gh5m-4m97-c95h",
+  "repo": {
+    "cve_id": "CVE-2026-34205",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9.6,
+        "vector_string": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-923"
+    ],
+    "description": "## Summary\r\nHome Assistant apps (formerly add-ons) configured with host network mode expose unauthenticated endpoints bound to the internal Docker bridge interface to the local network. On Linux, this configuration does not restrict access to the app as intended, allowing any device on the same network to reach these endpoints without authentication.\r\n\r\n## Severity\r\n**Critical**\r\nCVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H\r\n\r\n## Vulnerability details\r\n\r\n- **Vulnerability Type:** CWE-923: Improper Restriction of Communication Channel to Intended Endpoints \r\n- **Affected Component:** Home Assistant Operating System, Home Assistant Supervisor\r\n- **Affected Versions:** Home Assistant Operating System 17.1 / Home Assistant Supervisor 2026.03.1\r\n- **Fixed Versions:** Home Assistant Supervisor 2026.03.2\r\n\r\n## Description\r\nIt is a common pattern in Home Assistant Apps to configure the container with host network mode while binding an unauthenticated management or API endpoint to the internal Docker bridge interface `hassio` created by Supervisor (172.30.32.0/23, and if IPv6 is enabled, which is the default for new installations, fd0c:ac1e:2100::/48), often for the purposes of Home Assistant facilitated ingress. The assumption is that this binding restricts access to inter-container communication only.\r\n\r\nOn Linux, this assumption is incorrect. When host network mode is enabled, the container shares the host's network namespace. With Docker's default firewall configuration, packets destined for the bridge interface address are not restricted to local containers, meaning any attacker who can route suitable packets to the host can reach these endpoints directly. This effectively bypasses all authentication and exposes full API access to unauthenticated network attackers.\r\n\r\nThe root cause lies in the Home Assistant Operating System and Supervisor, which do not configure firewall rules to restrict access to the Docker bridge interface from the local network. Apps have been developed under the reasonable assumption that endpoints bound to the internal bridge interface are not externally reachable, but the OS/Supervisor does not enforce this assumption at the firewall level.\r\n\r\nThis is a systemic architectural issue affecting multiple Apps that follow this pattern.\r\n\r\n## Confirmed impacted Home Assistant apps\r\n\r\n| App | Exposed | Notes |\r\n|---|---|---|\r\n| Advanced SSH & Web Terminal | Full shell access (via http) | No authentication required |\r\n| Music Assistant | WebSocket API | User impersonation via ingress headers |\r\n| Matter Server | WebSocket API | |\r\n\r\nAdditional Apps using the same pattern may also be affected.\r\n\r\n## Attack scenario\r\n1. The attacker has access to the same local network as the Home Assistant instance (e.g., via Wi-Fi, compromised IoT device, or guest network).\r\n2. The attacker identifies the Home Assistant host IP on the network (e.g., via mDNS resolution of `homeassistant.local`).\r\n3. The attacker adds a host route for the Docker bridge IP (172.30.32.1 or fd0c:ac1e:2100::1) via the Home Assistant host IP, making the internal bridge interface reachable from their machine.\r\n4. The attacker connects directly to the unauthenticated endpoint on the bridge interface (e.g., `ws://172.30.32.1:8094/ws`).\r\n5. The endpoint responds without requiring any authentication, granting the attacker full access to the App's functionality.\r\n\r\n## Prerequisites\r\n- The attacker must be able to route packets destined for the Docker bridge interface address to the Home Assistant host. The most common scenario to achieve this is a device on the same broadcast domain.\r\n\r\n## Recommended mitigations\r\n- Add firewall rules (e.g., iptables/nftables) at the OS/Supervisor level to restrict access to the Docker bridge interface, ensuring only local containers can reach bridge-bound endpoints.\r\n- Audit all existing Apps for unauthenticated endpoints that rely on bridge-level isolation.\r\n- Ensure Apps with host network mode cannot have their internal endpoints reached from the local network.\r\n\r\n## Applied mitigation\r\nThe Home Assistant Supervisor fix (2026.03.2) applies firewall rules on the host via systemd, protecting all installations regardless of Home Assistant OS version. A future OS release is planned to include the fix at the Docker engine level, which is architecturally more appropriate as Docker already manages all other firewall rules for the bridge network.\r\n\r\n## Acknowledgements\r\nDiscovered by Artur Pragacz.\r\n\r\n## References\r\n- [CWE-923: Improper Restriction of Communication Channel to Intended Endpoints](https://cwe.mitre.org/data/definitions/923.html)",
+    "ghsa_id": "GHSA-gh5m-4m97-c95h",
+    "html_url": "https://github.com/home-assistant/core/security/advisories/GHSA-gh5m-4m97-c95h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gh5m-4m97-c95h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-34205"
+      }
+    ],
+    "published_at": "2026-03-27T12:57:03Z",
+    "references": [],
+    "severity": "critical",
+    "summary": "Unauthenticated app (add-on) endpoints exposed to local network via host network mode",
+    "updated_at": "2026-03-27T12:57:03Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Home Assistant Operating System"
+        },
+        "patched_versions": "N/A",
+        "vulnerable_version_range": "<= 17.1"
+      },
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Home Assistant Supervisor"
+        },
+        "patched_versions": "2026.03.2",
+        "vulnerable_version_range": "<= 2026.03.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "home-assistant/core"
+}

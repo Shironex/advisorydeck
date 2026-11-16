@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-vx42-ghc9-gw65",
+  "aliases": [],
+  "title": "Malicious Packages Served from Unauthorized Registry Server",
+  "summary": "### Impact\r\n\r\nAn unidentified malicious actor gained access to Coder’s Cloudflare infrastructure and added unauthorized IP addresses to the pool used for Coder’s module registry. These unauthorized IP addresses hosted a version of Coder’s registry that contained artifacts which included malicious code. The result was that for a short period of time Coder’s module registry website was serving a malicious version of our artifacts to a subset of our users. This malicious code was designed to identify a number of credentials and exfiltrate those to a remote server with a lookalike domain name compared to one Coder regularly uses.\r\n\r\nUsers who use the main Coder module registry (registry.coder.com) for their template source and who updated components during the time period when this code was available may have installed the malicious packages and been impacted by the credential stealing malicious software.\r\n\r\nAt this time we have no indication that any customer data maintained by Coder was impacted in any way.\r\n\r\n### Patches\r\n\r\nAt this time, we recommend running the steps below manually to verify if the terraform module versions and possibly purge any impacted module from the cache.\r\n\r\n### Workarounds\r\n\r\nWe are advising that any user who a create a new workspace template, update a template version, ran a dry run of template build or deployed a Coder workspace on a cluster that has terraform module caching disabled between 07:35 UTC on Monday, August 31st and 21:45 UTC on Monday, August 31st perform the following:\r\n\r\n#### Determine if you may have been impacted\r\n\r\nDue to the nature of this attack, where a malicious server that we do not own was communicating with impacted deployments, we do not have the ability to conclusively determine which users may have been affected. Therefore we recommend that you individually review and determine whether you may be impacted.\r\n\r\nReview the timeline of any Coder workspace deployments that may have taken place as well as the Indicators of Compromise that are listed below to see if your deployments may have been impacted.\r\n\r\nYou may have been impacted if your Coder deployment downloaded a Coder Registry module between 07:35 UTC on Monday, August 31st and 21:45 UTC on Monday, August 31st. This primarily occurs when new templates or template versions are created, but can also occur independently during workspace creation when module caching is disabled on your template settings (this is enabled by default). As a result, workspaces created from templates that downloaded affected modules may also be impacted.\r\n\r\nTo identify potential cases of data loss, review firewall, proxy, DNS, and VPC flow logs for outbound traffic to `coder-infra[.]com`.\r\n\r\nWe have provided a SQL query you can run against your Coder deployment to identify potentially affected cached modules and template versions:\r\n\r\n```sql\r\n-- Queries to help identify usage of modules fetched in the identified window.\r\n-- A template-import had to occur during the window for the templates/workspaces to surface here.\r\n-- And only template-imports that downloaded the module in the window.\r\n\r\n\r\n-- All templates that used a module fetched during the window\r\nSELECT\r\n   t.name  AS template,\r\n   tv.name AS template_version,\r\n   tv.id   AS template_version_id,\r\n   f.id    AS module_file_id,\r\n   f.created_at AS module_cached_at,\r\n   tv.created_at AS version_created_at\r\nFROM files f\r\n        JOIN template_version_terraform_values tvtv\r\n             ON tvtv.cached_module_files = f.id\r\n        JOIN template_versions tv\r\n             ON tv.id = tvtv.template_version_id\r\n        JOIN templates t\r\n             ON t.id = tv.template_id\r\nWHERE f.created_by = '00000000-0000-0000-0000-000000000000'\r\n AND f.mimetype = 'application/x-tar'\r\n AND f.created_at >= '2026-08-31 07:35:00+00'\r\n AND f.created_at < '2026-08-31 21:45:00+00'\r\nORDER BY t.name, tv.created_at;\r\n\r\n\r\n-- All workspaces that used a module fetched during the window\r\nSELECT\r\n   w.name AS workspace,...",
+  "published_at": "2026-09-01T00:34:08.000Z",
+  "modified_at": "2026-09-04T18:00:42.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9,
+    "vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:P/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "coder",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2.34.9"
+        },
+        {
+          "introduced": "2.35.0",
+          "fixed": "2.35.7"
+        },
+        {
+          "introduced": "2.36.0",
+          "fixed": "2.36.4"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-vx42-ghc9-gw65",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vx42-ghc9-gw65",
+      "url": "https://github.com/coder/coder/security/advisories/GHSA-vx42-ghc9-gw65",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:7fcd1c8a66a38f24a20916b9f150b102c77e60322dfb56e45ed52c90234c55a8",
+  "note": null
+}

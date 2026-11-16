@@ -1,0 +1,45 @@
+{
+  "id": "GHSA-m3m8-mrgq-hf9h",
+  "aliases": [],
+  "title": "weed admin HTTP server exposes all write operations unauthenticated by default (CWE-306)",
+  "summary": "### Summary\r\n\r\nThe `weed admin` HTTP server (default port 23646) starts with authentication disabled when `-adminPassword` is not supplied. The flag defaults to an empty string, so every deployment that omits it exposes a fully public REST API. Unauthenticated clients can create S3 users, receive plaintext S3 access keys, delete buckets, delete filer files, and trigger plugin jobs. The server binds `0.0.0.0` by default.\r\n\r\n### Details\r\n\r\nRoot cause - `weed/command/admin.go` line 436:\r\n\r\n```go\r\nauthRequired := *options.adminPassword != \"\"\r\n```\r\n\r\nThe flag is declared with an empty-string default:\r\n\r\n```go\r\na.adminPassword = cmdAdmin.Flag.String(\"adminPassword\", \"\", \"admin interface password (if empty, auth is disabled)\")\r\n```\r\n\r\nWhen `authRequired` is false, `SetupRoutes` in `weed/admin/handlers/admin_handlers.go` registers all API routes with `enforceWrite = false`:\r\n\r\n```go\r\n// No authentication required - all routes are public\r\napi := r.PathPrefix(\"/api\").Subrouter()\r\nh.registerAPIRoutes(api, false)\r\n```\r\n\r\nInside `registerAPIRoutes`, every mutating endpoint passes through:\r\n\r\n```go\r\nwrapWrite := func(handler http.HandlerFunc) http.Handler {\r\n    if !enforceWrite {\r\n        return handler  // no auth check\r\n    }\r\n    return dash.RequireWriteAccess()(handler)\r\n}\r\n```\r\n\r\nUnauthenticated write paths (partial):\r\n\r\n- POST /api/users - create S3 user\r\n- POST /api/users/{u}/access-keys - issue S3 credentials (plaintext in response)\r\n- PUT /api/users/{u}/policies - attach IAM policy\r\n- DELETE /api/users/{u} - delete S3 user\r\n- DELETE /api/s3/buckets/{bucket} - delete bucket\r\n- DELETE /api/files/delete - delete filer file\r\n- POST /api/plugin/job-types/{type}/run - execute plugin job\r\n\r\nThis is distinct from CVE-2026-72920 (filer gRPC IAM, fixed in 4.24). That covers the filer gRPC port when jwt.filer_signing.key is unset. This covers the admin HTTP server on port 23646, confirmed in v4.45 (current HEAD, commit 9715480).\r\n\r\n### PoC\r\n\r\nRuntime verification mirroring the exact wrapWrite logic:\r\n\r\n```\r\n--- default (no -adminPassword) ---\r\nauthRequired = false\r\nPOST /api/users -> 200 (no auth required)\r\nPOST /api/users/attacker/access-keys -> 200 (credentials issued without auth)\r\nDELETE /api/s3/buckets/critical-data -> 204 (bucket deleted without auth)\r\n\r\n--- with -adminPassword=secret ---\r\nauthRequired = true\r\nPOST /api/users -> 404 (routes locked behind session middleware)\r\n```\r\n\r\nAttack against a live instance started without `-adminPassword`:\r\n\r\n1. POST /api/users {\"username\":\"attacker\"} - creates user without credentials\r\n2. POST /api/users/attacker/access-keys {} - returns AccessKeyId + SecretAccessKey in plaintext\r\n3. Use the returned credentials against the S3 API\r\n\r\n### Impact\r\n\r\nAn unauthenticated attacker who can reach port 23646 can create an S3 user, receive its plaintext access key pair, attach administrator IAM policies, and delete any bucket or filer file. Any cloud instance running `weed admin` without `-adminPassword` and without a host firewall blocking port 23646 is fully exposed.\r\n\r\n### Remediation\r\n\r\n1. Require a password - refuse to start when `-adminPassword` is empty, or generate a random one and print it once.\r\n2. Localhost-only default - change `addr := fmt.Sprintf(\":%d\", *options.port)` to `addr := fmt.Sprintf(\"127.0.0.1:%d\", *options.port)`.\r\n\r\nCVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H - 9.8 Critical",
+  "published_at": "2026-11-09T19:47:17.000Z",
+  "modified_at": "2026-11-09T19:47:17.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-306"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": []
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-m3m8-mrgq-hf9h",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-m3m8-mrgq-hf9h",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-m3m8-mrgq-hf9h",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:1a164aa23247004b9f2850c4c86c33e4a82f44be404747bc0d5dc98ab3c82c07",
+  "note": null
+}

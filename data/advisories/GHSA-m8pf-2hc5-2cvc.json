@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-m8pf-2hc5-2cvc",
+  "aliases": [],
+  "title": "Cross-Base Database Access via Source Identifier Collision",
+  "summary": "### Summary\n\nSource metadata is keyed on the pair of base id and source id, but live external-database connections were cached under the bare source id, and source creation persisted a caller-supplied id - so a source added to one base could be served another base's live connection.\n\n### Details\n\n`NcConnectionMgrv2.ts` stored, retrieved, evicted and version-tracked knex connections using `source.id` alone, while the sources metadata table has a composite primary key of base id and source id, so two bases may legitimately hold sources sharing an id. `Source.createBase` in `Source.ts` extracted `id` from the request body and persisted it, and both the inline sources accepted during base creation and the base-scoped add-source endpoint reach that function. A Creator on any base could therefore add a source to that base reusing a victim source's id; when the victim connection was already cached in the same process - opening a public shared view is enough to prime it - schema reflection and every subsequent record query on the attacker's source received the victim's connection, while authorization was correctly evaluated against the attacker's own base and models. The attacker's own connection configuration was persisted but unused for as long as the colliding cache entry survived.\n\n### Impact\n\nA base Creator with no role on the victim base could reflect the victim's external database schema into their own base and then read, update and insert records in that database through their own models - crossing the base boundary into a database owned by a different tenant, with writes confirmed visible to the victim through their original model. Direct requests against the victim base's metadata and records were refused throughout. Exploitation requires an authenticated account with the Creator role on one unrelated base, knowledge of the victim source id (shared-view metadata exposes it), and the victim connection to be cached in the process handling the request.\n\n### Credit\n\nThis issue was reported by [@bwbugs](https://github.com/bwbugs).",
+  "published_at": "2026-11-02T08:46:53.000Z",
+  "modified_at": "2026-11-02T08:46:53.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.6,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-639",
+    "CWE-706"
+  ],
+  "affected": [
+    {
+      "product": "nocodb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "2026.08.1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-m8pf-2hc5-2cvc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-m8pf-2hc5-2cvc",
+      "url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-m8pf-2hc5-2cvc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:06065f82ee55001ceb611dff3cb98135d3a0a501c68b4eb402c6bfee443e68af",
+  "note": null
+}

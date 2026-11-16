@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-6c37-x4jm-529x",
+  "aliases": [],
+  "title": "Windows Backslashes Bypass Global Bucket Path Traversal Protection",
+  "summary": "### Summary\nA path traversal bypass exists on Windows platforms within SurrealDB's bucket storage layer (`surrealdb/surrealdb`). In `surrealdb/core/src/buc/store/path.rs`, traversal validation splits only on forward slashes (`/`), ignoring backslashes (`\\`).\n\n### Vulnerability Details\n- Affected Files: `surrealdb/core/src/buc/store/path.rs` (`ObjectKey::check_no_traversal`), `surrealdb/core/src/buc/store/file.rs` (`FileStore::to_os_path`)\n- Mechanism: `ObjectKey::check_no_traversal` validates path components by splitting exclusively on `/`. When deployed on Windows hosts, `FileStore::to_os_path` utilizes the operating system path separator where `\\` represents directory hierarchy. An object key such as `/..\\bucket2\\secret` bypasses forward-slash validation, yet is interpreted as directory traversal during OS file path resolution.\n- Impact: Cross-bucket file disclosure and modification on Windows installations.\n\n### Recommended Remediation\nNormalize path separators or reject keys containing `\\` in `check_no_traversal` before path resolution.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that treats a backslash as a path separator when checking a bucket key for traversal, closing the Windows backslash bypass.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(buc): filesystem bucket path traversal via symlinks, Windows backslashes, and direct-bucket keys` (commit `5edf982bf0`)",
+  "published_at": "2026-11-03T15:51:11.000Z",
+  "modified_at": "2026-11-03T15:51:11.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6c37-x4jm-529x",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-6c37-x4jm-529x",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-6c37-x4jm-529x",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

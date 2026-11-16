@@ -1,0 +1,54 @@
+{
+  "global": null,
+  "id": "GHSA-jj89-wvrw-c4gp",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-770"
+    ],
+    "description": "A Surrealism module could exhaust the server's memory by writing to standard output or standard error without ever ending a line.\n\nThe server passes a module's stdout and stderr to its log one complete line at a time, holding an unfinished line in server memory until it ends. That buffer had no size limit. Because it was server memory rather than the module's own memory, the memory ceiling configured for modules (`SURREAL_SURREALISM_MAX_MEMORY`, or the module's own limit) did not apply to it, so a module that kept writing without a newline could grow the server process until it ran out of memory.\n\n### Impact\n\nOnly servers with the experimental Surrealism capability enabled are affected, and only through a module that has been installed on the server. Surrealism is disabled by default, and defining a module requires an Owner role.\n\nWhat an attacker **can** do:\n\n- Through a malicious or faulty module, grow server memory until the process is killed, denying service to every namespace and database on the instance until it is restarted.\n- Do so regardless of the memory ceiling configured for modules, which operators may rely on to contain module code.\n- Once such a module is installed, trigger it as any user allowed to call the module's functions; `DEFINE MODULE` permissions default to `FULL`.\n\nWhat it **can't** do:\n\n- Affect servers where the experimental Surrealism capability is disabled, which is the default.\n- Install a module; that requires an Owner role.\n- Read or modify data; this is an availability issue only.\n\n### Patches\n\nOutput that a module writes without a line break is no longer held indefinitely. Once an unfinished line reaches a fixed size, it is passed to the log as its own chunk, so no output is lost.\n\n- Versions 3.3.0 and later are not affected by this issue.\n\n### Workarounds\n\nUsers unable to patch should consider the following workarounds:\n\n- Leave the experimental `surrealism` capability disabled unless you need it. It is off by default and is enabled with `--allow-experimental surrealism` (env `SURREAL_CAPS_ALLOW_EXPERIMENTAL`).\n- Install only modules you trust, and limit who holds an Owner role, which is required to define modules and the buckets they are loaded from.\n- Restrict who can call module functions with a `PERMISSIONS` clause on `DEFINE MODULE`.\n- Run SurrealDB under an orchestrator or process manager that restarts it automatically on exit (e.g. Kubernetes, systemd `Restart=on-failure`, or a Docker restart policy). This limits downtime but does not prevent the crash.\n\n### References\n\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- `fix(surrealism): bound the host-side WASI stdio buffer` (included in SurrealDB 3.3.0)\n\n### Acknowledgements\n\nThank you to [gigioneggiando](https://github.com/gigioneggiando) for reporting this issue.\n",
+    "ghsa_id": "GHSA-jj89-wvrw-c4gp",
+    "html_url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-jj89-wvrw-c4gp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jj89-wvrw-c4gp"
+      }
+    ],
+    "published_at": "2026-09-28T11:15:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Surrealism module output buffering bypasses the module memory limit",
+    "updated_at": "2026-09-28T11:15:27Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealdb"
+        },
+        "patched_versions": "3.3.0",
+        "vulnerable_version_range": ">= 3.1.0, < 3.3.0"
+      },
+      {
+        "package": {
+          "ecosystem": "rust",
+          "name": "surrealism-runtime"
+        },
+        "patched_versions": "0.6.0",
+        "vulnerable_version_range": ">= 0.3.0, < 0.6.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "surrealdb/surrealdb"
+}

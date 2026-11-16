@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-cr79-9p8r-p5wx",
+  "aliases": [],
+  "title": "MCP Tool Identifier Validation Permits Statement Injection via Escaped Backticks",
+  "summary": "### Summary\nA SQL statement injection vulnerability exists in SurrealDB's Model Context Protocol (MCP) server integration (`surrealdb/surrealdb`). In `surrealdb/mcp/src/tools/mod.rs`, discrepancy between identifier validation and SQL lexing permits delimiter escape.\n\n### Vulnerability Details\n- Affected Files: `surrealdb/mcp/src/tools/mod.rs` (`consume_backtick_ident`, `validate_identifier`), `surrealdb/mcp/src/tools/crud.rs`\n- Mechanism: The MCP identifier validator treats the first backtick as the closing identifier delimiter regardless of preceding escape characters (`\\`). However, SurrealQL's SQL parser recognizes `\\`` as an escaped literal backtick within an identifier. Passing an identifier containing an escaped backtick allows an attacker to break out of the quoted identifier into raw SurrealQL statement execution.\n- Impact: Arbitrary SQL query execution through MCP tool invocation, bypassing tool argument constraints.\n\n### Recommended Remediation\nSynchronize MCP identifier parsing with the core SurrealQL lexer to handle escape characters correctly, or construct queries using parameterized AST nodes instead of string interpolation.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that validates MCP tool identifiers so an escaped backtick can no longer break out of the identifier and inject a statement.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- `fix(mcp): MCP tool identifier validation permits statement injection via escaped backticks` (commit `ec41ae8f15`)",
+  "published_at": "2026-11-03T15:51:05.000Z",
+  "modified_at": "2026-11-03T15:51:05.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cr79-9p8r-p5wx",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-cr79-9p8r-p5wx",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-cr79-9p8r-p5wx",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

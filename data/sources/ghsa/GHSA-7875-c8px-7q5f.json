@@ -1,0 +1,74 @@
+{
+  "global": null,
+  "id": "GHSA-7875-c8px-7q5f",
+  "repo": {
+    "cve_id": "CVE-2026-93682",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-125"
+    ],
+    "description": "### Summary\r\n\r\nWhen the HTTP stream wrapper follows a redirect and the response carries a `Location` header with an empty value, the redirect code reads one byte past the end of the heap buffer holding the location. The value of that out-of-bounds byte decides which redirect target is built, so a malicious server controls whether the client is sent to the host root or to the current directory.\r\n\r\n### Details\r\n\r\nSince the fix for GHSA-52jp-hrpf-2jff (CVE-2025-1861), `php_stream_http_response_headers_parse()` stores the `Location` value in a heap buffer of exactly `location_len + 1` bytes:\r\n\r\nhttps://github.com/php/php-src/blob/a66f30d78e10773048720b4b5f279136fdd0a433/ext/standard/http_fopen_wrapper.c#L295-L301\r\n\r\nFor an empty header value that is a single byte holding only the NUL terminator. The redirect handling in `php_stream_url_wrap_http_ex()` treats any location that does not start with `/` as a relative path and dereferences the second byte to decide whether to join it with the directory of the current request path:\r\n\r\nhttps://github.com/php/php-src/blob/a66f30d78e10773048720b4b5f279136fdd0a433/ext/standard/http_fopen_wrapper.c#L1055-L1063\r\n\r\n`*(header_info.location+1)` is one byte after the allocation.\r\n\r\nBefore CVE-2025-1861 was fixed, the location lived in a fixed-size `char location[HTTP_HEADER_BLOCK_SIZE]` stack buffer and the same read stayed in bounds. The bug therefore exists only in 8.1.32+, 8.2.28+, 8.3.18+, 8.4.5+ and all 8.5 releases.\r\n\r\nThe fix replaces `strlen(header_info.location)` with `header_info.location_len` and guards the second-byte read with the length, so an empty `Location` deterministically redirects to the host root. It was submitted and merged publicly, outside the security process, in https://github.com/php/php-src/pull/23467. A follow-up in https://github.com/php/php-src/pull/23521 corrected the guard from `location_len > 0` to `location_len > 1`, restoring the long-standing resolution of a single-character relative `Location`.\r\n\r\n### PoC\r\n\r\nA server answering `HTTP/1.1 302 Found\\r\\nLocation:\\r\\nContent-Length: 0\\r\\n\\r\\n` to this client:\r\n\r\n```php\r\n<?php\r\n$ctx = stream_context_create(['http' => ['follow_location' => 1]]);\r\nfile_get_contents(\"http://host/a/b\", false, $ctx);\r\n```\r\n\r\nThe next request goes to `/` when the stray byte happens to be NUL and to `/a//` otherwise. Under Valgrind with `USE_ZEND_ALLOC=0`:\r\n\r\n```\r\nInvalid read of size 1\r\n   at php_stream_url_wrap_http_ex (http_fopen_wrapper.c:1044)\r\n   by php_stream_url_wrap_http (http_fopen_wrapper.c:1186)\r\n   by _php_stream_open_wrapper_ex (streams.c:2206)\r\n   by zif_file_get_contents (file.c:426)\r\n Address is 0 bytes after a block of size 1 alloc'd\r\n   at malloc\r\n   by _emalloc\r\n   by php_stream_http_response_headers_parse (http_fopen_wrapper.c:268)\r\n```\r\n\r\nThe regression tests are `ext/standard/tests/http/http_empty_location_redirect.phpt` and `http_single_char_location_redirect.phpt`.\r\n\r\n### Impact\r\n\r\nAn attacker who controls a server that a PHP application fetches from, or who can redirect such a request there, triggers a one-byte heap over-read. The byte is never returned to the attacker; it only selects between two redirect targets, so at most one bit, whether the byte is zero, is observable through the request path the server sees. Under the Zend memory manager the one-byte allocation sits in an 8-byte bin, so the read does not crash the process. The practical effect is a non-deterministic redirect target and undefined behaviour reported by ASan and Valgrind.\r\n",
+    "ghsa_id": "GHSA-7875-c8px-7q5f",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-7875-c8px-7q5f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-7875-c8px-7q5f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-93682"
+      }
+    ],
+    "published_at": "2026-09-24T10:07:25Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Out-of-bounds read in the HTTP stream wrapper when following a redirect with an empty Location header",
+    "updated_at": "2026-09-25T19:54:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-standard"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-2pq4-jqvf-f7qj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-367"
+    ],
+    "description": "> [!NOTE]\n> **Also covers GHSA-5w7f-g655-933c (PAR `request_uri`)**, consolidated here: same root cause, same reporter, same fix. Concurrent requests can redeem one authorization code, or complete authorization with one pushed `request_uri`, more than once.\n>\n> **Severity reconciled to Medium.** Every variant needs the attacker to already hold the single-use artifact: PKCE is required for all clients except `client_secret_basic`, so a code is redeemable only with its verifier or the client secret, and a pushed `request_uri` is completed only through the victim's authenticated session. What the race adds is a second redemption that evades single-use and replay detection.\n\n---\n\n### Summary\r\nA Time-of-Check to Time-of-Use (TOCTOU) race condition in Logto's OIDC database adapter allows an attacker to bypass the single-use restriction of OAuth 2.0 Authorization Codes. By sending concurrent token exchange requests, an attacker can redeem a single intercepted authorization code multiple times, resulting in the issuance of multiple distinct access and refresh tokens bound to the victim's identity. This violates RFC 6749 §4.1.2.\r\n\r\n### Details\r\nThe vulnerability stems from a non-atomic check-then-consume pattern in the OIDC provider's grant handler and Logto's Postgres adapter. \r\n\r\n1. In the grant handler (`authorization_code.js`), the code checks if `code.consumed` is true (based on a prior `SELECT` query). If false, it calls `code.consume()`.\r\n2. In Logto's adapter (`packages/core/src/queries/oidc-model-instance.ts:167-174`), `consumeInstanceById` executes an `UPDATE` statement without a Compare-And-Swap (CAS) guard:\r\n```typescript\r\nconst consumeInstanceById = async (modelName: string, id: string) => {\r\n  await pool.query(sql`\r\n    update ${table}\r\n    set ${fields.consumedAt}=${convertToTimestamp()}\r\n    where ${fields.modelName}=${modelName}\r\n    and ${fields.id}=${id}\r\n    // MISSING: AND ${fields.consumedAt} IS NULL\r\n  `);\r\n};\r\n```\r\nUnder high concurrency, multiple threads can pass the JS-level check before any `UPDATE` commits. Because the `UPDATE` is idempotent and lacks a row-level lock or CAS condition, all concurrent requests succeed, minting distinct tokens for the same code.\r\n\r\n### PoC\r\n\r\n1. Victim authenticates and obtains an authorization code via the standard OIDC flow.\r\n2. Attacker intercepts the authorization code (e.g., via malicious browser extension, referer leakage, or compromised native app).\r\n3. Attacker uses a script to send 8 concurrent `POST /oidc/token` requests using the same code and PKCE verifier, synchronized via a threading barrier.\r\n4. Observe: 2 to 3 requests return HTTP 200 with distinct `access_token`, `refresh_token`, and `id_token` values. All minted tokens carry the victim's `sub` claim.\r\n\r\n### Impact\r\nAny attacker who can intercept an authorization code can multiply their access by racing the token exchange. This defeats the single-use guarantee, allowing the attacker to establish multiple concurrent sessions as the victim, bypassing downstream rate-limiting or single-session enforcement mechanisms.\r\n",
+    "ghsa_id": "GHSA-2pq4-jqvf-f7qj",
+    "html_url": "https://github.com/logto-io/logto/security/advisories/GHSA-2pq4-jqvf-f7qj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-2pq4-jqvf-f7qj"
+      }
+    ],
+    "published_at": "2026-11-09T07:11:11Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Concurrent requests can redeem one authorization code or pushed request_uri more than once",
+    "updated_at": "2026-11-09T07:11:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "@logto/core"
+        },
+        "patched_versions": "1.46.0",
+        "vulnerable_version_range": "<= 1.45.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "logto-io/logto"
+}

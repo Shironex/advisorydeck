@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-47fc-cj9r-ghpm",
+  "aliases": [],
+  "title": "aws:SourceIp policy condition is spoofable via X-Forwarded-For/X-Real-Ip behind any private-looking peer",
+  "summary": "## Summary\n\nSeaweedFS's S3 gateway supports the `aws:SourceIp` bucket-policy and IAM-policy condition key for restricting access by client IP. Two independent implementations resolve this value: `weed/s3api/policy_engine/engine.go`'s `extractSourceIP` (bucket policies) and `weed/s3api/s3_iam_middleware.go`'s `extractSourceIP` (IAM role/session policies). Both trust `X-Forwarded-For`/`X-Real-Ip` whenever the connecting TCP peer's address looks private or loopback, with no admin-configured trusted-proxy allowlist. Any deployment where the gateway sits behind an in-cluster ingress, load balancer, or sidecar on the same private network, the default topology for containerized/Kubernetes deployments, treats every such connection as a trusted proxy hop and adopts the client-supplied header value as the resolved source IP.\n\nReal AWS S3 evaluates `aws:SourceIp` from the requester's connecting IP, not a header. Both call sites here diverge from that guarantee, letting a caller who can reach the gateway (directly, or from another workload on the same private network segment) spoof any source IP and bypass an IP-restricted `Allow`/`Deny` statement.\n\n## Details\n\n`weed/s3api/policy_engine/engine.go`, `extractSourceIP` (pre-fix): if `isPrivateIP(remoteIP)` (loopback, link-local, or RFC1918), it scanned `X-Forwarded-For` right-to-left for the first public-looking entry and returned it, falling back to `X-Real-Ip`. `weed/s3api/s3_iam_middleware.go` had a second, independent `extractSourceIP` with the same private-peer gate, taking the left-most `X-Forwarded-For` entry (client-prependable) or `X-Real-IP` directly.\n\nBoth feed a security decision. The bucket-policy path: `ExtractConditionValuesFromRequest` sets `values[\"aws:SourceIp\"]`, consumed by `PolicyEngine.EvaluatePolicy`. The IAM path: `extractRequestContext` sets `context[\"aws:SourceIp\"]`, consumed by `IsPrincipalActionExplicitlyDenied` (`weed/s3api/auth_credentials.go`) for role/session policy conditions.\n\nThe private-peer check is not a trusted-proxy allowlist; it accepts any connection whose address happens to fall in RFC1918/loopback/link-local ranges. In a typical Kubernetes deployment the S3 gateway's pod IP, and every other pod's IP, is private, so the check cannot distinguish the cluster's own ingress from an attacker-controlled pod on the same network, or from a caller who reaches the gateway's ClusterIP/NodePort directly and skips the ingress entirely.\n\n## Proof of Concept\n\nAgainst `weed/s3api/policy_engine/engine.go` (pre-fix), a bucket policy denying access outside `10.0.0.0/8`:\n\n```go\nfunc TestExtractSourceIP_BypassesIPRestrictionPolicy(t *testing.T) {\n\tengine := NewPolicyEngine()\n\tpolicyJSON := `{\n\t\t\"Version\": \"2012-10-17\",\n\t\t\"Statement\": [\n\t\t\t{\"Effect\": \"Allow\", \"Principal\": \"*\", \"Action\": [\"s3:GetObject\"],\n\t\t\t \"Resource\": \"arn:aws:s3:::secret-bucket/*\"},\n\t\t\t{\"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": [\"s3:GetObject\"],\n\t\t\t \"Resource\": \"arn:aws:s3:::secret-bucket/*\",\n\t\t\t \"Condition\": {\"NotIpAddress\": {\"aws:SourceIp\": [\"10.0.0.0/8\"]}}}\n\t\t]\n\t}`\n\tengine.SetBucketPolicy(\"secret-bucket\", policyJSON)\n\n\tr := httptest.NewRequest(http.MethodGet, \"/secret-bucket/secret-key\", nil)\n\tr.RemoteAddr = \"10.0.0.5:54321\"           // e.g. an in-cluster ingress\n\tr.Header.Set(\"X-Forwarded-For\", \"203.0.113.99\") // outside 10.0.0.0/8\n\n\tresult := engine.EvaluatePolicy(\"secret-bucket\", &PolicyEvaluationArgs{\n\t\tAction: \"s3:GetObject\", Resource: \"arn:aws:s3:::secret-bucket/secret-key\",\n\t\tPrincipal: \"*\", Conditions: ExtractConditionValuesFromRequest(r),\n\t})\n\t// pre-fix: result == PolicyResultAllow (bug); expected PolicyResultDeny\n}\n```\n\nResult before the fix:\n\n```\n--- FAIL: TestExtractSourceIP_BypassesIPRestrictionPolicy (0.00s)\n    BUG: request outside the trusted 10.0.0.0/8 range was allowed by spoofing X-Forwarded-For\n```\n\nThe IAM-policy path (`weed/s3api/s3_iam_middleware.go`) has the identical bypass; the existing `TestIPBasedPolicyEnforcement` test already covered the code path and, before...",
+  "published_at": "2026-11-09T19:48:35.000Z",
+  "modified_at": "2026-11-09T19:48:35.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.1,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-290",
+    "CWE-350"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-47fc-cj9r-ghpm",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-47fc-cj9r-ghpm",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-47fc-cj9r-ghpm",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:29d177717fe63f0684c161737cb9aa0918472a56e14094dc51c481c83d9d6227",
+  "note": null
+}

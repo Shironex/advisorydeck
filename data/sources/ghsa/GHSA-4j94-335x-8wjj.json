@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-4j94-335x-8wjj",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-204"
+    ],
+    "description": "### Summary\n\nThe sign-in endpoint returned a distinct error for an invited account that had not finished signup, revealing to an unauthenticated caller that the address belonged to a pending invitee.\n\n### Details\n\n`validateUser` in `auth.service.ts` checked whether the account found for the submitted email had a password salt. Accounts created by an invitation can have none until the invitee finishes signup, and for those it raised an error telling the user to finish signing up from the invitation email, without comparing the password. Every other failed sign-in, including one for an unknown address, received the generic invalid-credentials answer from `local.strategy.ts`. Accounts created through Google sign-in have a salt and received the generic answer. Every failed sign-in, including one for an account without a password, now runs the same password comparison and receives the same message.\n\n### Impact\n\nNo authentication is required. An attacker could learn whether an email address belongs to an invited user who has not finished signing up, which also confirms that the address has an account on the instance. No account data or credentials were exposed.\n\n### Credit\n\nThis issue was reported by [@NinjaGPT](https://github.com/NinjaGPT).\n",
+    "ghsa_id": "GHSA-4j94-335x-8wjj",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-4j94-335x-8wjj",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4j94-335x-8wjj"
+      }
+    ],
+    "published_at": "2026-11-02T08:48:16Z",
+    "references": [],
+    "severity": "low",
+    "summary": "User Enumeration via Sign-In Error Message",
+    "updated_at": "2026-11-02T08:48:16Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.10.1",
+        "vulnerable_version_range": "< 2026.10.1"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

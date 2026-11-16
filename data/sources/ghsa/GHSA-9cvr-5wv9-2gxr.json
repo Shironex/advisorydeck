@@ -1,0 +1,54 @@
+{
+  "global": null,
+  "id": "GHSA-9cvr-5wv9-2gxr",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 7.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "## Summary\r\n\r\nThe Cheerio, Playwright, and Puppeteer document loader nodes fetch user-provided URLs without calling `checkDenyList()` or using `secureFetch`. They instantiate LangChain's built-in loader classes which perform their own HTTP requests, bypassing the SSRF protection in `httpSecurity.ts`.\r\n\r\nThis is an incomplete fix. PR #5886 (March 10) added `secureFetch`/`secureAxiosRequest` to the API Loader, FireCrawl, Spider, and 7 other components. The three document loaders were not included.\r\n\r\n## Affected Code\r\n\r\n**Cheerio** (`packages/components/nodes/documentloaders/Cheerio/Cheerio.ts:157`):\r\n```typescript\r\nconst loader = new CheerioWebBaseLoader(url, params)\r\ndocs = await loader.load()\r\n```\r\nURL comes from `nodeData.inputs?.url`. Only `linkifyjs.test(url)` validation (format check, not IP check). `CheerioWebBaseLoader._scrape()` internally calls raw `fetch(url)` outside Flowise's security layer.\r\n\r\n**Playwright** and **Puppeteer** loaders follow the same pattern with their respective LangChain classes calling `page.goto(url)` via browser instances.\r\n\r\n## Protected Code (for contrast)\r\n\r\nThe API Loader (`packages/components/nodes/documentloaders/API/APILoader.ts`) correctly imports and uses `secureAxiosRequest` from `httpSecurity.ts`.\r\n\r\nThe `webCrawl()` utility in `utils.ts` correctly calls `checkDenyList(stringURL)` and `secureFetch(currentURL)`. But the direct loader path does not go through `webCrawl()`.\r\n\r\n## Proof of Concept\r\n\r\n1. Create a chatflow with a Cheerio Web Scraper node\r\n2. Set URL to `http://169.254.169.254/latest/meta-data/iam/security-credentials/`\r\n3. Connect to a text output\r\n4. Execute the chatflow\r\n5. LangChain's CheerioWebBaseLoader fetches the URL with no IP validation\r\n6. AWS metadata returned as document content\r\n\r\n## Impact\r\n\r\nFull-read SSRF through document loader nodes. Response content is returned as document text. Cloud metadata, internal services, and private network resources are reachable. Consistent with the impact of GHSA-fvcw-9w9r-pxc7 and GHSA-hr92-4q35-4j3m.\r\n\r\n## Suggested Fix\r\n\r\nAdd `checkDenyList(url)` before instantiating the LangChain loaders:\r\n\r\n```typescript\r\nimport { checkDenyList } from '../../../src/httpSecurity'\r\n\r\n// Before: const loader = new CheerioWebBaseLoader(url, params)\r\nawait checkDenyList(url)\r\nconst loader = new CheerioWebBaseLoader(url, params)\r\n```\r\n\r\nApply to Cheerio.ts, Playwright.ts, and Puppeteer.ts.",
+    "ghsa_id": "GHSA-9cvr-5wv9-2gxr",
+    "html_url": "https://github.com/FlowiseAI/Flowise/security/advisories/GHSA-9cvr-5wv9-2gxr",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9cvr-5wv9-2gxr"
+      }
+    ],
+    "published_at": "2026-08-31T14:02:11Z",
+    "references": [],
+    "severity": "high",
+    "summary": "SSRF bypass via Cheerio/Playwright/Puppeteer document loaders - not covered by httpSecurity deny list",
+    "updated_at": "2026-08-31T14:02:11Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "flowise-components"
+        },
+        "patched_versions": "3.1.4",
+        "vulnerable_version_range": "<= 3.1.3"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "FlowiseAI/Flowise"
+}

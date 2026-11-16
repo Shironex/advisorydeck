@@ -1,0 +1,46 @@
+{
+  "global": null,
+  "id": "GHSA-96jx-fj7m-qh6x",
+  "repo": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-863"
+    ],
+    "description": "# IDOR in GlobalSearchView - Mail Accounts and Mail Rules Bypass Object-Level Permissions\r\n\r\n**Target:** Paperless-ngx v2.20.11\r\n**CWE:** CWE-863 (Incorrect Authorization)\r\n**CVSS 3.1:** 4.3 (Medium) - AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N\r\n**Auth Required:** Authenticated user with `paperless_mail.view_mailaccount` or `paperless_mail.view_mailrule` model permission\r\n**Validation: Lab verified**\r\n\r\n**Environment:** Paperless-ngx 2.20.11 (Docker `paperlessngx/paperless-ngx:2.20.11`, 2026-03-20), Python 3.12.12, Django 5.2.7, DRF 3.16.1\r\n\r\n---\r\n\r\n## Summary\r\n\r\nThe `GlobalSearchView` (`GET /api/search/`) queries `MailAccount` and `MailRule` objects using `Model.objects.filter()` without applying the `ObjectOwnedOrGrantedPermissionsFilter` or `get_objects_for_user_owner_aware()`. This allows any authenticated user with model-level `view_mailaccount`/`view_mailrule` permission to discover other users' mail account metadata and mail rule configurations through the global search.\r\n\r\n_Additional content redacted to reduce exploitation_\r\n\r\n## Impact\r\n\r\n- **Mail account metadata disclosure**: Other users' IMAP server addresses, email usernames, ports, and security configuration leaked through global search\r\n- **Mail rule configuration disclosure**: Other users' email filtering rules, folder structures, and processing configurations exposed\r\n- **Multi-user deployments**: In organizations using Paperless-ngx with multiple users, this allows any user with mail permissions to enumerate colleagues' email configurations\r\n- **Reconnaissance**: Leaked email addresses and IMAP servers can be used for targeted phishing or credential stuffing attacks",
+    "ghsa_id": "GHSA-96jx-fj7m-qh6x",
+    "html_url": "https://github.com/paperless-ngx/paperless-ngx/security/advisories/GHSA-96jx-fj7m-qh6x",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-96jx-fj7m-qh6x"
+      }
+    ],
+    "published_at": "2026-03-21T00:56:18Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "IDOR in GlobalSearchView - Mail Accounts and Mail Rules Bypass Object-Level Permissions",
+    "updated_at": "2026-03-21T02:23:56Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": ""
+        },
+        "patched_versions": "v2.20.12",
+        "vulnerable_version_range": "< v2.20.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "paperless-ngx/paperless-ngx"
+}

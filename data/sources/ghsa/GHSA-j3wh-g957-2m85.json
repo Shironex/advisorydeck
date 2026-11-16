@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-j3wh-g957-2m85",
+  "repo": {
+    "cve_id": "CVE-2026-6103",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4,
+        "vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\n`phar_tar_number()` parses the octal size field of a TAR header into a `uint32_t` with no overflow check. The field is 11 octal digits wide and holds values up to `0x1FFFFFFFF`, so a size above `0xFFFFFFFF` silently wraps. The parser then skips the wrong number of data blocks and interprets attacker-controlled file content as the next TAR header, which lets a crafted archive inject entries that `PharData` reports and extracts as if they were genuine.\r\n\r\n### Details\r\n\r\nThe parser accumulates octal digits without bounding the result:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/phar/tar.c#L23-L38\r\n\r\n| Octal field | True value | `uint32_t` result | Effect |\r\n|---|---|---|---|\r\n| `37777777777` | 0xFFFFFFFF | 4294967295 | largest value that does not wrap |\r\n| `40000000000` | 0x100000000 | 0 | size wraps to 0 |\r\n| `40000000001` | 0x100000001 | 1 | size wraps to 1 |\r\n| `40000001000` | 0x100000200 | 512 | size wraps to 512 |\r\n\r\nWhen the size wraps to 0 the parser reads the size at line 275, rounds it up to a block boundary at line 585 where `(0 + 511) & ~511` stays 0, then skips the data because the `size > 0` condition at line 587 is false. The next 512 bytes read are the entry's own data, parsed as a TAR header.\r\n\r\nThe GNU long filename path has an overflow check, but it only rejects `UINT_MAX` and `0`:\r\n\r\nhttps://github.com/php/php-src/blob/php-8.5.10/ext/phar/tar.c#L368\r\n\r\nA size that wraps to 1 passes it and allocates a one-byte buffer for what the header declares as a filename of more than 4 GB.\r\n\r\nGNU `tar` rejects the same archive with `not stopped at a record boundary`, while `PharData` accepts it and exposes the injected entries.\r\n\r\nThe fix replaces the size parse with `phar_tar_size()`, which accumulates into a `uint64_t`, rejects the GNU base-256 encoding, requires the whole field to be consumed, and refuses any value above `UINT32_MAX - 511`. It also introduces `phar_tar_type_has_data()` so the data blocks of every entry type that carries data are skipped, and rejects the unsupported GNU long link record outright.\r\n\r\n### PoC\r\n\r\n1. Build a TAR archive with a legitimate entry followed by an entry whose size field is `40000000000`.\r\n2. Place a valid TAR header in the data block immediately after that entry.\r\n3. Open the archive with `new PharData($file)`.\r\n\r\nThe injected header is parsed as a real entry with an attacker-chosen name, size and content, and appears in the manifest alongside the legitimate entries. Reading through `phar://` and extracting with `extractTo()` both return the injected version. Giving the injected entry the same name as a legitimate one replaces the original in the manifest, and a single overflow entry can introduce any number of further entries.\r\n\r\nThe regression tests `ext/phar/tests/tar/GHSA-j3wh-g957-2m85-size.phpt`, `-longlink.phpt` and `-typeflag.phpt` cover the wrapped size, the long filename check and the entry types that carry data.\r\n\r\n### Impact\r\n\r\nAn application that opens an untrusted TAR archive with `PharData` or the `phar://` stream wrapper sees a set of entries that differs from what the archive actually contains, and `extractTo()` writes the injected entries to disk. Tooling that validates an archive before extracting it can be made to inspect one set of files and extract another.\r\n\r\nComposer's `TarDownloader` uses `new PharData($file)` followed by `extractTo()` for every `.tar.gz` package, so a crafted package can place files into `vendor/` that are not present in the archive as any other tool reads it.\r\n",
+    "ghsa_id": "GHSA-j3wh-g957-2m85",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-j3wh-g957-2m85",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-j3wh-g957-2m85"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-6103"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:27Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Phar TAR phar_tar_number() Integer Overflow - Archive Entry Injection",
+    "updated_at": "2026-09-25T18:16:04Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-phar"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

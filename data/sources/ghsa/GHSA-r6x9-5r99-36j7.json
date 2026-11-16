@@ -1,0 +1,72 @@
+{
+  "global": null,
+  "id": "GHSA-r6x9-5r99-36j7",
+  "repo": {
+    "cve_id": "CVE-2025-1218",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.1,
+        "vector_string": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [],
+    "description": "### Summary\r\n\r\nThe mysqlnd wire protocol parser reads fields out of server packets before checking that the packet still holds enough bytes for them. A malicious or compromised MySQL server can send a truncated packet and make the client read past the end of the packet buffer, which is undefined behaviour and can crash the process.\r\n\r\n### Details\r\n\r\n`BAIL_IF_NO_MORE_DATA` only guarantees that a single byte remains, but several call sites then read two or more bytes before re-checking. For example, the 2-byte read here happens before the over-read is detected:\r\n\r\nhttps://github.com/php/php-src/blob/8b682743196e765debb5056e56a97a67304f5e62/ext/mysqlnd/mysqlnd_wireprotocol.c#L871-L877\r\n\r\nThe same pattern occurs in the greeting, OK, EOF, auth-switch, cached-sha2, change-user, result-set header, prepared-statement response and row packet handlers. In addition, `php_mysqlnd_net_field_length()` and `php_mysqlnd_net_field_length_ll()` decode a length-encoded integer whose first byte selects a 3, 4 or 9 byte form, and read that many bytes without confirming they are present, so they can read 1 to 9 bytes out of bounds.\r\n\r\nThe fix replaces the single-byte guard with `BAIL_IF_NOT_ENOUGH_DATA_EX(n)`, which checks the exact number of bytes each read needs, and gives both field-length helpers a `remaining_size` argument so they return `MYSQLND_INVALID_NET_FIELD_LENGTH` instead of reading beyond the packet.\r\n\r\n### PoC\r\n\r\nThe regression tests added with the fix drive a fake MySQL server that emits truncated packets for each affected handler, for example `ext/mysqli/tests/ghsa-r6x9-5r99-36j7-greet-packet.phpt` and `ext/mysqli/tests/ghsa-r6x9-5r99-36j7-ok-packet-affected-rows.phpt`. Running them against an unpatched build under AddressSanitizer reports the out-of-bounds reads.\r\n\r\n### Impact\r\n\r\nApplications connecting to an untrusted or compromised MySQL server can be crashed, giving a denial of service. The bytes read past the buffer influence parsed field values but are not returned to the server, and the reads stay within the process heap. Applications that only connect to trusted database servers are not exposed.\r\n",
+    "ghsa_id": "GHSA-r6x9-5r99-36j7",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-r6x9-5r99-36j7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r6x9-5r99-36j7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-1218"
+      }
+    ],
+    "published_at": "2026-09-24T10:06:44Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Various packet overreads in mysqlnd_writeprotocol.c",
+    "updated_at": "2026-09-25T18:15:30Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mysqlnd"
+        },
+        "patched_versions": "8.2.34",
+        "vulnerable_version_range": "<8.2.34"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mysqlnd"
+        },
+        "patched_versions": "8.3.35",
+        "vulnerable_version_range": "<8.3.35"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mysqlnd"
+        },
+        "patched_versions": "8.4.26",
+        "vulnerable_version_range": "<8.4.26"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-mysqlnd"
+        },
+        "patched_versions": "8.5.11",
+        "vulnerable_version_range": "<8.5.11"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}

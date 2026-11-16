@@ -1,0 +1,51 @@
+{
+  "id": "GHSA-m9qr-4rcq-3jhc",
+  "aliases": [],
+  "title": "Safe-code data race and double-free in `surrealdb-core` via unsound `Send`/`Sync` assertions in `reblessive 0.4.3`",
+  "summary": "### Summary\r\n\r\n`surrealdb-core` pins `reblessive 0.4.3` (crates.io, checksum `bbc4a4ea…e73c8c`) and uses its recursive-async runtime for every SurrealQL statement: `dbs::Executor` holds a `TreeStack` field and drives each statement through `self.stack.enter(|stk| s.compute(stk, &self.ctx, &self.opt, None)).finish().await`. `reblessive 0.4.3` unconditionally asserts `Send`/`Sync` for its runtime types (`unsafe impl Send/Sync for Stack`, `unsafe impl Send/Sync for TreeStack`, `unsafe impl<R> Send/Sync for Runner`), while its public entry points accept **any** future with no `Send` bound (`pub fn enter<'a, F, Fut, R>(&'a mut self, f: F) -> Runner<'a, R> where F: FnOnce(&'a mut Stk) -> Fut, Fut: Future<Output = R> + 'a`) and store it type-erased (function-pointer vtable) in a bump allocator. Two safe-code consequences follow: (1) `Runner::step_async`/`finish_async` return `StepFuture<'a, R>`/`FinishFuture<'a, R>` whose lifetime is the stack borrow rather than `&mut self`, so driver futures can be duplicated; because `Stack: Sync`, those futures are `Send`, and two threads polling them run `drive_top_task(&self)` concurrently - racy `Cell`/`UnsafeCell` reads and writes, double `pop_task()`/`pop_dealloc()` (double drop / double free) and a non-atomic `Option<R>::take`; (2) `TreeStack: Send` lets safe code move a driver whose type-erased future captures `!Send` state (`Rc`, `RefCell`) to another thread while the creating thread keeps an alias of that state. ThreadSanitizer confirms 11 data races on the attached PoC (including on `reblessive`'s own `Cell<usize>`/`StackAllocator` state) and the corrupted allocator makes `reblessive` itself panic (`stack/mod.rs:177:54`, `Option::unwrap()` on `None`) in one case. No `unsafe` is needed at the call site. SurrealDB's own query futures stay `Send` only because of the unsound `unsafe impl Send for TreeStack`: the futures stored in `Executor`'s `TreeStack` capture `&mut tree::Stk`, and `tree::Stk` is deliberately `!Send` (`PhantomData<*mut TreeStack>`).\r\n\r\n### Details\r\n\r\n**Verified snapshot.** `surrealdb 3.3.0-nightly`, git commit `18971ffba781a796c0ad3897bb4b82432c241e4c` (2026-09-04), crate `surrealdb-core 3.3.0-nightly`. Dependency `reblessive 0.4.3` (crates.io, checksum `bbc4a4ea2a66a41a1152c4b3d86e8954dc087bdf33af35446e6e176db4e73c8c`), declared at workspace `Cargo.toml:94` and `surrealdb/core/Cargo.toml:95` (`reblessive = { workspace = true, features = [\"tree\"] }`). We verified only this snapshot; any release that resolves `reblessive 0.4.3` with these sources is affected - please set the final affected/patched ranges when publishing. As of 2026-09-21, crates.io's newest `reblessive` is still 0.4.3 and the upstream repository (`github.com/DelSkayn/reblessive`, maintained by a SurrealDB core developer) still carries the same `unsafe impl`s on its `main` branch; no fix is staged.\r\n\r\n**Root cause.** The runtime asserts `Send`/`Sync` unconditionally while storing type-erased futures that have no `Send` bound:\r\n\r\n- `unsafe impl Send for Stack {}` / `unsafe impl Sync for Stack {}` - `reblessive-0.4.3/src/stack/mod.rs:65-66`; the struct (`:58-63`) holds `UnsafeCell<StackAllocator>` plus `Cell<usize> len`, `Cell<StackState> state`, `Cell<usize> async_context` (all non-synchronised).\r\n- `unsafe impl Send for TreeStack {}` / `unsafe impl Sync for TreeStack {}` - `reblessive-0.4.3/src/tree/mod.rs:34-35`.\r\n- `unsafe impl<R> Send for Runner<'_, R> {}` / `unsafe impl<R> Sync for Runner<'_, R> {}` - `reblessive-0.4.3/src/tree/runner.rs:64-65`.\r\n- The public entry points take any future, with **no `Send` bound**: `src/stack/mod.rs:82-90` and `src/tree/mod.rs:45-53`. The future is moved into `TaskBox { v_table: VTable::get::<F>(), future: f }` (`src/stack/mod.rs:139-151`) and driven through monomorphised function pointers (`src/vtable.rs:25-60`, `Pin::new_unchecked(...).poll(ctx)`).\r\n- Driver futures outlive the `&mut Runner` borrow: `pub fn step_async(&mut self) -> StepFuture<'a, R>` and `pub fn fini...",
+  "published_at": "2026-11-03T15:51:19.000Z",
+  "modified_at": "2026-11-03T15:51:19.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.8,
+    "vector": "CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-362",
+    "CWE-415"
+  ],
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-m9qr-4rcq-3jhc",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-m9qr-4rcq-3jhc",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-m9qr-4rcq-3jhc",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

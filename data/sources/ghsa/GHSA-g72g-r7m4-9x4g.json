@@ -1,0 +1,99 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-53926",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "### Summary\nOAuth access and refresh tokens were not revoked when the user changed, reset, or\nrecovered their password, leaving an attacker-issued OAuth grant valid after the user\nbelieved they had locked the attacker out.\n\n### Details\n`revokeAllOAuthTokensByUser` in the users service was an empty stub being called from\n`passwordChange`, `passwordForgot`, and `passwordReset`. It now delegates to\n`OAuthToken.revokeAllByUser(userId)`, which deletes the rows and invalidates the\nrelated auth caches. All three reset/recovery flows now consistently revoke refresh\ntokens (GHSA-r989-7g3j-wjhw), OAuth tokens (this advisory), and rotate\n`token_version`.\n\n### Impact\nPersistent unauthorized access through previously issued OAuth tokens after a\ndocumented security event (password change, forgot, or reset).\n\n### Credit\nThis issue was reported by [@bugbunny-research](https://github.com/bugbunny-research).",
+    "ghsa_id": "GHSA-g72g-r7m4-9x4g",
+    "html_url": "https://github.com/advisories/GHSA-g72g-r7m4-9x4g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g72g-r7m4-9x4g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53926"
+      }
+    ],
+    "published_at": "2026-06-05T16:43:09Z",
+    "references": [
+      "https://github.com/nocodb/nocodb/security/advisories/GHSA-g72g-r7m4-9x4g",
+      "https://github.com/nocodb/nocodb/releases/tag/2026.05.1",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-53926",
+      "https://github.com/advisories/GHSA-g72g-r7m4-9x4g"
+    ],
+    "severity": "medium",
+    "summary": "NocoDB: OAuth Tokens Persist Through Security Events",
+    "updated_at": "2026-07-20T21:19:51Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "2026.05.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "vulnerable_version_range": "<= 2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-g72g-r7m4-9x4g",
+  "repo": {
+    "cve_id": "CVE-2026-53926",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-613"
+    ],
+    "description": "### Summary\r\nOAuth access and refresh tokens were not revoked when the user changed, reset, or\r\nrecovered their password, leaving an attacker-issued OAuth grant valid after the user\r\nbelieved they had locked the attacker out.\r\n\r\n### Details\r\n`revokeAllOAuthTokensByUser` in the users service was an empty stub being called from\r\n`passwordChange`, `passwordForgot`, and `passwordReset`. It now delegates to\r\n`OAuthToken.revokeAllByUser(userId)`, which deletes the rows and invalidates the\r\nrelated auth caches. All three reset/recovery flows now consistently revoke refresh\r\ntokens (GHSA-r989-7g3j-wjhw), OAuth tokens (this advisory), and rotate\r\n`token_version`.\r\n\r\n### Impact\r\nPersistent unauthorized access through previously issued OAuth tokens after a\r\ndocumented security event (password change, forgot, or reset).\r\n\r\n### Credit\r\nThis issue was reported by [@bugbunny-research](https://github.com/bugbunny-research).\r\n",
+    "ghsa_id": "GHSA-g72g-r7m4-9x4g",
+    "html_url": "https://github.com/nocodb/nocodb/security/advisories/GHSA-g72g-r7m4-9x4g",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g72g-r7m4-9x4g"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-53926"
+      }
+    ],
+    "published_at": "2026-06-04T09:45:50Z",
+    "references": [],
+    "severity": "low",
+    "summary": "OAuth Tokens Persist Through Security Events",
+    "updated_at": "2026-06-11T16:15:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "nocodb"
+        },
+        "patched_versions": "2026.05.1",
+        "vulnerable_version_range": "<=2026.05.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "nocodb/nocodb"
+}

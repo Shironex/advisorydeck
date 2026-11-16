@@ -1,0 +1,50 @@
+{
+  "id": "GHSA-vpg5-4fc4-2h8x",
+  "aliases": [],
+  "title": "S3 query-routing mismatch lets ownership-controls authorization disclose object inventory",
+  "summary": "### Summary\r\nSeaweedFS authorizes ?list-type=2&ownershipControls= as s3:GetBucketOwnershipControls but routes it to ListObjectsV2. A low-privilege principal can therefore bypass an explicit s3:ListBucket denial and retrieve object metadata.\r\n\r\n### Details\r\nlist-type is omitted from ambiguity validation. Routing selects ListObjectsV2, while authorization resolves the recognized ownershipControls selector to the weaker action. The listing handler performs no second authorization check.\r\n\r\n### PoC\r\n\r\nOn SeaweedFS 4.46, create a bucket containing a private sentinel. Give an auditor only s3:GetBucketOwnershipControls while explicitly denying s3:ListBucket.\r\n\r\n  - ?list-type=2 → 403\r\n  - ?ownershipControls= → 403\r\n  - ?list-type=2&ownershipControls= → 200 with ListBucketResult and the sentinel metadata\r\n  - Delete the policy → combined request returns 403\r\n\r\n\r\n### Impact\r\n\r\nA valid low-privilege S3 principal can disclose every object’s key, size, ETag, and modification time despite an explicit listing denial. Object contents and write operations remain inaccessible.",
+  "published_at": "2026-11-09T19:48:56.000Z",
+  "modified_at": "2026-11-09T19:48:56.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 4.3,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:N/A:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-863"
+  ],
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.46"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-vpg5-4fc4-2h8x",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-vpg5-4fc4-2h8x",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-vpg5-4fc4-2h8x",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6ac45e20de13e645061a817825fc0ed33099c755e9e1aabcd98175ce4732387e",
+  "note": null
+}

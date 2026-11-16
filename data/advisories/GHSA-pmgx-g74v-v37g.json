@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-pmgx-g74v-v37g",
+  "aliases": [],
+  "title": "Malformed hash/zset listpack in an RDB image crashes the server and can leak heap memory",
+  "summary": "## Summary\r\n\r\nDragonfly validated hash and sorted set listpacks deeply only on the `RESTORE` command path.\r\nRDB file loads and replication full syncs used the same deserializer with shallow validation,\r\nso a malformed listpack that `RESTORE` rejects was accepted silently on those paths. The first\r\npairwise read of the resulting key (`HGETALL`, `ZRANK`) then dereferenced a missing value and\r\ncrashed the process. With a shaped entry length the same walk could instead read past the\r\nallocation and return adjacent heap memory to the client.\r\n\r\n## Details\r\n\r\nThe `deep_integrity` flag was set at exactly one call site in the tree:\r\n\r\n```\r\nsrc/server/generic_family.cc:225   config.deep_integrity = true;   // RESTORE\r\nsrc/server/rdb_load.h:191          bool deep_integrity = false;    // default\r\n```\r\n\r\nEvery other consumer of the same deserializer kept the default:\r\n\r\n```\r\nsrc/server/replica.cc:504          RdbLoader loader(NULL, &load_context);        // PSYNC full sync\r\nsrc/server/replica.cc:1232         rdb_loader_ = make_unique<RdbLoader>(...);    // Dragonfly sync\r\nsrc/server/server_family.cc        RdbLoader loader{&service_, load_context};    // RDB file load\r\n```\r\n\r\nIn `HSetFamily::LoadListpackBlob` the guard added for the `RESTORE` fixes was gated on that flag:\r\n\r\n```c\r\nif (deep && lpLength((uint8_t*)blob.data()) % 2 != 0) {\r\n    LOG(ERROR) << \"Hash listpack has an odd number of entries.\";\r\n    return LoadBlobResult::kCorrupted;\r\n}\r\n```\r\n\r\nWith `deep = 0`, `lpValidateIntegrity` checks only the listpack header, that `total_bytes`\r\nmatches the buffer size and that the final byte is the `LP_EOF` terminator. Individual entries\r\nare never walked, so both an odd entry count and a forged per entry length were accepted.\r\n\r\nThe bounds check that would otherwise catch the walk does not exist in a release build.\r\n`lpAssertValidEntry` in `src/redis/listpack.c` is a plain C `assert`, so under `-DNDEBUG` the\r\nentire `lpValidateNext` call is compiled out:\r\n\r\n```c\r\nstatic inline void lpAssertValidEntry(unsigned char* lp, size_t lpbytes, unsigned char *p) {\r\n    assert(lpValidateNext(lp, &p, lpbytes));\r\n}\r\n```\r\n\r\n## Impact\r\n\r\nTwo outcomes, both from the same unvalidated walk.\r\n\r\n**Denial of service.** An odd entry or count mismatched listpack loads cleanly and reports\r\nsuccess. The next pairwise read crashes the process with SIGSEGV, losing all in memory data:\r\n\r\n```\r\n*** SIGSEGV received at time=1789508473 on cpu 9 ***\r\nPC: @  0xb23c38  lpGet\r\n    @  0x90aa80  dfly::detail::ListpackWrap::GetView()\r\n    @  0x90aacc  dfly::detail::ListpackWrap::Iterator::Read()\r\n    @  0x90ab08  dfly::detail::ListpackWrap::Iterator::operator++()\r\n    @  0x4de218  dfly::(anonymous namespace)::HGetGeneric()::{lambda()#1}::operator()()\r\n```\r\n\r\n**Information disclosure.** A hash listpack whose declared size exceeds\r\n`max_listpack_map_bytes` is converted through `HSetFamily::ConvertToStrMap`, which copies each\r\nvalue into a `StringMap` that the client can read back. Forging one entry's 32 bit string\r\nlength makes that copy read past the end of the allocation, and the bytes are committed to the\r\nlive hash and returned by a plain `HGETALL`. Measured over 30 single attempt runs delivered by\r\nreplication full sync, at the stock default `listpack_max_bytes` of 1024 and with no other\r\nconfiguration changes, 19 runs returned attacker never supplied heap contents without crashing.\r\nRecovered bytes included live heap pointers.\r\n\r\nNeither path requires authentication. Dragonfly runs without authentication by default.\r\n\r\n## Proof of concept\r\n\r\n45 byte RDB image, loaded from disk:\r\n\r\n```\r\n00000000  52 45 44 49 53 30 30 31 31 fe 00 10 03 70 77 6e  |REDIS0011....pwn|\r\n00000010  13 13 00 00 00 03 00 82 66 31 03 82 76 31 03 82  |........f1..v1..|\r\n00000020  66 32 03 ff ff 00 00 00 00 00 00 00 00           |f2...........|\r\n```\r\n\r\n```\r\ndocker run --rm --ulimit memlock=-1 -p 6399:6379 -v /tmp/dfpoc:/data \\\r\n  docker.dragonflydb.io/dragonflydb/dragonfly:latest \\\r\n  --dir /data --dbf...",
+  "published_at": "2026-09-23T10:32:38.000Z",
+  "modified_at": "2026-09-23T10:32:38.000Z",
+  "severity": {
+    "level": "medium",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "dragonfly",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "2.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-pmgx-g74v-v37g",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-pmgx-g74v-v37g",
+      "url": "https://github.com/dragonflydb/dragonfly/security/advisories/GHSA-pmgx-g74v-v37g",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:6015e44af36249d6071dd34f542953f3bcbfdca2b362398d27a3586a5733694f",
+  "note": null
+}

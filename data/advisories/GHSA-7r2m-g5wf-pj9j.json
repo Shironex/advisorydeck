@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-7r2m-g5wf-pj9j",
+  "aliases": [],
+  "title": "Model Export Route joins Raw Name Permitting Authenticated Request Redirection",
+  "summary": "### Summary\nA credential leakage and Server-Side Request Forgery vulnerability exists in SurrealDB's remote HTTP client router (`surrealdb/surrealdb`). In `surrealdb/src/engine/remote/http/mod.rs`, model names are passed directly to `Url::join()` as URL references.\n\n### Vulnerability Details\n- Affected File: `surrealdb/src/engine/remote/http/mod.rs` (`router`, `Command::ExportMl`, `Command::ExportBytesMl`)\n- Mechanism: `Url::join` treats absolute URLs as target replacements rather than path segments. When exporting a model with a user-supplied name such as `https://attacker.com/ml`, `Url::join` resets the destination origin to the attacker's server. The HTTP client then issues the request to the attacker's server with the current session's authentication tokens and headers attached.\n- Impact: Credential disclosure of SurrealDB session tokens and authenticated destination SSRF.\n\n### Recommended Remediation\nURL-encode model names before appending them to the path, or use `url.path_segments_mut()` to ensure they are treated strictly as path segments.\n\n---\n**Reported by:** ARSB\n\n### Patches\n\nA patch has been created that pins an ML export request to its intended host, so an authenticated request can no longer be redirected to another host.\n\n- Version 4.0.0 and later are not affected by this issue.\n\n### References\n\n- [SurrealDB Documentation - Capabilities](https://surrealdb.com/docs/surrealdb/security/capabilities)\n- `fix(sdk): ML export URL lets an authenticated request be redirected to another host` (commit `a44fca7d74`)",
+  "published_at": "2026-11-03T15:50:57.000Z",
+  "modified_at": "2026-11-03T15:50:57.000Z",
+  "severity": {
+    "level": "high",
+    "score": null,
+    "vector": null,
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "surrealdb",
+      "ranges": [
+        {
+          "introduced": "0",
+          "fixed": "4.0.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-7r2m-g5wf-pj9j",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-7r2m-g5wf-pj9j",
+      "url": "https://github.com/surrealdb/surrealdb/security/advisories/GHSA-7r2m-g5wf-pj9j",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:81d969fedde6b0fb1817170af02e916e9a3a25cdc34b452feccfba4ea3aca870",
+  "note": null
+}

