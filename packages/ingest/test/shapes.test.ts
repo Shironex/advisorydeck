@@ -429,10 +429,10 @@ describe('smaller normalisations', () => {
     expect(rangesOf(facts, 'go')).toEqual(matcherRanges('go', 'CVE-2026-56866'));
   });
 
-  it('Metabase: an x. placeholder major is unknown, never a version in the feed', () => {
+  it('Metabase: an x. placeholder major is read as 0. (open source) and 1. (Enterprise)', () => {
     const facts = repoGhsa('repo-metabase.json', 'GHSA-r495-55cx-fjh7', 'metabase/metabase');
-    expect(facts.claims).toEqual([expect.objectContaining({ slug: 'metabase', ranges: [] })]);
-    expect(facts.warnings.join('\n')).toContain('published as unknown');
+    expect(rangesOf(facts, 'metabase')).toEqual(matcherRanges('metabase', 'GHSA-r495-55cx-fjh7'));
+    expect(facts.warnings.join('\n')).toContain('read as 0. (open source) and 1. (Enterprise)');
   });
 
   it('Spring: .RELEASE is the release itself', () => {
