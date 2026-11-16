@@ -177,6 +177,12 @@ export interface CveCnaSource {
 export interface GhsaRepoSource {
   type: 'ghsa-repo';
   repo: string;
+  /**
+   * Package names of the advisory entries that version this product (vulnerabilities[].package.name, compared without case and surrounding spaces), for repositories whose advisories also list apps, plugins or installers. When set, only these entries count, and an advisory naming none of them is not about this product. An empty string matches an entry without a name.
+   *
+   * @minItems 1
+   */
+  packages?: [string, ...string[]];
   note?: string;
 }
 /**
