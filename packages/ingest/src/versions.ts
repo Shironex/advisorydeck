@@ -265,6 +265,41 @@ export function pairLowerBounds(
   return paired;
 }
 
+/**
+ * Ends an open range where the next listed line starts (F5 for nginx: `1.31.0 < 1.31.7`,
+ * `1.30.0 < 1.30.6`, `1.25.0 < *`). Left open, the range from 1.25.0 would also cover the patched
+ * 1.30.6 and 1.31.7, which the same record lists as fixed. It is clipped to the branch before the
+ * next listed start (`last_affected: "1.29"`, every release of 1.29), which only works where a
+ * two-part version names a branch, so callers use it for semver products only. A range is left
+ * open when no later start is listed, a later line has no fix either, or the later start is not
+ * the first release of a line.
+ */
+export function clipOpenRanges(ranges: readonly VersionRange[]): VersionRange[] {
+  return ranges.map((range) => {
+    if (isBounded(range)) return range;
+    const above = (start: string) =>
+      range.introduced === '0'
+        ? start !== '0'
+        : (compareSemverLike(start, range.introduced) ?? 0) > 0;
+    const after = ranges.filter((r) => above(r.introduced));
+    // A later line without a fix keeps everything above it affected anyway.
+    if (!after.every(isBounded)) return range;
+    const later = after.map((r) => r.introduced).sort((a, b) => compareSemverLike(a, b) ?? 0)[0];
+    const next = /^(\d+)\.(\d+)\.0$/.exec(later ?? '');
+    const from = range.introduced === '0' ? { major: 0, minor: 0 } : branchOf(range.introduced);
+    if (next === null || from === undefined) return range;
+    const major = Number(next[1]);
+    const minor = Number(next[2]);
+    if (minor > 0 && (from.major < major || (from.major === major && from.minor < minor))) {
+      return { ...range, last_affected: `${major}.${minor - 1}` };
+    }
+    if (minor === 0 && major > 0 && from.major < major) {
+      return { ...range, last_affected: `${major - 1}` };
+    }
+    return range;
+  });
+}
+
 /** Major and minor of a dotted numeric version (8.2.2 gives 8 and 2), or undefined. */
 export function branchOf(version: string): { major: number; minor: number } | undefined {
   const match = /^(\d+)\.(\d+)/.exec(version);

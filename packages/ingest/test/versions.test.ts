@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cleanVersion,
+  clipOpenRanges,
   compactHyphenRange,
   compareSemverLike,
   parseRangeExpression,
@@ -220,5 +221,34 @@ describe('pep440Prereleases', () => {
     for (const text of ['< 5.2.17', '1.0.post1', '1.0.dev3', '3.14.0-rc1', '18beta1', 'All']) {
       expect(pep440Prereleases(text)).toBe(text);
     }
+  });
+});
+
+describe('clipOpenRanges', () => {
+  it('ends an open range on the branch before the next listed start', () => {
+    expect(
+      clipOpenRanges([
+        { introduced: '1.31.0', fixed: '1.31.7' },
+        { introduced: '1.30.0', fixed: '1.30.6' },
+        { introduced: '1.25.0' },
+      ]),
+    ).toEqual([
+      { introduced: '1.31.0', fixed: '1.31.7' },
+      { introduced: '1.30.0', fixed: '1.30.6' },
+      { introduced: '1.25.0', last_affected: '1.29' },
+    ]);
+    expect(clipOpenRanges([{ introduced: '0' }, { introduced: '3.0.0', fixed: '3.0.4' }])).toEqual([
+      { introduced: '0', last_affected: '2' },
+      { introduced: '3.0.0', fixed: '3.0.4' },
+    ]);
+  });
+
+  it('leaves an open range open when nothing later starts a line', () => {
+    const ranges = [{ introduced: '7.0.0' }, { introduced: '6.2.0', fixed: '6.2.20' }];
+    expect(clipOpenRanges(ranges)).toEqual(ranges);
+    const midLine = [{ introduced: '1.25.0' }, { introduced: '1.30.2', fixed: '1.30.6' }];
+    expect(clipOpenRanges(midLine)).toEqual(midLine);
+    const unfixed = [{ introduced: '1.25.0' }, { introduced: '1.30.0' }];
+    expect(clipOpenRanges(unfixed)).toEqual(unfixed);
   });
 });

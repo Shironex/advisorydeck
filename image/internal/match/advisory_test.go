@@ -42,6 +42,8 @@ import (
 //     GHSA-q238-5cxm-5c9h >= 6.0a1), written by ingest as 3.15.0-a1 and read in both spellings.
 //   - nodejs.json: every line starts at its own last affected release (CVE-2026-106072,
 //     22.23.3 lessThanOrEqual 22.23.3), read as upper bounds per branch.
+//   - nginx.json: an open range next to fixed later lines (CVE-2026-95101, 1.25.0 lessThan *),
+//     ended on the branch before the next listed start (last_affected 1.29).
 
 type advisoryVectors struct {
 	Product    string `json:"product"`
