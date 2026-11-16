@@ -114,7 +114,8 @@ describe('site build', () => {
     expect(products.length).toBeGreaterThan(0);
     for (const product of products) {
       const html = page(`products/${product.slug}/index.html`);
-      expect(html, product.slug).toMatch(new RegExp(`<h1[^>]*>${product.name}</h1>`));
+      const name = product.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(html, product.slug).toMatch(new RegExp(`<h1[^>]*>${name}</h1>`));
       expect(html).toContain(`products/${product.slug}/feed.xml`);
       const atom = page(`products/${product.slug}/feed.xml`);
       expect(atom).toContain('<feed xmlns="http://www.w3.org/2005/Atom">');
