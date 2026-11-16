@@ -1,0 +1,34 @@
+---
+import ProductTable from '../../components/ProductTable.astro';
+import Base from '../../layouts/Base.astro';
+import { CATEGORY_LABELS, categoriesInUse, loadSiteData, productsIn } from '../../lib/feed.ts';
+import { categoryPath, href, REPO_URL } from '../../lib/site.ts';
+
+const data = loadSiteData();
+const categories = categoriesInUse(data);
+---
+
+<Base
+  title="Products"
+  description="Every product Advisorydeck tracks, by category."
+  section="products"
+>
+  <h1>Products</h1>
+  <p class="muted prose">
+    The catalog is small on purpose: software self-hosters actually run, each with a reviewed
+    mapping to its advisory sources.{' '}
+    <a href={`${REPO_URL}/blob/main/docs/adding-a-product.md`}>Add a product</a>.
+  </p>
+  {categories.map((category) => (
+    <section aria-labelledby={`c-${category}`}>
+      <h2 id={`c-${category}`}>
+        <a href={href(categoryPath(category))}>{CATEGORY_LABELS[category].name}</a>
+      </h2>
+      <p class="muted small">{CATEGORY_LABELS[category].blurb}</p>
+      <ProductTable
+        products={productsIn(data, category)}
+        caption={`${CATEGORY_LABELS[category].name} products`}
+      />
+    </section>
+  ))}
+</Base>

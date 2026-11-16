@@ -1,0 +1,137 @@
+---
+import Base from '../layouts/Base.astro';
+import { ATTRIBUTIONS } from '../lib/attribution.ts';
+import { href, REPO_URL } from '../lib/site.ts';
+
+const rows = [
+  {
+    ...ATTRIBUTIONS.cve,
+    use: 'The primary record of each CVE. Vendors that are their own CNA (PostgreSQL, GitHub-assigned projects) publish affected and fixed versions here.',
+    feedCode: 'CVE-TOU',
+  },
+  {
+    ...ATTRIBUTIONS.ghsa,
+    use: 'GitHub security advisories of the repositories in the catalog (Traefik, Coolify, Redis, Moby) and the GitHub Advisory Database entries for their packages.',
+    feedCode: 'CC-BY-4.0',
+  },
+  {
+    ...ATTRIBUTIONS.endoflife,
+    use: 'Release branches, their latest release and end-of-life dates.',
+    feedCode: 'MIT',
+  },
+  {
+    ...ATTRIBUTIONS.kev,
+    use: 'Whether a CVE is known to be exploited, and since when. Every advisory says "in KEV", "not in KEV" or, when the catalog could not be read, "not checked".',
+    feedCode: 'CC0-1.0',
+  },
+  {
+    ...ATTRIBUTIONS.epss,
+    use: 'The probability that a CVE is exploited in the next 30 days, with its percentile and the date it was scored (scores are refreshed about daily, so the date can be a few days old).',
+    feedCode: 'FIRST-EPSS',
+  },
+  {
+    ...ATTRIBUTIONS.nvd,
+    use: 'A CVSS score for CVEs that neither the vendor CNA nor GitHub scored. Nothing else is taken from NVD.',
+    feedCode: 'NVD-TOU',
+  },
+];
+---
+
+<Base
+  title="Data sources and licenses"
+  description="Where Advisorydeck's advisory data comes from and the terms it is used under."
+  section="sources"
+>
+  <div class="prose">
+    <h1>Data sources and licenses</h1>
+    <p>
+      Advisorydeck republishes public advisory data. Every advisory page and every advisory in the
+      JSON feed lists the exact records it was built from, with a link and the license or terms of
+      each record. The full attribution text is in
+      <a href={`${REPO_URL}/blob/main/NOTICE`}>NOTICE</a>.
+    </p>
+  </div>
+
+  <section aria-labelledby="upstream-heading">
+    <h2 id="upstream-heading">Upstream sources</h2>
+    <div class="source-list">
+      {rows.map((row) => (
+        <article class="panel source">
+          <h3>
+            <a href={row.url} rel="noopener noreferrer">
+              {row.name}
+            </a>
+          </h3>
+          <p>{row.use}</p>
+          <dl class="facts small">
+            <dt>Terms</dt>
+            <dd>
+              <a href={row.licenseUrl} rel="noopener noreferrer">
+                {row.license}
+              </a>
+            </dd>
+            <dt>In the feed</dt>
+            <dd>
+              <code>license: "{row.feedCode}"</code>
+            </dd>
+            <dt>Credit</dt>
+            <dd>{row.credit}</dd>
+          </dl>
+        </article>
+      ))}
+    </div>
+  </section>
+
+  <section aria-labelledby="ours-heading" class="prose">
+    <h2 id="ours-heading">Advisorydeck's own content</h2>
+    <ul>
+      <li>
+        Code: <a href={`${REPO_URL}/blob/main/LICENSE`}>MIT</a>.
+      </li>
+      <li>
+        Curated self-hoster notes: <a href={`${REPO_URL}/blob/main/notes/LICENSE`}>CC-BY-4.0</a>.
+        Reuse them with credit to "Advisorydeck contributors" and a link to the note.
+      </li>
+      <li>
+        Version ranges are normalized from the sources above; the judgement calls on ambiguous
+        records are listed on each advisory page and in <code>data/quality.json</code>.
+      </li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="not-heading" class="prose">
+    <h2 id="not-heading">What is not used</h2>
+    <p>
+      Nothing under a non-commercial or no-derivatives license is published. Vendor web pages are
+      read by people as a cross-check and to decide when a note is needed; their text is not copied.
+      When the KEV catalog could not be read for an advisory, it says "not checked" instead of
+      implying the CVE is not exploited.
+    </p>
+  </section>
+
+  <section aria-labelledby="feed-heading" class="prose">
+    <h2 id="feed-heading">The feed</h2>
+    <p>
+      The machine-readable feed is published at{' '}
+      <a href={href('api/v1/manifest.json')}>api/v1/manifest.json</a>
+      with one file per product under <code>api/v1/products/</code>. Its format is described in the
+      <a href={`${REPO_URL}/blob/main/docs/feed-contract.md`}>feed contract</a>. Atom feeds:
+      <a href={href('feed.xml')}>all advisories</a>, and one per product on each product page.
+    </p>
+    <p>
+      No accounts, no analytics, no cookies. The notifier image downloads these public files and
+      matches locally, so this site never learns what you run.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .source-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: var(--space-4);
+  }
+  .source h3 {
+    margin-top: 0;
+  }
+</style>
