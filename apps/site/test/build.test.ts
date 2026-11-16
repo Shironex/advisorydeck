@@ -134,6 +134,25 @@ describe('site build', () => {
     expect(page('products/postgresql/index.html')).not.toContain('data-upstream');
   });
 
+  it('shows a visible correction notice with the reason and evidence on a corrected advisory', () => {
+    const html = page('advisories/CVE-2026-16443/index.html');
+    const notice =
+      /<div class="notice notice--warn correction" role="note" data-correction>([\s\S]*?)<\/div>\s*<\/div>/.exec(
+        html,
+      )?.[1];
+    expect(notice).toBeDefined();
+    expect(notice).toContain('Corrected by advisorydeck on');
+    expect(notice).toContain('a typo for &lt; 26.7.1');
+    expect(notice).toContain('every version before 26.4.14');
+    expect(notice).toContain('from 26.7.0 before 26.37.1');
+    expect(notice).toContain('href="https://github.com/keycloak/keycloak/releases/tag/26.7.1"');
+    expect(notice).toContain(
+      'href="https://github.com/Shironex/advisorydeck/blob/main/corrections/keycloak/GHSA-f8m4-v488-rmrm.yml"',
+    );
+    expect(html).toContain('Ranges corrected by advisorydeck');
+    expect(page(`advisories/${noneId}/index.html`)).not.toContain('data-correction');
+  });
+
   it('renders a page for every advisory', () => {
     expect(advisoryIds.length).toBeGreaterThan(0);
     for (const id of advisoryIds) {
