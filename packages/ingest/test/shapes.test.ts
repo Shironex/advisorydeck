@@ -82,6 +82,7 @@ const extra: CatalogEntry[] = [
   product('go', [
     { type: 'cve-cna', assigner: 'Go', vendor: 'Go standard library', products: ['*'] },
   ]),
+  product('metabase', [{ type: 'ghsa-repo', repo: 'metabase/metabase' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -414,6 +415,12 @@ describe('smaller normalisations', () => {
     const facts = cve('CVE-2026-56866');
     expect(facts.claims.map((c) => c.slug)).toEqual(['go']);
     expect(rangesOf(facts, 'go')).toEqual(matcherRanges('go', 'CVE-2026-56866'));
+  });
+
+  it('Metabase: an x. placeholder major is unknown, never a version in the feed', () => {
+    const facts = repoGhsa('repo-metabase.json', 'GHSA-r495-55cx-fjh7', 'metabase/metabase');
+    expect(facts.claims).toEqual([expect.objectContaining({ slug: 'metabase', ranges: [] })]);
+    expect(facts.warnings.join('\n')).toContain('published as unknown');
   });
 
   it('Spring: .RELEASE is the release itself', () => {
