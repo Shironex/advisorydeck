@@ -171,3 +171,14 @@ describe('hyphen ranges without spaces (G2)', () => {
     ]);
   });
 });
+
+describe('a lower and an upper bound joined by a space', () => {
+  it('n8n: one entry lists three ranges, the middle two without commas', () => {
+    const facts = repoGhsa('repo-n8n.json', 'GHSA-jh8h-6c9q-7gmw', 'n8n-io/n8n');
+    expect(rangesOf(facts, 'n8n')).toEqual([
+      { introduced: '0', fixed: '1.123.22' },
+      { introduced: '2.0.0', fixed: '2.9.3' },
+      { introduced: '2.10.0', fixed: '2.10.1' },
+    ]);
+  });
+});

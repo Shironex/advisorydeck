@@ -57,6 +57,14 @@ describe('parseRangeExpression (real upstream strings)', () => {
     ]);
   });
 
+  it('reads a lower and an upper bound joined by a space (n8n)', () => {
+    expect(parseRangeExpression('< 1.123.22, >= 2.0.0 < 2.9.3, >= 2.10.0 < 2.10.1')).toEqual([
+      { introduced: '0', fixed: '1.123.22' },
+      { introduced: '2.0.0', fixed: '2.9.3' },
+      { introduced: '2.10.0', fixed: '2.10.1' },
+    ]);
+  });
+
   it('reads a hyphen range written without spaces (Oracle, MariaDB)', () => {
     expect(parseRangeExpression('8.4.0-8.4.12')).toEqual([
       { introduced: '8.4.0', last_affected: '8.4.12' },
