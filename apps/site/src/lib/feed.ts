@@ -37,6 +37,17 @@ export const CATEGORY_LABELS: Record<Category, { name: string; blurb: string }> 
   paas: { name: 'Platforms', blurb: 'Self-hosted platforms that deploy your apps.' },
   containers: { name: 'Containers', blurb: 'Container engines and tooling.' },
   runtimes: { name: 'Runtimes', blurb: 'Language runtimes.' },
+  auth: {
+    name: 'Identity and secrets',
+    blurb: 'Single sign-on, identity providers and password managers.',
+  },
+  monitoring: { name: 'Monitoring', blurb: 'Metrics, dashboards and uptime checks.' },
+  storage: { name: 'Files and media', blurb: 'Photo libraries, media servers and file storage.' },
+  devtools: { name: 'Developer tools', blurb: 'Git hosting and CI.' },
+  apps: {
+    name: 'Apps',
+    blurb: 'Applications deployed from templates: CMS, chat and AI front ends.',
+  },
 };
 
 export const CATEGORY_ORDER: readonly Category[] = [
@@ -44,6 +55,11 @@ export const CATEGORY_ORDER: readonly Category[] = [
   'proxies',
   'databases',
   'containers',
+  'auth',
+  'monitoring',
+  'devtools',
+  'storage',
+  'apps',
   'os',
   'runtimes',
 ];
@@ -202,6 +218,8 @@ export interface ProductView {
   branchSource: Product['branches']['source'];
   images: { ref: string; tagPattern: string; note: string | null }[];
   catalogSources: Product['sources'];
+  /** Set when the catalog marks the upstream project as archived (no further fixes expected). */
+  upstream: { status: string; since: string | null; note: string | null } | null;
   generatedAt: string | null;
   etag: string | null;
   /** Advisories that list this product, newest published first. */
@@ -345,6 +363,14 @@ export function loadSiteData(root = dataRoot()): SiteData {
         note: i.note ?? null,
       })),
       catalogSources: product.sources,
+      upstream:
+        product.upstream === undefined
+          ? null
+          : {
+              status: product.upstream.status,
+              since: product.upstream.since ?? null,
+              note: product.upstream.note ?? null,
+            },
       generatedAt: feed?.generated_at ?? null,
       etag: entry?.etag ?? null,
       advisoryIds: advisoryOrder.filter((id) => ids.has(id)),
