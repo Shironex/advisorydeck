@@ -572,6 +572,14 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
       note: `range "${expression}" ends after the patched version ${patched}: kept the range, the stricter reading`,
     };
   }
+  if (only.last_affected !== undefined) {
+    // "<= 6.50.0" patched in 6.50.0 (Ghost): one of the two is wrong. The patched version is
+    // the more specific statement (a release that ships the fix), so it ends the range.
+    return {
+      ranges: [{ introduced: only.introduced, fixed: patched }],
+      note: `range "${expression}" includes the patched version ${patched}: read the patch as the fix, ${patched} not affected`,
+    };
+  }
   return { ranges: parsed };
 }
 
