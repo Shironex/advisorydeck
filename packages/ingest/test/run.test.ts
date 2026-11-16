@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
   etagOf,
+  loadCatalog,
   repoRoot,
   validateAgainst,
   type Advisory,
@@ -11,6 +12,7 @@ import {
 } from '@advisorydeck/contract';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EPSS_API, KEV_URLS } from '../src/enrich.ts';
+import { ghsaQueries } from '../src/ghsa.ts';
 import { Http, type FetchLike } from '../src/http.ts';
 import { runIngest, type RunOptions } from '../src/run.ts';
 
@@ -19,8 +21,8 @@ const API = 'https://api.github.com';
 const RELEASES = 'https://github.com/CVEProject/cvelistV5/releases/download';
 const repoQuery = (repo: string) =>
   `${API}/repos/${repo}/security-advisories?state=published&sort=updated&direction=desc&per_page=100`;
-const globalQuery = (ecosystem: string, pkg: string) =>
-  `${API}/advisories?type=reviewed&ecosystem=${ecosystem}&affects=${encodeURIComponent(pkg)}&sort=updated&direction=desc&per_page=100`;
+// Global advisories are read with one query per ecosystem for every package the catalog names.
+const globalQueries = ghsaQueries(loadCatalog().entries).filter((q) => q.kind === 'global');
 
 interface Route {
   file?: string;
@@ -50,9 +52,12 @@ function routes(): Map<string, Route> {
     [repoQuery('traefik/traefik'), { file: 'ghsa/repo-traefik.json' }],
     [repoQuery('moby/moby'), { file: 'ghsa/repo-moby.json' }],
     [repoQuery('redis/redis'), { file: 'ghsa/repo-redis.json' }],
-    [globalQuery('go', 'github.com/traefik/traefik/v3'), { file: 'ghsa/global-traefik-v3.json' }],
-    [globalQuery('go', 'github.com/traefik/traefik/v2'), { body: '[]' }],
-    [globalQuery('composer', 'coollabsio/coolify'), { body: '[]' }],
+    ...globalQueries.map((q): [string, Route] => [
+      q.url,
+      q.url.includes('github.com%2Ftraefik%2Ftraefik%2Fv3')
+        ? { file: 'ghsa/global-traefik-v3.json' }
+        : { body: '[]' },
+    ]),
     [
       'https://raw.githubusercontent.com/CVEProject/cvelistV5/main/cves/2026/59xxx/CVE-2026-59734.json',
       { file: 'cve/CVE-2026-59734.json' },
