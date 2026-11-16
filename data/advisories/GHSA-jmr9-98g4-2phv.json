@@ -1,0 +1,54 @@
+{
+  "id": "GHSA-jmr9-98g4-2phv",
+  "aliases": [],
+  "title": "Non-admin bind-mount restriction bypass via Docker local-driver volumes and automatic Git redeploy (incomplete fix of CVE-2026-44849 and CVE-2026-44850)",
+  "summary": "## Summary\r\n\r\nPortainer provides a security setting, shown in the interface as **Hide bind mounts for non-administrators** and enabled by default, that is intended to stop non-administrator users from mounting host filesystem paths into containers on a managed Docker environment. The control is incompletely enforced: a non-administrator who can create containers, volumes, or - on Swarm - services can still bind-mount arbitrary host paths by routing the mount through Docker's `local` volume driver rather than a literal bind mount, or by varying the case of the mount type. Any authenticated standard user with rights to one of those operations on an environment where bind mounts are disabled can exploit it.\r\n\r\nThe interface hides the bind-mount option from standard users, but the restriction is not interface-only: Portainer also enforces it on the server, rejecting a non-administrator's request to create a bind mount through its Docker API proxy and its Compose/stack validation with an HTTP 403. This advisory concerns that server-side denial, which could be bypassed by a request the interface never offers. It is not a claim that Portainer limits what Docker itself permits an authorised user to do; it is that, where Portainer has been configured to deny a request, the denial must hold. Portainer has treated a bypass of this denial as a vulnerability in CVE-2026-44849 and CVE-2026-44850, and does so here for the same reason.\r\n\r\nDocker's `local` volume driver materialises the option set `{type: \"none\", o: \"bind\", device: \"<host path>\"}` as a real bind mount of `<host path>` - the canonical `mount -t none -o bind` syntax. Portainer's request filters block only the literal forms: container creation rejects mounts whose `Type` is `\"bind\"` but never inspects a `volume`-typed mount's driver options; the Swarm-service and volume-creation filters reject driver options where `type == \"bind\"` but never the documented `type=none, o=bind` shape. A related weakness compounds the gap: every one of these checks compares the mount type case-sensitively against the lowercase literal `\"bind\"`, while the Docker daemon treats the type case-insensitively - so a mount typed `\"Bind\"` or `\"BIND\"` passes the filter and is still honoured by the daemon. Each path forwards the option set to the daemon unchanged.\r\n\r\nA further path reaches the same primitive without touching the Docker API at all. Portainer supports deploying stacks from Git repositories and redeploying them automatically, either when a stack webhook is invoked or on a polling interval. The interactive stack create, update and Git-redeploy operations validate the Compose file against the environment's security settings for a non-administrator, but the automatic redeploy path deployed the freshly pulled file with no security-setting validation of any kind. A standard user who controls the repository backing their own stack can therefore deploy a benign stack, commit a host bind mount - or `privileged: true`, `pid: host`, added capabilities, `devices`, `sysctls` - and have Portainer deploy it on the next webhook call or poll. This path is closed in 2.45.2; the Docker API and interactive stack paths were closed in 2.39.7 and 2.45.0.\r\n\r\nThis extends two earlier fixes that proved incomplete: CVE-2026-44849 (GHSA-5fxq-qcf3-244w, Swarm service create/update) and CVE-2026-44850 (GHSA-7fw3-x4r2-g7wc, container `HostConfig.Mounts`). The CVE-2026-44849 fix added driver-option checks to the Swarm-service and volume-creation paths but gated them on the wrong key and never covered the container-creation path at all; neither fix normalised the mount type for case or inspected inline `VolumeOptions.DriverConfig`. The same filter gaps also apply to Compose/stack validation, so the bypass is reachable through stack deployment as well as the raw Docker API.\r\n\r\n## Severity\r\n\r\n**Critical**\r\n\r\nExploitation requires no special timing or preconditions (attack complexity low) and only a low privilege level: any auth...",
+  "published_at": "2026-10-08T03:15:29.000Z",
+  "modified_at": "2026-10-08T03:15:29.000Z",
+  "severity": {
+    "level": "critical",
+    "score": 9.4,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-284"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.40.0",
+          "fixed": "2.45.2"
+        },
+        {
+          "introduced": "2.39.0",
+          "last_affected": "2.39"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jmr9-98g4-2phv",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-jmr9-98g4-2phv",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jmr9-98g4-2phv",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:beb3bc575a139fcb5fbe4dad83d588c202baa8322e8912fab0bc10addd27f717",
+  "note": null
+}

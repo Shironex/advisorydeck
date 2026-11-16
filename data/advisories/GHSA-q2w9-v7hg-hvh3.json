@@ -1,0 +1,55 @@
+{
+  "id": "GHSA-q2w9-v7hg-hvh3",
+  "aliases": [],
+  "title": "Team-leader GET /team_memberships returns all org memberships (IDOR)",
+  "summary": "## Summary\n\nPortainer organises users into teams, and team leaders may manage the membership of teams they lead. The `GET /api/team_memberships` endpoint is intended to support that workflow, but it is gated only by a coarse \"team leader access\" check and then returns **every** team membership in the instance with no per-team filter. Any authenticated user who leads at least one team can therefore read the complete user-to-team membership graph - including teams they neither lead nor belong to.\n\nThe endpoint's sibling handlers scope correctly: `GET /api/teams/{id}/memberships` denies a leader who does not lead `{id}`, and the create, update, and delete membership operations each require leadership of the target team. The unscoped list endpoint is the sole outlier, returning foreign `TeamID`, `UserID`, and `Role` rows that the scoped endpoints deny.\n\nThe rows returned carry each membership's `TeamID`, `UserID`, and `Role`; the endpoint returns membership records only and does not name teams. Because the caller is a team leader, they can additionally list non-administrator user accounts - internal ID, username, and role - through `GET /api/users`, which is reachable by team leaders by design. Correlating the two lets a leader map which users belong to which team IDs and identify the leaders of teams outside their authority. The exposure is confidentiality-only: it grants no ability to modify memberships, and the mutation endpoints remain correctly scoped.\n\n## Severity\n\n**Medium**\n\nExploitation requires only network access to the API and an authenticated session that leads at least one team - a low-privilege, non-administrative role - with no user interaction and no special preconditions. The impact is limited to confidentiality: an attacker learns the full membership roster (user IDs, team IDs, and leader-versus-member roles) across the instance. There is no integrity or availability impact, and the disclosure does not by itself reach any managed Docker or Kubernetes environment; its practical value is reconnaissance for further social or privilege-targeting against users and teams the leader should not be able to enumerate.\n\n## Affected Versions\n\nThe vulnerable listing has existed since the endpoint was introduced and predates all currently supported branches.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\nFixes are included in the following releases:\n\n| Branch       | First vulnerable | Fixed in   |\n|--------------|------------------|------------|\n| 2.39.x (LTS) | 2.39.0           | **2.39.6** |\n| 2.44.x (STS) | all prior        | **2.44.0** |\n\nPortainer 2.40.x through 2.43.x are also affected and do not receive a dedicated patch release. The 2.40.x-2.44.x STS lines have reached end of life and no longer receive fixes; users on any of them should upgrade to 2.45.2, the latest supported release. Users on 2.39.x can fix this issue by upgrading to 2.39.6 or later, or move to 2.45.2. Portainer releases prior to 2.39.0 - including the end-of-life 2.33.x line - will not receive a fix; users on those versions should upgrade to a supported branch.\n\n## Workarounds\n\nAdministrators who cannot immediately upgrade can reduce exposure by:\n\n- **Limiting the number of team leaders.** Only team leaders can reach the endpoint, so keeping the leader role narrowly assigned limits who can enumerate the membership graph.\n- **Auditing team-leader assignments.** Review which non-admin users currently hold team-leader status, since any one of them can read cross-team membership data on an unpatched instance.\n\nNone of these replace the fix.\n\n## Affected Code\n\nThe flaw is in `teamMembershipList` (`api/http/handler/teammemberships/teammembership_list.go`). The router applies only a team-leader gate, and the handler then reads all memberships unconditionally:\n\n```go\n// api/http/handler/teammemberships/teammembership_list.go - teamMembershipList\nmemberships, err :=...",
+  "published_at": "2026-10-08T03:22:27.000Z",
+  "modified_at": "2026-10-08T03:22:27.000Z",
+  "severity": {
+    "level": "medium",
+    "score": 5.3,
+    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "cwes": [
+    "CWE-200",
+    "CWE-284"
+  ],
+  "affected": [
+    {
+      "product": "portainer",
+      "ranges": [
+        {
+          "introduced": "2.39.0",
+          "fixed": "2.39.6"
+        },
+        {
+          "introduced": "2.40.0",
+          "fixed": "2.44.0"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-q2w9-v7hg-hvh3",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-q2w9-v7hg-hvh3",
+      "url": "https://github.com/portainer/portainer/security/advisories/GHSA-q2w9-v7hg-hvh3",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:c5673368df2402d261ab67d8d6d8a1d3ed6e3dac854465f012f79036f52e5d58",
+  "note": null
+}

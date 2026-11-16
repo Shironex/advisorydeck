@@ -1,0 +1,67 @@
+{
+  "id": "GHSA-f4q9-j22m-xqq9",
+  "aliases": [],
+  "title": "Integer truncation in Valkey cluster publish message construction causes a heap buffer overflow",
+  "summary": "## Impact\r\n\r\nAn authenticated user who can publish to a channel on a server running in\r\ncluster mode can make the server allocate a heap buffer far smaller than\r\nthe message it is about to copy into it, and then write past the end of\r\nthat buffer with attacker-controlled bytes. This reliably crashes the\r\nserver process, and because the overflowing bytes are chosen by the\r\nattacker, it may be possible to escalate it to remote code execution\r\nrunning as the user the server runs as.\r\n\r\nThis issue affects Valkey 7.2, 8.0, 8.1, 9.0, 9.1 and 9.2 running in\r\ncluster mode. Servers that do not have cluster mode enabled are not\r\naffected.\r\n\r\n## Details\r\n\r\nWhen a node propagates a `PUBLISH` or `SPUBLISH` to the rest of the\r\ncluster, `clusterCreatePublishMsgBlock` in `src/cluster_legacy.c`\r\n(`src/cluster.c` on 7.2) computes the length of the cluster bus message as\r\na `size_t`, but passes it to `createClusterMsgSendBlock`, which takes a\r\n`uint32_t`. When the channel and message together exceed `UINT32_MAX`, the\r\nlength is silently truncated and a buffer far smaller than the message is\r\nallocated. The two `memcpy` calls that follow copy the full channel and\r\nmessage into it. Both the regular and the light cluster bus header paths\r\nare affected, as are the module publish APIs.\r\n\r\nBuilding a channel and message this large requires more than 4 GiB of\r\nmemory. With the default `proto-max-bulk-len` of 512 MB, a client cannot\r\nsend arguments that large directly, but a script can construct them on the\r\nserver.\r\n\r\nThe cluster bus cannot represent a message of this size, so the fix\r\nvalidates the complete serialized length before any 32-bit conversion or\r\nallocation. `PUBLISH` and `SPUBLISH` now reply with an error, and the\r\nmessage is neither published locally nor propagated.\r\n\r\n## Mitigation\r\n\r\nYou can mitigate this issue by using Valkey ACLs to restrict the scripting\r\ncommands (`EVAL`, `EVALSHA`, `EVAL_RO`, `EVALSHA_RO`, `FCALL`, `FCALL_RO`\r\nand `FUNCTION`) if your application does not intend to use them, and by\r\nnot raising `proto-max-bulk-len` above its default.\r\n\r\n## Credits\r\n\r\nThe defect was reported by Nenad Stojanovski working with Trend Micro Zero\r\nDay Initiative (ZDI-CAN-28318). The fix was authored by\r\nhttps://github.com/roshkhatri (#5030).",
+  "published_at": "2026-10-26T22:49:43.000Z",
+  "modified_at": "2026-10-26T22:51:16.000Z",
+  "severity": {
+    "level": "high",
+    "score": 8.8,
+    "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+    "source": "ghsa"
+  },
+  "kev": {
+    "listed": false,
+    "added_at": null,
+    "checked": true
+  },
+  "epss": null,
+  "affected": [
+    {
+      "product": "valkey",
+      "ranges": [
+        {
+          "introduced": "0",
+          "last_affected": "7.2.14"
+        },
+        {
+          "introduced": "8.0.0",
+          "last_affected": "8.0.11"
+        },
+        {
+          "introduced": "8.1.0",
+          "last_affected": "8.1.10"
+        },
+        {
+          "introduced": "9.0.0",
+          "last_affected": "9.0.6"
+        },
+        {
+          "introduced": "9.1.0",
+          "last_affected": "9.1.2"
+        },
+        {
+          "introduced": "9.2.0-0",
+          "last_affected": "9.2.0-rc1"
+        }
+      ]
+    }
+  ],
+  "references": [
+    {
+      "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-f4q9-j22m-xqq9",
+      "type": "advisory"
+    }
+  ],
+  "sources": [
+    {
+      "type": "ghsa",
+      "id": "GHSA-f4q9-j22m-xqq9",
+      "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-f4q9-j22m-xqq9",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "revision": "sha256:e853bcf16a6423d35b0f3f43e6a3c9e84d96a7cad61003fee502573812a4f048",
+  "note": null
+}

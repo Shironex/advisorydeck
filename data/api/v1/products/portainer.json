@@ -1,0 +1,1265 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:17:56Z",
+  "product": {
+    "slug": "portainer",
+    "name": "Portainer",
+    "category": "containers",
+    "homepage": "https://www.portainer.io",
+    "version_scheme": "semver",
+    "branches": []
+  },
+  "advisories": [
+    {
+      "id": "GHSA-j3mf-q9qf-5qf8",
+      "aliases": [],
+      "title": "Non-administrator inherits host bind mounts via Compose volumes_from in stack deployment",
+      "summary": "## Summary\n\nPortainer lets non-administrator users deploy Docker Compose stacks to an environment, and when the per-environment setting `Hide bind mounts for non-administrators` is enabled, the stack validator `IsValidStackFile` rejects bind mounts declared in top-level `volumes` and each service's `volumes`. It never inspected a service's `volumes_from` field, which tells the Compose engine to attach every mount of an existing container - including that container's host bind mounts - to the new service. Any authenticated user with the Standard user role and stack-management access to a Docker standalone environment can exploit this.\n\nPortainer operates a [shared-responsibility security model](https://docs.portainer.io/advanced/security): administrators decide how permissive each environment's security settings are, and Portainer is responsible for enforcing those settings as configured. Although the setting is labelled Hide, enabling `Hide bind mounts for non-administrators` also makes Portainer reject bind mounts from non-administrators on the server, and Portainer's Docker API proxy already refuses a non-empty `VolumesFrom` on container creation from those users. This issue is on Portainer's side of that line: the Compose stack validator, the only check on the stack deployment path, did not apply the same rule. Environments where an administrator has disabled the setting already permit non-administrators to use bind mounts and gain no additional exposure from this issue.\n\nThe attack needs a container on the same environment that already carries a host bind mount. In practice one is always present: the documented way to run the Portainer Server and the Portainer Agent mounts the Docker socket into their own containers, and administrators routinely run containers that mount configuration directories, log paths, or the socket. A service that inherits the Docker socket has full control of the host Docker daemon; a service that inherits the Portainer Server's data directory can read Portainer's database.\n\nSwarm stacks are not affected: the Swarm deployment path converts the Compose file to a Swarm service specification, which has no equivalent of `volumes_from`. The fix nonetheless rejects the field for both stack types.\n\n## Severity\n\n**Critical**\n\nThe vulnerability is reachable over the network through Portainer's stack API with low attack complexity. It requires only the privileges of a Standard user who has been granted access to a Docker environment - the lowest role that can deploy a stack, and the role the `Hide bind mounts for non-administrators` setting applies to - with no user interaction. It depends on a container with a host bind mount existing on the environment, which the documented Server and Agent deployments provide by default, so no special attack requirements are scored. Confidentiality, integrity and availability impact on the vulnerable system are high: the attacker reaches the Portainer data directory and the Docker socket. The impact propagates to subsequent systems: with the Docker socket the attacker controls the Docker host and every container, image and volume on it, and any credentials recovered from the host reach the systems they authenticate to.\n\n## Affected Versions\n\nThe gap has existed since the stack bind-mount restriction was introduced; the validator inspects top-level and per-service `volumes` but never inspected `volumes_from`.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The shared validator is invoked by both editions' deployment paths.\n\nFixes are included in the following releases:\n\n| Branch       | First vulnerable | Fixed in                                |\n|--------------|------------------|-----------------------------------------|\n| 2.39.x (LTS) | 2.39.0           | **No patch release; upgrade to 2.45.3** |\n| 2.45.x (LTS) | 2.45.0           | **2.45.3**                              |\n\nPortain...",
+      "published_at": "2026-10-22T17:38:08.000Z",
+      "modified_at": "2026-10-22T17:38:08.000Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "last_affected": "2.39.8"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-j3mf-q9qf-5qf8",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-j3mf-q9qf-5qf8",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-j3mf-q9qf-5qf8",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c19aea2792195ec7079a3bf21fa2734a65811600b5847f5494d01a57863f33c7",
+      "note": null
+    },
+    {
+      "id": "GHSA-wc8m-r885-8pj3",
+      "aliases": [],
+      "title": "Team Access Escalation via AuthorizedResourceControlUpdate Logic Flaw",
+      "summary": "## Summary\r\n\r\nPortainer uses **resource controls** to restrict which users and teams can see and manage a given resource - a stack, container, volume, service, config, or secret. A logic flaw in the resource-control update authorization (`AuthorizedResourceControlUpdate`) lets a non-administrative user grant access to a resource they control to teams they do not belong to. Any authenticated user who already controls a resource, either through team-based access or as its owner, can exploit this through the standard access-management UI or the `PUT /api/resource_controls/{id}` endpoint.\r\n\r\nThe authorization check is meant to confirm that the caller is a member of every team being added to a resource control, and that a non-administrator does not mix user and team accesses. Two code paths in the check returned success before the full team list was validated. In the first, the check returned as soon as it found a single team the caller belongs to. In the second, a payload containing the caller's own user access together with two or more teams returned success on the user access alone, and the team list was never examined.\r\n\r\nThe update handler applies the submitted access lists to the resource control *before* running the authorization check, so the check operates on the already-mutated lists. The result is a horizontal access-control bypass across team boundaries: resources that resource controls are meant to isolate can be exposed to arbitrary teams within the same Portainer instance.\r\n\r\nAn earlier release addressed the first path only. This advisory covers both, and the fix in the releases listed below is complete for both.\r\n\r\n## Severity\r\n\r\n**Medium**\r\n\r\nExploitation is achievable over the network through a single authenticated API call, with low attack complexity and no user interaction. It does require a pre-existing account that already controls the target resource, so privileges required are low rather than none. The impact is contained to Portainer's own access-control model: an attacker can break the confidentiality and integrity of resource isolation by exposing resources they control to unauthorized teams, who then gain the ability to view and manage those resources. The flaw does not by itself grant the attacker new access to resources owned by others, nor does it directly compromise the underlying host or managed environments, which keeps the subsequent-system impact limited and the overall rating at Medium.\r\n\r\n## Affected Versions\r\n\r\nThe flaw exists in the original ResourceControl authorization logic and is present in every supported release prior to the complete fix.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\r\n\r\nPortainer 2.45.2 contains the complete fix. A fix for the 2.39.x LTS line has been merged and will ship in a future 2.39.x release; this advisory will be updated when it does.\r\n\r\n| Branch              | First vulnerable | Fixed in                                        |\r\n|---------------------|------------------|-------------------------------------------------|\r\n| 2.39.x (LTS)        | 2.39.0           | Not yet patched - upgrade to **2.45.2** or later |\r\n| 2.40.x-2.44.x (STS) | 2.40.0           | Out of support - upgrade to **2.45.2** or later  |\r\n| 2.45.x (LTS)        | 2.45.0           | **2.45.2**                                      |\r\n\r\nReleases 2.39.3 and 2.43.0 and later contain the fix for the first path only; they remain affected by the second path. Users on the 2.39.x LTS line, on any 2.40.x-2.44.x STS release, or on end-of-life versions prior to 2.39.0 should upgrade to 2.45.2 or later.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediately upgrade can reduce exposure by:\r\n\r\n- **Auditing resource-control team assignments.** Review the team accesses on existing resource controls for teams that should not have access, paying particular attention to sensitive stacks, secrets, and configs.\r\n- **Lim...",
+      "published_at": "2026-10-22T05:29:22.000Z",
+      "modified_at": "2026-10-22T05:29:22.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.40.0"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wc8m-r885-8pj3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wc8m-r885-8pj3",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wc8m-r885-8pj3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c066f5669453acef50d6dda3d86d4ff03a6f76d745cec73c0fc0b267ee9598c3",
+      "note": null
+    },
+    {
+      "id": "GHSA-7423-r5wh-26x7",
+      "aliases": [],
+      "title": "Kubernetes shell query parameter confusion allows command execution in any Pod on Agent-managed environments",
+      "summary": "## Summary\r\n\r\nPortainer provides a browser-based `kubectl` shell for Kubernetes environments. When a user opens one, the server creates a short-lived shell Pod for that user, then rewrites the incoming WebSocket request so it targets that Pod and forwards it to the Portainer Agent for execution.\r\n\r\nThe rewrite appended the server-chosen `namespace`, `podName`, `containerName` and `command` values to the caller's own query string instead of replacing them. Because the Agent resolves each of these parameters by taking the *first* occurrence, a caller who supplied their own copies of those parameters won the collision, and the exec was directed at a Pod and command of their choosing rather than at their own shell Pod.\r\n\r\nOn Agent-managed and Edge-Agent-managed Kubernetes environments the exec is carried out by the Portainer Agent using its own in-cluster service account, which Portainer's published Agent manifest binds to the `cluster-admin` role. Redirecting the exec therefore ran the attacker's command under that identity rather than under the user's own Kubernetes credentials, so the cluster's native RBAC never constrained it.\r\n\r\nThe minimum actor is an authenticated Portainer user holding the standard role with ordinary access to a single Agent-managed Kubernetes environment. No Portainer administrator role, no Kubernetes credential of any kind, no access to the target namespace, no non-default setting and no victim interaction are required. Environments managed through Portainer's local Kubernetes connection are not affected by this path, because it passes the Pod coordinates as explicit arguments rather than through the query string.\r\n\r\n## Severity\r\n\r\n**Medium**\r\n\r\nExploitation is a single authenticated request with no user interaction, no elevated Portainer role and no unusual configuration - the attacker only needs the standard role on one affected environment, and supplies duplicate query parameters. Portainer's own security properties are not directly affected: the attacker gains no Portainer administrator rights, reads nothing from Portainer's own database, and does not degrade the service. The impact falls on the subsequent system - the managed Kubernetes cluster - and there it is total. Because the redirected exec executes under the Agent's `cluster-admin`-bound service account, the attacker obtains arbitrary command execution in any Pod in any namespace, which includes reading every Secret in the cluster, altering or destroying any workload, taking control of the Portainer Agent Pod itself, and pivoting to whatever those credentials in turn unlock. Native Kubernetes RBAC offers no mitigation here, precisely because the request never carries the user's identity.\r\n\r\n## Affected Versions\r\n\r\nThe two constructs behind this issue - appending rather than replacing the forwarded Pod coordinates, and performing the exec under the Agent's own service account - were both introduced with the `kubectl` shell feature in 2.9.0 and were unchanged until this fix. This is not a regression.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions. The affected code is materially identical in each, and the fix is the same in both.\r\n\r\nFixes are included in the following releases:\r\n\r\n| Branch       | First vulnerable | Fixed in   |\r\n|--------------|------------------|------------|\r\n| 2.39.x (LTS) | 2.39.0           | **2.39.6** |\r\n| 2.45.x (LTS) | all prior        | **2.45.0** |\r\n\r\nPortainer releases prior to 2.39.0 are end-of-life and will not receive a fix. Users on end-of-life versions should upgrade to a supported LTS branch.\r\n\r\nThe 2.40.x - 2.44.x short-term-support lines are affected and do not receive a dedicated patch release; those lines reach end of life on the release of 2.45.0, and users on them should upgrade to 2.45.0. In particular, 2.44.0 predates this fix and does **not** contain it.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediatel...",
+      "published_at": "2026-10-22T05:02:59.000Z",
+      "modified_at": "2026-10-22T05:02:59.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-235",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.6"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7423-r5wh-26x7",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-7423-r5wh-26x7",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7423-r5wh-26x7",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c114f30538c7d36e34b95148fb322500eef7f24a5588f47beaa6d6f3b6675a03",
+      "note": null
+    },
+    {
+      "id": "GHSA-gh7q-w9wj-5fww",
+      "aliases": [],
+      "title": "Cross-environment Kubernetes access via missing shell authorization and leftover service accounts",
+      "summary": "## Summary\n\nPortainer manages access to Kubernetes environments through per-environment authorization checks on its API and WebSocket endpoints, backed by per-user and per-team Kubernetes service accounts whose role bindings mirror each user's granted access. Two related weaknesses in this model let a user obtain or retain interactive `kubectl` access to an environment they were not entitled to. Exploitation requires an authenticated Portainer account - a standard, non-administrator account is sufficient - that holds, or previously held, access to the target environment.\n\nFirst, the `/websocket/kubernetes-shell` endpoint, which opens an in-cluster `kubectl` console, did not perform the environment-authorization check that its sibling WebSocket endpoints enforce. It accepted an environment identifier from the caller and created a privileged Kubernetes client for that environment without verifying the caller's access. The request then resolved the caller's own Kubernetes service account on the target cluster, so a caller with no service account there was rejected incidentally, with a server error rather than an authorization failure; a caller whose service account was present on the cluster obtained a shell.\n\nSecond, the per-user and per-team Kubernetes service accounts that back this access were not reliably removed when a user's access to an environment was withdrawn. These leftover service accounts retained their role bindings on the cluster, leaving usable credentials in place after access was revoked - and, because the shell endpoint's only effective gate was the presence of such a service account, supplying exactly the condition the first weakness needed.\n\nTogether the two weaknesses break Portainer's Kubernetes environment-isolation model, and the more serious consequence is persistence: a user whose access was withdrawn could continue to reach the affected cluster interactively. Both editions are affected, and remediation was delivered in two stages.\n\n## Severity\n\n**Medium**\n\nExploitation is over the network with low attack complexity and no user interaction, by an attacker holding - or formerly holding - a Portainer account, so privileges required are low rather than none. It is not universally available: the target cluster must carry a Kubernetes service account for the attacker's user or team, which in practice means current or former access to that environment, so the attack carries a genuine precondition. Portainer's own data and availability are not affected - the vulnerable system is the control plane, but the shell lands in the managed cluster rather than in Portainer's own store. The load-bearing impact falls on that subsequent system, where an interactive privileged `kubectl` session confers broad read access to workloads, configuration and secrets, the ability to create and modify workloads, and the ability to disrupt or delete them; the reach is bounded by the rights of the service account backing the session, which for a formerly privileged user or team is correspondingly broad, and for an administrator account is the cluster-admin service account. Because Portainer is a control plane for the clusters it manages, the practical effect is an environment-isolation bypass that can outlive the revocation meant to contain it.\n\n## Affected Versions\n\nBoth weaknesses are long-standing properties of Portainer's Kubernetes access model rather than regressions introduced by a specific release.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\n**Recommended action:** upgrade to Portainer **2.45.2 (LTS)**, released 2026-10-08 and the latest supported release. It contains both stages of the fix. 2.44.0 also contains the fix, but 2.44.x is a short-term-support (STS) release that is now out of support and will receive no further updates.\n\nRemediation was delivered in two stages. The environment-authorization check on the shell endpoint s...",
+      "published_at": "2026-10-08T03:38:22.000Z",
+      "modified_at": "2026-10-08T03:38:22.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.8,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:N/VI:N/VA:N/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-459",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.6"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.44.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-gh7q-w9wj-5fww",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-gh7q-w9wj-5fww",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-gh7q-w9wj-5fww",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c5673368df2402d261ab67d8d6d8a1d3ed6e3dac854465f012f79036f52e5d58",
+      "note": null
+    },
+    {
+      "id": "GHSA-q2w9-v7hg-hvh3",
+      "aliases": [],
+      "title": "Team-leader GET /team_memberships returns all org memberships (IDOR)",
+      "summary": "## Summary\n\nPortainer organises users into teams, and team leaders may manage the membership of teams they lead. The `GET /api/team_memberships` endpoint is intended to support that workflow, but it is gated only by a coarse \"team leader access\" check and then returns **every** team membership in the instance with no per-team filter. Any authenticated user who leads at least one team can therefore read the complete user-to-team membership graph - including teams they neither lead nor belong to.\n\nThe endpoint's sibling handlers scope correctly: `GET /api/teams/{id}/memberships` denies a leader who does not lead `{id}`, and the create, update, and delete membership operations each require leadership of the target team. The unscoped list endpoint is the sole outlier, returning foreign `TeamID`, `UserID`, and `Role` rows that the scoped endpoints deny.\n\nThe rows returned carry each membership's `TeamID`, `UserID`, and `Role`; the endpoint returns membership records only and does not name teams. Because the caller is a team leader, they can additionally list non-administrator user accounts - internal ID, username, and role - through `GET /api/users`, which is reachable by team leaders by design. Correlating the two lets a leader map which users belong to which team IDs and identify the leaders of teams outside their authority. The exposure is confidentiality-only: it grants no ability to modify memberships, and the mutation endpoints remain correctly scoped.\n\n## Severity\n\n**Medium**\n\nExploitation requires only network access to the API and an authenticated session that leads at least one team - a low-privilege, non-administrative role - with no user interaction and no special preconditions. The impact is limited to confidentiality: an attacker learns the full membership roster (user IDs, team IDs, and leader-versus-member roles) across the instance. There is no integrity or availability impact, and the disclosure does not by itself reach any managed Docker or Kubernetes environment; its practical value is reconnaissance for further social or privilege-targeting against users and teams the leader should not be able to enumerate.\n\n## Affected Versions\n\nThe vulnerable listing has existed since the endpoint was introduced and predates all currently supported branches.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\nFixes are included in the following releases:\n\n| Branch       | First vulnerable | Fixed in   |\n|--------------|------------------|------------|\n| 2.39.x (LTS) | 2.39.0           | **2.39.6** |\n| 2.44.x (STS) | all prior        | **2.44.0** |\n\nPortainer 2.40.x through 2.43.x are also affected and do not receive a dedicated patch release. The 2.40.x-2.44.x STS lines have reached end of life and no longer receive fixes; users on any of them should upgrade to 2.45.2, the latest supported release. Users on 2.39.x can fix this issue by upgrading to 2.39.6 or later, or move to 2.45.2. Portainer releases prior to 2.39.0 - including the end-of-life 2.33.x line - will not receive a fix; users on those versions should upgrade to a supported branch.\n\n## Workarounds\n\nAdministrators who cannot immediately upgrade can reduce exposure by:\n\n- **Limiting the number of team leaders.** Only team leaders can reach the endpoint, so keeping the leader role narrowly assigned limits who can enumerate the membership graph.\n- **Auditing team-leader assignments.** Review which non-admin users currently hold team-leader status, since any one of them can read cross-team membership data on an unpatched instance.\n\nNone of these replace the fix.\n\n## Affected Code\n\nThe flaw is in `teamMembershipList` (`api/http/handler/teammemberships/teammembership_list.go`). The router applies only a team-leader gate, and the handler then reads all memberships unconditionally:\n\n```go\n// api/http/handler/teammemberships/teammembership_list.go - teamMembershipList\nmemberships, err :=...",
+      "published_at": "2026-10-08T03:22:27.000Z",
+      "modified_at": "2026-10-08T03:22:27.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-200",
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.6"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.44.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-q2w9-v7hg-hvh3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-q2w9-v7hg-hvh3",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-q2w9-v7hg-hvh3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:c5673368df2402d261ab67d8d6d8a1d3ed6e3dac854465f012f79036f52e5d58",
+      "note": null
+    },
+    {
+      "id": "GHSA-jmr9-98g4-2phv",
+      "aliases": [],
+      "title": "Non-admin bind-mount restriction bypass via Docker local-driver volumes and automatic Git redeploy (incomplete fix of CVE-2026-44849 and CVE-2026-44850)",
+      "summary": "## Summary\r\n\r\nPortainer provides a security setting, shown in the interface as **Hide bind mounts for non-administrators** and enabled by default, that is intended to stop non-administrator users from mounting host filesystem paths into containers on a managed Docker environment. The control is incompletely enforced: a non-administrator who can create containers, volumes, or - on Swarm - services can still bind-mount arbitrary host paths by routing the mount through Docker's `local` volume driver rather than a literal bind mount, or by varying the case of the mount type. Any authenticated standard user with rights to one of those operations on an environment where bind mounts are disabled can exploit it.\r\n\r\nThe interface hides the bind-mount option from standard users, but the restriction is not interface-only: Portainer also enforces it on the server, rejecting a non-administrator's request to create a bind mount through its Docker API proxy and its Compose/stack validation with an HTTP 403. This advisory concerns that server-side denial, which could be bypassed by a request the interface never offers. It is not a claim that Portainer limits what Docker itself permits an authorised user to do; it is that, where Portainer has been configured to deny a request, the denial must hold. Portainer has treated a bypass of this denial as a vulnerability in CVE-2026-44849 and CVE-2026-44850, and does so here for the same reason.\r\n\r\nDocker's `local` volume driver materialises the option set `{type: \"none\", o: \"bind\", device: \"<host path>\"}` as a real bind mount of `<host path>` - the canonical `mount -t none -o bind` syntax. Portainer's request filters block only the literal forms: container creation rejects mounts whose `Type` is `\"bind\"` but never inspects a `volume`-typed mount's driver options; the Swarm-service and volume-creation filters reject driver options where `type == \"bind\"` but never the documented `type=none, o=bind` shape. A related weakness compounds the gap: every one of these checks compares the mount type case-sensitively against the lowercase literal `\"bind\"`, while the Docker daemon treats the type case-insensitively - so a mount typed `\"Bind\"` or `\"BIND\"` passes the filter and is still honoured by the daemon. Each path forwards the option set to the daemon unchanged.\r\n\r\nA further path reaches the same primitive without touching the Docker API at all. Portainer supports deploying stacks from Git repositories and redeploying them automatically, either when a stack webhook is invoked or on a polling interval. The interactive stack create, update and Git-redeploy operations validate the Compose file against the environment's security settings for a non-administrator, but the automatic redeploy path deployed the freshly pulled file with no security-setting validation of any kind. A standard user who controls the repository backing their own stack can therefore deploy a benign stack, commit a host bind mount - or `privileged: true`, `pid: host`, added capabilities, `devices`, `sysctls` - and have Portainer deploy it on the next webhook call or poll. This path is closed in 2.45.2; the Docker API and interactive stack paths were closed in 2.39.7 and 2.45.0.\r\n\r\nThis extends two earlier fixes that proved incomplete: CVE-2026-44849 (GHSA-5fxq-qcf3-244w, Swarm service create/update) and CVE-2026-44850 (GHSA-7fw3-x4r2-g7wc, container `HostConfig.Mounts`). The CVE-2026-44849 fix added driver-option checks to the Swarm-service and volume-creation paths but gated them on the wrong key and never covered the container-creation path at all; neither fix normalised the mount type for case or inspected inline `VolumeOptions.DriverConfig`. The same filter gaps also apply to Compose/stack validation, so the bypass is reachable through stack deployment as well as the raw Docker API.\r\n\r\n## Severity\r\n\r\n**Critical**\r\n\r\nExploitation requires no special timing or preconditions (attack complexity low) and only a low privilege level: any auth...",
+      "published_at": "2026-10-08T03:15:29.000Z",
+      "modified_at": "2026-10-08T03:15:29.000Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.2"
+            },
+            {
+              "introduced": "2.39.0",
+              "last_affected": "2.39"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jmr9-98g4-2phv",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jmr9-98g4-2phv",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jmr9-98g4-2phv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:beb3bc575a139fcb5fbe4dad83d588c202baa8322e8912fab0bc10addd27f717",
+      "note": null
+    },
+    {
+      "id": "GHSA-f7jw-8v6c-48qw",
+      "aliases": [],
+      "title": "Denied Kubernetes namespace deletion causes unauthorized deletion of Portainer access policies and stack records",
+      "summary": "## Summary\r\n\r\nPortainer proxies requests from the web UI and API to the Kubernetes API server of a connected environment. When a namespace is deleted through this proxy, Portainer also removes the records it keeps about that namespace: the namespace's Portainer access policy, its registry bindings, and the stacks deployed into it. Portainer removed these records before forwarding the delete request to Kubernetes, and did not restore them when Kubernetes refused the request.\r\n\r\nAny authenticated user with access to a Kubernetes environment can send a namespace delete request for any namespace name, including names of namespaces owned by other users or by administrators, and names that do not exist. Kubernetes denies the request for users without delete rights on the namespace, but the Portainer records for that name have already been removed. The namespace and the workloads in it are not affected; only Portainer's management records are.\r\n\r\nNamespace names are not secret to environment members, because the default per-user Kubernetes role allows them to list namespaces, so the attack needs no prior knowledge beyond environment access.\r\n\r\n## Severity\r\n\r\n**High**\r\n\r\nThe attack is performed over the network with a single request, needs no special conditions and no user interaction. It requires an authenticated account with access to the target Kubernetes environment, which an administrator must grant. The vulnerable system suffers a high integrity impact, because policies and stack records belonging to other users and administrators can be destroyed for any namespace the attacker can name, and a low availability impact, because affected users lose Portainer-side management of their namespaces until the records are restored from backup or recreated. There is no confidentiality impact. Impact on the managed Kubernetes cluster is limited and low: when a namespace's access policy is removed, the Kubernetes role bindings Portainer maintained for the users named in it are removed on the next synchronisation, and workloads and data in the namespace are untouched.\r\n\r\n## Affected Versions\r\n\r\nThe vulnerable ordering is present in every supported release; it predates Portainer 2.39.0.\r\n\r\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\r\n\r\n| Branch              | First vulnerable | Fixed in                                   |\r\n|---------------------|------------------|--------------------------------------------|\r\n| 2.39.x (LTS)        | 2.39.0           | Not fixed - upgrade to **2.45.2** or later |\r\n| 2.40.x-2.44.x (STS) | 2.40.0           | Out of support - upgrade to **2.45.2** or later |\r\n| 2.45.x (LTS)        | 2.45.0           | **2.45.2**                                 |\r\n\r\nUsers on the 2.39 LTS line or on end-of-life versions should upgrade to 2.45.2 or later.\r\n\r\n## Workarounds\r\n\r\nAdministrators who cannot immediately upgrade can reduce exposure by:\r\n\r\n- **Limit Kubernetes environment access to trusted users.** Exploitation requires access to the environment, so removing it from users, teams or roles that do not need it removes the exposure for those accounts.\r\n- **Keep current backups.** A recent Portainer backup allows destroyed access policies, stack records and registry bindings to be restored.\r\n- **Review environment access after any unexpected loss of namespace access.** Users who suddenly lose access to a namespace, or stacks that disappear from Portainer, are an indicator that the records were removed.\r\n\r\nNone of these replace the fix.\r\n\r\n## Affected Code\r\n\r\nThe namespace delete handler in the Kubernetes proxy (`proxyNamespaceDeleteOperation`, in the proxy factory's `namespaces.go`) removed the Portainer records first and forwarded the request to Kubernetes last.\r\n\r\n```go\r\n// namespaces.go - proxyNamespaceDeleteOperation (before the fix)\r\nfunc (transport *baseTransport) proxyNamespaceDeleteOperation(request *http.Request, namespace string...",
+      "published_at": "2026-10-08T02:45:06.000Z",
+      "modified_at": "2026-10-08T02:45:06.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:N/VI:H/VA:L/SC:N/SI:L/SA:L",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-696",
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.40.0"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-f7jw-8v6c-48qw",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f7jw-8v6c-48qw",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-f7jw-8v6c-48qw",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:65bd8f344c9fd984130a68e0ed01f44e6f2d7dc374c1c31f1a23431425033359",
+      "note": null
+    },
+    {
+      "id": "GHSA-9gxj-xvxm-77rj",
+      "aliases": [],
+      "title": "Arbitrary host file read by standard user via Compose configs/secrets",
+      "summary": "## Summary\r\n\r\nPortainer lets non-administrator users deploy Docker Compose stacks to an environment, and when the per-environment setting `Hide bind mounts for non-administrators` is enabled, Portainer hides the bind-mount option from those users. The stack validator `IsValidStackFile` also rejects bind mounts from those users in top-level `volumes` and each service's `volumes`. It never inspects the top-level `configs:` and `secrets:` maps, whose `file:` field names a host path that the Compose engine materialises as a bind mount into the referencing container. Any authenticated user with the Standard user role and stack-management access to a Docker environment can exploit this.\r\n\r\nPortainer operates a [shared-responsibility security model](https://docs.portainer.io/advanced/security): administrators decide how permissive each environment's security settings are and how the instance is exposed, and Portainer is responsible for enforcing those settings as configured. Although the setting is labelled Hide, enabling Hide bind mounts for non-administrators also makes Portainer reject bind mounts from non-administrators on the server. This issue is on Portainer's side of that line - stack deployment did not apply that rejection to these Compose fields. Environments where an administrator has disabled the setting already permit non-administrators to use bind mounts and gain no additional exposure from this issue.\r\n\r\nA standard user submits a Compose stack whose `configs.<name>.file` (or `secrets.<name>.file`) is set to an arbitrary host path - either an absolute path such as `/etc/shadow` or a relative path that climbs out of the stack directory with `../` - and binds that object into a container they control. The same request shape that Portainer rejects as a direct `volumes` bind is accepted through `configs`/`secrets`, and the container receives the host file's contents. Mounting `/var/run/docker.sock` by the same route gives the user full control of the host Docker daemon. The same gap extends to other Compose fields that name a file on disk, such as `env_file`: on Swarm deployments that file is read by the Portainer server process itself and its contents written into the service definition, so the user can also read files from the Portainer server, including Portainer's own database.\r\n\r\nBecause the primitive lets the attacker mount any host path, its consequences extend from arbitrary host file disclosure to full host compromise: with the Docker socket bound into a container the user controls, they can start a privileged container, mount the host root filesystem, and obtain root on the host. The preconditions are the product defaults - stack management enabled for regular users, `Hide bind mounts for non-administrators` enabled - plus an environment grant, and no administrator action or user interaction is required at exploit time.\r\n\r\n## Severity\r\n\r\n**Critical**\r\n\r\nThe vulnerability is reachable over the network through Portainer's stack API with low attack complexity and no special attack requirements. It requires only the privileges of a Standard user who has been granted access to a Docker environment - the lowest role that can deploy a stack, and the role the `Hide bind mounts for non-administrators` setting applies to - with no user interaction. Confidentiality impact on the vulnerable system is high: the attacker reads any file the Docker daemon can reach, including Portainer's own data. Because the same primitive mounts the Docker socket, integrity and availability impact are also high, and the impact propagates to subsequent systems: the Docker host and every container and image on it fall under the attacker's control, and any credentials recovered from the host reach the systems they authenticate to.\r\n\r\n## Affected Versions\r\n\r\nThe gap has existed since the Compose stack validator was introduced; it inspects service and top-level `volumes` but has never inspected the top-level `configs`/`secrets` file sources.\r\n\r\nP...",
+      "published_at": "2026-10-08T02:43:14.000Z",
+      "modified_at": "2026-10-08T02:50:17.000Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-22",
+        "CWE-284"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "last_affected": "2.39.8"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-9gxj-xvxm-77rj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-9gxj-xvxm-77rj",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-9gxj-xvxm-77rj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:09cdb00cddf01bcdfcbe0ac8b54bfd0be77b3c2653765dc247807a098ca21c91",
+      "note": null
+    },
+    {
+      "id": "GHSA-wqqf-pwjh-2hm6",
+      "aliases": [],
+      "title": "Server-Side Request Forgery across multiple outbound-request features",
+      "summary": "## Summary\n\nPortainer makes outbound network requests on a user's behalf in several features: cloning Git repositories for stacks, custom templates, edge stacks and file previews; fetching Helm repository indexes and charts; pinging container registries; retrieving application templates and Kubernetes manifests from a URL; proxying GitLab API calls; and contacting an OAuth provider. In each of these the destination was taken from user- or admin-supplied input and used to open a server-side connection while validating only the URL's syntax, not the address it resolved to. An authenticated user who can reach one of these features - several are available to the lowest-privilege standard role - could cause the Portainer server to connect to hosts the user could not reach directly, including internal services and cloud instance-metadata endpoints.\n\nPortainer is a self-hosted management plane, and the reach of these requests is bounded by where the operator deploys it and how the surrounding network is segmented. Under Portainer's [shared-responsibility model](https://docs.portainer.io/advanced/security), the operator owns network exposure, egress control and segmentation of the server; Portainer owns the controls that decide who may reach a feature.\n\nPortainer has introduced a centralized destination allow-list covering these outbound paths, together with an SSRF mode offering `Audit` and `Enforce` that deployers may choose to use. It is opt-in and ships disabled, because Portainer deployments routinely make legitimate outbound requests to internal Git servers, registries and Helm repositories that an unconditional private-range block would break - the destination policy is one only the operator can author. The mode is a Business Edition control; Community Edition ships the same code but has no way to enable it, so on Community Edition the server's outbound reach is governed by the operator's network posture (see Affected Versions).\n\nThis is a single class of issue - Server-Side Request Forgery (CWE-918) - reported independently against many endpoints by a number of researchers over several months. This advisory consolidates those reports and describes the centralized control that addresses them.\n\n## Severity\n\n**Medium**\n\nExploitation needs no user interaction and little sophistication, but it does require an authenticated account: the Git file-preview, Git-backed stack and template creation, registry ping and Helm repository endpoints are reachable by any authenticated user, while the application-template URL and the OAuth resource URI are admin-configured. The direct impact on Portainer itself is limited - these vectors do not compromise Portainer's own integrity or availability, and the confidentiality loss on Portainer's own data is marginal. The meaningful impact falls on *subsequent* systems the server can reach, and how far that reaches is governed by posture the operator owns: network exposure, segmentation and egress filtering, together with whether the SSRF mode has been audited and enforced. Worst-case outcomes - reading a cloud instance-metadata credential, and the full-read and OAuth-token-forwarding sub-vectors - depend on the server having unrestricted reach to those endpoints, and a deployment following the hardening guidance constrains them. Because the impact that remains is bounded by deployer-owned configuration rather than by the failure of a Portainer control that was in force, the class is rated Medium rather than High.\n\n## Affected Versions\n\nThese vectors have been present across most of the product's history. The issue is not tied to a single recently-introduced feature.\n\nPortainer Community Edition and Portainer Business Edition share release version numbering; the table below applies to both editions.\n\nThe centralized outbound-destination protections cover every path named in this advisory from the following release:\n\n| Branch                | First vulnerable | Fixed in   |\n|-----------------------|--...",
+      "published_at": "2026-10-08T02:39:14.000Z",
+      "modified_at": "2026-10-08T02:39:14.000Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:L/SI:N/SA:N",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-918"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.45.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wqqf-pwjh-2hm6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-wqqf-pwjh-2hm6",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-wqqf-pwjh-2hm6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:95470b149596a8edae843d4a77f2ab010c29a22483ab8c940c24270cd907b8d8",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-72533",
+      "aliases": [
+        "GHSA-jxhm-qq8x-v4c6"
+      ],
+      "title": "Portainer Portainer CE - Authentication Bypass",
+      "summary": "An authentication bypass vulnerability in Portainer CE through 2.44.0 allows authenticated low-privileged users to bypass Docker proxy authorization checks via non-canonical URL normalization, defeating all authorization middleware. The proxy endpoint fails to normalize request paths before applying access controls, allowing crafted requests to be interpreted differently by the proxy and the authorization layer. Successful exploitation grants the attacker root-level access to the underlying Docker host.",
+      "published_at": "2026-08-11T11:06:33.537Z",
+      "modified_at": "2026-08-27T07:17:38.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00556,
+        "percentile": 0.46927,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-180",
+        "CWE-287",
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.7"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.45.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jxhm-qq8x-v4c6",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-72533",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-72533",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-72533",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-72533",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-jxhm-qq8x-v4c6",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jxhm-qq8x-v4c6",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:268bc06b5ed62d61396223018aa674b82221c2dc0daa2104d3dabf6519d4e866",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-55761",
+      "aliases": [
+        "GHSA-x626-fcwx-f5pc"
+      ],
+      "title": "Portainer: Unauthenticated Restore Endpoint Allows Admin Takeover on Uninitialised Portainer Instances",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. In versions 2.39.0 through 2.39.3 and 2.40.0 until 2.43.0, unauthenticated restore and administrator initialization endpoints (/api/restore and /api/users/admin/init) remain accessible during the five-minute setup window for uninitialized instances, allowing a network attacker to restore a crafted backup or create the first administrator account and gain full administrative access. This issue is fixed in versions 2.39.4 and 2.43.0.",
+      "published_at": "2026-07-02T01:44:02.000Z",
+      "modified_at": "2026-07-08T15:52:30.257Z",
+      "severity": {
+        "level": "high",
+        "score": 7.1,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:L/VA:N/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00493,
+        "percentile": 0.42904,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-287"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.4"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.43.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-x626-fcwx-f5pc",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/issues/2770",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/commit/49f19107cf9a3540cbe406c9eb7f24390e1af02b",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/commit/d2b56efcb4e43c4168bb6688eee9f6bf22867312",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/releases/tag/2.39.4",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/portainer/portainer/releases/tag/2.43.0",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-55761",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-55761",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-55761",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-55761",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-x626-fcwx-f5pc",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-x626-fcwx-f5pc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:6e6474c795c0351e35dad12277c7148a7b07ac52e88b3f5bc945595bc9b08d00",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44885",
+      "aliases": [
+        "GHSA-m8fg-67j7-cx4v"
+      ],
+      "title": "Portainer: Path traversal in backup archive extraction allows arbitrary file write",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, Portainer's backup restore feature accepts a .tar.gz archive and extracts it to a target directory on the server. The extraction function (ExtractTarGz in api/archive/targz.go) constructed output paths using filepath.Clean(filepath.Join(outputDirPath, header.Name)). This combination does not prevent directory traversal - a tar entry named ../../etc/cron.d/evil resolves to a path outside the extraction root, so a crafted archive can write files to arbitrary locations on the server filesystem. This vulnerability is fixed in 2.33.8.",
+      "published_at": "2026-05-10T20:02:15.000Z",
+      "modified_at": "2026-05-29T19:11:01.372Z",
+      "severity": {
+        "level": "medium",
+        "score": 5.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:N/I:H/A:L",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00606,
+        "percentile": 0.49591,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-22"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-m8fg-67j7-cx4v",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/portainer/portainer-suite/pull/1875",
+          "type": "fix"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44885",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44885",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44885",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44885",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-m8fg-67j7-cx4v",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-m8fg-67j7-cx4v",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:95166f907cf55d09f096769b618762c7d511430df94f38e215da9ad6905f2c98",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44884",
+      "aliases": [
+        "GHSA-cqpq-2fgr-8mvc"
+      ],
+      "title": "Portainer: Missing authorization on custom template file endpoint exposes template content",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8 and 2.39.1, a missing authorization vulnerability in the Custom Template file endpoint (GET /api/custom_templates/{id}/file) allows any authenticated user to read the file content of any custom template by enumerating sequential integer IDs, bypassing Resource Control access restrictions. Template files may contain environment-specific values such as connection strings, API tokens, or registry credentials that administrators would not expect standard users to read. This vulnerability is fixed in 2.33.8 and 2.39.1.",
+      "published_at": "2026-05-10T19:58:42.000Z",
+      "modified_at": "2026-05-29T13:55:35.420Z",
+      "severity": {
+        "level": "medium",
+        "score": 6,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00257,
+        "percentile": 0.17512,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-cqpq-2fgr-8mvc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44884",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44884",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44884",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44884",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-cqpq-2fgr-8mvc",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-cqpq-2fgr-8mvc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:79e77c02c856fe261ee070f4e1a69521ef198be3de9be4ddb6acff8ffcc80ce4",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44882",
+      "aliases": [
+        "GHSA-mgq6-4x29-88r3"
+      ],
+      "title": "Portainer: Kubernetes middleware continues after token validation failure, bypassing endpoint authorization",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33., Portainer proxies requests to Kubernetes clusters through a middleware layer (kubeClientMiddleware) that validates the requesting user's token before forwarding traffic to the cluster. When security.RetrieveTokenData returned an error, the middleware wrote an HTTP 403 response but was missing a return statement - execution continued into the handler with a nil tokenData value. The Kubernetes endpoints sit behind Portainer's outer AuthenticatedAccess bouncer, so an attacker requires a valid Portainer session. However, a user whose secondary token validation fails in kubeClientMiddleware - for example a user without permission to access a given Kubernetes endpoint - would have their request forwarded to the cluster anyway, bypassing the authorization check. The same defect was present in both the CE and EE codebases. This vulnerability is fixed in 2.33.8.",
+      "published_at": "2026-05-10T19:56:28.000Z",
+      "modified_at": "2026-05-30T02:20:47.586Z",
+      "severity": {
+        "level": "high",
+        "score": 8.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00335,
+        "percentile": 0.27267,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-mgq6-4x29-88r3",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44882",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44882",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44882",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44882",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-mgq6-4x29-88r3",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-mgq6-4x29-88r3",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:443c24219548d1492aed038d8758613aaf85812c81cf0e0209e5982cfc479be0",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44883",
+      "aliases": [
+        "GHSA-jvp4-q659-95mj"
+      ],
+      "title": "Portainer: JWT accepted in URL query leaks tokens to logs and referers",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, 2.39.2, and 2.41.0, Portainer's authentication middleware accepts JWT bearer tokens passed as the ?token=<JWT> URL query parameter on any authenticated API endpoint, in addition to the standard Authorization: Bearer header. URLs are recorded in reverse-proxy access logs, browser history, and HTTP Referer headers on outbound navigation, so any JWT passed this way can be harvested by anyone with access to those logs or by an external site the user subsequently visits. A leaked token grants the full privileges of the user it was issued to, until the token expires (default 8 hours, configurable). The ?token= parameter was used by Portainer's browser-based container attach, exec, and pod shell features, so any user with exec or attach rights on a container was exposed - not only administrators. This vulnerability is fixed in 2.33.8, 2.39.2, and 2.41.0.",
+      "published_at": "2026-05-10T19:53:15.000Z",
+      "modified_at": "2026-06-02T13:47:07.397Z",
+      "severity": {
+        "level": "high",
+        "score": 7.7,
+        "vector": "CVSS:4.0/AV:N/AC:H/AT:N/PR:N/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00291,
+        "percentile": 0.21876,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-598"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.2"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jvp4-q659-95mj",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44883",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44883",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44883",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44883",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-jvp4-q659-95mj",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-jvp4-q659-95mj",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2e31784fdd77377876e22e661276744af915eacb7373b96839f230db1deffe5a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44881",
+      "aliases": [
+        "GHSA-rpgq-m5fp-32wr"
+      ],
+      "title": "Portainer: Arbitrary File Read via Git Symlink Injection in Stack Auto-Update",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, 2.39.2, and 2.41.0, Portainer supports deploying stacks from Git repositories. When a Git-backed stack is created or updated, Portainer clones the repository using go-git v5, which translates Git blob entries with mode 0o120000 (symlink) into real OS symlinks on the host filesystem via os.Symlink. The only entry blocked from becoming a symlink is .gitmodules; every other path is created as a symlink without validation. Portainer's GET /api/stacks/{id}/file endpoint then reads the stack entry point with os.ReadFile, which follows OS symlinks transparently. A repository containing docker-compose.yml as a symlink to an arbitrary filesystem path causes the symlink target's contents to be returned verbatim in the HTTP response. Any authenticated user with rights to create or update a Git-backed stack - the default configuration in Portainer CE - can read arbitrary files accessible to the Portainer process. This vulnerability is fixed in 2.33.8, 2.39.2, and 2.41.0.",
+      "published_at": "2026-05-10T19:50:28.000Z",
+      "modified_at": "2026-10-22T05:12:13.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.0051,
+        "percentile": 0.44096,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-59",
+        "CWE-200"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.2"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-rpgq-m5fp-32wr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44881",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44881",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44881",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44881",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-rpgq-m5fp-32wr",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-rpgq-m5fp-32wr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2e31784fdd77377876e22e661276744af915eacb7373b96839f230db1deffe5a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44850",
+      "aliases": [
+        "GHSA-7fw3-x4r2-g7wc"
+      ],
+      "title": "Portainer: Bind-mount restriction bypass via HostConfig.Mounts",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, 2.39.2, and 2.41.0, Portainer offers an environment-level Disable bind mounts for non-administrators security setting that blocks regular users from binding host paths into containers they create through the Portainer-mediated Docker API. The check that enforces this setting only inspected the legacy HostConfig.Binds array on the container-create proxy and never looked at the equivalent HostConfig.Mounts array. Any authenticated user with rights to create containers on a Docker environment where the restriction is enabled could submit a bind-typed entry under HostConfig.Mounts and mount any host path into their container. This vulnerability is fixed in 2.33.8, 2.39.2, and 2.41.0.",
+      "published_at": "2026-05-10T19:47:17.000Z",
+      "modified_at": "2026-05-29T19:08:21.955Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:L/A:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00234,
+        "percentile": 0.14423,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-863"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.2"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7fw3-x4r2-g7wc",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44850",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44850",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44850",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44850",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-7fw3-x4r2-g7wc",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-7fw3-x4r2-g7wc",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:2e31784fdd77377876e22e661276744af915eacb7373b96839f230db1deffe5a",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44849",
+      "aliases": [
+        "GHSA-5fxq-qcf3-244w"
+      ],
+      "title": "Portainer: Endpoint security bypass via Swarm service create/update",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, 2.39.2, and 2.41.0, Portainer enforces seven EndpointSecuritySettings restrictions that administrators configure to restrict the container configurations non-admin users can launch: privileged mode, host PID namespace, device mapping, capabilities, sysctls, security-opt (Seccomp / AppArmor), and bind mounts. These restrictions are enforced on the standard container creation path, but several of them are not applied on the Docker Swarm service API. This vulnerability is fixed in 2.33.8, 2.39.2, and 2.41.0.",
+      "published_at": "2026-05-10T19:44:33.000Z",
+      "modified_at": "2026-05-29T13:55:06.837Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00425,
+        "percentile": 0.37355,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.2"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-5fxq-qcf3-244w",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44849",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44849",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44849",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44849",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-5fxq-qcf3-244w",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-5fxq-qcf3-244w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3f11ff61720ed47da63e888b1cfa03ef47032a03d9a3b07bc895551b5208bc08",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-44848",
+      "aliases": [
+        "GHSA-rrmm-9v76-h3p4"
+      ],
+      "title": "Portainer: Missing authorization on Docker plugin endpoints allows host RCE",
+      "summary": "Portainer Community Edition is a lightweight service delivery platform for containerized applications that can be used to manage Docker, Swarm, Kubernetes and ACI environments. From 2.33.0 to before 2.33.8, 2.39.2, and 2.41.0, The Docker plugin management endpoints (/plugins/*) were not registered with a handler, so standard users with endpoint access could call privileged plugin operations - including installing and enabling plugins - directly against the underlying Docker daemon. The vulnerability is exposed when a non-admin Portainer user (Standard User role, or any role granted endpoint-level access) has been given access to a Docker endpoint via Portainer RBAC. This vulnerability is fixed in 2.33.8, 2.39.2, and 2.41.0.",
+      "published_at": "2026-05-10T19:43:31.000Z",
+      "modified_at": "2026-06-01T18:59:07.188Z",
+      "severity": {
+        "level": "critical",
+        "score": 9.4,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00402,
+        "percentile": 0.34987,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-862"
+      ],
+      "affected": [
+        {
+          "product": "portainer",
+          "ranges": [
+            {
+              "introduced": "2.33.0",
+              "fixed": "2.33.8"
+            },
+            {
+              "introduced": "2.39.0",
+              "fixed": "2.39.2"
+            },
+            {
+              "introduced": "2.40.0",
+              "fixed": "2.41.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-rrmm-9v76-h3p4",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-44848",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-44848",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-44848",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-44848",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-rrmm-9v76-h3p4",
+          "url": "https://github.com/portainer/portainer/security/advisories/GHSA-rrmm-9v76-h3p4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3f11ff61720ed47da63e888b1cfa03ef47032a03d9a3b07bc895551b5208bc08",
+      "note": null
+    }
+  ]
+}

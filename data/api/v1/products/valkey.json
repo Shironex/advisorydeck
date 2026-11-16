@@ -1,0 +1,692 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T09:17:56Z",
+  "product": {
+    "slug": "valkey",
+    "name": "Valkey",
+    "category": "databases",
+    "homepage": "https://valkey.io",
+    "version_scheme": "semver",
+    "branches": [
+      {
+        "name": "9.1",
+        "eol": false,
+        "eol_date": "2031-05-19",
+        "latest": "9.1.3"
+      },
+      {
+        "name": "9.0",
+        "eol": false,
+        "eol_date": "2028-10-21",
+        "latest": "9.0.7"
+      },
+      {
+        "name": "8.1",
+        "eol": false,
+        "eol_date": "2030-03-31",
+        "latest": "8.1.11"
+      },
+      {
+        "name": "8.0",
+        "eol": false,
+        "eol_date": "2027-09-15",
+        "latest": "8.0.12"
+      },
+      {
+        "name": "7.2",
+        "eol": false,
+        "eol_date": "2029-04-16",
+        "latest": "7.2.15"
+      }
+    ]
+  },
+  "advisories": [
+    {
+      "id": "GHSA-f4q9-j22m-xqq9",
+      "aliases": [],
+      "title": "Integer truncation in Valkey cluster publish message construction causes a heap buffer overflow",
+      "summary": "## Impact\r\n\r\nAn authenticated user who can publish to a channel on a server running in\r\ncluster mode can make the server allocate a heap buffer far smaller than\r\nthe message it is about to copy into it, and then write past the end of\r\nthat buffer with attacker-controlled bytes. This reliably crashes the\r\nserver process, and because the overflowing bytes are chosen by the\r\nattacker, it may be possible to escalate it to remote code execution\r\nrunning as the user the server runs as.\r\n\r\nThis issue affects Valkey 7.2, 8.0, 8.1, 9.0, 9.1 and 9.2 running in\r\ncluster mode. Servers that do not have cluster mode enabled are not\r\naffected.\r\n\r\n## Details\r\n\r\nWhen a node propagates a `PUBLISH` or `SPUBLISH` to the rest of the\r\ncluster, `clusterCreatePublishMsgBlock` in `src/cluster_legacy.c`\r\n(`src/cluster.c` on 7.2) computes the length of the cluster bus message as\r\na `size_t`, but passes it to `createClusterMsgSendBlock`, which takes a\r\n`uint32_t`. When the channel and message together exceed `UINT32_MAX`, the\r\nlength is silently truncated and a buffer far smaller than the message is\r\nallocated. The two `memcpy` calls that follow copy the full channel and\r\nmessage into it. Both the regular and the light cluster bus header paths\r\nare affected, as are the module publish APIs.\r\n\r\nBuilding a channel and message this large requires more than 4 GiB of\r\nmemory. With the default `proto-max-bulk-len` of 512 MB, a client cannot\r\nsend arguments that large directly, but a script can construct them on the\r\nserver.\r\n\r\nThe cluster bus cannot represent a message of this size, so the fix\r\nvalidates the complete serialized length before any 32-bit conversion or\r\nallocation. `PUBLISH` and `SPUBLISH` now reply with an error, and the\r\nmessage is neither published locally nor propagated.\r\n\r\n## Mitigation\r\n\r\nYou can mitigate this issue by using Valkey ACLs to restrict the scripting\r\ncommands (`EVAL`, `EVALSHA`, `EVAL_RO`, `EVALSHA_RO`, `FCALL`, `FCALL_RO`\r\nand `FUNCTION`) if your application does not intend to use them, and by\r\nnot raising `proto-max-bulk-len` above its default.\r\n\r\n## Credits\r\n\r\nThe defect was reported by Nenad Stojanovski working with Trend Micro Zero\r\nDay Initiative (ZDI-CAN-28318). The fix was authored by\r\nhttps://github.com/roshkhatri (#5030).",
+      "published_at": "2026-10-26T22:49:43.000Z",
+      "modified_at": "2026-10-26T22:51:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "7.2.14"
+            },
+            {
+              "introduced": "8.0.0",
+              "last_affected": "8.0.11"
+            },
+            {
+              "introduced": "8.1.0",
+              "last_affected": "8.1.10"
+            },
+            {
+              "introduced": "9.0.0",
+              "last_affected": "9.0.6"
+            },
+            {
+              "introduced": "9.1.0",
+              "last_affected": "9.1.2"
+            },
+            {
+              "introduced": "9.2.0-0",
+              "last_affected": "9.2.0-rc1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-f4q9-j22m-xqq9",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-f4q9-j22m-xqq9",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-f4q9-j22m-xqq9",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:e853bcf16a6423d35b0f3f43e6a3c9e84d96a7cad61003fee502573812a4f048",
+      "note": null
+    },
+    {
+      "id": "GHSA-fq2f-crmw-q97r",
+      "aliases": [],
+      "title": "Unauthenticated use-after-free of the Lua interpreter state in Valkey (script debugger command cache)",
+      "summary": "## Impact\r\n\r\nAn attacker who can run scripting commands can free the Lua interpreter\r\nstate out from under the script debugger's cached command table, leaving a\r\ndangling pointer that is dereferenced on the next debugger command. This\r\nyields a reliable crash of the server process, and can be escalated to\r\ncontrol of an indirect call by reclaiming the freed heap chunk with\r\nattacker-controlled bytes.\r\n\r\nThis issue affects the 9.x line. The defect was introduced when the Lua\r\nscripting engine was moved into a Valkey module. The 8.0.x and 8.1.x lines\r\nuse the previous non-module debugger and are not affected.\r\n\r\n## Details\r\n\r\n`ldbGenerateDebuggerCommandsArray` in `src/modules/lua/debug_lua.c` builds\r\nthe interactive debugger command table once and caches it in a file-scope\r\nstatic, binding the then-current `lua_State` pointer into each command\r\ndescriptor's context field. The table is never rebuilt or invalidated.\r\n\r\n`SCRIPT FLUSH ASYNC` recreates the scripting engine, creating the\r\nreplacement interpreter state before freeing the previous one on the\r\nlazyfree thread. Nothing clears the cached command table, so its context\r\nis left pointing at a freed chunk. Any subsequent debugger command\r\ndereferences it.\r\n\r\nBecause the freed chunk lives on the ordinary allocator heap, it can be\r\nreclaimed with attacker-controlled bytes and shaped into a counterfeit\r\ninterpreter state, at which point the next allocation performed by the\r\ninterpreter calls the allocator function pointer stored inside that state.\r\n\r\nA second use-after-free in `ldbLogStackValue` is fixed in the same change:\r\nthe logged module string was freed while the debugger log list still held\r\na reference to it.\r\n\r\n## Mitigation\r\n\r\nYou can mitigate this issue by using Valkey ACLs to restrict the SCRIPT\r\ncommand, in particular `SCRIPT DEBUG`, if your application doesn't intend\r\nto use the script debugger.\r\n\r\n## Credits\r\n\r\nThe defect was independently reported by Trung Nguyen (@everping) of\r\nCyStack, by Phuc Nguyen Dinh (pucagit) of CyStack, and Han Sang-Kyung (toky1219@gmail.com).\r\n\r\nThe fix was authored by https://github.com/Baraa-Hasheesh.",
+      "published_at": "2026-08-31T23:36:20.000Z",
+      "modified_at": "2026-08-31T23:36:20.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-416"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "9.1.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-fq2f-crmw-q97r",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-fq2f-crmw-q97r",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-fq2f-crmw-q97r",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:511b6e7067fbff308ab4749eb4038bb9fc4399e455b5a89f9c1e39b7d25d7f37",
+      "note": null
+    },
+    {
+      "id": "GHSA-jcj7-v34w-v9vv",
+      "aliases": [],
+      "title": "Use-after-free in the RDMA pending-data handler when a client",
+      "summary": "## Impact\r\n\r\nAn authenticated user can run a command that frees another client's\r\nconnection while the RDMA transport is processing pending data, leaving a\r\ndangling pointer that is dereferenced shortly after. This reliably crashes\r\nthe server process, and the freed heap chunk can be reclaimed with\r\nattacker-influenced bytes.\r\n\r\nThis issue only affects servers built with RDMA support (`USE_RDMA`) and\r\nconfigured with an RDMA listener, which is off by default and requires\r\nRDMA-capable hardware. Builds without RDMA are not affected, and the RDMA\r\ntransport does not exist before 8.0.\r\n\r\n## Details\r\n\r\nThe RDMA pending-data handler walked its connection list with an iterator\r\nthat caches the next entry. Running a client's read handler from inside\r\nthat loop can process a command such as `CLIENT KILL`, which synchronously\r\nfrees a different client's connection, invalidating the cached entry.\r\nSeparately, closing an RDMA connection freed it without removing it from\r\nthe pending list, so a stale entry also persisted into later passes.\r\n\r\nThis is the RDMA equivalent of the TLS issue fixed in GHSA-53mc-f3m3-99vh.\r\n\r\n## Mitigation\r\n\r\nIf you do not need RDMA, build without `USE_RDMA` or do not configure an\r\nRDMA listener. Otherwise, you can mitigate this issue by using Valkey ACLs\r\nto restrict the CLIENT command, in particular `CLIENT KILL`.\r\n\r\n## Credits\r\n\r\nReported by Andreas Gabriel Berbescu (aberbescu@gmail.com",
+      "published_at": "2026-08-31T23:30:18.000Z",
+      "modified_at": "2026-08-31T23:30:18.000Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "ghsa"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": null,
+      "cwes": [
+        "CWE-416"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "8.0.10"
+            },
+            {
+              "introduced": "8.1.0",
+              "last_affected": "8.1.9"
+            },
+            {
+              "introduced": "9.0.0",
+              "last_affected": "9.0.5"
+            },
+            {
+              "introduced": "9.1.0",
+              "last_affected": "9.1.1"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-jcj7-v34w-v9vv",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "ghsa",
+          "id": "GHSA-jcj7-v34w-v9vv",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-jcj7-v34w-v9vv",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b30f77a00e6a2f51e956f08d771ebfabfd976c2a778a8f922e85af8b482bcdc3",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-63639",
+      "aliases": [
+        "GHSA-mvcj-73cw-22m4"
+      ],
+      "title": "Valkey: UAF in stream deserialization may lead to remote code execution",
+      "summary": "Valkey is a distributed key-value database. Prior to 7.2.14, 8.0.10, 8.1.9, 9.0.5, and 9.1.1, Valkey's RESTORE command accepts a malformed RDB stream payload that assigns one Pending Entry List NACK to multiple consumers during stream consumer-group deserialization, causing a use-after-free when one consumer is deleted while another still references the shared NACK and potentially allowing remote code execution. This issue is fixed in versions 7.2.14, 8.0.10, 8.1.9, 9.0.5, and 9.1.1.",
+      "published_at": "2026-07-22T04:50:54.000Z",
+      "modified_at": "2026-08-20T18:36:40.745Z",
+      "severity": {
+        "level": "high",
+        "score": 8.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00888,
+        "percentile": 0.59878,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-416"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "7.2.13"
+            },
+            {
+              "introduced": "8.0.0",
+              "last_affected": "8.0.9"
+            },
+            {
+              "introduced": "8.1.0",
+              "last_affected": "8.1.8"
+            },
+            {
+              "introduced": "9.0.0",
+              "last_affected": "9.0.4"
+            },
+            {
+              "introduced": "9.1.0",
+              "last_affected": "9.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-mvcj-73cw-22m4",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/pull/4073",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/06bc7768fe609f2054e69ccedefe7628f5675da9",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/509cb3c74e8cbc9c0498ebe8b6c93dcd605e7271",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/98465eaffe3f95524a5046318bfbc4bdb9798291",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/e95911d4d65be8789fa3705f44d7ed1e65378445",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/f8d2027e8d4df790ac04974bf606408c8ea62778",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/7.2.14",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/8.0.10",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/8.1.9",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/9.0.5",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/9.1.1",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-63639",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-63639",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-63639",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-63639",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-mvcj-73cw-22m4",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-mvcj-73cw-22m4",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9bd05e525a913b9ed48ff67c73dd88f1a8995289e396d8487302c471f9f78950",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-56684",
+      "aliases": [
+        "GHSA-53mc-f3m3-99vh"
+      ],
+      "title": "Valkey: TLS pending-data processing use-after-free may allow remote code execution",
+      "summary": "Valkey is a distributed key-value database. Prior to 7.2.14, 8.0.10, 8.1.9, 9.0.5, and 9.1.1, Valkey's tlsProcessPendingData function iterates pending_list while an authenticated client can trigger CLIENT KILL, causing connTLSClose to delete the iterator's cached next node and producing a use-after-free that can crash the server or potentially allow remote code execution when TLS is enabled. This issue is fixed in versions 7.2.14, 8.0.10, 8.1.9, 9.0.5, and 9.1.1.",
+      "published_at": "2026-07-22T04:47:53.000Z",
+      "modified_at": "2026-08-19T03:56:13.565Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00523,
+        "percentile": 0.44977,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-416"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "last_affected": "7.2.13"
+            },
+            {
+              "introduced": "8.0.0",
+              "last_affected": "8.0.9"
+            },
+            {
+              "introduced": "8.1.0",
+              "last_affected": "8.1.8"
+            },
+            {
+              "introduced": "9.0.0",
+              "last_affected": "9.0.4"
+            },
+            {
+              "introduced": "9.1.0",
+              "last_affected": "9.1.0"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-53mc-f3m3-99vh",
+          "type": "advisory"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/pull/4234",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/commit/7cd5bcb7575d750ec2de618db80da58680a10fe3",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/7.2.14",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/8.0.10",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/8.1.9",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/9.0.5",
+          "type": "release-notes"
+        },
+        {
+          "url": "https://github.com/valkey-io/valkey/releases/tag/9.1.1",
+          "type": "release-notes"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-56684",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-56684",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-56684",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-56684",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-53mc-f3m3-99vh",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-53mc-f3m3-99vh",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:9bd05e525a913b9ed48ff67c73dd88f1a8995289e396d8487302c471f9f78950",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-27623",
+      "aliases": [
+        "GHSA-93p9-5vc7-8wgr"
+      ],
+      "title": "Valkey has Pre-Authentication DOS from malformed RESP request",
+      "summary": "Valkey is a distributed key-value database. Starting in version 9.0.0 and prior to version 9.0.3, a malicious actor with network access to Valkey can cause the system to abort by triggering an assertion. When processing incoming requests, the Valkey system does not properly reset the networking state after processing an empty request. A malicious actor can then send a request that the server incorrectly identifies as breaking server side invariants, which results in the server shutting down. Version 9.0.3 fixes the issue. As an additional mitigation, properly isolate Valkey deployments so that only trusted users have access.",
+      "published_at": "2026-02-23T19:09:21.000Z",
+      "modified_at": "2026-07-15T01:13:50.055Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00405,
+        "percentile": 0.35294,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-20"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "9.0.0",
+              "fixed": "9.0.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-93p9-5vc7-8wgr",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-27623",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-27623",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-27623",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-27623",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-93p9-5vc7-8wgr",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-93p9-5vc7-8wgr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:4c64f58a5c6583e6d038a5cbd5209d332eb047188a8d8e1efc58cf6500471ebe",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-21863",
+      "aliases": [
+        "GHSA-c677-q3wr-gggq"
+      ],
+      "title": "Malformed Valkey Cluster bus message can lead to Remote DoS",
+      "summary": "Valkey is a distributed key-value database. Prior to versions 9.0.2, 8.1.6, 8.0.7, and 7.2.12, a malicious actor with access to the Valkey clusterbus port can send an invalid packet that may cause an out bound read, which might result in the system crashing. The Valkey clusterbus packet processing code does not validate that a clusterbus ping extension packet is located within buffer of the clusterbus packet before attempting to read it. Versions 9.0.2, 8.1.6, 8.0.7, and 7.2.12 fix the issue. As an additional mitigation, don't expose the cluster bus connection directly to end users, and protect the connection with its own network ACLs.",
+      "published_at": "2026-02-23T17:36:26.000Z",
+      "modified_at": "2026-07-15T01:19:48.777Z",
+      "severity": {
+        "level": "high",
+        "score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00848,
+        "percentile": 0.58668,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-125"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "7.2.12"
+            },
+            {
+              "introduced": "8.0.0",
+              "fixed": "8.0.7"
+            },
+            {
+              "introduced": "8.1.0",
+              "fixed": "8.1.6"
+            },
+            {
+              "introduced": "9.0.0",
+              "fixed": "9.0.3"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-c677-q3wr-gggq",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-21863",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-21863",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-21863",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-21863",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-c677-q3wr-gggq",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-c677-q3wr-gggq",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b4bb2f3f59e7a938d55405e41f31340b0becbaf526d91201e01fa5ba0570af3f",
+      "note": null
+    },
+    {
+      "id": "CVE-2025-67733",
+      "aliases": [
+        "GHSA-p876-p7q5-hv2m"
+      ],
+      "title": "Valkey Affected by RESP Protocol Injection via Lua error_reply",
+      "summary": "Valkey is a distributed key-value database. Prior to versions 9.0.2, 8.1.6, 8.0.7, and 7.2.12, a malicious user can use scripting commands to inject arbitrary information into the response stream for the given client, potentially corrupting or returning tampered data to other users on the same connection. The error handling code for lua scripts does not properly handle null characters. Versions 9.0.2, 8.1.6, 8.0.7, and 7.2.12 fix the issue.",
+      "published_at": "2026-02-23T17:35:53.000Z",
+      "modified_at": "2026-07-15T01:25:07.211Z",
+      "severity": {
+        "level": "high",
+        "score": 8.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:N/I:L/A:H",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00823,
+        "percentile": 0.57897,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-74"
+      ],
+      "affected": [
+        {
+          "product": "valkey",
+          "ranges": [
+            {
+              "introduced": "0",
+              "fixed": "7.2.12"
+            },
+            {
+              "introduced": "8.0.0",
+              "fixed": "8.0.7"
+            },
+            {
+              "introduced": "8.1.0",
+              "fixed": "8.1.6"
+            },
+            {
+              "introduced": "9.0.0",
+              "fixed": "9.0.2"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-p876-p7q5-hv2m",
+          "type": "advisory"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2025-67733",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2025-67733",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2025-67733",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2025-67733",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-p876-p7q5-hv2m",
+          "url": "https://github.com/valkey-io/valkey/security/advisories/GHSA-p876-p7q5-hv2m",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:3f5567bbd2f0b44213b3d6649542c5018630ea7c79e7037f8725a44a8f299b9d",
+      "note": null
+    }
+  ]
+}
