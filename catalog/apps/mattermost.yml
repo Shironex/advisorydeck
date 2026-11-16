@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../schemas/v1/product.schema.json
+slug: mattermost
+name: Mattermost
+category: apps
+homepage: https://mattermost.com
+description: Self-hosted team chat (Team and Enterprise Edition).
+version_scheme: semver
+branches:
+  source: endoflife
+  endoflife_slug: mattermost
+images:
+  - ref: docker.io/mattermost/mattermost-team-edition
+    tag_pattern: "^(?:release-)?(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)$"
+    note: release-12 and release-12.1 are branch tags, read as the branch.
+  - ref: docker.io/mattermost/mattermost-enterprise-edition
+    tag_pattern: "^(?:release-)?(?<version>[0-9]+(?:\\.[0-9]+){0,2}(?:-rc[0-9]+)?)$"
+sources:
+  - type: cve-cna
+    assigner: Mattermost
+    products: [Mattermost]
+    note: Mattermost is its own CNA; plugins and apps are filed under their own product names.
+  - type: vendor-page
+    url: https://mattermost.com/security-updates/
+match:
+  strategy: vendor-ranges
+curated: false
+data_notes:
+  - Records give one entry per supported branch with lessThanOrEqual as the last affected release (11.9.0 lessThanOrEqual 11.9.1, 11.8.0 lessThanOrEqual 11.8.5) and list the next releases as unaffected.
+  - Plugin, desktop and mobile advisories are filed under the same product name. Plugin records write ranges from 0 with the server releases that ship the fix as unaffected (0 lessThanOrEqual 10.20.11 with 10.11.21 unaffected); ingest cuts the unaffected releases out per branch. Records that list desktop or mobile builds (6.2.3.0, 2.37.1.0) as unaffected inside the ranges are published as unknown. Desktop records without such builds (0 lessThanOrEqual 6.2.2) read as versions no server runs.

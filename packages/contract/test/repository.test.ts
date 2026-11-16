@@ -32,7 +32,7 @@ describe('repository data', () => {
   it('has no problems', () => {
     const report = checkRepository();
     expect(report.issues).toEqual([]);
-    expect(report.counts.products).toBe(25);
+    expect(report.counts.products).toBe(29);
   });
 
   it('notices a product file that no longer matches its manifest etag', () => {
