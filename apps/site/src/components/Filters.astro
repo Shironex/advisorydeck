@@ -1,0 +1,59 @@
+---
+import { SEVERITY_ORDER, type SeverityLevel } from '../lib/feed.ts';
+
+interface Props {
+  /** Unique per page: the radio group name and the ids. */
+  name: string;
+  label: string;
+  counts: Record<SeverityLevel, number>;
+  total: number;
+  /** The select: products on the feed, branches on a product page. */
+  select: {
+    filter: 'product' | 'branch';
+    label: string;
+    all: string;
+    options: { value: string; label: string }[];
+  };
+}
+
+const { name, label, counts, total, select } = Astro.props;
+const NAMES: Record<SeverityLevel, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  unknown: 'Unknown',
+};
+const levels = SEVERITY_ORDER.filter((level) => level !== 'unknown' || counts.unknown > 0);
+---
+
+<div class="toolbar" role="group" aria-label={label} data-filters hidden>
+  <fieldset>
+    <legend class="visually-hidden">Severity</legend>
+    <div class="seg">
+      <label>
+        <input type="radio" name={name} value="" checked />
+        <span>
+          All <span class="count">{total}</span>
+        </span>
+      </label>
+      {levels.map((level) => (
+        <label>
+          <input type="radio" name={name} value={level} disabled={counts[level] === 0} />
+          <span class="sev" data-sev={level}>
+            {NAMES[level]} <span class="count">{counts[level]}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  </fieldset>
+  <label class="visually-hidden" for={`${name}-select`}>
+    {select.label}
+  </label>
+  <select class="select toolbar-select" id={`${name}-select`} data-filter={select.filter}>
+    <option value="">{select.all}</option>
+    {select.options.map((o) => (
+      <option value={o.value}>{o.label}</option>
+    ))}
+  </select>
+</div>

@@ -1,0 +1,77 @@
+---
+import type { BranchRow, BranchTable } from '../lib/branches.ts';
+import { shortDate } from '../lib/format.ts';
+
+interface Props {
+  table: BranchTable;
+  productName: string;
+}
+
+const { table, productName } = Astro.props;
+const all = [...table.shown, ...table.older];
+const olderNames = table.older.map((r) => r.branch.name);
+---
+
+<div
+  class="table-wrap"
+  tabindex="0"
+  role="region"
+  aria-label={`${productName} branch table, scrolls sideways`}
+>
+  <table class="table table--stack">
+    <thead>
+      <tr>
+        <th scope="col">Branch</th>
+        <th scope="col">Status</th>
+        <th scope="col">Latest release</th>
+        <th scope="col" class="num">
+          Advisories fixed, last 12 months
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      {all.map((row: BranchRow) => (
+        <tr
+          class:list={[row.branch.eol && 'is-eol']}
+          data-branch-row={row.branch.name}
+          data-older={table.older.includes(row) ? '' : undefined}
+        >
+          <td class="branch">
+            {row.branch.name}{' '}
+            <span class="tag tag--yours" data-yours hidden>
+              Your branch
+            </span>
+          </td>
+          <td>
+            {row.branch.eol ? (
+              <>
+                <span class="tag tag--eol">End of life</span>
+                {row.branch.eolDate ? ` since ${shortDate(row.branch.eolDate)}` : ''}, no more fixes
+              </>
+            ) : row.branch.eolDate ? (
+              `Supported until ${shortDate(row.branch.eolDate)}`
+            ) : (
+              'Supported'
+            )}
+          </td>
+          <td>
+            {row.branch.latest ? <span class="mono">{row.branch.latest}</span> : 'Not listed'}
+          </td>
+          <td class="num">{row.fixedLastYear}</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+  {table.older.length > 0 && (
+    <div class="table-foot">
+      <span>
+        {table.older.length === 1
+          ? `1 older branch (${olderNames[0]}), end of life`
+          : `${table.older.length} older branches (${olderNames.at(-1)} to ${olderNames[0]}), all end of life`}
+      </span>
+      <button class="btn btn--quiet" type="button" aria-expanded="true" data-older-toggle hidden>
+        Hide them
+      </button>
+    </div>
+  )}
+</div>

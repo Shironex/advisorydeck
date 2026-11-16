@@ -1,7 +1,7 @@
 ---
 import type { GetStaticPaths } from 'astro';
-import AdvisoryList from '../../components/AdvisoryList.astro';
-import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import Crumbs from '../../components/Crumbs.astro';
+import DayGroups from '../../components/DayGroups.astro';
 import ProductTable from '../../components/ProductTable.astro';
 import Base from '../../layouts/Base.astro';
 import {
@@ -12,6 +12,7 @@ import {
   productsIn,
   type Category,
 } from '../../lib/feed.ts';
+import { groupFeed } from '../../lib/releases.ts';
 
 export const getStaticPaths = (() =>
   categoriesInUse(loadSiteData()).map((category) => ({
@@ -36,12 +37,26 @@ const label = CATEGORY_LABELS[category];
   description={`${label.name}: ${label.blurb} Security advisories per product.`}
   section="products"
 >
-  <Breadcrumbs items={[{ label: 'Products', path: 'products/' }, { label: label.name }]} />
-  <h1>{label.name}</h1>
-  <p class="muted">{label.blurb}</p>
-  <ProductTable products={products} caption={`${label.name} products`} />
-  <section aria-labelledby="latest-heading">
-    <h2 id="latest-heading">Latest in {label.name.toLowerCase()}</h2>
-    <AdvisoryList advisories={latest} label={`Latest ${label.name} advisories`} />
+  <header>
+    <Crumbs items={[{ label: 'Products', path: 'products/' }, { label: label.name }]} />
+    <h1 class="page-title">{label.name}</h1>
+    <p class="lede">{label.blurb}</p>
+  </header>
+  <section class="section" aria-labelledby="products-title">
+    <h2 class="section-title section-title--gap" id="products-title">
+      Products
+    </h2>
+    <ProductTable products={products} label={`${label.name} products`} />
+  </section>
+  <section class="section" aria-labelledby="latest-title">
+    <h2 class="section-title" id="latest-title">
+      Latest in {label.name.toLowerCase()}
+    </h2>
+    <DayGroups days={groupFeed(latest, data.products)} openFirst={false} heading={3} />
   </section>
 </Base>
+
+<script>
+  import { startBundles } from '../../scripts/bundles.ts';
+  startBundles();
+</script>

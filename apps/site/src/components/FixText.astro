@@ -1,0 +1,31 @@
+---
+import type { FixText } from '../lib/releases.ts';
+
+interface Props {
+  fix: FixText;
+}
+
+const { fix } = Astro.props;
+---
+
+{fix.tone === 'unknown' ? (
+  fix.href ? (
+    <a class="fix-unknown" href={fix.href} rel="noopener noreferrer">
+      {fix.lead}
+    </a>
+  ) : (
+    <span class="fix-unknown">{fix.lead}</span>
+  )
+) : fix.tone === 'none' ? (
+  <span class="fix-none">{fix.lead}</span>
+) : (
+  <>
+    {fix.lead}
+    {fix.versions.map((v, i) => (
+      <>
+        {i === 0 ? ' ' : ', '}
+        <code>{v}</code>
+      </>
+    ))}
+  </>
+)}

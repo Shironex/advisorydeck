@@ -178,6 +178,8 @@ export interface AdvisoryView {
   note: NoteView | null;
   /** Judgement calls ingest made on messy upstream data (data/quality.json). */
   qualityNotes: string[];
+  /** The record's material revision: changes only when ranges, severity, KEV or the note change. */
+  revision: string;
 }
 
 export interface BranchView {
@@ -301,6 +303,7 @@ export function loadSiteData(root = dataRoot()): SiteData {
             ? noteFromFeed(advisory.note)
             : null,
       qualityNotes: quality[advisory.id] ?? [],
+      revision: advisory.revision,
     });
   }
   const advisoryOrder = [...advisories.values()]

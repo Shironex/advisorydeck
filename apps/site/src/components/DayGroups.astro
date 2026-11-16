@@ -1,0 +1,54 @@
+---
+import { longDay, plural } from '../lib/format.ts';
+import type { DayGroup } from '../lib/releases.ts';
+import AdvisoryRow from './AdvisoryRow.astro';
+import ReleaseBundle from './ReleaseBundle.astro';
+
+interface Props {
+  days: readonly DayGroup[];
+  /** Bundles of the first day open with a preview; later ones start closed. */
+  openFirst?: boolean;
+  /** Level of the day headings: 2 on a list page, 3 inside a section. */
+  heading?: 2 | 3;
+}
+
+const { days, openFirst = true, heading = 2 } = Astro.props;
+const H = heading === 3 ? 'h3' : 'h2';
+---
+
+{days.map((day, dayIndex) => {
+  const items: (
+    { kind: 'rows'; rows: (typeof day.items)[number][] } | (typeof day.items)[number]
+  )[] = [];
+  // Consecutive standalone rows share one list.
+  for (const item of day.items) {
+    const last = items.at(-1);
+    if (item.kind === 'row' && last?.kind === 'rows') last.rows.push(item);
+    else if (item.kind === 'row') items.push({ kind: 'rows', rows: [item] });
+    else items.push(item);
+  }
+  return (
+    <section class="day" aria-labelledby={`d-${day.day}`} id={`day-${day.day}`} data-group>
+      <div class="day-head">
+        <H id={`d-${day.day}`}>
+          <time datetime={day.day}>{longDay(day.day)}</time>
+        </H>
+        <span class="count">{plural(day.count, 'advisory', 'advisories')}</span>
+      </div>
+      {items.map((item) =>
+        item.kind === 'rows' ? (
+          <ul class="rows">
+            {item.rows.map((r) => (r.kind === 'row' ? <AdvisoryRow row={r.row} /> : null))}
+          </ul>
+        ) : item.kind === 'bundle' ? (
+          <ReleaseBundle
+            bundle={item.bundle}
+            open={openFirst && dayIndex === 0}
+            preview={3}
+            label="product"
+          />
+        ) : null,
+      )}
+    </section>
+  );
+})}

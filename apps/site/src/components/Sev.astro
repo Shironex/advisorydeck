@@ -1,0 +1,31 @@
+---
+import type { SeverityLevel } from '../lib/feed.ts';
+
+/** Severity always as label plus shape; the colour only supports it. */
+interface Props {
+  level: SeverityLevel;
+  score?: number | null;
+  /** Replaces the level name, for counts ("38 high"). */
+  label?: string;
+}
+
+const NAMES: Record<SeverityLevel, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+  unknown: 'Unknown',
+};
+
+const { level, score = null, label } = Astro.props;
+---
+
+<span class="sev" data-sev={level}>
+  {label ?? NAMES[level]}
+  {score !== null && (
+    <>
+      {' '}
+      <span class="score">{score.toFixed(1)}</span>
+    </>
+  )}
+</span>

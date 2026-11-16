@@ -45,3 +45,7 @@ export function requestNoteUrl(advisoryId: string, products: readonly string[]):
   });
   return `${REPO_URL}/issues/new?${params.toString()}`;
 }
+
+/** The generator with one product picked (the URL fragment never reaches a server). */
+export const generatorPath = (slug: string, version = '', floating = false): string =>
+  `generator/#p=${slug}~${floating ? 'f' : 'e'}~${encodeURIComponent(version)}`;

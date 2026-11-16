@@ -42,49 +42,57 @@ const rows = [
   description="Where Advisorydeck's advisory data comes from and the terms it is used under."
   section="sources"
 >
-  <div class="prose">
-    <h1>Data sources and licenses</h1>
-    <p>
+  <header>
+    <h1 class="page-title">Data sources and licenses</h1>
+    <p class="lede">
       Advisorydeck republishes public advisory data. Every advisory page and every advisory in the
       JSON feed lists the exact records it was built from, with a link and the license or terms of
       each record. The full attribution text is in
       <a href={`${REPO_URL}/blob/main/NOTICE`}>NOTICE</a>.
     </p>
-  </div>
+  </header>
 
-  <section aria-labelledby="upstream-heading">
-    <h2 id="upstream-heading">Upstream sources</h2>
-    <div class="source-list">
-      {rows.map((row) => (
-        <article class="panel source">
-          <h3>
-            <a href={row.url} rel="noopener noreferrer">
-              {row.name}
-            </a>
-          </h3>
-          <p>{row.use}</p>
-          <dl class="facts small">
+  <section class="section" aria-labelledby="upstream-heading">
+    <h2 class="section-title section-title--gap" id="upstream-heading">
+      Upstream sources
+    </h2>
+    {rows.map((row) => (
+      <article class="source" aria-labelledby={`src-${row.feedCode}`}>
+        <h3 class="source-title" id={`src-${row.feedCode}`}>
+          <a href={row.url} rel="noopener noreferrer">
+            {row.name}
+          </a>
+        </h3>
+        <p class="prose">{row.use}</p>
+        <dl class="facts facts--two">
+          <div>
             <dt>Terms</dt>
             <dd>
               <a href={row.licenseUrl} rel="noopener noreferrer">
                 {row.license}
               </a>
             </dd>
+          </div>
+          <div>
             <dt>In the feed</dt>
             <dd>
               <code>license: "{row.feedCode}"</code>
             </dd>
+          </div>
+          <div>
             <dt>Credit</dt>
             <dd>{row.credit}</dd>
-          </dl>
-        </article>
-      ))}
-    </div>
+          </div>
+        </dl>
+      </article>
+    ))}
   </section>
 
-  <section aria-labelledby="ours-heading" class="prose">
-    <h2 id="ours-heading">Advisorydeck's own content</h2>
-    <ul>
+  <section class="section" aria-labelledby="ours-heading">
+    <h2 class="section-title section-title--gap" id="ours-heading">
+      Advisorydeck's own content
+    </h2>
+    <ul class="prose plain-list">
       <li>
         Code: <a href={`${REPO_URL}/blob/main/LICENSE`}>MIT</a>.
       </li>
@@ -94,44 +102,46 @@ const rows = [
       </li>
       <li>
         Version ranges are normalized from the sources above; the judgement calls on ambiguous
-        records are listed on each advisory page and in <code>data/quality.json</code>.
+        records are listed on each advisory page and in{' '}
+        <code class="code-inline">data/quality.json</code>.
+      </li>
+      <li>
+        Fonts: Geist and Geist Mono, self-hosted with the site, under the SIL Open Font License 1.1.
       </li>
     </ul>
   </section>
 
-  <section aria-labelledby="not-heading" class="prose">
-    <h2 id="not-heading">What is not used</h2>
-    <p>
-      Nothing under a non-commercial or no-derivatives license is published. Vendor web pages are
-      read by people as a cross-check and to decide when a note is needed; their text is not copied.
-      When the KEV catalog could not be read for an advisory, it says "not checked" instead of
-      implying the CVE is not exploited.
-    </p>
+  <section class="section" aria-labelledby="not-heading">
+    <h2 class="section-title section-title--gap" id="not-heading">
+      What is not used
+    </h2>
+    <div class="prose">
+      <p>
+        Nothing under a non-commercial or no-derivatives license is published. Vendor web pages are
+        read by people as a cross-check and to decide when a note is needed; their text is not
+        copied. When the KEV catalog could not be read for an advisory, it says "not checked"
+        instead of implying the CVE is not exploited.
+      </p>
+    </div>
   </section>
 
-  <section aria-labelledby="feed-heading" class="prose">
-    <h2 id="feed-heading">The feed</h2>
-    <p>
-      The machine-readable feed is published at{' '}
-      <a href={href('api/v1/manifest.json')}>api/v1/manifest.json</a>
-      with one file per product under <code>api/v1/products/</code>. Its format is described in the
-      <a href={`${REPO_URL}/blob/main/docs/feed-contract.md`}>feed contract</a>. Atom feeds:
-      <a href={href('feed.xml')}>all advisories</a>, and one per product on each product page.
-    </p>
-    <p>
-      No accounts, no analytics, no cookies. The notifier image downloads these public files and
-      matches locally, so this site never learns what you run.
-    </p>
+  <section class="section" aria-labelledby="feed-heading">
+    <h2 class="section-title section-title--gap" id="feed-heading">
+      The feed
+    </h2>
+    <div class="prose">
+      <p>
+        The machine-readable feed is published at{' '}
+        <a href={href('api/v1/manifest.json')}>api/v1/manifest.json</a>
+        with one file per product under <code class="code-inline">api/v1/products/</code>. Its
+        format is described in the
+        <a href={`${REPO_URL}/blob/main/docs/feed-contract.md`}>feed contract</a>. Atom feeds:
+        <a href={href('feed.xml')}>all advisories</a>, and one per product on each product page.
+      </p>
+      <p>
+        No accounts, no analytics, no cookies, no third-party requests. The notifier image downloads
+        these public files and matches locally, so this site never learns what you run.
+      </p>
+    </div>
   </section>
 </Base>
-
-<style>
-  .source-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-    gap: var(--space-4);
-  }
-  .source h3 {
-    margin-top: 0;
-  }
-</style>

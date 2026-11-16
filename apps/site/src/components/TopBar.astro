@@ -1,0 +1,89 @@
+---
+import { href } from '../lib/site.ts';
+import Icon from './Icon.astro';
+
+export type Section = 'feed' | 'products' | 'generator' | 'sources';
+
+interface Props {
+  section?: Section | undefined;
+}
+
+const { section } = Astro.props;
+const nav: { key: Section; label: string; path: string }[] = [
+  { key: 'feed', label: 'Feed', path: '' },
+  { key: 'products', label: 'Products', path: 'products/' },
+  { key: 'generator', label: 'Generator', path: 'generator/' },
+  { key: 'sources', label: 'Sources', path: 'sources/' },
+];
+---
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href={href('')}>
+      <span class="wordmark-mark" aria-hidden="true"></span>Advisorydeck
+    </a>
+    <button
+      class="search"
+      type="button"
+      aria-label="Search advisories, products and IDs (press /)"
+      aria-haspopup="dialog"
+      data-search-open
+    >
+      <Icon name="search" />
+      <span>Search advisories, products, IDs</span>
+      <kbd>/</kbd>
+    </button>
+    <button
+      class="icon-btn search-btn"
+      type="button"
+      aria-label="Search"
+      aria-haspopup="dialog"
+      data-search-open
+    >
+      <Icon name="search" />
+    </button>
+    <nav class="topnav" aria-label="Main">
+      {nav.map((item) => (
+        <a href={href(item.path)} aria-current={section === item.key ? 'page' : undefined}>
+          {item.label}
+        </a>
+      ))}
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Switch theme" data-theme-toggle>
+      <Icon name="moon" class="icon-moon" />
+      <Icon name="sun" class="icon-sun" />
+    </button>
+  </div>
+</header>
+
+<dialog class="search-dialog" aria-labelledby="search-label" data-search-dialog>
+  <form method="dialog" class="search-form" role="search">
+    <label class="label" id="search-label" for="search-input">
+      Search advisories, products, IDs
+    </label>
+    <div class="search-row">
+      <input
+        class="input"
+        id="search-input"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="CVE-2026-6460, traefik, type confusion"
+        aria-describedby="search-status"
+        data-search-input
+      />
+      <button class="btn" type="submit" value="close">
+        Close
+      </button>
+    </div>
+    <p class="hint" id="search-status" role="status" data-search-status>
+      Type to search. The index is part of this site; nothing is sent elsewhere.
+    </p>
+  </form>
+  <ul class="search-results" data-search-results data-index={href('search.json')}></ul>
+</dialog>
+
+<script>
+  import { startChrome } from '../scripts/chrome.ts';
+  startChrome();
+</script>

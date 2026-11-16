@@ -1,0 +1,49 @@
+---
+import { CATEGORY_LABELS, categoriesInUse, loadSiteData, productsIn } from '../lib/feed.ts';
+import { dateTimeUtc, plural } from '../lib/format.ts';
+import { href, productPath } from '../lib/site.ts';
+
+interface Props {
+  /** The product whose page this is. */
+  current?: string | undefined;
+}
+
+const { current } = Astro.props;
+const data = loadSiteData();
+const categories = categoriesInUse(data);
+---
+
+<nav class="sidenav" aria-label="Products">
+  {categories.map((category) => (
+    <div class="nav-group">
+      <h2>{CATEGORY_LABELS[category].name}</h2>
+      <ul role="list">
+        {productsIn(data, category).map((p) => (
+          <li>
+            <a
+              class="nav-item"
+              href={href(productPath(p.slug))}
+              aria-current={current === p.slug ? 'page' : undefined}
+            >
+              <span>{p.name}</span>
+              <span class="count">
+                {p.advisoryIds.length}
+                <span class="visually-hidden"> advisories</span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  ))}
+  <p class="nav-foot">
+    {plural(data.advisoryOrder.length, 'advisory', 'advisories')} across{' '}
+    {plural(data.products.length, 'product')}
+    {data.generatedAt && (
+      <>
+        , updated <time datetime={data.generatedAt}>{dateTimeUtc(data.generatedAt)}</time>
+      </>
+    )}
+    . <a href={href('api/v1/manifest.json')}>Feed JSON</a>
+  </p>
+</nav>
