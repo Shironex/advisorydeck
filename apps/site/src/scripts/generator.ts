@@ -1,34 +1,43 @@
 /**
  * The generator's browser side: reads the form, renders the three files, validates the config
- * against the schema and keeps the setup in the URL fragment. It makes no network requests.
+ * against the schema, blocks Copy and Download while a problem exists, and keeps the setup in
+ * the URL fragment. It makes no network requests.
  */
 import {
+  CHANNEL_TYPES,
   decodeState,
   defaultState,
   encodeState,
-  nextEnvName,
-  stateProblems,
+  formProblems,
   toCompose,
   toConfigYaml,
   toEnvTemplate,
-  type ChannelType,
+  type FormProblem,
   type GeneratorState,
   type Mode,
-  type PickedChannel,
+  type PickedProduct,
   type Severity,
 } from '../lib/generator.ts';
 import { validateConfigYaml } from '../lib/validate-config.ts';
 
+interface ProductInfo {
+  slug: string;
+  name: string;
+  branches: { name: string; eol: boolean; latest: string | null }[];
+  image: string | null;
+}
+
 interface Payload {
   feedUrl: string;
-  products: {
-    slug: string;
-    name: string;
-    branches: { name: string; eol: boolean; latest: string | null }[];
-  }[];
+  products: ProductInfo[];
 }
 
 type OutputKey = 'config' | 'compose' | 'env';
+const FILENAMES: Record<OutputKey, string> = {
+  config: 'advisorydeck.yml',
+  compose: 'compose.yml',
+  env: '.env',
+};
 
 // The caller names the element type it expects from the selector.
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters
@@ -62,6 +71,70 @@ function timeZones(): string[] {
   return ['UTC'];
 }
 
+/** One generated line as spans: keys, values and comments, for the line-numbered view. */
+function highlight(line: string): HTMLElement {
+  const ln = document.createElement('span');
+  ln.className = 'ln';
+  const add = (cls: string | null, text: string): void => {
+    if (text === '') return;
+    if (cls === null) {
+      ln.append(text);
+      return;
+    }
+    const span = document.createElement('span');
+    span.className = cls;
+    span.textContent = text;
+    ln.append(span);
+  };
+  const comment = /^(\s*)(#.*)$/.exec(line);
+  if (comment) {
+    add(null, comment[1] ?? '');
+    add('c', comment[2] ?? '');
+    return ln;
+  }
+  const pair = /^(\s*(?:- )?)([A-Za-z_][\w-]*[:=])(.*)$/.exec(line);
+  if (pair) {
+    add(null, pair[1] ?? '');
+    add('k', pair[2] ?? '');
+    const rest = pair[3] ?? '';
+    const tail = /^(.*?)(\s+#.*)?$/.exec(rest);
+    const value = tail?.[1] ?? rest;
+    const lead = /^\s*/.exec(value)?.[0] ?? '';
+    add(null, lead);
+    add('s', value.slice(lead.length));
+    add('c', tail?.[2] ?? '');
+    return ln;
+  }
+  const item = /^(\s*- )(.*)$/.exec(line);
+  if (item) {
+    add(null, item[1] ?? '');
+    add('s', item[2] ?? '');
+    return ln;
+  }
+  add(null, line);
+  return ln;
+}
+
+/** Index of the generated line a problem points at, or -1. */
+function badLine(lines: readonly string[], problem: FormProblem): number {
+  const nth = (prefix: string, index: number): number => {
+    let seen = -1;
+    return lines.findIndex((l) => l.startsWith(prefix) && ++seen === index);
+  };
+  switch (problem.target.kind) {
+    case 'product':
+      return nth('    version:', problem.target.index);
+    case 'channel':
+      return nth('    url_env:', problem.target.index);
+    case 'time':
+      return nth('  time:', 0);
+    case 'timezone':
+      return nth('  timezone:', 0);
+    default:
+      return -1;
+  }
+}
+
 export function startGenerator(): void {
   const root = document.querySelector<HTMLElement>('[data-generator]');
   const dataElement = document.getElementById('generator-data');
@@ -71,58 +144,117 @@ export function startGenerator(): void {
   const payload = JSON.parse(dataElement.textContent || '{}') as Payload;
   const products = new Map(payload.products.map((p) => [p.slug, p]));
   const form = $<HTMLFormElement>(root, 'form');
-  const channelList = $<HTMLUListElement>(root, '[data-channels]');
-  const channelTemplate = $<HTMLTemplateElement>(root, '[data-channel-template]');
-  const zoneSelect = $<HTMLSelectElement>(form, 'select[name="timezone"]');
-  const timeInput = $<HTMLInputElement>(form, 'input[name="digest-time"]');
+  const list = $<HTMLUListElement>(root, '[data-products]');
+  const template = $<HTMLTemplateElement>(root, '[data-product-template]');
+  const addButton = $<HTMLButtonElement>(root, '[data-add-product]');
+  const timeInput = $<HTMLInputElement>(form, '#digest-time');
+  const zoneInput = $<HTMLInputElement>(form, '#timezone');
   const digestFields = $<HTMLElement>(form, '[data-digest-fields]');
-  const status = $<HTMLElement>(root, '[data-status]');
+  const valid = $<HTMLElement>(root, '[data-valid]');
+  const copyButton = $<HTMLButtonElement>(root, '[data-copy]');
+  const downloadButton = $<HTMLButtonElement>(root, '[data-download]');
   const outputs: Record<OutputKey, string> = { config: '', compose: '', env: '' };
+  let active: OutputKey = 'config';
+  let blocked = false;
+  let rowId = 0;
 
-  // Time zones, filled here so the page ships no list of hundreds of names.
-  const zones = timeZones();
-  zoneSelect.replaceChildren(
-    ...zones.map((zone) => {
+  const zones = document.getElementById('time-zones');
+  zones?.replaceChildren(
+    ...timeZones().map((zone) => {
       const option = document.createElement('option');
       option.value = zone;
-      option.textContent = zone;
       return option;
     }),
   );
 
-  function pickRow(slug: string): HTMLElement | null {
-    return form.querySelector<HTMLElement>(`.pick[data-slug="${CSS.escape(slug)}"]`);
+  function rows(): HTMLLIElement[] {
+    return [...list.querySelectorAll<HTMLLIElement>(':scope > li')];
   }
 
-  function addChannel(channel: PickedChannel): void {
-    const fragment = channelTemplate.content.cloneNode(true) as DocumentFragment;
-    const item = $<HTMLLIElement>(fragment, 'li');
-    $<HTMLSelectElement>(item, '[data-channel-type]').value = channel.type;
-    $<HTMLInputElement>(item, '[data-channel-env]').value = channel.urlEnv;
-    $<HTMLInputElement>(item, '[data-channel-name]').value = channel.name;
-    channelList.append(item);
-  }
-
-  /** Puts a state into the form (on load from the fragment). */
-  function writeForm(state: GeneratorState): void {
-    for (const picked of state.products) {
-      const row = pickRow(picked.slug);
-      if (row === null) {
-        continue;
-      }
-      $<HTMLInputElement>(row, '[data-product-toggle]').checked = true;
-      const kind = row.querySelector<HTMLInputElement>(`[data-kind][value="${picked.kind}"]`);
-      if (kind !== null) {
-        kind.checked = true;
-      }
-      if (picked.kind === 'floating') {
-        const select = row.querySelector<HTMLSelectElement>('[data-branch]');
-        if (select !== null && [...select.options].some((o) => o.value === picked.version)) {
-          select.value = picked.version;
-        }
+  function syncRow(row: HTMLLIElement): PickedProduct {
+    const slug = $<HTMLSelectElement>(row, '[data-product]').value;
+    const info = products.get(slug);
+    const floating =
+      row.querySelector<HTMLInputElement>('[data-kind]:checked')?.value === 'floating';
+    const input = $<HTMLInputElement>(row, '[data-version]');
+    const version = input.value.trim();
+    $<HTMLElement>(row, '[data-version-label]').textContent = floating ? 'Branch' : 'Version';
+    $<HTMLElement>(row, '[data-pin-legend]').textContent = `How you pin ${info?.name ?? slug}`;
+    $<HTMLElement>(row, '[data-remove-product]').setAttribute(
+      'aria-label',
+      `Remove ${info?.name ?? slug}`,
+    );
+    const supported = info?.branches.find((b) => !b.eol);
+    input.placeholder = floating ? (supported?.name ?? '') : (supported?.latest ?? '');
+    if (floating && info !== undefined && info.branches.length > 0) {
+      input.setAttribute('list', `branches-${slug}`);
+    } else {
+      input.removeAttribute('list');
+    }
+    const hint = $<HTMLElement>(row, '[data-hint]');
+    hint.replaceChildren();
+    const branch = info?.branches.find((b) => b.name === version);
+    if (floating) {
+      const tag = info?.image && version !== '' ? `${info.image}:${version}` : null;
+      if (branch?.eol) {
+        hint.append(
+          `Branch ${version} is end of life and gets no security fixes. The notifier will remind you.`,
+        );
+      } else if (tag !== null) {
+        const code = document.createElement('code');
+        code.className = 'code-inline';
+        code.textContent = tag;
+        hint.append('You pull ', code, `, so every ${version}.x release counts as yours.`);
       } else {
-        $<HTMLInputElement>(row, '[data-exact]').value = picked.version;
+        hint.append('Every release of the branch counts as yours.');
       }
+    } else {
+      hint.append(
+        version === ''
+          ? 'The exact version you run.'
+          : `Matches advisories that affect exactly ${version}.`,
+      );
+    }
+    return { slug, kind: floating ? 'floating' : 'exact', version };
+  }
+
+  function addRow(picked: PickedProduct): HTMLLIElement {
+    rowId += 1;
+    const fragment = template.content.cloneNode(true) as DocumentFragment;
+    const row = $<HTMLLIElement>(fragment, 'li');
+    const select = $<HTMLSelectElement>(row, '[data-product]');
+    const input = $<HTMLInputElement>(row, '[data-version]');
+    select.id = `product-${rowId}`;
+    input.id = `version-${rowId}`;
+    $<HTMLElement>(row, '[data-for="product"]').setAttribute('for', select.id);
+    $<HTMLElement>(row, '[data-for="version"]').setAttribute('for', input.id);
+    const hint = $<HTMLElement>(row, '[data-hint]');
+    hint.id = `version-${rowId}-hint`;
+    const error = $<HTMLElement>(row, '[data-error]');
+    error.id = `version-${rowId}-error`;
+    input.setAttribute('aria-describedby', hint.id);
+    for (const radio of row.querySelectorAll<HTMLInputElement>('[data-kind]')) {
+      radio.name = `pin-${rowId}`;
+      radio.checked = radio.value === picked.kind;
+    }
+    select.value = picked.slug;
+    input.value = picked.version;
+    list.append(row);
+    syncRow(row);
+    return row;
+  }
+
+  function nextFreeProduct(): string {
+    const taken = new Set(rows().map((r) => $<HTMLSelectElement>(r, '[data-product]').value));
+    return (
+      payload.products.find((p) => !taken.has(p.slug))?.slug ?? payload.products[0]?.slug ?? ''
+    );
+  }
+
+  function writeForm(state: GeneratorState): void {
+    list.replaceChildren();
+    for (const picked of state.products) {
+      addRow(picked);
     }
     const severity = form.querySelector<HTMLInputElement>(
       `input[name="severity"][value="${state.minSeverity}"]`,
@@ -131,92 +263,166 @@ export function startGenerator(): void {
     const mode = form.querySelector<HTMLInputElement>(`input[name="mode"][value="${state.mode}"]`);
     if (mode !== null) mode.checked = true;
     timeInput.value = state.digestTime;
-    if (!zones.includes(state.timezone)) {
-      const option = document.createElement('option');
-      option.value = state.timezone;
-      option.textContent = state.timezone;
-      zoneSelect.prepend(option);
-    }
-    zoneSelect.value = state.timezone;
-    channelList.replaceChildren();
-    for (const channel of state.channels) {
-      addChannel(channel);
+    zoneInput.value = state.timezone;
+    // One channel per type: the first of each type in the state wins.
+    for (const type of CHANNEL_TYPES) {
+      const item = $<HTMLElement>(form, `[data-channel="${type}"]`);
+      const picked = state.channels.find((c) => c.type === type);
+      $<HTMLInputElement>(item, '[data-channel-on]').checked = picked !== undefined;
+      if (picked !== undefined)
+        $<HTMLInputElement>(item, '[data-channel-env]').value = picked.urlEnv;
     }
   }
 
-  /** Reads the form into a state and syncs which panels are visible. */
   function readForm(): GeneratorState {
     const state = defaultState(browserZone());
-    state.products = [];
-    for (const row of form.querySelectorAll<HTMLElement>('.pick')) {
-      const slug = row.dataset['slug'] ?? '';
-      const on = $<HTMLInputElement>(row, '[data-product-toggle]').checked;
-      const panel = $<HTMLElement>(row, '[data-version-panel]');
-      panel.hidden = !on;
-      if (!on || !products.has(slug)) {
-        continue;
-      }
-      const floating =
-        row.querySelector<HTMLInputElement>('[data-kind][value="floating"]')?.checked === true;
-      const branchField = row.querySelector<HTMLElement>('[data-branch-field]');
-      const exactField = $<HTMLElement>(row, '[data-exact-field]');
-      const exact = $<HTMLInputElement>(row, '[data-exact]');
-      if (branchField !== null) branchField.hidden = !floating;
-      exactField.hidden = floating;
-      const floatingHint = row.querySelector<HTMLElement>('[data-hint-floating]');
-      if (floatingHint !== null) floatingHint.hidden = !floating;
-      $<HTMLElement>(row, '[data-hint-exact]').hidden = floating;
-      const branch = row.querySelector<HTMLSelectElement>('[data-branch]')?.value ?? '';
-      const version = floating ? branch : exact.value.trim();
-      const info = products.get(slug);
-      const eol = floating && info?.branches.find((b) => b.name === branch)?.eol === true;
-      $<HTMLElement>(row, '[data-eol-warning]').hidden = !eol;
-      exact.setAttribute(
-        'aria-invalid',
-        !floating && version !== '' && !/^[0-9A-Za-z][0-9A-Za-z.+:~_-]*$/.test(version)
-          ? 'true'
-          : 'false',
-      );
-      state.products.push({ slug, kind: floating ? 'floating' : 'exact', version });
-    }
+    state.products = rows().map(syncRow);
     state.minSeverity = (form.querySelector<HTMLInputElement>('input[name="severity"]:checked')
       ?.value ?? 'high') as Severity;
     state.mode = (form.querySelector<HTMLInputElement>('input[name="mode"]:checked')?.value ??
       'digest') as Mode;
     digestFields.hidden = state.mode === 'instant';
-    state.digestTime = timeInput.value || '08:00';
-    state.timezone = zoneSelect.value || 'UTC';
-    state.channels = [...channelList.querySelectorAll<HTMLLIElement>('li')].map((item) => ({
-      type: $<HTMLSelectElement>(item, '[data-channel-type]').value as ChannelType,
-      urlEnv: $<HTMLInputElement>(item, '[data-channel-env]').value.trim(),
-      name: $<HTMLInputElement>(item, '[data-channel-name]').value,
-    }));
-    for (const button of channelList.querySelectorAll<HTMLButtonElement>('[data-remove-channel]')) {
-      button.disabled = state.channels.length <= 1;
+    state.digestTime = timeInput.value.trim();
+    state.timezone = zoneInput.value.trim();
+    state.channels = CHANNEL_TYPES.flatMap((type) => {
+      const item = $<HTMLElement>(form, `[data-channel="${type}"]`);
+      const on = $<HTMLInputElement>(item, '[data-channel-on]').checked;
+      const env = $<HTMLInputElement>(item, '[data-channel-env]');
+      env.disabled = !on;
+      item.querySelector('.field')?.classList.toggle('is-off', !on);
+      return on ? [{ type, urlEnv: env.value.trim(), name: '' }] : [];
+    });
+    for (const button of list.querySelectorAll<HTMLButtonElement>('[data-remove-product]')) {
+      button.disabled = state.products.length <= 1;
     }
+    addButton.disabled = state.products.length >= payload.products.length;
     return state;
   }
 
-  function renderStatus(problems: string[]): void {
-    status.replaceChildren();
-    const box = document.createElement('div');
-    if (problems.length === 0) {
-      box.className = 'ok';
-      box.textContent =
-        'advisorydeck.yml is valid: it passes the image config schema and the rules the image adds.';
-    } else {
-      box.className = 'bad';
-      const lead = document.createElement('p');
-      lead.textContent = 'Not ready yet:';
-      const list = document.createElement('ul');
-      for (const problem of problems) {
-        const li = document.createElement('li');
-        li.textContent = problem;
-        list.append(li);
-      }
-      box.append(lead, list);
+  /** The field a problem belongs to, for aria-invalid, its error text and the "Fix it" link. */
+  function fieldOf(
+    problem: FormProblem,
+    state: GeneratorState,
+  ): { input: HTMLElement; error: HTMLElement | null } | null {
+    const t = problem.target;
+    if (t.kind === 'product') {
+      const row = rows()[t.index];
+      return row
+        ? {
+            input: $<HTMLElement>(row, '[data-version]'),
+            error: $<HTMLElement>(row, '[data-error]'),
+          }
+        : null;
     }
-    status.append(box);
+    if (t.kind === 'channel') {
+      const type = state.channels[t.index]?.type;
+      if (type === undefined) return null;
+      return {
+        input: $<HTMLElement>(form, `#env-${type}`),
+        error: document.getElementById(`env-${type}-error`),
+      };
+    }
+    if (t.kind === 'time')
+      return { input: timeInput, error: document.getElementById('digest-time-error') };
+    if (t.kind === 'timezone') return { input: zoneInput, error: null };
+    if (t.kind === 'products')
+      return { input: addButton, error: document.getElementById('products-error') };
+    return {
+      input: $<HTMLElement>(form, '#env-discord'),
+      error: document.getElementById('channels-error'),
+    };
+  }
+
+  function markFields(problems: FormProblem[], state: GeneratorState): void {
+    for (const el of form.querySelectorAll<HTMLElement>('[aria-invalid="true"]')) {
+      el.setAttribute('aria-invalid', 'false');
+      const base = el.dataset['describedBy'];
+      if (base !== undefined) el.setAttribute('aria-describedby', base);
+    }
+    for (const el of root?.querySelectorAll<HTMLElement>('.error-text') ?? []) el.hidden = true;
+    for (const problem of problems) {
+      const field = fieldOf(problem, state);
+      if (field === null) continue;
+      if (field.input.matches('input')) {
+        field.input.setAttribute('aria-invalid', 'true');
+        if (field.error !== null) {
+          field.input.dataset['describedBy'] ??= field.input.getAttribute('aria-describedby') ?? '';
+          field.input.setAttribute(
+            'aria-describedby',
+            `${field.input.dataset['describedBy']} ${field.error.id}`.trim(),
+          );
+        }
+      }
+      if (field.error !== null) {
+        field.error.hidden = false;
+        const text = field.error.querySelector('[data-error-text]');
+        if (text !== null) text.textContent = problem.message.replace(/^[a-z0-9-]+: /, '');
+      }
+    }
+  }
+
+  function renderCode(key: OutputKey, bad: Set<number>): void {
+    const target = $<HTMLElement>(root as HTMLElement, `[data-code="${key}"]`);
+    const lines = outputs[key].replace(/\n$/, '').split('\n');
+    target.replaceChildren(
+      ...lines.map((line, i) => {
+        const ln = highlight(line);
+        if (bad.has(i)) ln.classList.add('is-bad');
+        return ln;
+      }),
+    );
+  }
+
+  function renderValid(
+    problems: FormProblem[],
+    schemaProblems: string[],
+    state: GeneratorState,
+  ): void {
+    valid.replaceChildren();
+    const total = problems.length + schemaProblems.length;
+    blocked = total > 0;
+    valid.classList.toggle('valid--bad', blocked);
+    const icon = valid.ownerDocument.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = blocked
+      ? '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.8v5M12 15.9v.1"/>'
+      : '<circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.2l2.4 2.4 4.6-4.9"/>';
+    const text = document.createElement('span');
+    text.id = 'valid-text';
+    const strong = document.createElement('strong');
+    if (!blocked) {
+      strong.textContent = 'Valid';
+      text.append(strong, ' against the image-config v1 schema');
+    } else {
+      strong.textContent = `${total} ${total === 1 ? 'problem' : 'problems'}:`;
+      const first = problems[0];
+      text.append(strong, ` ${first?.message ?? schemaProblems[0] ?? ''} `);
+      const field = first ? fieldOf(first, state) : null;
+      if (field !== null && field.input.id !== '') {
+        const link = document.createElement('a');
+        link.href = `#${field.input.id}`;
+        link.textContent = 'Fix it';
+        link.addEventListener('click', (event) => {
+          event.preventDefault();
+          field.input.focus();
+        });
+        text.append(link, ' to copy or download.');
+      } else {
+        text.append('Fix it to copy or download.');
+      }
+    }
+    valid.append(icon, text);
+    for (const button of [copyButton, downloadButton]) {
+      if (blocked) {
+        button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('aria-describedby', 'valid-text');
+      } else {
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('aria-describedby');
+      }
+    }
   }
 
   function render(): void {
@@ -224,17 +430,33 @@ export function startGenerator(): void {
     outputs.config = toConfigYaml(state, payload.feedUrl);
     outputs.compose = toCompose(state);
     outputs.env = toEnvTemplate(state);
-    for (const key of Object.keys(outputs) as OutputKey[]) {
-      $<HTMLElement>(root as HTMLElement, `[data-code="${key}"]`).textContent = outputs[key];
-    }
-    const formProblems = stateProblems(state);
-    renderStatus(formProblems.length > 0 ? formProblems : validateConfigYaml(outputs.config));
-    const fragment = encodeState(state);
-    history.replaceState(null, '', `${location.pathname}${location.search}#${fragment}`);
+    const problems = formProblems(state);
+    const schemaProblems = problems.length > 0 ? [] : validateConfigYaml(outputs.config);
+    const configLines = outputs.config.split('\n');
+    renderCode(
+      'config',
+      new Set(problems.map((p) => badLine(configLines, p)).filter((i) => i >= 0)),
+    );
+    renderCode('compose', new Set());
+    renderCode('env', new Set());
+    markFields(problems, state);
+    renderValid(problems, schemaProblems, state);
+    history.replaceState(null, '', `${location.pathname}${location.search}#${encodeState(state)}`);
   }
 
-  async function copy(text: string, button: HTMLButtonElement): Promise<void> {
-    const label = button.firstChild;
+  function select(key: OutputKey, focus: boolean): void {
+    active = key;
+    for (const tab of root?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? []) {
+      const on = tab.dataset['tab'] === key;
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+      tab.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(tab.getAttribute('aria-controls') ?? '');
+      if (panel !== null) panel.hidden = !on;
+      if (on && focus) tab.focus();
+    }
+  }
+
+  async function copy(text: string, label: Element | null, idle: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
       if (label) label.textContent = 'Copied';
@@ -242,9 +464,7 @@ export function startGenerator(): void {
       if (label) label.textContent = 'Copy failed: select the text';
     }
     window.setTimeout(() => {
-      if (label)
-        label.textContent =
-          button.dataset['copyLink'] !== undefined ? 'Copy a link to this setup' : 'Copy';
+      if (label) label.textContent = idle;
     }, 1600);
   }
 
@@ -266,53 +486,48 @@ export function startGenerator(): void {
   });
   root.addEventListener('click', (event) => {
     const target = (event.target as Element).closest<HTMLButtonElement>('button');
-    if (target === null) {
-      return;
-    }
-    if (target.matches('[data-add-channel]')) {
-      const taken = [...channelList.querySelectorAll<HTMLInputElement>('[data-channel-env]')].map(
-        (i) => i.value,
-      );
-      addChannel({ type: 'discord', urlEnv: nextEnvName('discord', taken), name: '' });
+    if (target === null) return;
+    if (target.matches('[data-add-product]')) {
+      const row = addRow({ slug: nextFreeProduct(), kind: 'exact', version: '' });
       render();
-      channelList.querySelector<HTMLSelectElement>('li:last-child [data-channel-type]')?.focus();
-    } else if (target.matches('[data-remove-channel]')) {
-      const item = target.closest('li');
-      const previous = item?.previousElementSibling ?? item?.nextElementSibling;
-      item?.remove();
+      $<HTMLInputElement>(row, '[data-version]').focus();
+    } else if (target.matches('[data-remove-product]')) {
+      const row = target.closest('li');
+      const neighbour = row?.nextElementSibling ?? row?.previousElementSibling;
+      row?.remove();
       render();
-      (
-        previous?.querySelector<HTMLSelectElement>('[data-channel-type]') ??
-        $<HTMLButtonElement>(root, '[data-add-channel]')
-      ).focus();
-    } else if (target.dataset['copy'] !== undefined) {
-      void copy(outputs[target.dataset['copy'] as OutputKey], target);
-    } else if (target.dataset['download'] !== undefined) {
-      download(
-        outputs[target.dataset['download'] as OutputKey],
-        target.dataset['filename'] ?? 'file.txt',
-      );
+      (neighbour?.querySelector<HTMLElement>('[data-product]') ?? addButton).focus();
+    } else if (target.dataset['tab'] !== undefined) {
+      select(target.dataset['tab'] as OutputKey, false);
+    } else if (target.matches('[data-copy]')) {
+      if (!blocked) void copy(outputs[active], target.querySelector('[data-copy-label]'), 'Copy');
+    } else if (target.matches('[data-download]')) {
+      if (!blocked) download(outputs[active], FILENAMES[active]);
     } else if (target.matches('[data-copy-link]')) {
-      void copy(location.href, target);
+      void copy(location.href, target, 'Copy a link to this setup');
     }
   });
-  // Changing a channel's type moves a default variable name along with it.
-  channelList.addEventListener('change', (event) => {
-    const select = event.target as HTMLElement;
-    if (!select.matches('[data-channel-type]')) {
-      return;
-    }
-    const item = select.closest('li');
-    const env = item?.querySelector<HTMLInputElement>('[data-channel-env]');
-    if (env && /^(DISCORD|SLACK|GENERIC)_WEBHOOK_URL(_\d+)?$/.test(env.value)) {
-      const others = [...channelList.querySelectorAll<HTMLInputElement>('[data-channel-env]')]
-        .filter((i) => i !== env)
-        .map((i) => i.value);
-      env.value = nextEnvName((select as HTMLSelectElement).value as ChannelType, others);
-    }
+  root.addEventListener('keydown', (event) => {
+    const tab = (event.target as Element).closest<HTMLButtonElement>('[role="tab"]');
+    if (tab === null || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) return;
+    const keys: OutputKey[] = ['config', 'compose', 'env'];
+    const i = keys.indexOf(tab.dataset['tab'] as OutputKey) + (event.key === 'ArrowRight' ? 1 : -1);
+    select(keys[(i + keys.length) % keys.length] ?? 'config', true);
+    event.preventDefault();
   });
 
-  writeForm(decodeState(location.hash, new Set(products.keys()), browserZone()));
+  const state = decodeState(location.hash, new Set(products.keys()), browserZone());
+  if (state.products.length === 0) {
+    // A first row to start from: PostgreSQL on its newest supported branch when it is listed.
+    const first = products.get('postgresql') ?? payload.products[0];
+    const branch = first?.branches.find((b) => !b.eol);
+    state.products.push({
+      slug: first?.slug ?? '',
+      kind: branch ? 'floating' : 'exact',
+      version: branch?.name ?? '',
+    });
+  }
+  writeForm(state);
   root.hidden = false;
   render();
 }

@@ -14,6 +14,7 @@ import {
   defaultState,
   encodeState,
   nextEnvName,
+  formProblems,
   stateProblems,
   toCompose,
   toConfigYaml,
@@ -138,6 +139,22 @@ describe('generator output', () => {
         }),
       ),
     ).toHaveLength(2);
+  });
+
+  it('points each form problem at its field', () => {
+    const problems = formProblems(
+      state({
+        products: [
+          { slug: 'redis', kind: 'exact', version: '8.2.1' },
+          { slug: 'traefik', kind: 'exact', version: '' },
+        ],
+        channels: [{ type: 'slack', urlEnv: 'slack-hook', name: '' }],
+      }),
+    );
+    expect(problems.map((p) => p.target)).toEqual([
+      { kind: 'product', index: 1 },
+      { kind: 'channel', index: 0 },
+    ]);
   });
 
   it('compose.yml keeps the hardening of docs/examples/compose.yml and never mounts the socket', () => {

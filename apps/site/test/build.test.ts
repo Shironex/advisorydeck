@@ -119,8 +119,8 @@ describe('site build', () => {
     expect(advisoryIds.length).toBeGreaterThan(0);
     for (const id of advisoryIds) {
       const html = page(`advisories/${id}/index.html`);
-      expect(html, id).toContain(`<p class="eyebrow mono"`);
-      expect(html, id).toContain(id);
+      expect(html, id).toContain(`<span class="mono meta-id">${id}</span>`);
+      expect(html, id).toContain('Affected versions and the fix');
     }
   });
 
@@ -205,21 +205,20 @@ describe('curated note states', () => {
     const html = page(`advisories/${draftId}/index.html`);
     expect(html).toContain('data-state="draft"');
     expect(html).toContain('Unreviewed draft: do not rely on it');
-    expect(html).toContain('This is an unreviewed draft.');
+    expect(html).toContain('Draft, not reviewed');
+    expect(html).not.toContain('tag--reviewed');
   });
 
   it('reviewed: reviewer, date, and the exposure label next to its assumptions', () => {
     const html = page(`advisories/${reviewedId}/index.html`);
     expect(html).toContain('data-state="reviewed"');
     expect(html).toContain('by example-reviewer');
-    expect(html).toMatch(/<time datetime="2026-11-13"[^>]*>2026-11-13<\/time>/);
+    expect(html).toMatch(/<time datetime="2026-11-13"[^>]*>13 Nov 2026<\/time>/);
     const label = html.indexOf('Not exposed on a default setup');
     const assumption = html.indexOf('Port 5432 is not published outside the Docker network.');
     expect(label).toBeGreaterThan(-1);
     expect(assumption).toBeGreaterThan(label);
-    expect(html.slice(label, assumption)).toContain(
-      'This holds only if all of these are true for you',
-    );
+    expect(html.slice(label, assumption)).toContain('Assumes, all of these true for you');
     expect(html).toContain('template=wrong-note.yml');
   });
 

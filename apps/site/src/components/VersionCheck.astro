@@ -1,0 +1,62 @@
+---
+import type { ProductView } from '../lib/feed.ts';
+import { href } from '../lib/site.ts';
+
+interface Props {
+  product: ProductView;
+}
+
+const { product } = Astro.props;
+const supported = product.branches.find((b) => !b.eol);
+const image = product.images[0]?.ref.replace(/^docker\.io\/(library\/)?/, '');
+const example = supported?.latest ?? (product.slug === 'coolify' ? '4.0.0-beta.474' : '1.2.3');
+const hint = supported
+  ? `A release like ${supported.latest ?? example}, or a branch like ${supported.name}${image ? ` if you pull ${image}:${supported.name}` : ''}.`
+  : `The exact version you run, like ${example}.`;
+---
+
+<section
+  class="check"
+  aria-labelledby="check-title"
+  data-check
+  data-feed-url={href(`api/v1/products/${product.slug}.json`)}
+  data-generator={href('generator/')}
+  data-image={image ?? ''}
+>
+  <form class="check-form" novalidate>
+    <div class="field">
+      <label class="label" id="check-title" for="check-version">
+        Check your version
+      </label>
+      <input
+        class="input mono"
+        id="check-version"
+        name="version"
+        autocomplete="off"
+        spellcheck="false"
+        inputmode="text"
+        placeholder={example}
+        aria-describedby="check-hint"
+        required
+      />
+    </div>
+    <button class="btn btn--primary check-btn" type="submit">
+      Check
+    </button>
+  </form>
+  <p class="hint" id="check-hint">
+    {hint}
+  </p>
+  <noscript>
+    <p class="hint">
+      The check runs in your browser and needs JavaScript. The branch table and the list below show
+      the same ranges.
+    </p>
+  </noscript>
+  <div class="check-result" role="status" aria-live="polite" data-check-result hidden></div>
+</section>
+
+<script>
+  import { startVersionCheck } from '../scripts/version-check.ts';
+  startVersionCheck();
+</script>

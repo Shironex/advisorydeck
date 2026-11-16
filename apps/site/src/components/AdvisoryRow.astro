@@ -1,0 +1,34 @@
+---
+import type { RowView } from '../lib/releases.ts';
+import { advisoryPath, href } from '../lib/site.ts';
+import FixText from './FixText.astro';
+import Sev from './Sev.astro';
+
+interface Props {
+  row: RowView;
+  hidden?: boolean;
+}
+
+const { row, hidden = false } = Astro.props;
+const { advisory } = row;
+---
+
+<li
+  class="row"
+  data-sev={advisory.severity.level}
+  data-product={advisory.affected.map((a) => a.slug).join(' ')}
+  data-branches={row.branches.join(' ')}
+  hidden={hidden}
+>
+  <Sev level={advisory.severity.level} score={advisory.severity.score} />
+  <span class="row-meta">
+    {row.productName !== null && <span class="row-product">{row.productName}</span>}
+    <span class="row-id">{advisory.id}</span>
+  </span>
+  <a class="row-title" href={href(advisoryPath(advisory.id))}>
+    {advisory.title}
+  </a>
+  <span class="row-fix">
+    <FixText fix={row.fix} />
+  </span>
+</li>

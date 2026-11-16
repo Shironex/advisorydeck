@@ -1,86 +1,130 @@
 ---
-import LatestGroups from '../components/LatestGroups.astro';
-import CategoryOverview from '../components/CategoryOverview.astro';
-import SeverityCounts from '../components/SeverityCounts.astro';
+import AdvisoryRow from '../components/AdvisoryRow.astro';
+import DayGroups from '../components/DayGroups.astro';
+import Filters from '../components/Filters.astro';
+import Icon from '../components/Icon.astro';
 import Base from '../layouts/Base.astro';
 import { advisoriesOf, loadSiteData } from '../lib/feed.ts';
-import { plural } from '../lib/format.ts';
-import { href, SITE_NAME } from '../lib/site.ts';
+import { dateTimeUtc, plural } from '../lib/format.ts';
+import { emptyCounts, groupFeed, standaloneRow, unknownRangeAdvisories } from '../lib/releases.ts';
+import { href, REPO_URL, SITE_NAME } from '../lib/site.ts';
 
-const LATEST = 60;
+/** The first page holds whole days until it has at least this many advisories. */
+const FIRST_PAGE = 60;
 const data = loadSiteData();
-const latest = advisoriesOf(data, data.advisoryOrder.slice(0, LATEST));
-const since = data.generatedAt
-  ? new Date(Date.parse(data.generatedAt) - 30 * 86_400_000).toISOString()
-  : null;
-const recent = advisoriesOf(data, data.advisoryOrder).filter(
-  (a) => since !== null && a.publishedAt >= since,
-);
+const all = advisoriesOf(data, data.advisoryOrder);
+const days = groupFeed(all, data.products);
+const firstDays: typeof days = [];
+let shownCount = 0;
+for (const day of days) {
+  if (shownCount >= FIRST_PAGE) break;
+  firstDays.push(day);
+  shownCount += day.count;
+}
+const nextDay = days[firstDays.length]?.day;
+const shown = all.slice(0, shownCount);
+const counts = emptyCounts();
+for (const advisory of shown) counts[advisory.severity.level] += 1;
+const unknown = unknownRangeAdvisories(all);
+const productOptions = data.products
+  .filter((p) => shown.some((a) => a.affected.some((x) => x.slug === p.slug)))
+  .map((p) => ({ value: p.slug, label: p.name }));
 ---
 
 <Base
   title={SITE_NAME}
-  description="Security advisories for the software self-hosters run: affected and fixed versions per branch, reviewed notes, and a notifier you configure in your browser."
-  section="latest"
+  description="Security advisories for the software self-hosters run, newest first, with the release that fixes each one."
+  section="feed"
 >
-  <div class="intro">
-    <h1>Security advisories for what you self-host</h1>
-    <p class="prose muted">
-      Affected and fixed versions per release branch for {plural(data.products.length, 'product')},
-      straight from the vendors' CVE records and GitHub advisories, with reviewed notes on what an
-      advisory means for a typical self-hosted setup.{' '}
-      <a href={href('generator/')}>Set up the notifier</a> to get only what matches the versions you
-      run.
+  <header>
+    <h1 class="page-title">Latest advisories</h1>
+    <p class="lede">
+      Security advisories for the software self-hosters run, newest first. Every row ends with the
+      release that fixes it.
+    </p>
+    {data.generatedAt && (
+      <p class="meta">
+        <span>
+          Updated{' '}
+          <time datetime={data.generatedAt}>
+            <strong>{dateTimeUtc(data.generatedAt)}</strong>
+          </time>
+        </span>
+      </p>
+    )}
+  </header>
+
+  <Filters
+    name="fsev"
+    label="Filter the feed"
+    counts={counts}
+    total={shown.length}
+    select={{ filter: 'product', label: 'Product', all: 'All products', options: productOptions }}
+  />
+
+  <div class="notices">
+    {data.generatedAt && (
+      <div class="notice notice--warn" role="status" data-stale={data.generatedAt} hidden>
+        <Icon name="clock" />
+        <div>
+          <p class="notice-title">The feed has not updated for more than 24 hours</p>
+          <p>
+            Last update {dateTimeUtc(data.generatedAt)}. Newer advisories are missing here and in
+            the notifier. <a href={`${REPO_URL}/actions/workflows/site.yml`}>Ingest status</a>
+          </p>
+        </div>
+      </div>
+    )}
+    {unknown.length > 0 && (
+      <section class="notice" aria-labelledby="unk-title">
+        <Icon name="unknown" />
+        <div>
+          <h2 class="notice-title" id="unk-title">
+            {unknown.length === 1
+              ? '1 advisory has unknown affected versions'
+              : `${unknown.length} advisories have unknown affected versions`}
+          </h2>
+          <p>
+            Their sources do not say which versions are affected, so the feed does not guess. Check
+            your version against the vendor advisory.
+          </p>
+          <ul class="rows">
+            {unknown.map((advisory) => (
+              <AdvisoryRow row={standaloneRow(advisory, data.products)} />
+            ))}
+          </ul>
+        </div>
+      </section>
+    )}
+  </div>
+
+  <div data-feed>
+    <DayGroups days={firstDays} />
+    <p class="empty" data-filter-empty hidden>
+      <span class="empty-title">No advisory matches these filters</span>
+      <span>Pick All to see every advisory on this page.</span>
     </p>
   </div>
 
-  <section aria-labelledby="recent-heading" class="recent">
-    <h2 id="recent-heading" class="visually-hidden">
-      Last 30 days
-    </h2>
-    <SeverityCounts
-      advisories={recent}
-      caption="Published in the 30 days before the last feed update"
-    />
-  </section>
-
-  <div class="columns">
-    <section aria-labelledby="latest-heading" class="col-main">
-      <h2 id="latest-heading">Latest advisories</h2>
-      <LatestGroups advisories={latest} />
-      <p>
-        <a href={href('advisories/')}>All {data.advisoryOrder.length} advisories</a> ·{' '}
-        <a href={href('feed.xml')}>Atom feed</a>
-      </p>
-    </section>
-    <aside aria-labelledby="browse-heading" class="col-side">
-      <h2 id="browse-heading">Browse by product</h2>
-      <CategoryOverview />
-    </aside>
-  </div>
+  {nextDay && (
+    <p class="pager">
+      <a class="btn" href={href(`advisories/#day-${nextDay}`)}>
+        Older advisories
+      </a>
+      <span class="section-sub">
+        {plural(all.length - shown.length, 'more advisory', 'more advisories')} on the full list
+      </span>
+    </p>
+  )}
 </Base>
 
-<style>
-  .intro h1 {
-    font-size: var(--text-2xl);
-    max-width: 30ch;
-  }
-  .recent {
-    margin-block: var(--space-5);
-  }
-  .columns {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-  }
-  .col-side h2,
-  .col-main h2 {
-    margin-top: 0;
-  }
-  @media (min-width: 64rem) {
-    .columns {
-      grid-template-columns: minmax(0, 1fr) 18rem;
-      gap: var(--space-6);
-    }
-  }
-</style>
+<script>
+  import { startBundles, startFilters } from '../scripts/bundles.ts';
+  import { startStaleNotice } from '../scripts/stale.ts';
+
+  startBundles();
+  const form = document.querySelector<HTMLElement>('[data-filters]');
+  const feed = document.querySelector<HTMLElement>('[data-feed]');
+  if (form !== null && feed !== null) startFilters(form, feed);
+  startStaleNotice();
+</script>

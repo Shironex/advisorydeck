@@ -222,36 +222,69 @@ export function toEnvTemplate(state: GeneratorState): string {
   return `${lines.join('\n')}\n`;
 }
 
-/** Problems the form itself can catch before schema validation, as readable messages. */
-export function stateProblems(state: GeneratorState): string[] {
-  const problems: string[] = [];
+/** Where a form problem lives, so the page can mark the field and the generated line. */
+export type ProblemTarget =
+  | { kind: 'products' }
+  | { kind: 'product'; index: number }
+  | { kind: 'channels' }
+  | { kind: 'channel'; index: number }
+  | { kind: 'time' }
+  | { kind: 'timezone' };
+
+export interface FormProblem {
+  message: string;
+  target: ProblemTarget;
+}
+
+export const ENV_NAME_HELP =
+  'Use capital letters, digits and underscores, starting with a letter. For example SLACK_WEBHOOK_URL.';
+
+/** Problems the form itself can catch before schema validation, with the field they belong to. */
+export function formProblems(state: GeneratorState): FormProblem[] {
+  const problems: FormProblem[] = [];
   if (state.products.length === 0) {
-    problems.push('Pick at least one product.');
+    problems.push({ message: 'Pick at least one product.', target: { kind: 'products' } });
   }
-  for (const p of state.products) {
+  state.products.forEach((p, index) => {
     if (!isVersion(p.version.trim())) {
-      problems.push(
-        p.version.trim() === ''
-          ? `${p.slug}: enter a version.`
-          : `${p.slug}: "${p.version}" is not a version (letters, digits and . + : ~ _ - only).`,
-      );
+      problems.push({
+        message:
+          p.version.trim() === ''
+            ? `${p.slug}: enter a version.`
+            : `${p.slug}: "${p.version}" is not a version (letters, digits and . + : ~ _ - only).`,
+        target: { kind: 'product', index },
+      });
     }
-  }
+  });
   if (state.channels.length === 0) {
-    problems.push('Add at least one channel.');
+    problems.push({ message: 'Add at least one channel.', target: { kind: 'channels' } });
   }
-  for (const c of state.channels) {
+  state.channels.forEach((c, index) => {
     if (!isEnvName(c.urlEnv)) {
-      problems.push(
-        `"${c.urlEnv}" is not a valid variable name (capital letters, digits and _, starting with a letter).`,
-      );
+      problems.push({
+        message: `"${c.urlEnv}" is not a valid variable name (capital letters, digits and _, starting with a letter).`,
+        target: { kind: 'channel', index },
+      });
     }
-  }
+  });
   if (state.mode !== 'instant' && !isTime(state.digestTime)) {
-    problems.push('Digest time must be HH:MM.');
+    problems.push({ message: 'Digest time must be HH:MM.', target: { kind: 'time' } });
+  }
+  if (state.mode !== 'instant' && !ZONE.test(state.timezone)) {
+    problems.push({
+      message: `"${state.timezone}" is not a time zone name (like Europe/Berlin).`,
+      target: { kind: 'timezone' },
+    });
   }
   return problems;
 }
+
+/** Problems the form itself can catch before schema validation, as readable messages. */
+export function stateProblems(state: GeneratorState): string[] {
+  return formProblems(state).map((p) => p.message);
+}
+
+export const isTimeZone = (v: string): boolean => ZONE.test(v);
 
 /* URL fragment: #p=postgresql~f~17,traefik~e~3.7.19&s=high&m=digest&t=08:00&z=Europe/Berlin&c=discord~DISCORD_WEBHOOK_URL~ops */
 

@@ -1,53 +1,55 @@
 ---
-import AdvisoryList from '../../components/AdvisoryList.astro';
+import DayGroups from '../../components/DayGroups.astro';
+import Filters from '../../components/Filters.astro';
 import Base from '../../layouts/Base.astro';
-import { advisoriesOf, loadSiteData, type AdvisoryView } from '../../lib/feed.ts';
-import { monthLabel } from '../../lib/format.ts';
+import { advisoriesOf, loadSiteData } from '../../lib/feed.ts';
+import { emptyCounts, groupFeed } from '../../lib/releases.ts';
 
 const data = loadSiteData();
-const months = new Map<string, AdvisoryView[]>();
-for (const advisory of advisoriesOf(data, data.advisoryOrder)) {
-  const key = advisory.publishedAt.slice(0, 7);
-  months.set(key, [...(months.get(key) ?? []), advisory]);
-}
+const all = advisoriesOf(data, data.advisoryOrder);
+const days = groupFeed(all, data.products);
+const counts = emptyCounts();
+for (const advisory of all) counts[advisory.severity.level] += 1;
 ---
 
 <Base
   title="All advisories"
-  description="Every advisory Advisorydeck tracks, newest first, grouped by month."
-  section="latest"
+  description="Every advisory Advisorydeck tracks, newest first, grouped by day."
+  section="feed"
 >
-  <h1>All advisories</h1>
-  <p class="muted">{data.advisoryOrder.length} advisories, newest first.</p>
-  <nav aria-label="Months" class="months">
-    <ul>
-      {[...months.keys()].map((key) => (
-        <li>
-          <a href={`#m-${key}`}>{monthLabel(`${key}-01T00:00:00Z`)}</a>
-        </li>
-      ))}
-    </ul>
-  </nav>
-  {[...months.entries()].map(([key, list]) => (
-    <section aria-labelledby={`m-${key}`}>
-      <h2 id={`m-${key}`}>
-        {monthLabel(`${key}-01T00:00:00Z`)} <span class="muted small">{list.length}</span>
-      </h2>
-      <AdvisoryList
-        advisories={list}
-        label={`Advisories published in ${monthLabel(`${key}-01T00:00:00Z`)}`}
-      />
-    </section>
-  ))}
+  <header>
+    <h1 class="page-title">All advisories</h1>
+    <p class="lede">
+      Every advisory in the feed, newest first. Releases that fix several advisories are folded;
+      open one to see them all.
+    </p>
+  </header>
+  <Filters
+    name="asev"
+    label="Filter the list"
+    counts={counts}
+    total={all.length}
+    select={{
+      filter: 'product',
+      label: 'Product',
+      all: 'All products',
+      options: data.products.map((p) => ({ value: p.slug, label: p.name })),
+    }}
+  />
+  <div data-feed>
+    <DayGroups days={days} openFirst={false} />
+    <p class="empty" data-filter-empty hidden>
+      <span class="empty-title">No advisory matches these filters</span>
+      <span>Pick All to see every advisory.</span>
+    </p>
+  </div>
 </Base>
 
-<style>
-  .months ul {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
-    list-style: none;
-    padding: 0;
-    font-size: var(--text-sm);
-  }
-</style>
+<script>
+  import { startBundles, startFilters } from '../../scripts/bundles.ts';
+
+  startBundles();
+  const form = document.querySelector<HTMLElement>('[data-filters]');
+  const feed = document.querySelector<HTMLElement>('[data-feed]');
+  if (form !== null && feed !== null) startFilters(form, feed);
+</script>

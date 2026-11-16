@@ -1,14 +1,15 @@
 ---
 import type { GetStaticPaths } from 'astro';
-import Breadcrumbs from '../../components/Breadcrumbs.astro';
-import KevTag from '../../components/KevTag.astro';
+import Crumbs from '../../components/Crumbs.astro';
+import Icon from '../../components/Icon.astro';
 import NoteCard from '../../components/NoteCard.astro';
-import SeverityBadge from '../../components/SeverityBadge.astro';
+import Sev from '../../components/Sev.astro';
 import Base from '../../layouts/Base.astro';
+import { answers } from '../../lib/answer.ts';
 import { LICENSE_NAMES, SOURCE_TYPE_NAMES } from '../../lib/attribution.ts';
-import { loadSiteData, type AdvisoryView, type RangeView } from '../../lib/feed.ts';
-import { isoDay, percent } from '../../lib/format.ts';
-import { href, productPath } from '../../lib/site.ts';
+import { CATEGORY_LABELS, loadSiteData, type AdvisoryView } from '../../lib/feed.ts';
+import { dateTimeUtc, percent, shortDate } from '../../lib/format.ts';
+import { categoryPath, generatorPath, href, productPath } from '../../lib/site.ts';
 
 export const getStaticPaths = (() =>
   [...loadSiteData().advisories.values()].map((advisory) => ({
@@ -21,214 +22,265 @@ interface Props {
 }
 
 const { advisory } = Astro.props;
+const data = loadSiteData();
+const first = advisory.affected[0];
+const firstProduct = data.products.find((p) => p.slug === first?.slug);
+const blocks = answers(advisory, data.products);
 const vendorRefs = advisory.references.filter((r) => r.type === 'advisory');
 const otherRefs = advisory.references.filter((r) => r.type !== 'advisory');
-const first = advisory.affected[0];
-// A reviewed note (or the warning that one is disputed) is what a self-hoster needs first, right
-// after the vendor link and the summary; drafts and "no note" come after the facts.
-const noteFirst = advisory.note?.state === 'reviewed' || advisory.note?.state === 'disputed';
-
-function rangeText(range: RangeView): { from: string; to: string } {
-  const from = range.introduced === '0' ? 'first release' : range.introduced;
-  if (range.fixed !== null) {
-    return { from, to: `fixed in ${range.fixed}` };
-  }
-  if (range.lastAffected !== null) {
-    return { from, to: `up to and including ${range.lastAffected} (no fix named)` };
-  }
-  return { from, to: 'no fix yet' };
-}
-
+const cnaRecord = advisory.sources.find((s) => s.type === 'cve-cna') ?? advisory.sources[0];
+const recordLink = cnaRecord
+  ? { url: cnaRecord.url, host: new URL(cnaRecord.url).hostname.replace(/^www\./, '') }
+  : null;
+const ranged = advisory.sources.find((s) => s.type === 'cve-cna')
+  ? `Ranges from the ${first?.name ?? ''} CNA record`
+  : advisory.sources.find((s) => s.type === 'ghsa')
+    ? 'Ranges from the GitHub advisory'
+    : 'Ranges from the source record';
+const sections = [
+  { id: 'ans-title', label: 'Affected versions' },
+  { id: 'sum-title', label: 'Summary' },
+  { id: 'det-title', label: 'Details and sources' },
+  { id: 'note-title', label: 'Self-hoster note' },
+  { id: 'dq-title', label: 'Data quality' },
+  { id: 'src-title', label: 'Sources and licenses' },
+];
 const REF_TYPES: Record<string, string> = {
   fix: 'Fix',
   'release-notes': 'Release notes',
   report: 'Report',
   article: 'Article',
-  web: 'Web',
+  web: 'Web page',
 };
+const cvss = advisory.severity.vector?.match(/^CVSS:(\d\.\d)/)?.[1];
+const host = (url: string): string => new URL(url).hostname.replace(/^www\./, '');
 ---
 
 <Base
   title={`${advisory.id}: ${advisory.title}`}
   description={`${advisory.id} (${advisory.severity.level}): ${advisory.title}. Affected and fixed versions for ${advisory.affected.map((a) => a.name).join(', ')}.`}
-  section="latest"
+  section="products"
+  {...(first ? { product: first.slug } : {})}
+  width="none"
 >
-  <Breadcrumbs
-    items={[
-      { label: 'Products', path: 'products/' },
-      ...(first ? [{ label: first.name, path: productPath(first.slug) }] : []),
-      { label: advisory.id },
-    ]}
-  />
+  <div class="with-rail">
+    <div class="content">
+      <header>
+        <Crumbs
+          items={[
+            ...(firstProduct
+              ? [
+                  {
+                    label: CATEGORY_LABELS[firstProduct.category].name,
+                    path: categoryPath(firstProduct.category),
+                  },
+                ]
+              : []),
+            ...(first ? [{ label: first.name, path: productPath(first.slug) }] : []),
+            { label: advisory.id },
+          ]}
+        />
+        <h1 class="page-title">{advisory.title}</h1>
+        <p class="meta">
+          <span class="mono meta-id">{advisory.id}</span>
+          <Sev level={advisory.severity.level} score={advisory.severity.score} />
+          <span>
+            Published <time datetime={advisory.publishedAt}>{shortDate(advisory.publishedAt)}</time>
+          </span>
+          {advisory.aliases.length > 0 && (
+            <span class="mono">Also {advisory.aliases.join(', ')}</span>
+          )}
+        </p>
+      </header>
 
-  <article class="advisory" aria-labelledby="adv-title">
-    <header class="adv-head">
-      <p class="eyebrow mono">{advisory.id}</p>
-      <h1 id="adv-title">{advisory.title}</h1>
-      <p class="head-tags">
-        <SeverityBadge severity={advisory.severity} />
-        <KevTag kev={advisory.kev} />
-        {advisory.affected.map((a) => (
-          <a class="tag" href={href(productPath(a.slug))}>
-            {a.name}
-          </a>
+      <section class="answer" aria-labelledby="ans-title">
+        <div class="answer-head">
+          <h2 id="ans-title">Affected versions and the fix</h2>
+          <span class="section-sub">{ranged}</span>
+        </div>
+        {blocks.map((block) => (
+          <>
+            {blocks.length > 1 && (
+              <h3 class="answer-product">
+                <a href={href(productPath(block.slug))}>{block.name}</a>
+              </h3>
+            )}
+            {block.unknown ? (
+              <p class="answer-fix">
+                Affected versions unknown: the sources do not say which versions of {block.name} are
+                affected. This does not mean not affected.{' '}
+                {vendorRefs[0] ? (
+                  <a href={vendorRefs[0].url} rel="noopener noreferrer">
+                    Check the vendor advisory
+                  </a>
+                ) : (
+                  'Check the vendor advisory.'
+                )}
+              </p>
+            ) : block.fixes.length === 0 ? (
+              <p class="answer-fix">No fix listed yet. Read the vendor advisory for workarounds.</p>
+            ) : block.fixes.length === 1 ? (
+              <p class="answer-fix">
+                Upgrade to <code>{block.fixes[0]}</code> or later.
+              </p>
+            ) : (
+              <p class="answer-fix">
+                Upgrade to the latest release of your branch:{' '}
+                {block.fixes.map((f, i) => (
+                  <>
+                    {i > 0 && (i === block.fixes.length - 1 ? ' or ' : ', ')}
+                    <code>{f}</code>
+                  </>
+                ))}
+                .
+              </p>
+            )}
+            {block.rows.length > 0 && (
+              <div
+                class="table-wrap"
+                tabindex="0"
+                role="region"
+                aria-label={`Affected ranges of ${block.name}`}
+              >
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Branch</th>
+                      <th scope="col">Affected</th>
+                      <th scope="col">Fixed in</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row) => (
+                      <tr class:list={[row.eol && 'is-eol']}>
+                        <th scope="row" class="branch">
+                          {row.branch}
+                        </th>
+                        <td>
+                          {row.affected.lead}
+                          {row.affected.version && (
+                            <>
+                              {' '}
+                              <span class="mono">{row.affected.version}</span>
+                            </>
+                          )}
+                          {row.affected.tail}
+                        </td>
+                        <td>
+                          {row.fixed ? <span class="mono">{row.fixed}</span> : 'No fix listed'}
+                          {row.eol && (
+                            <>
+                              {' '}
+                              <span class="tag tag--eol">End of life</span>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         ))}
-      </p>
-    </header>
+        <div class="answer-foot">
+          <p>
+            {blocks
+              .map((b) => b.eolNote)
+              .filter(Boolean)
+              .join(' ') || 'Versions are compared with the same rules the notifier uses.'}
+          </p>
+          {first && (
+            <a class="btn btn--primary" href={href(generatorPath(first.slug))}>
+              Get alerts for {first.name}
+            </a>
+          )}
+        </div>
+      </section>
 
-    <div class="adv-grid">
-      <div class="adv-main">
+      <section class="section" aria-labelledby="sum-title">
+        <h2 class="section-title section-title--gap" id="sum-title">
+          Summary
+        </h2>
+        <div class="prose summary">
+          <p>{advisory.summary}</p>
+        </div>
         {vendorRefs.length > 0 && (
-          <p class="vendor-first">
-            Read the vendor advisory first:{' '}
+          <p class="hint section-foot">
+            Read the vendor advisory too:{' '}
             {vendorRefs.map((r, i) => (
               <>
                 {i > 0 && ', '}
                 <a href={r.url} rel="noopener noreferrer">
-                  {new URL(r.url).hostname}
+                  {host(r.url)}
                 </a>
               </>
             ))}
           </p>
         )}
+      </section>
 
-        <section aria-labelledby="summary-heading">
-          <h2 id="summary-heading" class="visually-hidden">
-            Summary
-          </h2>
-          <p class="summary prose">{advisory.summary}</p>
-        </section>
-
-        {noteFirst && (
-          <NoteCard
-            note={advisory.note}
-            advisoryId={advisory.id}
-            products={advisory.affected.map((a) => a.slug)}
-          />
-        )}
-
-        <section aria-labelledby="affected-heading">
-          <h2 id="affected-heading">Affected versions</h2>
-          {advisory.affected.map((affected) => (
-            <div class="affected">
-              <h3>
-                <a href={href(productPath(affected.slug))}>{affected.name}</a>
-              </h3>
-              {affected.ranges.length === 0 ? (
-                <p class="tag" data-tone="warn">
-                  Affected versions unknown: check the vendor advisory manually. This does not mean
-                  not affected.
-                </p>
-              ) : (
-                <div class="table-scroll">
-                  <table class="ranges">
-                    <caption class="visually-hidden">
-                      Affected version ranges for {affected.name}
-                    </caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Affected from</th>
-                        <th scope="col">Until</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {affected.ranges.map((range) => {
-                        const text = rangeText(range);
-                        return (
-                          <tr>
-                            <td class="mono">{text.from}</td>
-                            <td class="mono">
-                              {range.fixed === null ? (
-                                <span class="tag" data-tone="danger">
-                                  {text.to}
-                                </span>
-                              ) : (
-                                text.to
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          ))}
-          {advisory.qualityNotes.length > 0 && (
-            <aside class="quality" aria-labelledby="quality-heading">
-              <h3 id="quality-heading">How the ranges were read</h3>
-              <p class="small muted">
-                The source data for this advisory was ambiguous. Ingest made these calls, always
-                choosing the reading that reports more versions as affected:
-              </p>
-              <ul class="small">
-                {advisory.qualityNotes.map((n) => (
-                  <li>{n}</li>
-                ))}
-              </ul>
-            </aside>
-          )}
-        </section>
-
-        {!noteFirst && (
-          <NoteCard
-            note={advisory.note}
-            advisoryId={advisory.id}
-            products={advisory.affected.map((a) => a.slug)}
-          />
-        )}
-      </div>
-
-      <aside class="adv-side" aria-labelledby="facts-heading">
-        <h2 id="facts-heading" class="side-heading">
-          Facts
+      <section class="section" aria-labelledby="det-title">
+        <h2 class="section-title section-title--gap" id="det-title">
+          Details and sources
         </h2>
-        <dl class="facts small">
-          <dt>Severity</dt>
-          <dd>
-            <SeverityBadge severity={advisory.severity} />
-            <span class="block muted">Source: {advisory.severity.sourceLabel}</span>
-            {advisory.severity.vector && (
-              <code class="block vector">{advisory.severity.vector}</code>
-            )}
-          </dd>
-          <dt>Exploited (KEV)</dt>
-          <dd>
-            {advisory.kev.state === 'listed'
-              ? `Yes, listed in CISA KEV${advisory.kev.addedAt ? ` since ${advisory.kev.addedAt}` : ''}`
-              : advisory.kev.state === 'not-listed'
-                ? 'Not listed in CISA KEV'
-                : 'Not checked against CISA KEV yet'}
-          </dd>
-          <dt>EPSS</dt>
-          <dd>
-            {advisory.epss === null
-              ? 'Not available'
-              : `${percent(advisory.epss.score)} chance of exploitation in 30 days (percentile ${percent(advisory.epss.percentile)}, scored ${advisory.epss.date})`}
-          </dd>
-          <dt>Published</dt>
-          <dd>
-            <time datetime={advisory.publishedAt}>{isoDay(advisory.publishedAt)}</time>
-          </dd>
-          <dt>Modified</dt>
-          <dd>
-            <time datetime={advisory.modifiedAt}>{isoDay(advisory.modifiedAt)}</time>
-          </dd>
-          {advisory.aliases.length > 0 && (
-            <>
-              <dt>Also known as</dt>
+        <dl class="facts">
+          <div>
+            <dt>Severity</dt>
+            <dd>
+              <Sev level={advisory.severity.level} score={advisory.severity.score} />
+            </dd>
+            <dd class="src">
+              {cvss ? `CVSS ${cvss}, ` : ''}
+              {advisory.severity.sourceLabel}
+            </dd>
+          </div>
+          {advisory.severity.vector && (
+            <div>
+              <dt>Vector</dt>
               <dd>
-                <ul class="plain mono">
-                  {advisory.aliases.map((a) => (
-                    <li>{a}</li>
-                  ))}
-                </ul>
+                <code>{advisory.severity.vector}</code>
               </dd>
-            </>
+              <dd class="src">{advisory.severity.sourceLabel}</dd>
+            </div>
           )}
+          <div>
+            <dt>Known exploited (KEV)</dt>
+            <dd>
+              {advisory.kev.state === 'listed' ? (
+                <strong>
+                  Yes, listed in CISA KEV
+                  {advisory.kev.addedAt ? ` since ${shortDate(advisory.kev.addedAt)}` : ''}
+                </strong>
+              ) : advisory.kev.state === 'not-listed' ? (
+                'Not listed in CISA KEV'
+              ) : (
+                <span class="state-unchecked">
+                  <Icon name="clock" />
+                  Not checked yet
+                </span>
+              )}
+            </dd>
+            <dd class="src">
+              {advisory.kev.state === 'not-checked'
+                ? 'CISA KEV catalog, not yet compared'
+                : 'CISA KEV catalog'}
+            </dd>
+          </div>
+          <div>
+            <dt>EPSS</dt>
+            {advisory.epss === null ? (
+              <dd class="muted">No score published</dd>
+            ) : (
+              <dd>
+                {percent(advisory.epss.score)} chance of exploitation in 30 days, percentile{' '}
+                {percent(advisory.epss.percentile)}
+              </dd>
+            )}
+            <dd class="src">FIRST EPSS{advisory.epss ? `, scored ${advisory.epss.date}` : ''}</dd>
+          </div>
           {advisory.cwes.length > 0 && (
-            <>
+            <div>
               <dt>Weakness</dt>
               <dd>
                 {advisory.cwes.map((cwe, i) => (
@@ -243,20 +295,96 @@ const REF_TYPES: Record<string, string> = {
                   </>
                 ))}
               </dd>
-            </>
+              <dd class="src">
+                {cnaRecord
+                  ? (SOURCE_TYPE_NAMES[cnaRecord.type] ?? cnaRecord.type)
+                  : 'Source record'}
+              </dd>
+            </div>
           )}
+          <div>
+            <dt>Published</dt>
+            <dd>
+              <time datetime={advisory.publishedAt}>{dateTimeUtc(advisory.publishedAt)}</time>
+            </dd>
+            <dd class="src">
+              {recordLink ? (
+                <a href={recordLink.url} rel="noopener noreferrer">
+                  {recordLink.host}
+                </a>
+              ) : (
+                'Source record'
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Last modified</dt>
+            <dd>
+              <time datetime={advisory.modifiedAt}>{dateTimeUtc(advisory.modifiedAt)}</time>
+            </dd>
+            <dd class="src">
+              {recordLink ? (
+                <a href={recordLink.url} rel="noopener noreferrer">
+                  {recordLink.host}
+                </a>
+              ) : (
+                'Source record'
+              )}
+            </dd>
+          </div>
         </dl>
+      </section>
 
-        <h2 class="side-heading">Sources</h2>
-        <ul class="plain small sources">
+      <section class="section" aria-labelledby="note-title">
+        <h2 class="section-title section-title--gap" id="note-title">
+          Self-hoster note
+        </h2>
+        <NoteCard
+          note={advisory.note}
+          advisoryId={advisory.id}
+          products={advisory.affected.map((a) => a.slug)}
+          labelledBy="note-title"
+        />
+      </section>
+
+      <section class="section" aria-labelledby="dq-title">
+        <h2 class="section-title section-title--gap" id="dq-title">
+          Data quality
+        </h2>
+        {advisory.qualityNotes.length === 0 ? (
+          <p class="prose small-prose">
+            Ingest made no judgement calls on this record: the ranges are published as the source
+            wrote them.
+          </p>
+        ) : (
+          <div class="prose small-prose">
+            <p>
+              The source data was ambiguous. Ingest made these calls, always choosing the reading
+              that reports more versions as affected:
+            </p>
+            <ul class="plain-list">
+              {advisory.qualityNotes.map((n) => (
+                <li>{n}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <section class="section" aria-labelledby="src-title">
+        <h2 class="section-title section-title--gap" id="src-title">
+          Sources and licenses
+        </h2>
+        <ul class="sources">
           {advisory.sources.map((s) => {
             const license = LICENSE_NAMES[s.license];
             return (
               <li>
                 <a href={s.url} rel="noopener noreferrer">
-                  {SOURCE_TYPE_NAMES[s.type] ?? s.type} <span class="mono">{s.id}</span>
+                  {SOURCE_TYPE_NAMES[s.type] ?? s.type} <span class="mono">{s.id}</span>,{' '}
+                  {host(s.url)} <Icon name="ext" />
                 </a>
-                <span class="block muted">
+                <span class="lic">
                   {license ? (
                     <a href={license.url} rel="noopener noreferrer">
                       {license.name}
@@ -268,127 +396,39 @@ const REF_TYPES: Record<string, string> = {
               </li>
             );
           })}
+          {[...vendorRefs, ...otherRefs].map((r) => (
+            <li>
+              <a href={r.url} rel="noopener noreferrer">
+                {r.type === 'advisory' ? 'Vendor advisory' : (REF_TYPES[r.type] ?? r.type)},{' '}
+                {host(r.url)} <Icon name="ext" />
+              </a>
+              <span class="lic">Linked, not copied</span>
+            </li>
+          ))}
         </ul>
-        {otherRefs.length > 0 && (
-          <>
-            <h2 class="side-heading">References</h2>
-            <ul class="plain small refs">
-              {otherRefs.map((r) => (
-                <li>
-                  <span class="muted">{REF_TYPES[r.type] ?? r.type}:</span>{' '}
-                  <a href={r.url} rel="noopener noreferrer">
-                    {r.url.replace(/^https:\/\//, '')}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        <p class="small muted">
-          <a href={href(`sources/`)}>Data sources and licenses</a>
+        <p class="hint section-foot">
+          Record revision <code class="code-inline">{advisory.revision.slice(0, 15)}</code>
+          <span class="visually-hidden">{advisory.revision}</span>.{' '}
+          <a href={href('sources/')}>All data sources and their terms</a>
         </p>
-      </aside>
+      </section>
     </div>
-  </article>
+    <nav class="rail" aria-label="On this page">
+      <h2>On this page</h2>
+      <ul>
+        {sections.map((s, i) => (
+          <li>
+            <a href={`#${s.id}`} aria-current={i === 0 ? 'true' : undefined}>
+              {s.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  </div>
 </Base>
 
-<style>
-  .adv-head h1 {
-    font-size: var(--text-xl);
-    max-width: 48ch;
-  }
-  .head-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    align-items: center;
-  }
-  .head-tags .tag {
-    text-decoration: none;
-  }
-  .adv-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-    margin-top: var(--space-4);
-  }
-  @media (min-width: 60rem) {
-    .adv-grid {
-      grid-template-columns: minmax(0, 1fr) 19rem;
-      gap: var(--space-6);
-    }
-  }
-  .vendor-first {
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--state-info-bg);
-    color: var(--state-info-fg);
-    font-size: var(--text-sm);
-  }
-  .vendor-first a {
-    color: inherit;
-    font-weight: var(--weight-medium);
-  }
-  .summary {
-    white-space: pre-line;
-    overflow-wrap: anywhere;
-  }
-  .affected h3 {
-    margin-top: var(--space-4);
-  }
-  .ranges {
-    font-size: var(--text-sm);
-    max-width: 32rem;
-  }
-  .affected p.tag {
-    white-space: normal;
-    display: block;
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--text-sm);
-  }
-  .quality {
-    margin-top: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    border: var(--border-width) dashed var(--color-border-strong);
-    border-radius: var(--radius-md);
-  }
-  .quality h3 {
-    margin-top: 0;
-    font-size: var(--text-base);
-  }
-  .quality ul {
-    margin: 0;
-    padding-left: var(--space-5);
-    overflow-wrap: anywhere;
-  }
-  .adv-side {
-    min-width: 0;
-  }
-  .side-heading {
-    font-size: var(--text-xs);
-    letter-spacing: var(--tracking-caps);
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-    margin: var(--space-5) 0 var(--space-2);
-  }
-  .side-heading:first-child {
-    margin-top: 0;
-  }
-  .block {
-    display: block;
-  }
-  .vector {
-    margin-top: var(--space-1);
-    font-size: var(--text-xs);
-  }
-  .plain {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .sources li,
-  .refs li {
-    margin-bottom: var(--space-2);
-    overflow-wrap: anywhere;
-  }
-</style>
+<script>
+  import { startRail } from '../../scripts/rail.ts';
+  startRail();
+</script>

@@ -1,0 +1,75 @@
+---
+import type { BundleView } from '../lib/releases.ts';
+import { plural, shortDate } from '../lib/format.ts';
+import AdvisoryRow from './AdvisoryRow.astro';
+import SevCounts from './SevCounts.astro';
+
+interface Props {
+  bundle: BundleView;
+  /** Open on load, showing the first `preview` rows. */
+  open: boolean;
+  preview: number;
+  /** The head label: the product on the feed, the release day on a product page. */
+  label: 'product' | 'day';
+}
+
+const { bundle, open, preview, label } = Astro.props;
+const total = bundle.rows.length;
+const id = `b-${bundle.key}`;
+const paged = total > preview;
+---
+
+<div
+  class:list={['bundle', label === 'day' && 'release']}
+  data-bundle
+  data-preview={preview}
+  data-open={open ? 'true' : 'false'}
+>
+  <div class="bundle-head">
+    <span class="bundle-prod">
+      {label === 'day' ? (
+        <time datetime={bundle.day}>{shortDate(bundle.day)}</time>
+      ) : (
+        bundle.productName
+      )}
+    </span>
+    <p class="bundle-title">
+      Fixed in{' '}
+      {bundle.fixes.map((v, i) => (
+        <>
+          {i > 0 && ', '}
+          <code>{v}</code>
+        </>
+      ))}
+      <span class="bundle-sum">
+        {plural(total, 'advisory', 'advisories')} <SevCounts counts={bundle.counts} />
+      </span>
+    </p>
+    <button
+      class="btn btn--sm"
+      type="button"
+      aria-expanded={open ? 'true' : 'false'}
+      aria-controls={id}
+      data-bundle-toggle
+      data-total={total}
+      hidden
+    >
+      {open ? 'Hide' : `Show all ${total}`}
+    </button>
+  </div>
+  <ul class="rows" id={id} aria-label={`${bundle.productName} advisories fixed in this release`}>
+    {bundle.rows.map((row) => (
+      <AdvisoryRow row={row} />
+    ))}
+  </ul>
+  {paged && (
+    <div class="bundle-foot" data-bundle-foot hidden>
+      <button class="btn btn--quiet" type="button" data-bundle-more aria-controls={id}>
+        Show all {total}
+      </button>
+      <span class="section-sub">
+        {preview} of {total} shown, highest score first
+      </span>
+    </div>
+  )}
+</div>

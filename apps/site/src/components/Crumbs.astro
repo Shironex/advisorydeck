@@ -1,0 +1,25 @@
+---
+import { href } from '../lib/site.ts';
+
+interface Props {
+  items: { label: string; path?: string }[];
+}
+
+const { items } = Astro.props;
+---
+
+<nav aria-label="Breadcrumb">
+  <ol class="crumbs">
+    {items.map((item, i) =>
+      item.path !== undefined && i < items.length - 1 ? (
+        <li>
+          <a href={href(item.path)}>{item.label}</a>
+        </li>
+      ) : (
+        <li>
+          <span aria-current="page">{item.label}</span>
+        </li>
+      ),
+    )}
+  </ol>
+</nav>
