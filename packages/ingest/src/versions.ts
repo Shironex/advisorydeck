@@ -210,23 +210,28 @@ export function dedupeRanges(ranges: readonly VersionRange[]): VersionRange[] {
   return out;
 }
 
-const SEMVER_LIKE = /^(\d+)\.(\d+)(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?$/;
+// The empty group keeps the prerelease at index 5 in both patterns.
+const SEMVER_LIKE = /^(\d+)\.(\d+)(?:\.(\d+))?()(?:-([0-9A-Za-z.-]+))?$/;
+/** Semver-like with an optional fourth numeric part (Nextcloud Enterprise 31.0.14.7). */
+const SEMVER4_LIKE = /^(\d+)\.(\d+)(?:\.(\d+)(?:\.(\d+))?)?(?:-([0-9A-Za-z.-]+))?$/;
 
 /**
  * Orders two semver-like versions (3.6.11, 4.0.0-beta.464), or undefined when either is not one.
- * Only used to spot upstream records whose range and patched version disagree; matching a user's
- * version against ranges is the image's job.
+ * With fourParts (products with version_scheme semver4) a fourth numeric part is read too, a
+ * missing one being 0 (31.0.14 < 31.0.14.7 < 31.0.15). Only used to spot upstream records whose
+ * range and patched version disagree; matching a user's version against ranges is the image's job.
  */
-export function compareSemverLike(a: string, b: string): number | undefined {
-  const pa = SEMVER_LIKE.exec(a);
-  const pb = SEMVER_LIKE.exec(b);
+export function compareSemverLike(a: string, b: string, fourParts = false): number | undefined {
+  const pattern = fourParts ? SEMVER4_LIKE : SEMVER_LIKE;
+  const pa = pattern.exec(a);
+  const pb = pattern.exec(b);
   if (pa === null || pb === null) return undefined;
-  for (const i of [1, 2, 3]) {
-    const diff = Number(pa[i] ?? 0) - Number(pb[i] ?? 0);
+  for (const i of [1, 2, 3, 4]) {
+    const diff = Number(pa[i] || 0) - Number(pb[i] || 0);
     if (diff !== 0) return Math.sign(diff);
   }
-  const ra = pa[4];
-  const rb = pb[4];
+  const ra = pa[5];
+  const rb = pb[5];
   if (ra === undefined || rb === undefined) {
     return ra === rb ? 0 : ra === undefined ? 1 : -1;
   }
@@ -292,8 +297,12 @@ export function perBranchUpperBounds(ranges: readonly VersionRange[]): VersionRa
   });
 }
 
-/** A lower bound written with one or two numeric parts (`14`, `13.3`) as a full version. */
-function fullVersion(version: string): string {
+/**
+ * A lower bound written with one or two numeric parts (`14`, `13.3`) as a full version; with
+ * fourParts a zero fourth part is dropped (`22.0.0.0` is `22.0.0`).
+ */
+function fullVersion(version: string, fourParts = false): string {
+  if (fourParts && /^\d+\.\d+\.\d+\.0$/.test(version)) return version.slice(0, -2);
   if (/^\d+$/.test(version)) return `${version}.0.0`;
   if (/^\d+\.\d+$/.test(version)) return `${version}.0`;
   return version;
@@ -308,22 +317,26 @@ function fullVersion(version: string): string {
  * prerelease of that line, `15.6.0-canary.60`). A lower bound with no fix is affected up to the
  * next lower bound when that one starts a line (`>= 13.3` before `>= 14` is every 13 release), and
  * stays open when it is the last. Lower bounds of one or two parts are written in full
- * (`14.0.0`). Undefined when the pairing is not clear: a fix below every lower bound, two fixes on
+ * (`14.0.0`). With fourParts (semver4 products) four-part versions are ordered too: Nextcloud
+ * Enterprise backports such as 31.0.14.7 pair with `>= 31.0.0`. Undefined when the pairing is
+ * not clear: a fix below every lower bound, two fixes on
  * one branch, a version that cannot be ordered, or an unfixed bound before one that does not start
  * a line.
  */
 export function pairLowerBounds(
   lowers: readonly VersionRange[],
   fixes: readonly string[] | undefined,
+  fourParts = false,
 ): VersionRange[] | undefined {
   if (fixes === undefined || lowers.some(isBounded)) return undefined;
-  const starts = lowers.map((r) => fullVersion(r.introduced));
+  const compare = (a: string, b: string) => compareSemverLike(a, b, fourParts);
+  const starts = lowers.map((r) => fullVersion(r.introduced, fourParts));
   const all = [...starts, ...fixes];
-  if (all.some((v) => compareSemverLike(v, v) === undefined)) return undefined;
-  starts.sort((a, b) => compareSemverLike(a, b) ?? 0);
+  if (all.some((v) => compare(v, v) === undefined)) return undefined;
+  starts.sort((a, b) => compare(a, b) ?? 0);
   const groups: string[][] = starts.map(() => []);
   for (const fixed of fixes) {
-    const at = starts.findLastIndex((s) => (compareSemverLike(fixed, s) ?? 0) > 0);
+    const at = starts.findLastIndex((s) => (compare(fixed, s) ?? 0) > 0);
     if (at < 0) return undefined;
     groups[at]?.push(fixed);
   }
@@ -359,7 +372,7 @@ export function pairLowerBounds(
         previous.major === current.major
           ? `${current.major}.${current.minor}.0`
           : `${current.major}.0.0`;
-      const order = compareSemverLike(line, fixed) ?? 0;
+      const order = compare(line, fixed) ?? 0;
       paired.push({ introduced: order >= 0 ? `${line}-0` : line, fixed });
     }
   }
@@ -603,4 +616,27 @@ export function subtractSpans(
         ? { introduced: p.lo, last_affected: p.hi }
         : { introduced: p.lo, fixed: p.hi },
   );
+}
+
+/**
+ * semver4 products: a record that lists a community fix and an Enterprise backport for one line
+ * from the same start (Nextcloud: `22.0.0 < 22.2.11` for Server next to `22.0.0 < 22.2.10.42` for
+ * Enterprise) keeps only the backport range. The only releases between the backport and the next
+ * patch are Enterprise builds of that patch, which carry the fix; every community release below
+ * the community fix is still below the backport. Applies only when the community fix is the patch
+ * right after the backport's base (22.2.11 after 22.2.10.42); otherwise both ranges stay.
+ */
+export function mergeBackportFixes(ranges: readonly VersionRange[]): VersionRange[] {
+  const dropped = new Set<VersionRange>();
+  for (const backport of ranges) {
+    const four = /^(\d+)\.(\d+)\.(\d+)\.([1-9]\d*)$/.exec(backport.fixed ?? '');
+    if (four === null) continue;
+    const nextPatch = `${four[1]}.${four[2]}.${Number(four[3]) + 1}`;
+    for (const community of ranges) {
+      if (community.introduced === backport.introduced && community.fixed === nextPatch) {
+        dropped.add(community);
+      }
+    }
+  }
+  return ranges.filter((r) => !dropped.has(r));
 }

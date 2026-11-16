@@ -67,9 +67,11 @@ const extra: CatalogEntry[] = [
     { type: 'ghsa-repo', repo: 'MariaDB/server' },
     { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'MariaDB', products: ['server'] },
   ]),
-  product('nextcloud', [
-    { type: 'ghsa-repo', repo: 'nextcloud/security-advisories', packages: ['Server'] },
-  ]),
+  product(
+    'nextcloud',
+    [{ type: 'ghsa-repo', repo: 'nextcloud/security-advisories', packages: ['Server'] }],
+    'semver4',
+  ),
   product('tomcat', [{ type: 'cve-cna', assigner: 'apache', products: ['Apache Tomcat'] }]),
   product('spring-web', [
     { type: 'ghsa-package', ecosystem: 'maven', package: 'org.springframework:spring-web' },
@@ -239,6 +241,40 @@ describe('lower bounds with a patched list (G3)', () => {
       'nextcloud/security-advisories',
     );
     expect(rangesOf(facts, 'nextcloud')).toEqual(matcherRanges('nextcloud', 'GHSA-f99w-3pm7-v4cv'));
+  });
+
+  it('Nextcloud (semver4): four-part Enterprise backports pair, and win over the next community patch', () => {
+    const facts = repoGhsa(
+      'repo-nextcloud.json',
+      'GHSA-5572-968j-v7g5',
+      'nextcloud/security-advisories',
+    );
+    expect(rangesOf(facts, 'nextcloud')).toEqual(matcherRanges('nextcloud', 'GHSA-5572-968j-v7g5'));
+    expect(facts.warnings.join('\n')).toContain('kept the Enterprise backport');
+    expect(facts.warnings.join('\n')).not.toContain('do not pair');
+  });
+
+  it('four-part patched versions stay unknown for a semver product', () => {
+    const reading = ghsaRanges({
+      package: { ecosystem: 'nextcloud entreprise', name: 'server' },
+      vulnerable_version_range: '>= 30.0.0, >= 31.0.0, >= 32.0.0',
+      patched_versions: '30.0.17.12, 31.0.14.8, 32.0.13',
+    });
+    expect(reading.ranges).toBeUndefined();
+    expect(
+      ghsaRanges(
+        {
+          package: { ecosystem: 'nextcloud entreprise', name: 'server' },
+          vulnerable_version_range: '>= 30.0.0.0, >= 31.0.0.0, >= 32.0.0',
+          patched_versions: '30.0.17.12, 31.0.14.8, 32.0.13',
+        },
+        true,
+      ).ranges,
+    ).toEqual([
+      { introduced: '30.0.0', fixed: '30.0.17.12' },
+      { introduced: '31.0.0', fixed: '31.0.14.8' },
+      { introduced: '32.0.0', fixed: '32.0.13' },
+    ]);
   });
 
   it('Next.js: four lower bounds and ten patches pair per branch', () => {

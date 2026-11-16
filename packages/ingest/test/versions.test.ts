@@ -5,6 +5,8 @@ import {
   compactHyphenRange,
   compareSemverLike,
   exceptPatchedLines,
+  mergeBackportFixes,
+  pairLowerBounds,
   parseRangeExpression,
   pep440Prereleases,
   perBranchUpperBounds,
@@ -164,6 +166,48 @@ describe('compareSemverLike', () => {
     expect(compareSemverLike('3.6.12', '3.6.11')).toBe(1);
     expect(compareSemverLike('4.0.0-beta.420.7', '4.0.0-beta.420.6')).toBe(1);
     expect(compareSemverLike('17', '17.1')).toBeUndefined();
+  });
+
+  it('reads a fourth numeric part only when asked (semver4)', () => {
+    expect(compareSemverLike('31.0.14.7', '31.0.15')).toBeUndefined();
+    expect(compareSemverLike('31.0.14.7', '31.0.15', true)).toBe(-1);
+    expect(compareSemverLike('31.0.14', '31.0.14.7', true)).toBe(-1);
+    expect(compareSemverLike('31.0.14.0', '31.0.14', true)).toBe(0);
+    expect(compareSemverLike('31.0.14.10', '31.0.14.9', true)).toBe(1);
+    expect(compareSemverLike('32.0.0-rc.1', '32.0.0', true)).toBe(-1);
+  });
+});
+
+describe('four-part backports (semver4)', () => {
+  it('pairs lower bounds with four-part patched versions', () => {
+    const lowers = [{ introduced: '30.0.0.0' }, { introduced: '31.0.0' }, { introduced: '32.0.0' }];
+    const fixes = ['30.0.17.12', '31.0.14.8', '32.0.13'];
+    expect(pairLowerBounds(lowers, fixes)).toBeUndefined();
+    expect(pairLowerBounds(lowers, fixes, true)).toEqual([
+      { introduced: '30.0.0', fixed: '30.0.17.12' },
+      { introduced: '31.0.0', fixed: '31.0.14.8' },
+      { introduced: '32.0.0', fixed: '32.0.13' },
+    ]);
+  });
+
+  it('keeps the backport over the community fix that is the next patch', () => {
+    expect(
+      mergeBackportFixes([
+        { introduced: '31.0.0', fixed: '31.0.15' },
+        { introduced: '32.0.0', fixed: '32.0.13' },
+        { introduced: '31.0.0', fixed: '31.0.14.8' },
+      ]),
+    ).toEqual([
+      { introduced: '32.0.0', fixed: '32.0.13' },
+      { introduced: '31.0.0', fixed: '31.0.14.8' },
+    ]);
+    // A community fix further away, or another start, keeps both ranges (the stricter reading).
+    const apart = [
+      { introduced: '31.0.0', fixed: '31.0.16' },
+      { introduced: '31.0.0', fixed: '31.0.14.8' },
+      { introduced: '31.0.5', fixed: '31.0.15' },
+    ];
+    expect(mergeBackportFixes(apart)).toEqual(apart);
   });
 });
 
