@@ -287,29 +287,76 @@ export function perBranchUpperBounds(ranges: readonly VersionRange[]): VersionRa
   });
 }
 
+/** A lower bound written with one or two numeric parts (`14`, `13.3`) as a full version. */
+function fullVersion(version: string): string {
+  if (/^\d+$/.test(version)) return `${version}.0.0`;
+  if (/^\d+\.\d+$/.test(version)) return `${version}.0`;
+  return version;
+}
+
 /**
- * Pairs open lower bounds with a patched list of the same length (Nextcloud: `>= 32.0.0,
- * >= 33.0.0, >= 34.0.0` patched `32.0.12, 33.0.6, 34.0.1`): both sorted, each fix must lie after
- * its lower bound and before the next one. Undefined when they do not pair that way.
+ * Pairs open lower bounds with a patched list (Nextcloud: `>= 32.0.0, >= 33.0.0, >= 34.0.0`
+ * patched `32.0.12, 33.0.6, 34.0.1`). Both sorted, each fix belongs to the last lower bound at or
+ * below it. A lower bound with several fixes lists one per branch (Next.js: `>= 15` patched
+ * `15.0.7, 15.1.11, ...`): the first range starts at the lower bound, each next one at its own
+ * line (x.y.0 within a major, x.0.0 across majors, the lowest prerelease when the fix is a
+ * prerelease of that line, `15.6.0-canary.60`). A lower bound with no fix is affected up to the
+ * next lower bound when that one starts a line (`>= 13.3` before `>= 14` is every 13 release), and
+ * stays open when it is the last. Lower bounds of one or two parts are written in full
+ * (`14.0.0`). Undefined when the pairing is not clear: a fix below every lower bound, two fixes on
+ * one branch, a version that cannot be ordered, or an unfixed bound before one that does not start
+ * a line.
  */
 export function pairLowerBounds(
   lowers: readonly VersionRange[],
   fixes: readonly string[] | undefined,
 ): VersionRange[] | undefined {
-  if (fixes === undefined || fixes.length !== lowers.length || lowers.some(isBounded)) {
-    return undefined;
-  }
-  const starts = lowers.map((r) => r.introduced);
-  if (starts.some((s) => compareSemverLike(s, s) === undefined)) return undefined;
+  if (fixes === undefined || lowers.some(isBounded)) return undefined;
+  const starts = lowers.map((r) => fullVersion(r.introduced));
+  const all = [...starts, ...fixes];
+  if (all.some((v) => compareSemverLike(v, v) === undefined)) return undefined;
   starts.sort((a, b) => compareSemverLike(a, b) ?? 0);
+  const groups: string[][] = starts.map(() => []);
+  for (const fixed of fixes) {
+    const at = starts.findLastIndex((s) => (compareSemverLike(fixed, s) ?? 0) > 0);
+    if (at < 0) return undefined;
+    groups[at]?.push(fixed);
+  }
   const paired: VersionRange[] = [];
   for (const [i, introduced] of starts.entries()) {
-    const fixed = fixes[i] ?? '';
-    const next = starts[i + 1];
-    const after = compareSemverLike(fixed, introduced);
-    const before = next === undefined ? -1 : compareSemverLike(fixed, next);
-    if (after === undefined || after <= 0 || before === undefined || before >= 0) return undefined;
-    paired.push({ introduced, fixed });
+    const own = groups[i] ?? [];
+    if (own.length === 0) {
+      const next = starts[i + 1];
+      if (next === undefined) {
+        paired.push({ introduced });
+        continue;
+      }
+      const line = /^(\d+)\.(\d+)\.0$/.exec(next);
+      if (line === null) return undefined;
+      const minor = Number(line[2]);
+      paired.push({
+        introduced,
+        last_affected: minor > 0 ? `${line[1] ?? ''}.${minor - 1}` : `${Number(line[1]) - 1}`,
+      });
+      continue;
+    }
+    const branches = new Set(own.map((f) => `${branchOf(f)?.major}.${branchOf(f)?.minor}`));
+    if (branches.size !== own.length) return undefined;
+    for (const [j, fixed] of own.entries()) {
+      if (j === 0) {
+        paired.push({ introduced, fixed });
+        continue;
+      }
+      const previous = branchOf(own[j - 1] ?? '');
+      const current = branchOf(fixed);
+      if (previous === undefined || current === undefined) return undefined;
+      const line =
+        previous.major === current.major
+          ? `${current.major}.${current.minor}.0`
+          : `${current.major}.0.0`;
+      const order = compareSemverLike(line, fixed) ?? 0;
+      paired.push({ introduced: order >= 0 ? `${line}-0` : line, fixed });
+    }
   }
   return paired;
 }
