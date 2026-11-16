@@ -73,9 +73,6 @@ const extra: CatalogEntry[] = [
     'semver4',
   ),
   product('tomcat', [{ type: 'cve-cna', assigner: 'apache', products: ['Apache Tomcat'] }]),
-  product('spring-web', [
-    { type: 'ghsa-package', ecosystem: 'maven', package: 'org.springframework:spring-web' },
-  ]),
   product('python', [{ type: 'cve-cna', assigner: 'PSF', products: ['CPython'] }]),
   product('django', [{ type: 'ghsa-package', ecosystem: 'pip', package: 'django' }]),
   product('nodejs', [
@@ -494,7 +491,7 @@ describe('smaller normalisations', () => {
 
   it('Spring: .RELEASE is the release itself', () => {
     expect(
-      rangesOf(globalGhsa('global-spring-web.json', 'GHSA-ccgv-vj62-xf9h'), 'spring-web'),
+      rangesOf(globalGhsa('global-spring-web.json', 'GHSA-ccgv-vj62-xf9h'), 'spring-framework'),
     ).toEqual([
       { introduced: '6.1.0', fixed: '6.1.4' },
       { introduced: '6.0.0', fixed: '6.0.17' },
