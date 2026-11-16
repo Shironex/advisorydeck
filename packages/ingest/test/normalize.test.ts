@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildAdvisory, clusterRecords, pickRanges } from '../src/advisories.ts';
 import {
   cveFacts,
+  cveRanges,
   ghsaFacts,
   ghsaRanges,
   type Catalogue,
@@ -140,6 +141,63 @@ describe('GHSA repository advisories, against the matcher fixtures', () => {
       patched_versions: '> v23.0.14, > v26.1.4, > v27.1.0',
     });
     expect(ranges).toEqual(matcherRanges('docker-engine', 'CVE-2024-41110'));
+  });
+});
+
+describe('CVE wildcard bounds', () => {
+  it('Drupal and MongoDB: a wildcard line as the bound is every release of that line', () => {
+    expect(
+      cveRanges({
+        product: 'Drupal core',
+        versions: [
+          { status: 'affected', version: '0.0.0', lessThan: '10.6.13', versionType: 'semver' },
+          { status: 'affected', version: '0.0.0', lessThan: '11.0.*', versionType: 'semver' },
+          { status: 'affected', version: '8.1.0', lessThanOrEqual: '8.1.*', versionType: 'custom' },
+        ],
+      }),
+    ).toEqual([
+      { introduced: '0.0.0', fixed: '10.6.13' },
+      { introduced: '0.0.0', last_affected: '11.0' },
+      { introduced: '8.1.0', last_affected: '8.1' },
+    ]);
+  });
+});
+
+describe('GHSA ranges next to a patched list', () => {
+  it('Envoy: one range across lines and a space-separated fix per line', () => {
+    const { ranges } = ghsaRanges({
+      package: { ecosystem: '', name: 'Envoy' },
+      vulnerable_version_range: ' >= 1.18.0, <1.40.0',
+      patched_versions: '1.36.12 1.37.8 1.38.6 1.39.3',
+    });
+    expect(ranges).toEqual([
+      { introduced: '1.18.0', fixed: '1.36.12' },
+      { introduced: '1.37.0', fixed: '1.37.8' },
+      { introduced: '1.38.0', fixed: '1.38.6' },
+      { introduced: '1.39.0', fixed: '1.39.3' },
+    ]);
+  });
+
+  it('Coder: the written bound is itself a listed fix and adds no range', () => {
+    const { ranges } = ghsaRanges({
+      package: { ecosystem: '', name: '' },
+      vulnerable_version_range: '<2.37.0',
+      patched_versions: '2.37.0, 2.36.4, 2.35.7, 2.34.9',
+    });
+    expect(ranges).toEqual([
+      { introduced: '0', fixed: '2.34.9' },
+      { introduced: '2.35.0', fixed: '2.35.7' },
+      { introduced: '2.36.0', fixed: '2.36.4' },
+    ]);
+  });
+
+  it('Nextcloud Enterprise: open bounds mixed with a bounded one are unknown', () => {
+    const { ranges } = ghsaRanges({
+      package: { ecosystem: '', name: 'Server' },
+      vulnerable_version_range: '< 21.0.0, >= 21.0.0, >= 22.0.0',
+      patched_versions: '21.0.9.20, 22.2.10.35',
+    });
+    expect(ranges).toBeUndefined();
   });
 });
 
