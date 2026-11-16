@@ -1,0 +1,91 @@
+---
+import type { AdvisoryView } from '../lib/feed.ts';
+import { groupByDayAndProduct } from '../lib/groups.ts';
+import { href, productPath } from '../lib/site.ts';
+import AdvisoryList from './AdvisoryList.astro';
+
+interface Props {
+  advisories: readonly AdvisoryView[];
+}
+
+/** A product with more advisories than this on one day shows its most severe few, the rest folded. */
+const PREVIEW = 3;
+const { advisories } = Astro.props;
+const days = groupByDayAndProduct(advisories);
+---
+
+<div class="days">
+  {days.map((day) => (
+    <section class="day" aria-labelledby={`d-${day.day}`}>
+      <h3 class="day-head" id={`d-${day.day}`}>
+        <time datetime={day.day}>{day.day}</time>
+      </h3>
+      {day.products.map((group) =>
+        group.advisories.length <= PREVIEW + 1 ? (
+          <AdvisoryList
+            advisories={group.advisories}
+            label={`${group.name} advisories published ${day.day}`}
+            level={4}
+            showDate={false}
+          />
+        ) : (
+          <div class="bundle">
+            <p class="bundle-head">
+              <a href={href(productPath(group.slug))}>{group.name}</a>: {group.advisories.length}{' '}
+              advisories published together, most severe first
+            </p>
+            <AdvisoryList
+              advisories={group.bySeverity.slice(0, PREVIEW)}
+              label={`Most severe ${group.name} advisories published ${day.day}`}
+              level={4}
+              showDate={false}
+            />
+            <details class="more">
+              <summary>
+                Show the other {group.advisories.length - PREVIEW} {group.name} advisories from{' '}
+                {day.day}
+              </summary>
+              <AdvisoryList
+                advisories={group.bySeverity.slice(PREVIEW)}
+                label={`Other ${group.name} advisories published ${day.day}`}
+                level={4}
+                showDate={false}
+              />
+            </details>
+          </div>
+        ),
+      )}
+    </section>
+  ))}
+</div>
+
+<style>
+  .day-head {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-muted);
+    margin: var(--space-4) 0 var(--space-2);
+  }
+  .day:first-child .day-head {
+    margin-top: 0;
+  }
+  .day :global(.adv-list) {
+    margin-bottom: var(--space-3);
+  }
+  .bundle-head {
+    font-size: var(--text-sm);
+    margin: 0 0 var(--space-2);
+  }
+  .bundle-head a {
+    font-weight: var(--weight-medium);
+  }
+  .more {
+    margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .more summary {
+    cursor: pointer;
+    color: var(--color-link);
+    padding-block: var(--space-2);
+  }
+</style>
