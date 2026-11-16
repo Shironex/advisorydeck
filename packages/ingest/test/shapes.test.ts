@@ -90,6 +90,7 @@ const extra: CatalogEntry[] = [
   ]),
   product('mattermost', [{ type: 'cve-cna', assigner: 'Mattermost', products: ['Mattermost'] }]),
   product('jenkins', [{ type: 'cve-cna', assigner: 'jenkins', products: ['Jenkins'] }]),
+  product('portainer', [{ type: 'ghsa-repo', repo: 'portainer/portainer' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -510,5 +511,18 @@ describe('unaffected versions inside the affected ranges', () => {
       { introduced: '11.7.0', last_affected: '11.7.6' },
       { introduced: '10.11.0', last_affected: '10.11.21' },
     ]);
+  });
+});
+
+describe('an open GHSA range next to a later bounded line', () => {
+  it('Portainer: the LTS line without a fix ends where the next line starts', () => {
+    const facts = repoGhsa('repo-portainer.json', 'GHSA-jmr9-98g4-2phv', 'portainer/portainer');
+    expect(rangesOf(facts, 'portainer')).toEqual(matcherRanges('portainer', 'GHSA-jmr9-98g4-2phv'));
+    expect(facts.warnings.join('\n')).toContain('ends before the next listed line starts');
+  });
+
+  it('Portainer: a closed range with no patched version stays closed', () => {
+    const facts = repoGhsa('repo-portainer.json', 'GHSA-j3mf-q9qf-5qf8', 'portainer/portainer');
+    expect(rangesOf(facts, 'portainer')).toEqual(matcherRanges('portainer', 'GHSA-j3mf-q9qf-5qf8'));
   });
 });

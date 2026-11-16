@@ -811,9 +811,37 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
     cwes: [...(record.repo?.cwe_ids ?? []), ...(record.global?.cwe_ids ?? [])],
     references,
     source: { type: 'ghsa', id: record.id, url: advisoryUrl, license: 'CC-BY-4.0' },
-    claims: perBranchClaims(mergeClaims(claims), record.id, warnings),
+    claims: clippedClaims(
+      perBranchClaims(mergeClaims(claims), record.id, warnings),
+      catalogue,
+      record.id,
+      warnings,
+    ),
     warnings,
   };
+}
+
+/**
+ * Ends an open GHSA range where the next listed line starts, for semver products (Portainer:
+ * `>= 2.39.0` with no fix yet for the LTS line next to `>= 2.40.0, < 2.45.2`). Left open, the
+ * range would also cover the patched 2.45.2. The same rule as for CVE records (clipOpenRanges).
+ */
+function clippedClaims(
+  claims: ProductClaim[],
+  catalogue: Catalogue,
+  id: string,
+  warnings: string[],
+): ProductClaim[] {
+  return claims.map((claim) => {
+    const semver =
+      catalogue.entries.find((e) => e.product.slug === claim.slug)?.product.version_scheme ===
+      'semver';
+    if (!semver) return claim;
+    const ranges = clipOpenRanges(claim.ranges);
+    if (ranges.every((r, i) => r === claim.ranges[i])) return claim;
+    warnings.push(`${id}: an open range of ${claim.slug} ends before the next listed line starts`);
+    return { ...claim, ranges };
+  });
 }
 
 /** Keeps the best claim per product and source rank (several entries can name one product). */
