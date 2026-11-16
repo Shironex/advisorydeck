@@ -3,6 +3,7 @@ import type { GetStaticPaths } from 'astro';
 import BranchTable from '../../../components/BranchTable.astro';
 import Crumbs from '../../../components/Crumbs.astro';
 import Filters from '../../../components/Filters.astro';
+import Icon from '../../../components/Icon.astro';
 import ReleaseBundle from '../../../components/ReleaseBundle.astro';
 import VersionCheck from '../../../components/VersionCheck.astro';
 import Base from '../../../layouts/Base.astro';
@@ -14,7 +15,7 @@ import {
   loadSiteData,
   type ProductView,
 } from '../../../lib/feed.ts';
-import { plural } from '../../../lib/format.ts';
+import { plural, shortDate } from '../../../lib/format.ts';
 import { emptyCounts, groupReleases } from '../../../lib/releases.ts';
 import { categoryPath, href, productFeedPath } from '../../../lib/site.ts';
 
@@ -42,6 +43,11 @@ const lastYear = advisories.filter((a) => since === null || a.publishedAt >= sin
 const category = CATEGORY_LABELS[product.category];
 const sources = productSources(product);
 const primary = sources[0];
+const upstream = product.upstream;
+const archivedTitle =
+  upstream === null
+    ? ''
+    : `Archived upstream${upstream.since === null ? '' : ` since ${shortDate(upstream.since)}`}${upstream.note === null ? '' : `: ${upstream.note}`}`;
 const branchOptions = table.shown
   .map((r) => r.branch)
   .map((b) => ({ value: b.name, label: b.eol ? `${b.name} (end of life)` : b.name }));
@@ -78,6 +84,21 @@ const branchOptions = table.shown
       <a href={href(productFeedPath(product.slug))}>Atom feed</a>
     </p>
   </header>
+
+  {upstream?.status === 'archived' && (
+    <div class="notices">
+      <div class="notice notice--warn" role="note" data-upstream="archived">
+        <Icon name="error" />
+        <div>
+          <p class="notice-title">{archivedTitle}</p>
+          <p>
+            The project no longer ships releases, so no further fixes are expected. Plan a move to a
+            maintained alternative.
+          </p>
+        </div>
+      </div>
+    </div>
+  )}
 
   <VersionCheck product={product} />
 

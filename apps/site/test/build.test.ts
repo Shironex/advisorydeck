@@ -76,6 +76,12 @@ beforeAll(() => {
   for (const dir of ['catalog', 'data', 'schemas', 'notes']) {
     cpSync(join(repo, dir), join(root, dir), { recursive: true });
   }
+  // A fixture product marked archived upstream in the copied catalog.
+  const traefik = join(root, 'catalog/proxies/traefik.yml');
+  writeFileSync(
+    traefik,
+    `${readFileSync(traefik, 'utf8')}upstream:\n  status: archived\n  since: 2026-10-01\n  note: Moved to example-fork.\n`,
+  );
   writeFileSync(join(root, 'notes', `${draftId}.md`), note(draftId, 'draft', ''));
   writeFileSync(
     join(root, 'notes', `${reviewedId}.md`),
@@ -113,6 +119,18 @@ describe('site build', () => {
       const atom = page(`products/${product.slug}/feed.xml`);
       expect(atom).toContain('<feed xmlns="http://www.w3.org/2005/Atom">');
     }
+  });
+
+  it('shows an archived upstream notice with text and an icon on the product page', () => {
+    const html = page('products/traefik/index.html');
+    const notice =
+      /<div class="notice notice--warn" role="note" data-upstream="archived">([\s\S]*?)<\/div>\s*<\/div>/.exec(
+        html,
+      )?.[1];
+    expect(notice).toBeDefined();
+    expect(notice).toContain('<svg');
+    expect(notice).toContain('Archived upstream since 1 Oct 2026: Moved to example-fork.');
+    expect(page('products/postgresql/index.html')).not.toContain('data-upstream');
   });
 
   it('renders a page for every advisory', () => {
