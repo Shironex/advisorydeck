@@ -10,7 +10,7 @@ import {
   type Catalogue,
   type RecordFacts,
 } from '../src/normalize.ts';
-import { trimCve, trimGhsa, type GhsaRecord } from '../src/records.ts';
+import { trimCve, trimGhsa, trimKev, type GhsaRecord } from '../src/records.ts';
 import { buildSourceIndex } from '../src/source-index.ts';
 
 const here = join(repoRoot(), 'packages/ingest/test/fixtures');
@@ -57,7 +57,14 @@ function matcherRanges(product: string, id: string): VersionRange[] {
 describe('CVE records', () => {
   it('builds the hand-made fixture advisory from the real PostgreSQL record', () => {
     const facts = cve('CVE-2026-120154');
-    const advisory = buildAdvisory(['CVE-2026-120154'], new Map([[facts.id, facts]]), new Map());
+    // Enrichment as recorded on 2026-11-16: the KEV catalog (not listed) and the EPSS score.
+    const advisory = buildAdvisory(['CVE-2026-120154'], new Map([[facts.id, facts]]), new Map(), {
+      kev: trimKev(json(join(here, 'kev/known_exploited_vulnerabilities.json'))),
+      epss: {
+        scores: { 'CVE-2026-120154': { score: 0.00295, percentile: 0.22351, date: '2026-11-15' } },
+      },
+      nvd: new Map(),
+    });
     const fixture = json<Advisory>(
       join(repoRoot(), 'fixtures/data/advisories/CVE-2026-120154.json'),
     );

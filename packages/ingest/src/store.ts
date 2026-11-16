@@ -1,6 +1,13 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { BranchRecord, CveRecord, GhsaRecord } from './records.ts';
+import type {
+  BranchRecord,
+  CveRecord,
+  EpssScores,
+  GhsaRecord,
+  KevCatalog,
+  NvdRecord,
+} from './records.ts';
 
 /** Paths inside the data directory (data/ in the repository). */
 export const dataLayout = {
@@ -18,6 +25,8 @@ export interface IngestState {
   cvelist: { day: string | null; release: string | null };
   /** Per GHSA query (repo:owner/name or package:ecosystem:name), the newest updated_at seen. */
   ghsa: Record<string, string>;
+  /** When the EPSS scores were last asked for (RFC 3339); they change once a day. */
+  epss_fetched_at?: string;
 }
 
 /** JSON with sorted object keys, two-space indent and a final newline: the same input gives the same bytes. */
@@ -109,6 +118,11 @@ export class Store {
   readonly cve: Collection<CveRecord>;
   readonly ghsa: Collection<GhsaRecord>;
   readonly branches: Collection<BranchRecord[]>;
+  /** One entry, catalog: the CISA KEV catalog. */
+  readonly kev: Collection<KevCatalog>;
+  /** One entry, scores: the EPSS scores of the feed's CVEs. */
+  readonly epss: Collection<EpssScores>;
+  readonly nvd: Collection<NvdRecord>;
   readonly dataDir: string;
 
   constructor(dataDir: string) {
@@ -117,6 +131,9 @@ export class Store {
     this.cve = new Collection(join(sources, 'cve'));
     this.ghsa = new Collection(join(sources, 'ghsa'));
     this.branches = new Collection(join(sources, 'endoflife'));
+    this.kev = new Collection(join(sources, 'kev'));
+    this.epss = new Collection(join(sources, 'epss'));
+    this.nvd = new Collection(join(sources, 'nvd'));
   }
 
   readState(): IngestState | undefined {
@@ -132,6 +149,13 @@ export class Store {
   }
 
   flush(): number {
-    return this.cve.flush() + this.ghsa.flush() + this.branches.flush();
+    return (
+      this.cve.flush() +
+      this.ghsa.flush() +
+      this.branches.flush() +
+      this.kev.flush() +
+      this.epss.flush() +
+      this.nvd.flush()
+    );
   }
 }

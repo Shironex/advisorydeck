@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util';
 import { Http } from './http.ts';
-import { runIngest, type SourceName } from './run.ts';
+import { runIngest, sourceNames, type SourceName } from './run.ts';
 
 const usage = `pnpm ingest [options]
 
@@ -10,12 +10,13 @@ Fetches advisories for the catalog products into data/ (advisories, the v1 feed 
   --baseline <file>     use a baseline zip already on disk for --backfill
   --cache-dir <dir>     where downloads are kept (default .cache/ingest)
   --since <YYYY-MM-DD>  keep advisories published on or after this date (default: one year back)
-  --skip <source>       skip cve, ghsa or branches (repeatable)
+  --skip <source>       skip cve, ghsa, branches, kev, epss or nvd (repeatable)
   --offline             no network: rebuild the outputs from data/sources
   --data-dir <dir>      write somewhere other than data/
   --help
 
-GITHUB_TOKEN raises the GitHub API limit from 60 to 5000 requests an hour; it is optional.`;
+GITHUB_TOKEN raises the GitHub API limit from 60 to 5000 requests an hour; it is optional.
+KEV, EPSS and NVD need no key.`;
 
 const { values } = parseArgs({
   options: {
@@ -40,11 +41,12 @@ if (values.since !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(values.since)) {
 }
 const skip = new Set<SourceName>();
 for (const name of values.skip) {
-  if (name !== 'cve' && name !== 'ghsa' && name !== 'branches') {
-    console.error(`--skip takes cve, ghsa or branches, not ${name}`);
+  const source = sourceNames.find((s) => s === name);
+  if (source === undefined) {
+    console.error(`--skip takes ${sourceNames.join(', ')}, not ${name}`);
     process.exit(2);
   }
-  skip.add(name);
+  skip.add(source);
 }
 
 const log = (message: string) => {

@@ -195,3 +195,120 @@ export function trimGhsa(raw: Record<string, unknown>): GhsaAdvisory {
     }),
   };
 }
+
+/**
+ * The CISA KEV catalog as ingest keeps it in data/sources/kev/catalog.json: every listed CVE
+ * with the date CISA added it, plus the catalog version, so any CVE can be checked offline.
+ */
+export interface KevCatalog {
+  catalog_version: string;
+  date_released: string;
+  /** CVE id to the date it was added (YYYY-MM-DD). */
+  entries: Record<string, string>;
+}
+
+/** One stored EPSS score: the probability, its percentile and the day it was scored. */
+export interface EpssScore {
+  score: number;
+  percentile: number;
+  date: string;
+}
+
+/** The EPSS scores ingest keeps in data/sources/epss/scores.json, for the CVEs of the feed. */
+export interface EpssScores {
+  scores: Record<string, EpssScore>;
+}
+
+/** One CVSS metric of an NVD record. */
+export interface NvdMetric {
+  version: string;
+  score: number;
+  severity: string | null;
+  vector: string | null;
+  /** Primary (NVD's own analysis) or Secondary (another source, usually the CNA). */
+  type: string;
+}
+
+/** The fields of an NVD API 2.0 CVE that ingest reads, in data/sources/nvd/<id>.json. */
+export interface NvdRecord {
+  id: string;
+  /** Day ingest asked NVD (YYYY-MM-DD), so a record without metrics is asked again later. */
+  fetched_at: string;
+  metrics: NvdMetric[];
+}
+
+const KEV_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const CVE_ID = /^CVE-\d{4}-\d{4,}$/;
+
+/** Keeps the CVE ids and dates of the CISA KEV JSON feed; undefined when it is not that feed. */
+export function trimKev(raw: unknown): KevCatalog | undefined {
+  const feed = raw as {
+    catalogVersion?: unknown;
+    dateReleased?: unknown;
+    vulnerabilities?: { cveID?: unknown; dateAdded?: unknown }[];
+  } | null;
+  if (
+    typeof feed?.catalogVersion !== 'string' ||
+    typeof feed.dateReleased !== 'string' ||
+    !Array.isArray(feed.vulnerabilities)
+  ) {
+    return undefined;
+  }
+  const pairs: [string, string][] = [];
+  for (const v of feed.vulnerabilities) {
+    if (typeof v.cveID !== 'string' || !CVE_ID.test(v.cveID.trim())) continue;
+    const added = typeof v.dateAdded === 'string' && KEV_DAY.test(v.dateAdded) ? v.dateAdded : '';
+    if (added === '') continue;
+    pairs.push([v.cveID.trim(), added]);
+  }
+  if (pairs.length === 0) return undefined;
+  pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return {
+    catalog_version: feed.catalogVersion,
+    date_released: feed.dateReleased,
+    entries: Object.fromEntries(pairs),
+  };
+}
+
+const NVD_KEYS = [
+  ['cvssMetricV31', '3.1'],
+  ['cvssMetricV40', '4.0'],
+  ['cvssMetricV30', '3.0'],
+  ['cvssMetricV2', '2.0'],
+] as const;
+
+/** Keeps the CVSS metrics of an NVD API 2.0 response for one CVE. */
+export function trimNvd(raw: unknown, id: string, day: string): NvdRecord | undefined {
+  const response = raw as {
+    vulnerabilities?: { cve?: { id?: unknown; metrics?: Record<string, unknown> } }[];
+  } | null;
+  const cve = response?.vulnerabilities?.find((v) => v.cve?.id === id)?.cve;
+  if (cve === undefined) return undefined;
+  const metrics: NvdMetric[] = [];
+  for (const [key, version] of NVD_KEYS) {
+    const list = cve.metrics?.[key];
+    if (!Array.isArray(list)) continue;
+    for (const entry of list as {
+      type?: unknown;
+      baseSeverity?: unknown;
+      cvssData?: { baseScore?: unknown; baseSeverity?: unknown; vectorString?: unknown };
+    }[]) {
+      const data = entry.cvssData;
+      if (typeof data?.baseScore !== 'number') continue;
+      const severity =
+        typeof data.baseSeverity === 'string'
+          ? data.baseSeverity
+          : typeof entry.baseSeverity === 'string'
+            ? entry.baseSeverity
+            : null;
+      metrics.push({
+        version,
+        score: data.baseScore,
+        severity,
+        vector: typeof data.vectorString === 'string' ? data.vectorString : null,
+        type: typeof entry.type === 'string' ? entry.type : 'Secondary',
+      });
+    }
+  }
+  return { id, fetched_at: day, metrics };
+}

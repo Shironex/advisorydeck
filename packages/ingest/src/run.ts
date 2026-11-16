@@ -7,9 +7,20 @@ import {
   type Advisory,
   type FeedNote,
 } from '@advisorydeck/contract';
-import { buildAdvisory, clusterRecords } from './advisories.ts';
+import { buildAdvisory, clusterRecords, cveIdsOf } from './advisories.ts';
 import { backfillCvelist, fetchCve, ingestCvelistDeltas } from './cvelist.ts';
 import { fetchBranches } from './endoflife.ts';
+import {
+  EPSS_REFRESH_HOURS,
+  fetchEpss,
+  fetchKev,
+  fetchNvd,
+  mergeEpss,
+  NVD_MAX_PER_RUN,
+  NVD_SPACING_MS,
+  nvdDue,
+  type Enrichment,
+} from './enrich.ts';
 import { ghsaQueries, ingestGhsa } from './ghsa.ts';
 import type { Http } from './http.ts';
 import { cveFacts, ghsaFacts, isoTime, type Catalogue, type RecordFacts } from './normalize.ts';
@@ -18,7 +29,9 @@ import type { CveRecord } from './records.ts';
 import { buildSourceIndex } from './source-index.ts';
 import { Store, type IngestState } from './store.ts';
 
-export type SourceName = 'cve' | 'ghsa' | 'branches';
+export type SourceName = 'cve' | 'ghsa' | 'branches' | 'kev' | 'epss' | 'nvd';
+
+export const sourceNames: readonly SourceName[] = ['cve', 'ghsa', 'branches', 'kev', 'epss', 'nvd'];
 
 export interface RunOptions {
   http: Http;
@@ -179,11 +192,35 @@ export async function runIngest(options: RunOptions): Promise<RunReport> {
   warnings.push(...loaded.issues.map((i) => `${i.file}: ${i.message}`));
   for (const { note, body } of loaded.notes) notes.set(note.advisory, toFeedNote(note, body));
 
+  // Clusters that will be published, before enrichment: the CVEs to enrich come from these.
+  const candidates: { ids: string[]; draft: Advisory }[] = [];
+  for (const ids of clusterRecords([...facts.values()])) {
+    const draft = buildAdvisory(ids, facts, notes);
+    if (draft !== undefined && draft.published_at >= floor) candidates.push({ ids, draft });
+  }
+  const feedCves = new Set(candidates.flatMap(({ ids }) => cveIdsOf(ids)));
+  if (options.offline !== true) {
+    await enrich({ options, store, state, now, log, warnings, candidates, feedCves, skip });
+  }
+  store.epss.set(
+    'scores',
+    mergeEpss(store.epss.get('scores') ?? { scores: {} }, new Map(), feedCves),
+  );
+  for (const id of [...store.nvd.items.keys()]) if (!feedCves.has(id)) store.nvd.delete(id);
+  const enrichment: Enrichment = {
+    kev: store.kev.get('catalog'),
+    epss: store.epss.get('scores') ?? { scores: {} },
+    nvd: store.nvd.items,
+  };
+  if (enrichment.kev === undefined) {
+    warnings.push('the KEV catalog was never read: every advisory is published as not checked');
+  }
+
   const advisories: Advisory[] = [];
   const quality: Record<string, string[]> = {};
-  for (const ids of clusterRecords([...facts.values()])) {
-    const advisory = buildAdvisory(ids, facts, notes);
-    if (advisory === undefined || advisory.published_at < floor) continue;
+  for (const { ids } of candidates) {
+    const advisory = buildAdvisory(ids, facts, notes, enrichment);
+    if (advisory === undefined) continue;
     advisories.push(advisory);
     const found = ids.flatMap((id) => facts.get(id)?.warnings ?? []);
     if (found.length > 0) quality[advisory.id] = found;
@@ -205,4 +242,67 @@ export async function runIngest(options: RunOptions): Promise<RunReport> {
   errors.push(...output.issues);
   store.writeState(state);
   return { advisories: advisories.length, output, warnings, errors, state };
+}
+
+interface EnrichContext {
+  options: RunOptions;
+  store: Store;
+  state: IngestState;
+  now: Date;
+  log: (message: string) => void;
+  warnings: string[];
+  candidates: readonly { ids: string[]; draft: Advisory }[];
+  feedCves: ReadonlySet<string>;
+  skip: ReadonlySet<SourceName>;
+}
+
+/** Reads KEV, EPSS and NVD into the store. A failing source keeps what is stored and warns. */
+async function enrich(context: EnrichContext): Promise<void> {
+  const { options, store, state, now, log, warnings, candidates, feedCves, skip } = context;
+  const http = options.http;
+  if (!skip.has('kev')) {
+    try {
+      const catalog = await fetchKev(http);
+      store.kev.set('catalog', catalog);
+      log(`kev: catalog ${catalog.catalog_version}, ${Object.keys(catalog.entries).length} CVEs`);
+    } catch (error) {
+      warnings.push(`kev: ${String(error)} (kept the stored catalog)`);
+    }
+  }
+  if (!skip.has('epss')) {
+    const stored = store.epss.get('scores') ?? { scores: {} };
+    const last = state.epss_fetched_at === undefined ? 0 : Date.parse(state.epss_fetched_at);
+    const refresh = now.getTime() - last >= EPSS_REFRESH_HOURS * 3_600_000;
+    const ask = [...feedCves].sort().filter((id) => refresh || stored.scores[id] === undefined);
+    if (ask.length > 0) {
+      try {
+        const fresh = await fetchEpss(http, ask);
+        store.epss.set('scores', mergeEpss(stored, fresh, feedCves));
+        if (refresh) state.epss_fetched_at = `${now.toISOString().slice(0, 19)}Z`;
+        log(`epss: asked ${ask.length}, scored ${fresh.size}`);
+      } catch (error) {
+        warnings.push(`epss: ${String(error)} (kept the stored scores)`);
+      }
+    }
+  }
+  if (!skip.has('nvd')) {
+    const today = now.toISOString().slice(0, 10);
+    const due = candidates
+      .filter(({ draft }) => draft.severity.score === null)
+      .flatMap(({ ids }) => cveIdsOf(ids))
+      .filter((id) => nvdDue(store.nvd.get(id), today));
+    for (const [i, id] of due.slice(0, NVD_MAX_PER_RUN).entries()) {
+      if (i > 0) await http.pause(NVD_SPACING_MS);
+      try {
+        const record = await fetchNvd(http, id, today);
+        store.nvd.set(id, record ?? { id, fetched_at: today, metrics: [] });
+      } catch (error) {
+        warnings.push(`nvd ${id}: ${String(error)}`);
+        break;
+      }
+    }
+    if (due.length > NVD_MAX_PER_RUN) {
+      log(`nvd: ${due.length - NVD_MAX_PER_RUN} CVEs left for the next run`);
+    }
+  }
 }
