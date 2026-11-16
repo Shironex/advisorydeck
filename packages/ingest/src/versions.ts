@@ -7,10 +7,18 @@ const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+:~_-]*$/;
 const ANY = new Set(['*', 'all', 'any', 'n/a', 'unspecified', 'unknown']);
 const NONE = new Set(['', 'none', 'tbd', 'n/a', 'unknown', 'unspecified', '-']);
 
-/** Trims a version and drops a leading v (v3.7.18 becomes 3.7.18); undefined when it is not a version. */
+/**
+ * Trims a version and drops a leading v (v3.7.18 becomes 3.7.18); undefined when it is not a
+ * version. Java release suffixes become semver: a dotted milestone or release candidate is a
+ * prerelease (Tomcat 9.0.0.M1 is 9.0.0-M1) and .RELEASE is the release itself (Spring
+ * 5.2.25.RELEASE is 5.2.25).
+ */
 export function cleanVersion(raw: string): string | undefined {
   let value = raw.trim();
   if (/^v[0-9]/i.test(value)) value = value.slice(1);
+  value = value
+    .replace(/^(\d+\.\d+\.\d+)\.(M|RC)(\d+)$/i, '$1-$2$3')
+    .replace(/^(\d+\.\d+\.\d+)\.RELEASE$/i, '$1');
   return VERSION.test(value) && value.length <= 64 ? value : undefined;
 }
 

@@ -36,6 +36,8 @@ import (
 //     GHSA-m5gf-432r-g5jw 10.6.1-10.6.27), read as ranges rather than one prerelease.
 //   - nextcloud.json: lower bounds next to a patched list of the same length
 //     (GHSA-f99w-3pm7-v4cv), paired into one range per branch.
+//   - tomcat.json: a dotted milestone as a lower bound (CVE-2026-74049, 9.0.0.M1), read as the
+//     prerelease 9.0.0-M1.
 
 type advisoryVectors struct {
 	Product    string `json:"product"`
