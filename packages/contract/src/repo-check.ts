@@ -13,7 +13,7 @@ import { type DocumentSchema, validateAgainst } from './schemas.ts';
 
 export interface RepositoryReport {
   issues: Issue[];
-  counts: { products: number; notes: number; fixtures: number };
+  counts: { products: number; notes: number; fixtures: number; published: number };
 }
 
 /** sha256 etag of exact file bytes, as the manifest records it. */
@@ -48,18 +48,6 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
 
   const fixtures = join(root, repoLayout.fixturesDir);
   let fixtureCount = 0;
-  const load = (path: string, schema: DocumentSchema): unknown => {
-    fixtureCount += 1;
-    const file = relativePath(root, path);
-    try {
-      const data = readData(path);
-      issues.push(...validateAgainst(schema, data, root).map((message) => ({ file, message })));
-      return data;
-    } catch (error) {
-      issues.push({ file, message: String(error) });
-      return undefined;
-    }
-  };
 
   // Image configs: valid ones must pass everything, invalid ones must fail the schema,
   // invalid-semantic ones must pass the schema and fail the extra rules.
@@ -79,9 +67,67 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
     }
   }
 
+  fixtureCount += checkPublished(
+    root,
+    { advisories: join(fixtures, 'data/advisories'), api: join(fixtures, feedLayout.basePath) },
+    join(fixtures, 'notes'),
+    slugs,
+    issues,
+  );
+
+  // Ingest output: data/advisories and data/api/v1 obey the same rules, with notes from notes/.
+  const data = join(root, repoLayout.dataDir);
+  const published = existsSync(data)
+    ? checkPublished(
+        root,
+        { advisories: join(root, repoLayout.advisoriesDir), api: join(root, repoLayout.feedDir) },
+        join(root, repoLayout.notesDir),
+        slugs,
+        issues,
+      )
+    : 0;
+
+  return {
+    issues,
+    counts: {
+      products: catalog.entries.length,
+      notes: notes.notes.length,
+      fixtures: fixtureCount,
+      published,
+    },
+  };
+}
+
+/**
+ * Checks one published tree (fixtures/ or data/): the advisory files and the v1 feed. Advisories
+ * must name catalog products and carry the reviewed note; the manifest must list every product
+ * file with its exact etag and count; product files must hold the same advisories. Returns the
+ * number of files read.
+ */
+function checkPublished(
+  root: string,
+  dirs: { advisories: string; api: string },
+  notesDir: string,
+  slugs: ReadonlySet<string>,
+  issues: Issue[],
+): number {
+  let fixtureCount = 0;
+  const load = (path: string, schema: DocumentSchema): unknown => {
+    fixtureCount += 1;
+    const file = relativePath(root, path);
+    try {
+      const data = readData(path);
+      issues.push(...validateAgainst(schema, data, root).map((message) => ({ file, message })));
+      return data;
+    } catch (error) {
+      issues.push({ file, message: String(error) });
+      return undefined;
+    }
+  };
+
   // Advisories: each must name catalog products, and its note must match the note fixture.
   const advisories = new Map<string, Advisory>();
-  for (const path of listFiles(join(fixtures, 'data/advisories'), ['.json'])) {
+  for (const path of listFiles(dirs.advisories, ['.json'])) {
     const advisory = load(path, 'advisory') as Advisory | undefined;
     if (advisory === undefined) continue;
     const file = relativePath(root, path);
@@ -93,7 +139,7 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
         issues.push({ file, message: `product ${product} is not in the catalog` });
       }
     }
-    const notePath = join(fixtures, 'notes', `${advisory.id}.md`);
+    const notePath = join(notesDir, `${advisory.id}.md`);
     const entry = existsSync(notePath) ? readNote(notePath, root) : undefined;
     if (Array.isArray(entry)) {
       fixtureCount += 1;
@@ -102,14 +148,14 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
       if (entry !== undefined) fixtureCount += 1;
       const expected = entry === undefined ? null : toFeedNote(entry.note, entry.body);
       if (!isDeepStrictEqual(advisory.note, expected)) {
-        issues.push({ file, message: `note does not match fixtures/notes/${advisory.id}.md` });
+        issues.push({ file, message: `note does not match ${relativePath(root, notePath)}` });
       }
     }
     advisories.set(advisory.id, advisory);
   }
 
   // Published feed: manifest entries and product files must agree byte for byte.
-  const api = join(fixtures, feedLayout.basePath);
+  const api = dirs.api;
   const manifestPath = join(api, feedLayout.manifest);
   const manifest = existsSync(manifestPath)
     ? (load(manifestPath, 'manifest') as Manifest | undefined)
@@ -144,7 +190,10 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
       }
       const source = advisories.get(advisory.id);
       if (source !== undefined && !isDeepStrictEqual(source, advisory)) {
-        issues.push({ file, message: `${advisory.id} differs from fixtures/data/advisories` });
+        issues.push({
+          file,
+          message: `${advisory.id} differs from ${relativePath(root, dirs.advisories)}`,
+        });
       }
     }
   }
@@ -156,13 +205,5 @@ export function checkRepository(root = repoRoot()): RepositoryReport {
       });
     }
   }
-
-  return {
-    issues,
-    counts: {
-      products: catalog.entries.length,
-      notes: notes.notes.length,
-      fixtures: fixtureCount,
-    },
-  };
+  return fixtureCount;
 }
