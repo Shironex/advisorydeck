@@ -148,6 +148,30 @@ function lineStart(raw: string): string | undefined {
   return parts.join('.');
 }
 
+/**
+ * True when every affected version of an entry names one release as both start and last
+ * affected (hackerone for Node.js: 22.23.3 lessThanOrEqual 22.23.3, 24.22.0 lessThanOrEqual
+ * 24.22.0). Read literally only those releases would be affected and 22.0.0 to 22.23.2 would
+ * read not affected; with two or more lines the intent is "up to and including", so each is read
+ * as an upper bound and then per branch (perBranchUpperBounds). A single such line is ambiguous
+ * and stays literal.
+ */
+export function everyLineUpTo(affected: CveAffected): boolean {
+  const lines = (affected.versions ?? []).filter((v) => v.status === 'affected');
+  return (
+    lines.length >= 2 &&
+    lines.every((v) => {
+      const start = cleanVersion(v.version ?? '');
+      return (
+        start !== undefined &&
+        start !== '0' &&
+        v.lessThan === undefined &&
+        cleanVersion(v.lessThanOrEqual ?? '') === start
+      );
+    })
+  );
+}
+
 /** A CVE version entry with its PEP 440 prereleases written as semver ones. */
 function pythonVersions(v: CveVersion): CveVersion {
   const pep = (s: string | undefined) => (s === undefined ? undefined : pep440Prereleases(s));
@@ -168,6 +192,7 @@ function pythonVersions(v: CveVersion): CveVersion {
  */
 export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
   const ranges: VersionRange[] = [];
+  const upTo = everyLineUpTo(affected);
   for (const written of affected.versions ?? []) {
     if (written.status !== 'affected') continue;
     const v = written.versionType === 'python' ? pythonVersions(written) : written;
@@ -179,7 +204,7 @@ export function cveRanges(affected: CveAffected): VersionRange[] | undefined {
       continue;
     }
     const any = raw === '' || raw === '*' || /^(n\/a|unspecified|all)$/i.test(raw);
-    const introduced = any ? '0' : cleanVersion(lineStart(raw) ?? raw);
+    const introduced = any || upTo ? '0' : cleanVersion(lineStart(raw) ?? raw);
     if (introduced === undefined) return undefined;
     const bound = v.lessThan ?? v.lessThanOrEqual;
     if (bound !== undefined) {
@@ -261,6 +286,10 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
     const ranges = cveRanges(affected);
     if (ranges === undefined) {
       warnings.push(`${cveId}: unreadable versions for ${rule.slug}, published as unknown`);
+    } else if (everyLineUpTo(affected)) {
+      warnings.push(
+        `${cveId}: every line of ${rule.slug} starts at its last affected version, read as every version up to it`,
+      );
     }
     claims.push({
       slug: rule.slug,

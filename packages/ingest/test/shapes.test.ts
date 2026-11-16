@@ -75,6 +75,9 @@ const extra: CatalogEntry[] = [
   ]),
   product('python', [{ type: 'cve-cna', assigner: 'PSF', products: ['CPython'] }]),
   product('django', [{ type: 'ghsa-package', ecosystem: 'pip', package: 'django' }]),
+  product('nodejs', [
+    { type: 'cve-cna', assigner: 'hackerone', vendor: 'nodejs', products: ['node'] },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -379,6 +382,22 @@ describe('smaller normalisations', () => {
     expect(rangesOf(globalGhsa('global-django.json', 'GHSA-q238-5cxm-5c9h'), 'django')).toEqual(
       matcherRanges('django', 'GHSA-q238-5cxm-5c9h'),
     );
+  });
+
+  it('Node.js: lines that start at their last affected release are read as up to it', () => {
+    const facts = cve('CVE-2026-106072');
+    expect(rangesOf(facts, 'nodejs')).toEqual(matcherRanges('nodejs', 'CVE-2026-106072'));
+    expect(facts.warnings.join('\n')).toContain('read as every version up to it');
+  });
+
+  it('a single line that starts at its last affected release stays one version', () => {
+    const record = trimCve(json(join(here, 'cve/CVE-2026-106072.json')));
+    const affected = record?.containers.cna.affected?.[0];
+    if (record === undefined || affected === undefined) throw new Error('CVE-2026-106072');
+    affected.versions = (affected.versions ?? []).slice(0, 1);
+    expect(rangesOf(cveFacts(record, catalogue), 'nodejs')).toEqual([
+      { introduced: '22.23.3', last_affected: '22.23.3' },
+    ]);
   });
 
   it('Spring: .RELEASE is the release itself', () => {
