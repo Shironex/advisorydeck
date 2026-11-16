@@ -32,7 +32,7 @@ describe('repository data', () => {
   it('has no problems', () => {
     const report = checkRepository();
     expect(report.issues).toEqual([]);
-    expect(report.counts.products).toBe(80);
+    expect(report.counts.products).toBe(99);
     expect(report.counts.corrections).toBe(5);
   });
 
