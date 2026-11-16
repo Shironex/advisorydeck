@@ -15,14 +15,25 @@ func passesFloor(level, floor string) bool {
 	return severityRank[level] > 0 && severityRank[level] >= severityRank[floor]
 }
 
+// EPSSUrgentPercentile is the EPSS percentile from which an advisory counts as likely to be
+// exploited. Ingest uses the same threshold for the material revision, so crossing it is
+// exactly one renotification.
+const EPSSUrgentPercentile = 0.95
+
 // urgency returns the bypass rule that makes an advisory post instantly whatever the
 // severity floor and mode, or "".
+//
+// Only a KEV listing counts as KEV: an advisory the catalog was not checked for is not
+// urgent (and is never shown as "not in KEV" either).
 //
 // The v1 feed has no explicit "action required" flag. Until it does, a reviewed note that
 // says a default setup is exposed counts as a required action.
 func urgency(a feed.Advisory) string {
-	if a.KEV.Listed {
+	if a.KEV.State() == feed.KEVListed {
 		return notify.UrgentKEV
+	}
+	if a.EPSS != nil && a.EPSS.Percentile >= EPSSUrgentPercentile {
+		return notify.UrgentEPSS
 	}
 	if a.Note != nil && a.Note.Status == "reviewed" && a.Note.Exposure == "default-exposed" {
 		return notify.UrgentActionRequired

@@ -94,6 +94,22 @@ func (r *rig) cycle(force bool) {
 	}
 }
 
+// start gives the channel its first-start summary on a feed without advisories, then
+// publishes the fixture advisories as if they appeared after the start.
+func (r *rig) start() {
+	r.t.Helper()
+	var saved any
+	r.feed.EditProduct(r.t, "postgresql", func(p map[string]any) {
+		saved = p["advisories"]
+		p["advisories"] = []any{}
+	})
+	r.cycle(false)
+	if n := r.newSends(); n != 1 {
+		r.t.Fatalf("first start sent %d messages, want the summary", n)
+	}
+	r.feed.EditProduct(r.t, "postgresql", func(p map[string]any) { p["advisories"] = saved })
+}
+
 // newSends returns the number of webhook requests since the last call.
 func (r *rig) newSends() int {
 	n := len(r.hook.Bodies())
@@ -104,11 +120,12 @@ func (r *rig) newSends() int {
 
 func TestInstantSendsOnceAcrossRestarts(t *testing.T) {
 	r := newRig(t, "instant", "medium")
+	r.start()
 	r.cycle(false)
 	if n := r.newSends(); n != 1 {
 		t.Fatalf("first cycle sent %d, want 1", n)
 	}
-	if !strings.Contains(string(r.hook.Bodies()[0]), "CVE-2026-120154") {
+	if !strings.Contains(string(r.hook.Bodies()[1]), "CVE-2026-120154") {
 		t.Fatal("payload does not name the advisory")
 	}
 	r.cycle(false) // new engine on the same state: a restart
@@ -119,8 +136,9 @@ func TestInstantSendsOnceAcrossRestarts(t *testing.T) {
 	if r.feed.NotModified() < 2 {
 		t.Fatalf("manifest 304s = %d, If-None-Match not used", r.feed.NotModified())
 	}
-	if r.feed.Requests("products/postgresql.json") != 1 {
-		t.Fatalf("product fetched %d times, want 1 (cached)", r.feed.Requests("products/postgresql.json"))
+	// Two published versions of the file (empty at start, then with the advisory).
+	if r.feed.Requests("products/postgresql.json") != 2 {
+		t.Fatalf("product fetched %d times, want 2 (cached)", r.feed.Requests("products/postgresql.json"))
 	}
 
 	// A material change publishes a new revision: notify again, once.
@@ -136,6 +154,7 @@ func TestInstantSendsOnceAcrossRestarts(t *testing.T) {
 
 func TestSeverityFloor(t *testing.T) {
 	r := newRig(t, "instant", "high")
+	r.start()
 	r.cycle(false)
 	if n := r.newSends(); n != 0 {
 		t.Fatalf("medium advisory passed a high floor: %d", n)
@@ -154,7 +173,8 @@ func TestSeverityFloor(t *testing.T) {
 
 func TestDigestSchedule(t *testing.T) {
 	r := newRig(t, "digest", "medium")
-	r.cycle(false) // 12:00 UTC: first run, the digest waits for the next 08:00 Berlin
+	r.start()
+	r.cycle(false) // 12:00 UTC: the digest waits for the next 08:00 Berlin
 	if n := r.newSends(); n != 0 {
 		t.Fatalf("digest mode sent %d instantly", n)
 	}
@@ -168,8 +188,8 @@ func TestDigestSchedule(t *testing.T) {
 	if n := r.newSends(); n != 1 {
 		t.Fatalf("digest sent %d messages, want 1", n)
 	}
-	if !strings.Contains(string(r.hook.Bodies()[0]), "daily digest: 1 advisories") {
-		t.Fatalf("not a digest: %s", r.hook.Bodies()[0])
+	if body := r.hook.Bodies()[len(r.hook.Bodies())-1]; !strings.Contains(string(body), "daily digest: 1 advisory") {
+		t.Fatalf("not a digest: %s", body)
 	}
 	r.now = r.now.Add(25 * time.Hour)
 	r.cycle(false)
@@ -192,6 +212,7 @@ func TestDigestSchedule(t *testing.T) {
 
 func TestActionRequiredIsInstant(t *testing.T) {
 	r := newRig(t, "digest", "critical")
+	r.start()
 	r.feed.EditProduct(t, "postgresql", func(p map[string]any) {
 		a := p["advisories"].([]any)[0].(map[string]any)
 		a["note"].(map[string]any)["exposure"] = "default-exposed"
@@ -204,6 +225,7 @@ func TestActionRequiredIsInstant(t *testing.T) {
 
 func TestForceDigestAndBothMode(t *testing.T) {
 	r := newRig(t, "both", "medium")
+	r.start()
 	r.cycle(true)
 	if n := r.newSends(); n != 2 {
 		t.Fatalf("both mode with a forced digest sent %d, want instant + digest", n)
@@ -249,6 +271,7 @@ func TestDisabledWebhook(t *testing.T) {
 
 func TestTransientFailureRetriesNextCycle(t *testing.T) {
 	r := newRig(t, "instant", "medium")
+	r.start()
 	r.hook.Respond = func(_ int, w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }
 	r.cycle(false)
 	if n := r.newSends(); n != 6 {
@@ -275,9 +298,22 @@ func TestDryRun(t *testing.T) {
 		t.Fatal("dry run wrote state")
 	}
 	s := out.String()
-	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "instant: 0", "digest: 1", "CVE-2026-120154", "branch 17 is affected before 17.12"} {
+	for _, want := range []string{"dry run", "channel discord:DISCORD_WEBHOOK_URL:ops", "first start: 1 summary", `postgresql 17: 1 open, latest fix "17.12"`, "instant: 0", "digest: 0"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("dry run output lacks %q:\n%s", want, s)
+		}
+	}
+
+	// With the replay flag, the backlog follows the summary.
+	out.Reset()
+	e := r.engine(true, &out)
+	e.ReplayBacklog = true
+	if err := e.Cycle(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"the backlog follows", "digest: 1", "postgresql|fix:17.12: 1 advisories", "CVE-2026-120154", "branch 17 is affected before 17.12"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("replay dry run output lacks %q:\n%s", want, out.String())
 		}
 	}
 }
