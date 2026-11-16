@@ -83,12 +83,19 @@ const extra: CatalogEntry[] = [
     { type: 'cve-cna', assigner: 'Go', vendor: 'Go standard library', products: ['*'] },
   ]),
   product('metabase', [{ type: 'ghsa-repo', repo: 'metabase/metabase' }]),
+  product('valkey', [
+    { type: 'ghsa-repo', repo: 'valkey-io/valkey' },
+    { type: 'cve-cna', assigner: 'GitHub_M', vendor: 'valkey-io', products: ['valkey'] },
+  ]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
 ];
 
-const entries = [...loadCatalog().entries, ...extra];
+// A product added to the catalog later keeps its test entry out, so the two never clash.
+const catalogEntries = loadCatalog().entries;
+const inCatalog = new Set(catalogEntries.map((e) => e.product.slug));
+const entries = [...catalogEntries, ...extra.filter((e) => !inCatalog.has(e.product.slug))];
 const built = buildSourceIndex(entries);
 const catalogue: Catalogue = { entries, index: built.index };
 
@@ -438,5 +445,12 @@ describe('smaller normalisations', () => {
     expect(rangesOf(cve('CVE-2026-109618'), 'php')).toEqual(
       matcherRanges('php', 'CVE-2026-109618'),
     );
+  });
+});
+
+describe('upper bounds of one expression in any order', () => {
+  it('Valkey: newest first, sorted so the newest bound does not cover the older branches', () => {
+    const facts = repoGhsa('repo-valkey.json', 'GHSA-jcj7-v34w-v9vv', 'valkey-io/valkey');
+    expect(rangesOf(facts, 'valkey')).toEqual(matcherRanges('valkey', 'GHSA-jcj7-v34w-v9vv'));
   });
 });

@@ -63,6 +63,15 @@ describe('parseRangeExpression (real upstream strings)', () => {
     ]);
   });
 
+  it('sorts upper bounds written newest first (Valkey)', () => {
+    expect(parseRangeExpression('<= 9.1.1, <= 9.0.5, <= 8.1.9, <= 8.0.10')).toEqual([
+      { introduced: '0', last_affected: '8.0.10' },
+      { introduced: '8.1.0', last_affected: '8.1.9' },
+      { introduced: '9.0.0', last_affected: '9.0.5' },
+      { introduced: '9.1.0', last_affected: '9.1.1' },
+    ]);
+  });
+
   it('reads a lower bound alone as no fix yet, and an exact version', () => {
     expect(parseRangeExpression('>= 7.0.0')).toEqual([{ introduced: '7.0.0' }]);
     expect(parseRangeExpression('= 1.2.3')).toEqual([
