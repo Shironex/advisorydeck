@@ -35,6 +35,8 @@ Examples: [fixtures/api/v1/](../fixtures/api/v1/).
 - **`sources[].type`** can be `kev`, `epss` or `nvd` besides the advisory sources; their licenses are `CC0-1.0`, `FIRST-EPSS` and `NVD-TOU`.
 - **`note`** is null unless a reviewed note exists. Drafts, disputed and superseded notes are never in the feed. The exposure label must be shown together with its assumptions.
 - **`revision`** is opaque. It changes only on a material change (severity level, ranges, a KEV listing, EPSS crossing the 0.95 percentile, the reviewed note), not on description edits.
+- **`product.upstream`** is present only when the catalog marks the upstream project as archived: `status` (`archived`; treat an unknown status as a warning too), `since` (date, optional) and `note` (optional, for example the maintained alternative). No further fixes are expected; show it next to the product.
+- **`product.category`** gained `auth`, `monitoring`, `storage`, `devtools` and `apps` in this version (additive); treat an unknown category as uncategorized.
 - **Text fields** (`title`, `summary`, note `body`) come from third parties or contributors. Escape them, truncate them for the target channel, and never let them trigger mentions.
 
 ## Versioning rules

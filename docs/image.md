@@ -146,6 +146,8 @@ A JSON `POST` for ntfy, Gotify, n8n or your own receiver. `items` always lists e
 }
 ```
 
+When the catalog marks a product's upstream as archived, every message for it (instant, digest and the first-start summary) puts `[UPSTREAM ARCHIVED]` after the product name and starts with one warning line (when it was archived, that no further fixes are expected, and the catalog's note); the webhook payload carries the same object as `upstream` on each bundle, item and summary product.
+
 The summary object: `min_severity`, `mode`, `backlog` (true when the backlog follows) and `products[]` with `product`, `product_name`, `declared_version`, `branch`, `missing` (no file in the feed), `advisories` (in the feed for the product), `open` (ids at the floor), `releases`, `latest`, `action` and `highest`.
 
 `verdict` is `affected` or `unknown`; `fix` is the release that fixes the declared version (empty when unknown or unfixed) and `fixed_in` every fix in the advisory; `urgent` is `""`, `kev`, `epss` or `action-required`; `kev` is true only when listed and `kev_state` is `listed`, `not-listed` or `not-checked`; `severity`, `epss` and `note` have the same shape as in the [product feed](feed-contract.md); `note` is null unless a reviewed note exists.
