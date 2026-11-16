@@ -86,9 +86,32 @@ type Severity struct {
 }
 
 // KEV says whether the advisory is in the CISA Known Exploited Vulnerabilities catalog.
+// Listed false is only a real "not listed" when Checked is true: feeds written before
+// enrichment existed carry no checked field, and an advisory the catalog was not read for
+// has checked false. Either way it is "not checked", never "not in KEV".
 type KEV struct {
 	Listed  bool    `json:"listed"`
 	AddedAt *string `json:"added_at"`
+	Checked *bool   `json:"checked,omitempty"`
+}
+
+// KEV states, from KEV.State.
+const (
+	KEVListed     = "listed"
+	KEVNotListed  = "not-listed"
+	KEVNotChecked = "not-checked"
+)
+
+// State returns KEVListed, KEVNotListed or KEVNotChecked.
+func (k KEV) State() string {
+	switch {
+	case k.Listed:
+		return KEVListed
+	case k.Checked != nil && *k.Checked:
+		return KEVNotListed
+	default:
+		return KEVNotChecked
+	}
 }
 
 // EPSS is the FIRST exploit prediction score.
