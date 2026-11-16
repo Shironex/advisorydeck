@@ -546,3 +546,11 @@ describe('operators written after the version or joined by &&', () => {
     expect(rangesOf(facts, 'ghost')).toEqual([{ introduced: '6.19.4', fixed: '6.21.1' }]);
   });
 });
+
+describe('a patched version equal to an inclusive upper bound', () => {
+  it('Ghost: <= 6.50.0 patched in 6.50.0 reads 6.50.0 as fixed, with a note', () => {
+    const facts = repoGhsa('repo-ghost.json', 'GHSA-mp9q-4q6m-44f5', 'TryGhost/Ghost');
+    expect(rangesOf(facts, 'ghost')).toEqual(matcherRanges('ghost', 'CVE-2026-103292'));
+    expect(facts.warnings.join('\n')).toContain('read the patch as the fix');
+  });
+});
