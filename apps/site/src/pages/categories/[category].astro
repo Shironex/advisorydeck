@@ -1,0 +1,47 @@
+---
+import type { GetStaticPaths } from 'astro';
+import AdvisoryList from '../../components/AdvisoryList.astro';
+import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import ProductTable from '../../components/ProductTable.astro';
+import Base from '../../layouts/Base.astro';
+import {
+  advisoriesOf,
+  CATEGORY_LABELS,
+  categoriesInUse,
+  loadSiteData,
+  productsIn,
+  type Category,
+} from '../../lib/feed.ts';
+
+export const getStaticPaths = (() =>
+  categoriesInUse(loadSiteData()).map((category) => ({
+    params: { category },
+    props: { category },
+  }))) satisfies GetStaticPaths;
+
+interface Props {
+  category: Category;
+}
+
+const { category } = Astro.props;
+const data = loadSiteData();
+const products = productsIn(data, category);
+const ids = new Set(products.flatMap((p) => p.advisoryIds));
+const latest = advisoriesOf(data, data.advisoryOrder.filter((id) => ids.has(id)).slice(0, 25));
+const label = CATEGORY_LABELS[category];
+---
+
+<Base
+  title={label.name}
+  description={`${label.name}: ${label.blurb} Security advisories per product.`}
+  section="products"
+>
+  <Breadcrumbs items={[{ label: 'Products', path: 'products/' }, { label: label.name }]} />
+  <h1>{label.name}</h1>
+  <p class="muted">{label.blurb}</p>
+  <ProductTable products={products} caption={`${label.name} products`} />
+  <section aria-labelledby="latest-heading">
+    <h2 id="latest-heading">Latest in {label.name.toLowerCase()}</h2>
+    <AdvisoryList advisories={latest} label={`Latest ${label.name} advisories`} />
+  </section>
+</Base>

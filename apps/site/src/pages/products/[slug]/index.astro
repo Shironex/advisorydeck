@@ -1,0 +1,366 @@
+---
+import type { GetStaticPaths } from 'astro';
+import AdvisoryList from '../../../components/AdvisoryList.astro';
+import Breadcrumbs from '../../../components/Breadcrumbs.astro';
+import SeverityCounts from '../../../components/SeverityCounts.astro';
+import Base from '../../../layouts/Base.astro';
+import { productSources } from '../../../lib/attribution.ts';
+import { branchRows, type BranchRow } from '../../../lib/branches.ts';
+import {
+  advisoriesOf,
+  CATEGORY_LABELS,
+  loadSiteData,
+  type ProductView,
+} from '../../../lib/feed.ts';
+import { isoDay, plural } from '../../../lib/format.ts';
+import { categoryPath, href, productFeedPath } from '../../../lib/site.ts';
+
+export const getStaticPaths = (() =>
+  loadSiteData().products.map((product) => ({
+    params: { slug: product.slug },
+    props: { product },
+  }))) satisfies GetStaticPaths;
+
+interface Props {
+  product: ProductView;
+}
+
+const { product } = Astro.props;
+const data = loadSiteData();
+const advisories = advisoriesOf(data, product.advisoryIds);
+const rows = branchRows(product, advisories);
+// Supported branches, end-of-life branches that still got a fix in the feed window, and the newest
+// end-of-life branch without one (the rest behave the same and are folded below the table).
+const newestUnfixedEol = rows.find((r) => r.branch.eol && r.fixedHere === 0);
+const shown = rows.filter((r) => !r.branch.eol || r.fixedHere > 0 || r === newestUnfixedEol);
+const older = rows.filter((r) => !shown.includes(r));
+const olderExposed = older.filter((r) => r.noFixHere > 0).length;
+const sources = productSources(product);
+const category = CATEGORY_LABELS[product.category];
+
+const SCHEMES: Record<ProductView['versionScheme'], string> = {
+  semver: 'Semantic versions (prereleases included)',
+  pg: 'PostgreSQL style: the major is the branch (17), minors are fixes (17.12)',
+  calver: 'Calendar versions',
+  dpkg: 'Debian package versions',
+  kernel: 'Linux kernel versions',
+  opaque: 'Compared for equality only',
+};
+const STRATEGIES: Record<ProductView['matchStrategy'], string> = {
+  'vendor-ranges': 'Vendor ranges per branch',
+  'package-ranges': 'Language package ranges',
+  'distro-notice': 'Distro notices, matched on the distro release',
+  'release-only': 'New releases only, no advisory data',
+};
+
+function statusOf(row: BranchRow): { text: string; tone: string } {
+  if (row.branch.eol) {
+    return {
+      text: row.branch.eolDate ? `End of life since ${row.branch.eolDate}` : 'End of life',
+      tone: 'danger',
+    };
+  }
+  return {
+    text: row.branch.eolDate ? `Supported until ${row.branch.eolDate}` : 'Supported',
+    tone: 'ok',
+  };
+}
+---
+
+<Base
+  title={`${product.name} security advisories`}
+  description={`${product.name}: ${plural(advisories.length, 'security advisory', 'security advisories')} with affected and fixed versions per release branch.`}
+  section="products"
+  feed={{ path: productFeedPath(product.slug), title: `${product.name} advisories (Atom)` }}
+>
+  <Breadcrumbs
+    items={[
+      { label: 'Products', path: 'products/' },
+      { label: category.name, path: categoryPath(product.category) },
+      { label: product.name },
+    ]}
+  />
+  <header class="product-head">
+    <div>
+      <h1>{product.name}</h1>
+      {product.description && <p class="muted prose">{product.description}</p>}
+    </div>
+    <p class="head-links small">
+      <a href={product.homepage} rel="noopener noreferrer">
+        Homepage
+      </a>
+      <a href={href(productFeedPath(product.slug))}>Atom feed</a>
+      <a href={href(`api/v1/products/${product.slug}.json`)}>JSON</a>
+    </p>
+  </header>
+
+  <SeverityCounts advisories={advisories} caption={`${product.name} advisories in the feed`} />
+
+  <section aria-labelledby="branches-heading">
+    <h2 id="branches-heading">Release branches</h2>
+    {product.branches.length === 0 ? (
+      <p class="prose">
+        No release branch data for {product.name}: it is not listed on endoflife.date. Versions are
+        compared directly, so give the notifier your exact version.
+      </p>
+    ) : (
+      <>
+        <p class="prose small muted">
+          Counted from the published ranges. "Fixed here" is the number of advisories with a fix
+          released in that branch, and the highest of those fixes; a release at or above it has
+          every listed fix. "No fix here" counts advisories whose affected range runs through the
+          branch without a fix in it: leave that branch. The notifier image does the exact matching
+          for your version.
+        </p>
+        <div class="table-scroll">
+          <table class="branches" role="table">
+            <caption class="visually-hidden">
+              {product.name} release branches with their support status and fixes
+            </caption>
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader">
+                  Branch
+                </th>
+                <th scope="col" role="columnheader">
+                  Status
+                </th>
+                <th scope="col" role="columnheader">
+                  Latest
+                </th>
+                <th scope="col" role="columnheader">
+                  Fixed here
+                </th>
+                <th scope="col" role="columnheader">
+                  No fix here
+                </th>
+              </tr>
+            </thead>
+            <tbody role="rowgroup">
+              {shown.map((row) => {
+                const status = statusOf(row);
+                return (
+                  <tr role="row" data-eol={row.branch.eol ? 'true' : undefined}>
+                    <th scope="row" role="rowheader" class="mono">
+                      {row.branch.name}
+                    </th>
+                    <td role="cell" data-label="Status">
+                      <span class="tag" data-tone={status.tone}>
+                        {status.text}
+                      </span>
+                    </td>
+                    <td role="cell" class="mono" data-label="Latest">
+                      {row.branch.latest ?? '?'}
+                      {row.latestCoversFixes === true && (
+                        <span class="visually-hidden"> (has every listed fix)</span>
+                      )}
+                    </td>
+                    <td role="cell" data-label="Fixed here">
+                      {row.fixedHere === 0 ? (
+                        <span class="muted">0</span>
+                      ) : (
+                        <span>
+                          {row.fixedHere}, up to <span class="mono">{row.highestFix}</span>
+                        </span>
+                      )}
+                    </td>
+                    <td role="cell" data-label="No fix here">
+                      {row.noFixHere === 0 ? (
+                        <span class="muted">0</span>
+                      ) : (
+                        <span class="tag" data-tone="danger">
+                          {row.noFixHere}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {older.length > 0 && (
+          <details class="older">
+            <summary>
+              {plural(older.length, 'older end-of-life branch', 'older end-of-life branches')}
+              {olderExposed > 0
+                ? `: published advisories reach ${olderExposed} of them with no fix`
+                : ' with no advisories in the feed'}
+            </summary>
+            <p class="small mono">
+              {older
+                .map(
+                  (r) => `${r.branch.name}${r.branch.eolDate ? ` (EOL ${r.branch.eolDate})` : ''}`,
+                )
+                .join(', ')}
+            </p>
+          </details>
+        )}
+      </>
+    )}
+  </section>
+
+  <section aria-labelledby="advisories-heading">
+    <h2 id="advisories-heading">
+      Advisories <span class="muted small">{advisories.length}</span>
+    </h2>
+    {advisories.length === 0 ? (
+      <p>No advisories for {product.name} in the feed window.</p>
+    ) : (
+      <AdvisoryList
+        advisories={advisories}
+        product={product.slug}
+        label={`${product.name} advisories, newest first`}
+      />
+    )}
+  </section>
+
+  <section aria-labelledby="facts-heading">
+    <h2 id="facts-heading">How {product.name} is tracked</h2>
+    <dl class="facts">
+      <dt>Category</dt>
+      <dd>
+        <a href={href(categoryPath(product.category))}>{category.name}</a>
+      </dd>
+      <dt>Versions</dt>
+      <dd>{SCHEMES[product.versionScheme]}</dd>
+      <dt>Matching</dt>
+      <dd>{STRATEGIES[product.matchStrategy]}</dd>
+      <dt>Self-hoster notes</dt>
+      <dd>{product.curated ? 'Written for this product' : 'Not written for this product yet'}</dd>
+      {product.images.map((image) => (
+        <>
+          <dt>Image</dt>
+          <dd>
+            <code>{image.ref}</code>
+            {image.note && <span class="muted small"> {image.note}</span>}
+          </dd>
+        </>
+      ))}
+      <dt>Feed updated</dt>
+      <dd>
+        {product.generatedAt ? (
+          <time datetime={product.generatedAt}>{isoDay(product.generatedAt)}</time>
+        ) : (
+          'Not published yet'
+        )}
+      </dd>
+    </dl>
+  </section>
+
+  <section aria-labelledby="sources-heading">
+    <h2 id="sources-heading">Data sources</h2>
+    <p class="small muted prose">
+      Most trusted first. Every advisory also links the exact records it was built from.
+    </p>
+    <ul class="sources">
+      {sources.map((s) => (
+        <li>
+          <strong>{s.label}</strong>:{' '}
+          {s.url ? (
+            <a href={s.url} rel="noopener noreferrer">
+              {s.detail}
+            </a>
+          ) : (
+            s.detail
+          )}
+          {s.crossCheckOnly && (
+            <span class="muted small"> (read by people as a cross-check, nothing copied)</span>
+          )}
+          {s.attribution && (
+            <span class="small muted">
+              {' '}
+              Used under{' '}
+              <a href={s.attribution.licenseUrl} rel="noopener noreferrer">
+                {s.attribution.license}
+              </a>
+              . {s.attribution.credit}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+    <p class="small">
+      <a href={href('sources/')}>All data sources and licenses</a>
+    </p>
+  </section>
+</Base>
+
+<style>
+  .product-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .head-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .branches {
+    font-size: var(--text-sm);
+    min-width: 34rem;
+  }
+  .branches tr[data-eol] th {
+    color: var(--color-text-muted);
+  }
+  /* Phones: one block per branch, each cell labelled. */
+  @media (max-width: 36rem) {
+    .branches {
+      min-width: 0;
+    }
+    .branches thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+    }
+    .branches tr,
+    .branches th,
+    .branches td {
+      display: block;
+    }
+    .branches tr {
+      border-bottom: var(--border-width) solid var(--color-border);
+      padding-block: var(--space-2);
+    }
+    .branches th[scope='row'] {
+      border: 0;
+      padding: 0 0 var(--space-1);
+      font-size: var(--text-base);
+      color: var(--color-text);
+    }
+    .branches td {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-3);
+      border: 0;
+      padding: var(--space-1) 0;
+    }
+    .branches td::before {
+      content: attr(data-label);
+      color: var(--color-text-muted);
+      font-family: var(--font-sans);
+    }
+  }
+  .older {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .older summary {
+    cursor: pointer;
+    color: var(--color-text-muted);
+  }
+  .sources {
+    padding-left: var(--space-5);
+  }
+  .sources li {
+    margin-bottom: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+</style>

@@ -1,25 +1,86 @@
 ---
-const title = 'Advisorydeck';
+import LatestGroups from '../components/LatestGroups.astro';
+import CategoryOverview from '../components/CategoryOverview.astro';
+import SeverityCounts from '../components/SeverityCounts.astro';
+import Base from '../layouts/Base.astro';
+import { advisoriesOf, loadSiteData } from '../lib/feed.ts';
+import { plural } from '../lib/format.ts';
+import { href, SITE_NAME } from '../lib/site.ts';
+
+const LATEST = 60;
+const data = loadSiteData();
+const latest = advisoriesOf(data, data.advisoryOrder.slice(0, LATEST));
+const since = data.generatedAt
+  ? new Date(Date.parse(data.generatedAt) - 30 * 86_400_000).toISOString()
+  : null;
+const recent = advisoriesOf(data, data.advisoryOrder).filter(
+  (a) => since !== null && a.publishedAt >= since,
+);
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content="Security advisories for the software self-hosters run." />
-  </head>
-  <body>
-    <main>
-      <h1>{title}</h1>
+<Base
+  title={SITE_NAME}
+  description="Security advisories for the software self-hosters run: affected and fixed versions per branch, reviewed notes, and a notifier you configure in your browser."
+  section="latest"
+>
+  <div class="intro">
+    <h1>Security advisories for what you self-host</h1>
+    <p class="prose muted">
+      Affected and fixed versions per release branch for {plural(data.products.length, 'product')},
+      straight from the vendors' CVE records and GitHub advisories, with reviewed notes on what an
+      advisory means for a typical self-hosted setup.{' '}
+      <a href={href('generator/')}>Set up the notifier</a> to get only what matches the versions you
+      run.
+    </p>
+  </div>
+
+  <section aria-labelledby="recent-heading" class="recent">
+    <h2 id="recent-heading" class="visually-hidden">
+      Last 30 days
+    </h2>
+    <SeverityCounts
+      advisories={recent}
+      caption="Published in the 30 days before the last feed update"
+    />
+  </section>
+
+  <div class="columns">
+    <section aria-labelledby="latest-heading" class="col-main">
+      <h2 id="latest-heading">Latest advisories</h2>
+      <LatestGroups advisories={latest} />
       <p>
-        Security advisories for the software self-hosters run. Early development: nothing to read
-        here yet.
+        <a href={href('advisories/')}>All {data.advisoryOrder.length} advisories</a> ·{' '}
+        <a href={href('feed.xml')}>Atom feed</a>
       </p>
-      <p>
-        <a href="https://github.com/Shironex/advisorydeck">Source on GitHub</a>
-      </p>
-    </main>
-  </body>
-</html>
+    </section>
+    <aside aria-labelledby="browse-heading" class="col-side">
+      <h2 id="browse-heading">Browse by product</h2>
+      <CategoryOverview />
+    </aside>
+  </div>
+</Base>
+
+<style>
+  .intro h1 {
+    font-size: var(--text-2xl);
+    max-width: 30ch;
+  }
+  .recent {
+    margin-block: var(--space-5);
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+  .col-side h2,
+  .col-main h2 {
+    margin-top: 0;
+  }
+  @media (min-width: 64rem) {
+    .columns {
+      grid-template-columns: minmax(0, 1fr) 18rem;
+      gap: var(--space-6);
+    }
+  }
+</style>

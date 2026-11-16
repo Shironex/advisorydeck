@@ -1,0 +1,53 @@
+---
+import AdvisoryList from '../../components/AdvisoryList.astro';
+import Base from '../../layouts/Base.astro';
+import { advisoriesOf, loadSiteData, type AdvisoryView } from '../../lib/feed.ts';
+import { monthLabel } from '../../lib/format.ts';
+
+const data = loadSiteData();
+const months = new Map<string, AdvisoryView[]>();
+for (const advisory of advisoriesOf(data, data.advisoryOrder)) {
+  const key = advisory.publishedAt.slice(0, 7);
+  months.set(key, [...(months.get(key) ?? []), advisory]);
+}
+---
+
+<Base
+  title="All advisories"
+  description="Every advisory Advisorydeck tracks, newest first, grouped by month."
+  section="latest"
+>
+  <h1>All advisories</h1>
+  <p class="muted">{data.advisoryOrder.length} advisories, newest first.</p>
+  <nav aria-label="Months" class="months">
+    <ul>
+      {[...months.keys()].map((key) => (
+        <li>
+          <a href={`#m-${key}`}>{monthLabel(`${key}-01T00:00:00Z`)}</a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+  {[...months.entries()].map(([key, list]) => (
+    <section aria-labelledby={`m-${key}`}>
+      <h2 id={`m-${key}`}>
+        {monthLabel(`${key}-01T00:00:00Z`)} <span class="muted small">{list.length}</span>
+      </h2>
+      <AdvisoryList
+        advisories={list}
+        label={`Advisories published in ${monthLabel(`${key}-01T00:00:00Z`)}`}
+      />
+    </section>
+  ))}
+</Base>
+
+<style>
+  .months ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    list-style: none;
+    padding: 0;
+    font-size: var(--text-sm);
+  }
+</style>
