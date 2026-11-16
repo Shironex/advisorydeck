@@ -18,7 +18,7 @@ Examples: [fixtures/api/v1/](../fixtures/api/v1/).
 3. Download only the changed `products/<slug>.json`. Its sha256 must equal the etag; if not, the file was caught mid-deploy: retry on the next poll.
 4. Match locally. Renotify an advisory only when its `revision` changes.
 
-`etag` is `sha256:` plus the hex sha256 of the exact file bytes, so a consumer can verify it without trusting HTTP headers. `generated_at` lets a consumer warn when the feed is stale.
+`etag` is `sha256:` plus the hex sha256 of the exact file bytes, so a consumer can verify it without trusting HTTP headers. `generated_at` lets a consumer warn when the feed is stale. Ingest only moves a product's `generated_at` (and its manifest `updated_at`) when that product file changes, and the manifest's `generated_at` when any entry changes, so a run with nothing new rewrites nothing; quiet weeks are normal, and a staleness warning should allow for them.
 
 ## Field semantics
 
