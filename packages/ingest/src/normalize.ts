@@ -8,6 +8,7 @@ import {
   compareSemverLike,
   compactHyphenRange,
   dedupeRanges,
+  exceptPatchedLines,
   isBounded,
   isRangeExpression,
   nextLine,
@@ -216,6 +217,14 @@ export function cveRanges(affected: CveAffected, notes: string[] = []): VersionR
     if (bound !== undefined) {
       if (bound.trim() === '*') {
         ranges.push({ introduced });
+        continue;
+      }
+      // A wildcard line as the bound (Drupal: 0.0.0 lessThan 11.0.*, next to 0.0.0 lessThan
+      // 10.6.13) names a line that never got the fix: every release of it is affected, read as
+      // last affected 11.0, the whole branch.
+      const wildLine = /^v?(\d+\.\d+)\.[*x]$/.exec(bound.trim())?.[1];
+      if (wildLine !== undefined) {
+        ranges.push({ introduced, last_affected: wildLine });
         continue;
       }
       const version = cleanVersion(bound);
@@ -427,7 +436,12 @@ export function cveFacts(record: CveRecord, catalogue: Catalogue): RecordFacts {
       url: `https://www.cve.org/CVERecord?id=${cveId}`,
       license: 'CVE-TOU',
     },
-    claims: perBranchClaims(mergeClaims(claims), cveId, warnings),
+    claims: patchedLineClaims(
+      perBranchClaims(mergeClaims(claims), cveId, warnings),
+      catalogue,
+      cveId,
+      warnings,
+    ),
     warnings,
   };
 }
@@ -542,7 +556,18 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
       : { ranges: paired };
   }
   const only = parsed.length === 1 ? parsed[0] : undefined;
-  if (only === undefined) return { ranges: parsed };
+  if (only === undefined) {
+    // Open lower bounds mixed with bounded ranges next to a patched list (Nextcloud Enterprise:
+    // `< 21.0.0, >= 21.0.0, >= 22.0.0, ...` patched `21.0.9.20, 22.2.10.35, ...`): read as
+    // written, every open bound would cover the patched releases of all later lines.
+    if (parsed.some((r) => !isBounded(r)) && /[0-9]/.test(patchedRaw)) {
+      return {
+        ranges: undefined,
+        note: `range "${expression}" mixes open lower bounds with the patched versions "${patchedRaw}": versions unknown`,
+      };
+    }
+    return { ranges: parsed };
+  }
   const open = only.fixed === undefined && only.last_affected === undefined;
   if (open && branchFixes !== undefined) {
     return { ranges: perBranchRanges(only.introduced, branchFixes) };
@@ -551,9 +576,43 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
     // "<= 9.0.2" patched in "9.0.3, 8.1.6, 8.0.7, 7.2.12" (Valkey): the bound names the newest
     // branch only, and the list says where each older branch is fixed.
     return {
-      ranges: perBranchRanges('0', branchFixes),
+      ranges: perBranchRanges('0', branchFixes).filter(
+        (r) => r.fixed === undefined || (compareSemverLike(r.introduced, r.fixed) ?? -1) < 0,
+      ),
       note: `upper bound "${expression}" with patched versions "${patchedRaw}": read as one range per patched branch`,
     };
+  }
+  if (!open && branchFixes !== undefined) {
+    // One range across all lines next to the fix per line (`>= 1.18.0, < 1.40.0` patched
+    // `1.36.12 1.37.8 1.38.6 1.39.3`): one range per listed line, up to the written bound. A
+    // listed fix above the bound is a later line that never had the flaw.
+    const upper = only.fixed ?? only.last_affected ?? '';
+    const line = (v: string) => {
+      const b = branchOf(v);
+      return b === undefined ? undefined : `${b.major}.${b.minor}`;
+    };
+    const below = branchFixes.filter((fix) => {
+      const order = compareSemverLike(fix, upper);
+      if (order === undefined) return false;
+      // After a last affected version, the fix on its own line is the next release.
+      return order <= 0 || (only.fixed === undefined && line(fix) === line(upper));
+    });
+    // The list must close the bound: a fix on the bound's own line (Harbor: `< 2.14.3` with
+    // `2.14.3` listed) or a bound that is the first release of the next line (Envoy: `< 1.40.0`).
+    // Otherwise the range stays as written, the stricter reading (Valkey: `<= 9.0.2` patched
+    // `9.1.0, 8.1.6`).
+    const closes =
+      below.some((fix) => line(fix) === line(upper)) ||
+      (only.fixed !== undefined && /^\d+\.\d+(?:\.0)?$/.test(only.fixed));
+    if (closes && below.length > 0 && below.length >= branchFixes.length - 1) {
+      const ranges = perBranchRanges(only.introduced, below).filter(
+        (r) => r.fixed === undefined || (compareSemverLike(r.introduced, r.fixed) ?? -1) < 0,
+      );
+      return {
+        ranges,
+        note: `range "${expression}" next to the patched list "${patchedRaw}": read as one range per listed line`,
+      };
+    }
   }
   const patched = singlePatchedVersion(patchedRaw);
   if (patched === undefined) return { ranges: parsed };
@@ -646,10 +705,14 @@ function isNextPatch(last: string, patched: string): boolean {
   return a !== null && b !== null && a[1] === b[1] && Number(b[2]) === Number(a[2]) + 1;
 }
 
-/** A comma-separated list of two or more exact patched versions, one per branch, sorted ascending. */
+/**
+ * A list of two or more exact patched versions, one per branch, separated by commas or spaces
+ * (`1.36.12 1.37.8 1.38.6 1.39.3`), sorted ascending.
+ */
 function patchedBranchList(raw: string): string[] | undefined {
-  if (!raw.includes(',')) return undefined;
-  const versions = raw.split(',').map((part) => cleanVersion(part));
+  const parts = raw.split(/[\s,]+/).filter((part) => part !== '');
+  if (parts.length < 2) return undefined;
+  const versions = parts.map((part) => cleanVersion(part));
   if (versions.some((v) => v === undefined || branchOf(v) === undefined)) return undefined;
   return (versions as string[]).sort((a, b) => compareSemverLike(a, b) ?? 0);
 }
@@ -854,8 +917,13 @@ export function ghsaFacts(record: GhsaRecord, catalogue: Catalogue): RecordFacts
     cwes: [...(record.repo?.cwe_ids ?? []), ...(record.global?.cwe_ids ?? [])],
     references,
     source: { type: 'ghsa', id: record.id, url: advisoryUrl, license: 'CC-BY-4.0' },
-    claims: clippedClaims(
-      perBranchClaims(mergeClaims(claims), record.id, warnings),
+    claims: patchedLineClaims(
+      clippedClaims(
+        perBranchClaims(mergeClaims(claims), record.id, warnings),
+        catalogue,
+        record.id,
+        warnings,
+      ),
       catalogue,
       record.id,
       warnings,
@@ -922,6 +990,35 @@ function perBranchClaims(claims: ProductClaim[], id: string, warnings: string[])
     const bounds = ranges.map((r) => r.fixed ?? r.last_affected ?? '').join(', ');
     warnings.push(
       `${id}: upper bounds ${bounds} each from the first version read as one range per branch for ${claim.slug}, each from the line after the previous bound`,
+    );
+    return { ...claim, ranges };
+  });
+}
+
+function sameRanges(a: readonly VersionRange[], b: readonly VersionRange[]): boolean {
+  const key = (r: VersionRange) => `${r.introduced}|${r.fixed ?? ''}|${r.last_affected ?? ''}`;
+  return a.length === b.length && a.every((r, i) => key(r) === key(b[i] ?? r));
+}
+
+/**
+ * Skips the releases a record lists as fixed on one line when another range of the same record
+ * runs past that line (exceptPatchedLines). Semver products only: elsewhere a two-part version is
+ * not a line.
+ */
+function patchedLineClaims(
+  claims: ProductClaim[],
+  catalogue: Catalogue,
+  id: string,
+  warnings: string[],
+): ProductClaim[] {
+  return claims.map((claim) => {
+    const scheme = catalogue.entries.find((e) => e.product.slug === claim.slug)?.product
+      .version_scheme;
+    if (scheme !== 'semver') return claim;
+    const ranges = exceptPatchedLines(claim.ranges);
+    if (sameRanges(ranges, claim.ranges)) return claim;
+    warnings.push(
+      `${id}: a range of ${claim.slug} runs past lines the record lists as fixed: skipped their patched releases`,
     );
     return { ...claim, ranges };
   });

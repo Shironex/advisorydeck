@@ -4,6 +4,7 @@ import {
   clipOpenRanges,
   compactHyphenRange,
   compareSemverLike,
+  exceptPatchedLines,
   parseRangeExpression,
   pep440Prereleases,
   perBranchUpperBounds,
@@ -286,5 +287,62 @@ describe('clipOpenRanges', () => {
     expect(clipOpenRanges(midLine)).toEqual(midLine);
     const unfixed = [{ introduced: '1.25.0' }, { introduced: '1.30.0' }];
     expect(clipOpenRanges(unfixed)).toEqual(unfixed);
+  });
+});
+
+describe('exceptPatchedLines', () => {
+  it('skips the patched rest of each line a wider range runs past (Rocket.Chat, newest first)', () => {
+    expect(
+      exceptPatchedLines([
+        { introduced: '0', fixed: '8.8.0' },
+        { introduced: '8.7.0', fixed: '8.7.2' },
+        { introduced: '8.6.0', fixed: '8.6.2' },
+      ]),
+    ).toEqual([
+      { introduced: '0', fixed: '8.6.2' },
+      { introduced: '8.7.0', fixed: '8.7.2' },
+      { introduced: '8.8.0-0', fixed: '8.8.0' },
+      { introduced: '8.6.0', fixed: '8.6.2' },
+    ]);
+  });
+
+  it('keeps unlisted and older lines affected (WordPress, a bare 7.1.0 read from 0)', () => {
+    const out = exceptPatchedLines([
+      { introduced: '0', fixed: '7.1.1' },
+      { introduced: '7.0.0', fixed: '7.0.5' },
+      { introduced: '6.8.0', fixed: '6.8.9' },
+    ]);
+    expect(out).toEqual([
+      { introduced: '0', fixed: '6.8.9' },
+      { introduced: '6.9.0', fixed: '7.0.5' },
+      { introduced: '7.1.0', fixed: '7.1.1' },
+      { introduced: '7.0.0', fixed: '7.0.5' },
+      { introduced: '6.8.0', fixed: '6.8.9' },
+    ]);
+  });
+
+  it('works on last affected versions and build metadata (K3s)', () => {
+    expect(
+      exceptPatchedLines([
+        { introduced: '0', last_affected: '1.35.2+k3s1' },
+        { introduced: '0', last_affected: '1.34.5+k3s1' },
+      ]),
+    ).toEqual([
+      { introduced: '0', last_affected: '1.34.5+k3s1' },
+      { introduced: '1.35.0', last_affected: '1.35.2+k3s1' },
+    ]);
+  });
+
+  it('leaves ranges on separate lines, and a stricter range inside one line, as they are', () => {
+    const separate = [
+      { introduced: '2.12.0', fixed: '2.12.12' },
+      { introduced: '2.14.0', fixed: '2.14.3' },
+    ];
+    expect(exceptPatchedLines(separate)).toEqual(separate);
+    const sameLine = [
+      { introduced: '0', fixed: '1.35.9' },
+      { introduced: '1.35.0', fixed: '1.35.8' },
+    ];
+    expect(exceptPatchedLines(sameLine)).toEqual(sameLine);
   });
 });

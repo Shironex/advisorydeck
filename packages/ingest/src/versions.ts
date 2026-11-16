@@ -396,6 +396,76 @@ export function clipOpenRanges(ranges: readonly VersionRange[]): VersionRange[] 
   });
 }
 
+/** compareSemverLike after dropping build metadata (1.34.5+k3s1 orders as 1.34.5). */
+function compareIgnoringBuild(a: string, b: string): number | undefined {
+  return compareSemverLike(a.replace(/\+.*$/, ''), b.replace(/\+.*$/, ''));
+}
+
+/**
+ * Takes the patched rest of each listed line out of a wider range of the same record. Records
+ * often write one range across all lines next to one range per older line (`< 8.8.0`, `< 8.7.2`,
+ * `< 8.6.2` for Rocket.Chat; `7.1.0` patched 7.1.1 next to `7.0.0 - 7.0.4` patched 7.0.5 for
+ * WordPress; `2.0.0 - 2.7.0` next to `2.6.0 - 2.6.3` for OpenBao). Read literally, the wide range
+ * covers the releases the narrower ones name as fixed (8.7.2, 7.0.5, 2.6.4). So when a range ends
+ * on one line and a wider range of the same record runs past that line, the wide range skips from
+ * the narrow range's end to the start of the next line (`8.7.2` up to `8.8.0`). The next line
+ * starts at its lowest prerelease (`8.8.0-0`) when the wide range ends on that line's first
+ * release or a prerelease of it, so release candidates stay covered. Unlisted lines in between and
+ * releases below every listed line stay affected. Ranges whose bounds are not semver-like are left
+ * as they are, and so is a wide range that ends on the narrow range's own line (the stricter
+ * reading inside one line).
+ */
+export function exceptPatchedLines(ranges: readonly VersionRange[]): VersionRange[] {
+  const endOf = (r: VersionRange) => r.fixed ?? r.last_affected;
+  const narrow = ranges.filter((r) => {
+    const end = endOf(r);
+    return end !== undefined && compareIgnoringBuild(end, end) !== undefined;
+  });
+  if (ranges.length < 2 || narrow.length === 0) return [...ranges];
+  let pieces: VersionRange[] = [...ranges];
+  for (const b of narrow) {
+    const end = endOf(b) ?? '';
+    const line = branchOf(end);
+    if (line === undefined) continue;
+    const next = `${line.major}.${line.minor + 1}.0`;
+    const out: VersionRange[] = [];
+    for (const a of pieces) {
+      if (a === b) {
+        out.push(a);
+        continue;
+      }
+      const aEnd = endOf(a);
+      const startsBefore =
+        a.introduced === '0' || (compareIgnoringBuild(a.introduced, end) ?? 1) <= 0;
+      // The wide range must reach past the narrow range's line.
+      const pastLine =
+        aEnd === undefined ||
+        (compareIgnoringBuild(aEnd, `${line.major}.${line.minor + 1}.0-0`) ?? -1) >= 0;
+      const coversFix =
+        b.fixed !== undefined || aEnd === undefined || (compareIgnoringBuild(aEnd, end) ?? 0) > 0;
+      if (!startsBefore || !pastLine || !coversFix) {
+        out.push(a);
+        continue;
+      }
+      // Below: from the wide range's start up to the narrow range's end.
+      out.push(
+        b.fixed !== undefined
+          ? { introduced: a.introduced, fixed: b.fixed }
+          : { introduced: a.introduced, last_affected: end },
+      );
+      // Above: from the next line on.
+      const lowest =
+        aEnd !== undefined &&
+        (a.fixed !== undefined
+          ? (compareIgnoringBuild(next, aEnd) ?? 0) >= 0
+          : (compareIgnoringBuild(next, aEnd) ?? 0) > 0);
+      out.push({ ...a, introduced: lowest ? `${next}-0` : next });
+    }
+    pieces = out;
+  }
+  return dedupeRanges(pieces);
+}
+
 /** Major and minor of a dotted numeric version (8.2.2 gives 8 and 2), or undefined. */
 export function branchOf(version: string): { major: number; minor: number } | undefined {
   const match = /^(\d+)\.(\d+)/.exec(version);
