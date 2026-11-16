@@ -108,9 +108,9 @@ export interface Product {
   homepage: string;
   description?: string;
   /**
-   * How versions of a product compare. semver: semantic versions, prereleases included. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
+   * How versions of a product compare. semver: semantic versions, prereleases included. semver4: semver with an optional fourth numeric part for vendor backports (Nextcloud Enterprise 31.0.14.7); a missing fourth part is 0, so 31.0.14 < 31.0.14.7 < 31.0.15. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
    */
-  version_scheme: 'semver' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
+  version_scheme: 'semver' | 'semver4' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
   branches: Branches;
   /**
    * Official container images and the grammar of their tags, used by the generator and optional discovery. Empty when the product is not usually run from an image.
@@ -447,9 +447,9 @@ export interface ProductFeed {
       | 'apps';
     homepage: string;
     /**
-     * How versions of a product compare. semver: semantic versions, prereleases included. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
+     * How versions of a product compare. semver: semantic versions, prereleases included. semver4: semver with an optional fourth numeric part for vendor backports (Nextcloud Enterprise 31.0.14.7); a missing fourth part is 0, so 31.0.14 < 31.0.14.7 < 31.0.15. pg: PostgreSQL style major.minor (the major is the branch). calver: dotted calendar versions. dpkg: Debian package versions. kernel: Linux kernel versions. opaque: equality only.
      */
-    version_scheme: 'semver' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
+    version_scheme: 'semver' | 'semver4' | 'pg' | 'calver' | 'dpkg' | 'kernel' | 'opaque';
     upstream?: Upstream;
     /**
      * Release branches known for the product (from endoflife.date), newest first. Empty when the catalog has no branch source.
