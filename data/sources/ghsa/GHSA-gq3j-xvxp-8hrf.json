@@ -1,0 +1,51 @@
+{
+  "global": {
+    "cve_id": null,
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-208"
+    ],
+    "description": "## Summary\n\nThe `basicAuth` and `bearerAuth` middlewares previously used a comparison that was not fully timing-safe.\n\nThe `timingSafeEqual` function used normal string equality (`===`) when comparing hash values. This comparison may stop early if values differ, which can theoretically cause small timing differences.\n\nThe implementation has been updated to use a safer comparison method.\n\n\n## Details\n\nThe issue was caused by the use of normal string equality (`===`) when comparing hash values inside the `timingSafeEqual` function.\n\nIn JavaScript, string comparison may stop as soon as a difference is found. This means the comparison time can slightly vary depending on how many characters match.\n\nUnder very specific and controlled conditions, this behavior could theoretically allow timing-based analysis.\n\nThe implementation has been updated to:\n\n- Avoid early termination during comparison\n- Use a constant-time-style comparison method\n\n## Impact\n\nThis issue is unlikely to be exploited in normal environments.\n\nIt may only be relevant in highly controlled situations where precise timing measurements are possible.\n\nThis change is considered a security hardening improvement. Users are encouraged to upgrade to the latest version.",
+    "ghsa_id": "GHSA-gq3j-xvxp-8hrf",
+    "html_url": "https://github.com/advisories/GHSA-gq3j-xvxp-8hrf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gq3j-xvxp-8hrf"
+      }
+    ],
+    "published_at": "2026-02-19T20:15:59Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-gq3j-xvxp-8hrf",
+      "https://github.com/honojs/hono/commit/91def7cab654bad5eecc9270e6620d577971ff5e",
+      "https://github.com/honojs/hono/releases/tag/v4.11.10",
+      "https://github.com/advisories/GHSA-gq3j-xvxp-8hrf"
+    ],
+    "severity": "low",
+    "summary": "Hono added timing comparison hardening in basicAuth and bearerAuth",
+    "updated_at": "2026-02-19T20:16:02Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.11.10",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": "< 4.11.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-gq3j-xvxp-8hrf",
+  "repo": null,
+  "repository": null
+}

@@ -1,0 +1,54 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54290",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-942"
+    ],
+    "description": "### Summary\n\nWith `credentials: true` and no explicit `origin` (the default wildcard), the CORS Middleware reflects the request's `Origin` and sends `Access-Control-Allow-Credentials: true`. Any site can then make credentialed cross-origin requests and read the responses, exposing cookie-authenticated endpoints to arbitrary origins.\n\n### Details\n\nThe spec forbids `Access-Control-Allow-Origin: *` with credentials and browsers reject it, so this configuration used to fail closed. In affected versions the middleware reflects the request `Origin` instead, so it now succeeds for every origin, including `null`. The preflight also echoes the requested headers back, approving non-simple credentialed requests too.\n\nThis issue arises when an application enables `credentials: true` and leaves `origin` unset or set to the wildcard.\n\n### Impact\n\nAny third-party page a logged-in user visits can read the application's cookie-authenticated endpoints and perform credentialed state-changing requests. This affects applications that enable credentialed CORS without restricting `origin`.",
+    "ghsa_id": "GHSA-88fw-hqm2-52qc",
+    "html_url": "https://github.com/advisories/GHSA-88fw-hqm2-52qc",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-88fw-hqm2-52qc"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54290"
+      }
+    ],
+    "published_at": "2026-06-16T14:15:39Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-88fw-hqm2-52qc",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54290",
+      "https://github.com/advisories/GHSA-88fw-hqm2-52qc"
+    ],
+    "severity": "high",
+    "summary": "hono: CORS Middleware reflects any Origin with credentials when `origin` defaults to the wildcard",
+    "updated_at": "2026-07-21T15:27:04Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.12.25",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": "< 4.12.25"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-88fw-hqm2-52qc",
+  "repo": null,
+  "repository": null
+}

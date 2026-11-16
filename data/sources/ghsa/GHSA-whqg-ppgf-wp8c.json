@@ -1,0 +1,57 @@
+{
+  "global": {
+    "cve_id": "CVE-2025-66202",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-647"
+    ],
+    "description": "# Authentication Bypass via Double URL Encoding in Astro\n## Bypass for CVE-2025-64765 / GHSA-ggxq-hp9w-j794\n\n---\n\n### Summary\n\nA **double URL encoding bypass** allows any unauthenticated attacker to bypass path-based authentication checks in Astro middleware, granting unauthorized access to protected routes. While the original CVE-2025-64765 (single URL encoding) was fixed in v5.15.8, the fix is insufficient as it only decodes once. By using double-encoded URLs like `/%2561dmin` instead of `/%61dmin`, attackers can still bypass authentication and access protected resources such as `/admin`, `/api/internal`, or any route protected by middleware pathname checks.\n\n\n## Fix \n\nA more secure fix is just decoding once, then if the request has a %xx format, return a 400 error by using something like :\n\n```\nif (containsEncodedCharacters(pathname)) {\n            // Multi-level encoding detected - reject request\n            return new Response(\n                'Bad Request: Multi-level URL encoding is not allowed',\n                {\n                    status: 400,\n                    headers: { 'Content-Type': 'text/plain' }\n                }\n            );\n        }\n```",
+    "ghsa_id": "GHSA-whqg-ppgf-wp8c",
+    "html_url": "https://github.com/advisories/GHSA-whqg-ppgf-wp8c",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-whqg-ppgf-wp8c"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2025-66202"
+      }
+    ],
+    "published_at": "2025-12-08T16:26:43Z",
+    "references": [
+      "https://github.com/withastro/astro/security/advisories/GHSA-ggxq-hp9w-j794",
+      "https://github.com/withastro/astro/security/advisories/GHSA-whqg-ppgf-wp8c",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-64765",
+      "https://github.com/withastro/astro/commit/6f800813516b07bbe12c666a92937525fddb58ce",
+      "https://nvd.nist.gov/vuln/detail/CVE-2025-66202",
+      "https://github.com/advisories/GHSA-whqg-ppgf-wp8c"
+    ],
+    "severity": "medium",
+    "summary": "Astro has an Authentication Bypass via Double URL Encoding, a bypass for CVE-2025-64765",
+    "updated_at": "2025-12-09T16:28:42Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.15.8",
+        "package": {
+          "ecosystem": "npm",
+          "name": "astro"
+        },
+        "vulnerable_version_range": "< 5.15.8"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-whqg-ppgf-wp8c",
+  "repo": null,
+  "repository": null
+}

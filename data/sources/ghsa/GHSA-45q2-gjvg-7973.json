@@ -1,0 +1,88 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-41423",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:N/VA:N/SC:L/SI:L/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-918"
+    ],
+    "description": "### Impact\n\nA [Server-Side Request Forgery (SSRF)](https://developer.mozilla.org/en-US/docs/Web/Security/Attacks/SSRF) vulnerability exists in `@angular/platform-server` due to improper handling of URLs during Server-Side Rendering (SSR).\n\nWhen an attacker sends a request such as `GET /\\evil.com/ HTTP/1.1` the server engine (Express, etc.) passes the URL string to Angular’s rendering functions.\n\nBecause the URL parser normalizes the backslash to a forward slash for HTTP/HTTPS schemes, the internal state of the application is hijacked to believe the current origin is `evil.com`. This misinterpretation tricks the application into treating the attacker’s domain as the local origin. Consequently, any relative `HttpClient` requests or `PlatformLocation.hostname` references are redirected to the attacker controlled server, potentially exposing internal APIs or metadata services.\n\n**Affected APIs:**\n- `renderModule`\n- `renderApplication`\n- `CommonEngine` (from `@angular/ssr`)\n\n**Non-Affected APIs:**\n- `AngularAppEngine` (from `@angular/ssr`)\n- `AngularNodeAppEngine` (from `@angular/ssr`)\n\n### Attack Preconditions\n- The server has outbound network access.\n- The application uses Angular SSR via the affected APIs.\n- A pathname is passed as URL to the rendering method  (e.g. using `req.url`).\n- The server-side code performs HTTP requests using `HttpClient` with relative URLs or uses `PlatformLocation.hostname` to build URLs. \n\n\n### Patches\n- 22.0.0-next.8\n- 21.2.9\n- 20.3.19\n- 19.2.21\n\n### Workarounds\nDevelopers should implement a middleware to sanitize the request URL before it reaches Angular. This involves stripping or normalizing leading slashes:\n\n```js\napp.use((req, res, next) => {\n  // Sanitize the URL to ensure it starts with a single forward slash\n  if (req.url.startsWith('//') || req.url.startsWith('/\\\\') || req.url.startsWith('\\\\')) {\n     req.url = '/' + req.url.replace(/^[/\\\\]+/, '');\n  }\n  next();\n});\n\n```\n### References\n- [Fix](https://github.com/angular/angular/pull/68194)",
+    "ghsa_id": "GHSA-45q2-gjvg-7973",
+    "html_url": "https://github.com/advisories/GHSA-45q2-gjvg-7973",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-45q2-gjvg-7973"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-41423"
+      }
+    ],
+    "published_at": "2026-04-16T22:36:01Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-45q2-gjvg-7973",
+      "https://github.com/angular/angular/pull/68194",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-41423",
+      "https://github.com/angular/angular/commit/ede7c58a2aa13fdccc8f0b67ce93ba1c11749412",
+      "https://github.com/advisories/GHSA-45q2-gjvg-7973"
+    ],
+    "severity": "high",
+    "summary": "Angular: SSRF via protocol-relative and backslash URLs in Angular Platform-Server",
+    "updated_at": "2026-05-12T13:31:29Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "22.0.0-next.8",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-next.8"
+      },
+      {
+        "first_patched_version": "21.2.9",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.9"
+      },
+      {
+        "first_patched_version": "20.3.19",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.19"
+      },
+      {
+        "first_patched_version": "19.2.21",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.21"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-45q2-gjvg-7973",
+  "repo": null,
+  "repository": null
+}

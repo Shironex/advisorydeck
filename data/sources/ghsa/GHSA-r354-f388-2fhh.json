@@ -1,0 +1,56 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-24398",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 4.8,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-185"
+    ],
+    "description": "## Summary\n\nIP Restriction Middleware in Hono is vulnerable to an IP address validation bypass. The `IPV4_REGEX` pattern and `convertIPv4ToBinary` function in `src/utils/ipaddr.ts` do not properly validate that IPv4 octet values are within the valid range of 0-255, allowing attackers to craft malformed IP addresses that bypass IP-based access controls.\n\n## Details\n\nThe vulnerability exists in two components:\n\n1. **Permissive regex pattern:** The `IPV4_REGEX (/^[0-9]{0,3}\\.[0-9]{0,3}\\.[0-9]{0,3}\\.[0-9]{0,3}$/)` accepts octet values greater than 255 (e.g., `999`).\n2. **Unsafe binary conversion:** The `convertIPv4ToBinary` function does not validate octet ranges before performing bitwise operations. When an octet exceeds 255, it overflows into adjacent octets during the bit-shift calculation.\n\nFor example, the IP address `1.2.2.355` is accepted and converts to the same binary value as 1.2.3.99:\n\n* `355` = `256 + 99` = `0x163`\n* After bit-shifting: `(1 << 24) + (2 << 16) + (2 << 8) + 355` = `0x01020363` = `1.2.3.99`\n\n## Impact\n\nAn attacker can bypass IP-based restrictions by crafting malformed IP addresses:\n\n* **Blocklist bypass:** If `1.2.3.0/24` is blocked, an attacker can use `1.2.2.355` (or similar) to bypass the restriction.\n* **Allowlist bypass:** Requests from unauthorized IP ranges may be incorrectly permitted.\n\nThis is exploitable when the application relies on client-provided IP addresses (e.g., `X-Forwarded-For header`) for access control decisions.\n\n## Affected Components\n\n* IP Restriction Middleware\n* `src/utils/ipaddr.ts`: `IPV4_REGEX`, `convertIPv4ToBinary`, `distinctRemoteAddr`",
+    "ghsa_id": "GHSA-r354-f388-2fhh",
+    "html_url": "https://github.com/advisories/GHSA-r354-f388-2fhh",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-r354-f388-2fhh"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-24398"
+      }
+    ],
+    "published_at": "2026-01-27T19:01:43Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-r354-f388-2fhh",
+      "https://github.com/honojs/hono/commit/edbf6eea8e6c26a3937518d4ed91d8666edeec37",
+      "https://github.com/honojs/hono/releases/tag/v4.11.7",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-24398",
+      "https://github.com/advisories/GHSA-r354-f388-2fhh"
+    ],
+    "severity": "medium",
+    "summary": "Hono IPv4 address validation bypass in IP Restriction Middleware allows IP spoofing",
+    "updated_at": "2026-01-29T03:39:03Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.11.7",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": "< 4.11.7"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-r354-f388-2fhh",
+  "repo": null,
+  "repository": null
+}

@@ -1,0 +1,109 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-29057",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-444"
+    ],
+    "description": "## Summary\nWhen Next.js rewrites proxy traffic to an external backend, a crafted `DELETE`/`OPTIONS` request using `Transfer-Encoding: chunked` could trigger request boundary disagreement between the proxy and backend. This could allow request smuggling through rewritten routes.\n\n## Impact\nAn attacker could smuggle a second request to unintended backend routes (for example, internal/admin endpoints), bypassing assumptions that only the configured rewrite destination/path is reachable. This does not impact applications hosted on providers that handle rewrites at the CDN level, such as Vercel. \n\n## Patches\nThe vulnerability originated in an upstream library vendored by Next.js. It is fixed by updating that dependency’s behavior so `content-length: 0` is added only when both `content-length` and `transfer-encoding` are absent, and `transfer-encoding` is no longer removed in that code path.\n\n## Workarounds\nIf upgrade is not immediately possible:\n- Block chunked `DELETE`/`OPTIONS` requests on rewritten routes at your edge/proxy.\n- Enforce authentication/authorization on backend routes per our [security guidance](https://nextjs.org/docs/app/guides/data-security).",
+    "ghsa_id": "GHSA-ggv3-7p47-pfv8",
+    "html_url": "https://github.com/advisories/GHSA-ggv3-7p47-pfv8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ggv3-7p47-pfv8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29057"
+      }
+    ],
+    "published_at": "2026-03-17T16:17:15Z",
+    "references": [
+      "https://github.com/vercel/next.js/security/advisories/GHSA-ggv3-7p47-pfv8",
+      "https://github.com/vercel/next.js/commit/dc98c04f376c6a1df76ec3e0a2d07edf4abdabd6",
+      "https://github.com/vercel/next.js/releases/tag/v15.5.13",
+      "https://github.com/vercel/next.js/releases/tag/v16.1.7",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-29057",
+      "https://github.com/advisories/GHSA-ggv3-7p47-pfv8"
+    ],
+    "severity": "medium",
+    "summary": "Next.js: HTTP request smuggling in rewrites",
+    "updated_at": "2026-03-18T21:53:30Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "16.1.7",
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "vulnerable_version_range": ">= 16.0.0-beta.0, < 16.1.7"
+      },
+      {
+        "first_patched_version": "15.5.13",
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "vulnerable_version_range": ">= 9.5.0, < 15.5.13"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-ggv3-7p47-pfv8",
+  "repo": {
+    "cve_id": "CVE-2026-29057",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-444"
+    ],
+    "description": "## Summary\r\nWhen Next.js rewrites proxy traffic to an external backend, a crafted `DELETE`/`OPTIONS` request using `Transfer-Encoding: chunked` could trigger request boundary disagreement between the proxy and backend. This could allow request smuggling through rewritten routes.\r\n\r\n## Impact\r\nAn attacker could smuggle a second request to unintended backend routes (for example, internal/admin endpoints), bypassing assumptions that only the configured rewrite destination/path is reachable. This does not impact applications hosted on providers that handle rewrites at the CDN level, such as Vercel. \r\n\r\n## Patches\r\nThe vulnerability originated in an upstream library vendored by Next.js. It is fixed by updating that dependency’s behavior so `content-length: 0` is added only when both `content-length` and `transfer-encoding` are absent, and `transfer-encoding` is no longer removed in that code path.\r\n\r\n## Workarounds\r\nIf upgrade is not immediately possible:\r\n- Block chunked `DELETE`/`OPTIONS` requests on rewritten routes at your edge/proxy.\r\n- Enforce authentication/authorization on backend routes per our [security guidance](https://nextjs.org/docs/app/guides/data-security).\r\n",
+    "ghsa_id": "GHSA-ggv3-7p47-pfv8",
+    "html_url": "https://github.com/vercel/next.js/security/advisories/GHSA-ggv3-7p47-pfv8",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ggv3-7p47-pfv8"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-29057"
+      }
+    ],
+    "published_at": "2026-03-16T23:16:21Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "HTTP request smuggling in rewrites",
+    "updated_at": "2026-03-16T23:16:21Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "patched_versions": "16.1.7, 15.5.13",
+        "vulnerable_version_range": ">=9.5.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "vercel/next.js"
+}

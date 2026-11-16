@@ -1,0 +1,88 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-50168",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 8.2,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 8.8,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-346",
+      "CWE-918"
+    ],
+    "description": "An issue in the `@angular/platform-server` package allows remote attackers to bypass host allowlist constraints and direct server-side outgoing requests to arbitrary external endpoints. This occurs due to a parser differential between the strict WHATWG URL parser used for allowlist validation and the lenient Domino URL parser used to initialize the server emulated DOM.\n\nWhen a server-side request contains a malformed URL with a double port structure (e.g., `http://evil.com:80:80/path`), Node's strict `URL.canParse(url)` logic returns `false` and skips host check validation entirely. However, the same malformed URL is later accepted and parsed leniently by Domino's internal parser, which resolves the origin to `http://evil.com:80`. The Angular SSR HTTP request interceptor (`relativeUrlsTransformerInterceptorFn`) then resolves all relative backend HTTP requests against this adopted origin, executing the SSRF attack.\n\n### Impact\n\nAny Angular application utilizing server-side rendering (`@angular/platform-server`) that configures host routing allowlists (`allowedHosts`) is vulnerable to this allowlist bypass. \n\nBy sending an HTTP request with a malformed Host header (e.g. `Host: evil.com:80:80`) or an absolute-form request URI, an attacker can bypass the allowlist logic completely (even when configured with a strict default deny setup). The SSR application will then route all relative `HttpClient` outgoing API queries-which commonly carry sensitive credentials, session cookies, and internal authorization tokens-to the attacker-controlled server instead of the intended backend services. Additionally, the attacker can supply custom payloads back to the emulated DOM, leading to response injection and content poisoning within the rendered HTML served to users.\n\n### Attack Preconditions\n\nTo successfully exploit this vulnerability, the following environment parameters and application states must all concurrently exist:\n\n1. **Active Server-Side Rendering (SSR):** The application must be configured to run with Angular Server-Side Rendering (`@angular/platform-server`).\n2. **Host Header/URI Propagation:** The SSR handler must reconstruct the request URL using raw client inputs (such as request Host headers or absolute-form URIs) and pass it as `config.url` to the rendering API (`renderApplication` or `renderModule`).\n3. **Outbound Relative HTTP Requests:** The server application must perform outbound backend API requests using relative paths (e.g., `this.http.get('/api/data')`) that undergo base-URL interceptor rewriting.\n4. **Enabled Allowed Hosts Check:** The server must use the framework-provided `allowedHosts` options to limit valid server locations.\n\n### Patches\n\n* 22.0.0-rc.2\n* 21.2.15\n* 20.3.22\n* 19.2.23",
+    "ghsa_id": "GHSA-xrxm-cp7j-8xf6",
+    "html_url": "https://github.com/advisories/GHSA-xrxm-cp7j-8xf6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-xrxm-cp7j-8xf6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-50168"
+      }
+    ],
+    "published_at": "2026-06-15T16:39:20Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-xrxm-cp7j-8xf6",
+      "https://github.com/angular/angular/pull/68928",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-50168",
+      "https://github.com/advisories/GHSA-xrxm-cp7j-8xf6"
+    ],
+    "severity": "high",
+    "summary": "@angular/platform-server: URL Parser Differential leading to SSRF Allowlist Bypass",
+    "updated_at": "2026-07-15T22:04:57Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "22.0.0-rc.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-rc.2"
+      },
+      {
+        "first_patched_version": "20.3.22",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.22"
+      },
+      {
+        "first_patched_version": "19.2.23",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.23"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      },
+      {
+        "first_patched_version": "21.2.15",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.15"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-xrxm-cp7j-8xf6",
+  "repo": null,
+  "repository": null
+}

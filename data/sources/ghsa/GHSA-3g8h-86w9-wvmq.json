@@ -1,0 +1,116 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-44572",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-349"
+    ],
+    "description": "### Impact\n\nNext.js uses the `x-nextjs-data` request header for internal data requests. On affected versions, an external client could send this header on a normal request to a path handled by middleware that returns a redirect.\n\nWhen that happened, the middleware/proxy could treat the request as a data request and replace the standard `Location` redirect header with the internal `x-nextjs-redirect` header. Browsers do not follow `x-nextjs-redirect`, so the response became an unusable redirect for normal clients.\n\nIf the application was deployed behind a CDN or reverse proxy that caches 3xx responses without varying on this header, a single attacker request could poison the cached redirect response for the affected path. Subsequent visitors could then receive a cached redirect response without a `Location` header, causing a denial of service for that redirect path until the cache entry expired or was purged.\n\n### Affected scenarios\n\nThis affects applications that:\n- use middleware or proxy redirects\n- are deployed behind a caching CDN or reverse proxy\n- allow 3xx responses on those paths to be cached without differentiating internal data requests from normal requests\n\n### Fix\n\nThe fix stops trusting `x-nextjs-data` by itself for middleware redirect handling. A request is now treated as an internal data request only when it is validated as such by internal routing state, preserving legitimate data-request redirect behavior while preventing external header injection from changing normal redirect responses.\n\n### Workarounds\n\nBefore upgrading, users can reduce risk by:\n- configuring the CDN or reverse proxy to vary its cache key on `x-nextjs-data` for affected responses",
+    "ghsa_id": "GHSA-3g8h-86w9-wvmq",
+    "html_url": "https://github.com/advisories/GHSA-3g8h-86w9-wvmq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3g8h-86w9-wvmq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44572"
+      }
+    ],
+    "published_at": "2026-05-11T16:12:07Z",
+    "references": [
+      "https://github.com/vercel/next.js/security/advisories/GHSA-3g8h-86w9-wvmq",
+      "https://github.com/vercel/next.js/releases/tag/v15.5.16",
+      "https://github.com/vercel/next.js/releases/tag/v16.2.5",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-44572",
+      "https://github.com/advisories/GHSA-3g8h-86w9-wvmq"
+    ],
+    "severity": "low",
+    "summary": "Next.js's Middleware / Proxy redirects can be cache-poisoned",
+    "updated_at": "2026-05-14T20:35:59Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "15.5.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "vulnerable_version_range": ">= 12.2.0, < 15.5.16"
+      },
+      {
+        "first_patched_version": "16.2.5",
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "vulnerable_version_range": ">= 16.0.0, < 16.2.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-3g8h-86w9-wvmq",
+  "repo": {
+    "cve_id": "CVE-2026-44572",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 3.7,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:L"
+      },
+      "cvss_v4": {
+        "score": null,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-349"
+    ],
+    "description": "### Impact\r\n\r\nNext.js uses the `x-nextjs-data` request header for internal data requests. On affected versions, an external client could send this header on a normal request to a path handled by middleware that returns a redirect.\r\n\r\nWhen that happened, the middleware/proxy could treat the request as a data request and replace the standard `Location` redirect header with the internal `x-nextjs-redirect` header. Browsers do not follow `x-nextjs-redirect`, so the response became an unusable redirect for normal clients.\r\n\r\nIf the application was deployed behind a CDN or reverse proxy that caches 3xx responses without varying on this header, a single attacker request could poison the cached redirect response for the affected path. Subsequent visitors could then receive a cached redirect response without a `Location` header, causing a denial of service for that redirect path until the cache entry expired or was purged.\r\n\r\n### Affected scenarios\r\n\r\nThis affects applications that:\r\n- use middleware or proxy redirects\r\n- are deployed behind a caching CDN or reverse proxy\r\n- allow 3xx responses on those paths to be cached without differentiating internal data requests from normal requests\r\n\r\n### Fix\r\n\r\nThe fix stops trusting `x-nextjs-data` by itself for middleware redirect handling. A request is now treated as an internal data request only when it is validated as such by internal routing state, preserving legitimate data-request redirect behavior while preventing external header injection from changing normal redirect responses.\r\n\r\n### Workarounds\r\n\r\nBefore upgrading, users can reduce risk by:\r\n- configuring the CDN or reverse proxy to vary its cache key on `x-nextjs-data` for affected responses",
+    "ghsa_id": "GHSA-3g8h-86w9-wvmq",
+    "html_url": "https://github.com/vercel/next.js/security/advisories/GHSA-3g8h-86w9-wvmq",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-3g8h-86w9-wvmq"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-44572"
+      }
+    ],
+    "published_at": "2026-05-06T18:41:26Z",
+    "references": [],
+    "severity": "low",
+    "summary": "Middleware / Proxy redirects can be cache-poisoned",
+    "updated_at": "2026-05-07T15:34:06Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "patched_versions": "15.5.16",
+        "vulnerable_version_range": ">= 12.2.0 < 15.5.16"
+      },
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "patched_versions": "16.2.5",
+        "vulnerable_version_range": ">= 16.0.0 < 16.2.5"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "vercel/next.js"
+}

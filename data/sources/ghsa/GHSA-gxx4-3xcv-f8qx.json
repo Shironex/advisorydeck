@@ -1,0 +1,87 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-50556",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "A Cross-Site Scripting (XSS) vulnerability exists in `@angular/platform-server`'s DOM emulation dependency (`domino`) when serializing the content of `<noscript>` elements.\n\nWhen rendering dynamic text content inside a `<noscript>` element via template bindings (such as `{{ value }}` or `[textContent]`), the template engine expects the browser to render the content safely. Under Server-Side Rendering (SSR), `domino` is configured with scripting enabled, meaning `<noscript>` is treated as a raw-text element.\n\nHowever, `domino`'s serializer completely omitted `<noscript>` from the list of raw-text elements requiring closing-tag escaping during DOM serialization. As a result, any occurrence of `</noscript>` in the bound dynamic text was **never escaped under any circumstances**.\n\nThe unescaped closing tag was serialized directly into the output HTML (e.g. `<noscript></noscript><script>alert(1)</script></noscript>`). When parsed by a browser, it closes the `<noscript>` block early, allowing the injected `<script>` block to execute in the user's browser context, causing same-origin Cross-Site Scripting (XSS).\n\n### Impact\n\nThis vulnerability allows an attacker to perform same-origin Cross-Site Scripting (XSS) attacks against any user visiting an SSR-rendered page that binds user-controlled data inside a `<noscript>` element. This can lead to session hijacking, credentials theft, unauthorized actions on behalf of users, and defacement.\n\n### Patched Versions\n\n- 22.0.0-rc.2\n- 21.2.16\n- 20.3.24\n- 19.2.25\n\n### Workarounds\n\nIf you cannot immediately update your dependencies, you can:\n\n- Avoid binding user-controlled values inside `<noscript>` elements.\n- Sanitize any user input placed inside `<noscript>` to explicitly strip closing `</noscript>` tags before passing it to the template.",
+    "ghsa_id": "GHSA-gxx4-3xcv-f8qx",
+    "html_url": "https://github.com/advisories/GHSA-gxx4-3xcv-f8qx",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-gxx4-3xcv-f8qx"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-50556"
+      }
+    ],
+    "published_at": "2026-06-15T17:21:03Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-gxx4-3xcv-f8qx",
+      "https://github.com/angular/angular/issues/68903",
+      "https://github.com/angular/domino/pull/29",
+      "https://github.com/advisories/GHSA-gxx4-3xcv-f8qx"
+    ],
+    "severity": "high",
+    "summary": "@angular/platform-server: Missing `<noscript>` Raw-Text Serialization Escaping leads to Cross-Site Scripting (XSS) in Angular SSR",
+    "updated_at": "2026-06-15T17:21:04Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "22.0.0-rc.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-rc.2"
+      },
+      {
+        "first_patched_version": "21.2.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.16"
+      },
+      {
+        "first_patched_version": "20.3.24",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.24"
+      },
+      {
+        "first_patched_version": "19.2.25",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.25"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/platform-server"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-gxx4-3xcv-f8qx",
+  "repo": null,
+  "repository": null
+}

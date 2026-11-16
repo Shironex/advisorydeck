@@ -1,0 +1,55 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-126355",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:N/I:H/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-352"
+    ],
+    "description": "### Summary\n\n`csrf()` validates a request only when its `Content-Type` is one of the three types an HTML form can send. Chromium's hyperlink auditing (`<a ping>`) sends a cross-origin POST with the user's cookies and the content type `text/ping`, which is not in that list. The middleware does not look at `Origin` or `Sec-Fetch-Site` for such a request, so it is passed to the handler.\n\n### Details\n\nThe middleware skips the origin check when the content type is not one that a form submission produces. The assumption was that any other content type requires a CORS preflight and therefore cannot be sent cross-origin with credentials. Hyperlink auditing is an exception: Chrome and Edge send the ping as a credentialed POST without a preflight, with a fixed body and `Content-Type: text/ping`.\n\nA page on another origin can therefore trigger a POST to any URL of the application. The `csrf()` options for `origin` and `secFetchSite` do not change the outcome, because neither header is evaluated for the request.\n\nThe request body is fixed, so only actions whose effect does not depend on the body can be triggered. Firefox does not send pings by default. As with any CSRF, the user's cookie must be sent with the request, which with the default `SameSite=Lax` means a same-site origin or a cookie set with `SameSite=None`.\n\n### Impact\n\nA user who visits a malicious page in Chrome or Edge while logged in to an application protected by `csrf()` can be made to send a state-changing request to that application, such as logging out, deleting a resource, or toggling a setting that is selected by the path or query string.\n\nThis issue affects applications that rely on `csrf()` as their CSRF protection and expose state-changing endpoints whose effect does not depend on the request body.\n\n### Workarounds\n\nReject requests with a `Content-Type` of `text/ping` in a middleware registered before `csrf()`, or set session cookies with `SameSite=Strict`.",
+    "ghsa_id": "GHSA-46wx-v44x-9hh2",
+    "html_url": "https://github.com/advisories/GHSA-46wx-v44x-9hh2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-46wx-v44x-9hh2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-126355"
+      }
+    ],
+    "published_at": "2026-11-12T23:31:25Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-46wx-v44x-9hh2",
+      "https://github.com/honojs/hono/commit/bf16471913b5199212dac33f5d170f94745dd26a",
+      "https://github.com/honojs/hono/releases/tag/v4.13.16",
+      "https://github.com/advisories/GHSA-46wx-v44x-9hh2"
+    ],
+    "severity": "medium",
+    "summary": "Hono: `csrf()` does not check requests sent by hyperlink auditing (`text/ping`)",
+    "updated_at": "2026-11-12T23:31:26Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.13.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": "< 4.13.16"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-46wx-v44x-9hh2",
+  "repo": null,
+  "repository": null
+}

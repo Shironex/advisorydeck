@@ -1,0 +1,56 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-126356",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-1471",
+      "CWE-20"
+    ],
+    "description": "### Summary\n\n`validator('form')` only recognizes a `multipart/form-data` `Content-Type` that carries nothing but a single `boundary` parameter. A request with another legal parameter, such as `charset`, or with extra whitespace after the `;` is not recognized as a form. The validation callback then receives an empty object, while `c.req.parseBody()` still parses the body as a form.\n\n### Details\n\nThe check that decides whether a request body is a form was written as a strict pattern over the whole `Content-Type` value. Any parameter list that does not look exactly like `; boundary=...` fails the check. When it fails, the middleware does not read the body and passes an empty object to the validation callback. If the callback accepts an empty object, the request proceeds to the handler, which can still read all submitted fields through `c.req.parseBody()` or `c.req.formData()`.\n\n`application/x-www-form-urlencoded` is not affected. Only the `multipart/form-data` branch has the strict pattern.\n\nThis issue arises when an application relies on `validator('form')` to reject or restrict fields and the validation callback does not fail on an empty object.\n\n### Impact\n\nAn unauthenticated client can send form fields that the `form` validator never sees, by adding a legal parameter to the `Content-Type` header.\n\nThis may lead to:\n\n- Allow-list or required-field checks in the validator being skipped\n- Fields the application intended to reject reaching the handler\n\nThis issue affects applications that use `validator('form')` with `multipart/form-data` requests and whose validation callback accepts an empty object.\n\n### Workarounds\n\nReject an empty object in the `validator('form')` callback, or validate the result of `await c.req.parseBody()` in the handler.",
+    "ghsa_id": "GHSA-4h7h-rv7c-7m2v",
+    "html_url": "https://github.com/advisories/GHSA-4h7h-rv7c-7m2v",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4h7h-rv7c-7m2v"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-126356"
+      }
+    ],
+    "published_at": "2026-11-12T23:30:45Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-4h7h-rv7c-7m2v",
+      "https://github.com/honojs/hono/commit/d88fab372415277a9e540e895650943dd08eef4a",
+      "https://github.com/honojs/hono/releases/tag/v4.13.16",
+      "https://github.com/advisories/GHSA-4h7h-rv7c-7m2v"
+    ],
+    "severity": "medium",
+    "summary": "Hono: `validator('form')` skips validation for `multipart/form-data` requests with extra parameters",
+    "updated_at": "2026-11-12T23:30:46Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.13.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": ">= 4.5.1, <= 4.13.15"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4h7h-rv7c-7m2v",
+  "repo": null,
+  "repository": null
+}

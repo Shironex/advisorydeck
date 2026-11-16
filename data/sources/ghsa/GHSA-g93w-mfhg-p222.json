@@ -1,0 +1,132 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-32635",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 9,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H"
+      },
+      "cvss_v4": {
+        "score": 8.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "A Cross-Site Scripting (XSS) vulnerability has been identified in the Angular runtime and compiler. It occurs when the application uses a security-sensitive attribute (for example href on an anchor tag) together with Angular's ability to internationalize attributes. Enabling internationalization for the sensitive attribute by adding `i18n-<attribute>` name bypasses Angular's built-in sanitization mechanism, which when combined with a data binding to untrusted user-generated data can allow an attacker to inject a malicious script. \n\nThe following example illustrates the issue:\n```html\n<a href=\"{{maliciousUrl}}\" i18n-href>Click me</a>\n```\n\nThe following attributes have been confirmed to be vulnerable:\n- `action`\n- `background`\n- `cite`\n- `codebase`\n- `data`\n- `formaction`\n- `href`\n- `itemtype`\n- `longdesc`\n- `poster`\n- `src`\n- `xlink:href`\n\n### Impact\nWhen exploited, this vulnerability allows an attacker to execute arbitrary code within the context of the vulnerable application's domain. This enables:\n- Session Hijacking: Stealing session cookies and authentication tokens.\n- Data Exfiltration: Capturing and transmitting sensitive user data.\n- Unauthorized Actions: Performing actions on behalf of the user.\n\n### Attack Preconditions\n1. The application must use a vulnerable version of Angular.\n2. The application must bind unsanitized user input to one of the attributes mentioned above.\n3. The bound value must be marked for internationalization via the presence of a `i18n-<name>` attribute on the same element.\n\n### Patches\n- 22.0.0-next.3\n- 21.2.4\n- 20.3.18\n- 19.2.20\n\n### Workarounds\nThe primary workaround is to ensure that any data bound to the vulnerable attributes is **never sourced from untrusted user input** (e.g., database, API response, URL parameters) until the patch is applied, or when it is, it shouldn't be marked for internationalization.\n\nAlternatively, users can explicitly sanitize their attributes by passing them through Angular's `DomSanitizer`:\n```ts\nimport {Component, inject, SecurityContext} from '@angular/core';\nimport {DomSanitizer} from '@angular/platform-browser';\n\n@Component({\n  template: `\n    <form action=\"{{url}}\" i18n-action>\n      <button>Submit</button>\n    </form>\n  `,\n})\nexport class App {\n  url: string;\n\n  constructor() {\n    const dangerousUrl = 'javascript:alert(1)';\n    const sanitizer = inject(DomSanitizer);\n    this.url = sanitizer.sanitize(SecurityContext.URL, dangerousUrl) || '';\n  }\n}\n```\n\n### References\n- [Fix 1](https://github.com/angular/angular/pull/67541) \n- [Fix 2](https://github.com/angular/angular/pull/67561)",
+    "ghsa_id": "GHSA-g93w-mfhg-p222",
+    "html_url": "https://github.com/advisories/GHSA-g93w-mfhg-p222",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-g93w-mfhg-p222"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-32635"
+      }
+    ],
+    "published_at": "2026-03-13T20:56:18Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-g93w-mfhg-p222",
+      "https://github.com/angular/angular/pull/67541",
+      "https://github.com/angular/angular/pull/67561",
+      "https://github.com/angular/angular/commit/224e60ecb1b90115baa702f1c06edc1d64d86187",
+      "https://github.com/angular/angular/commit/78dea55351fb305b33a919c43a6b363137eca166",
+      "https://github.com/angular/angular/commit/8630319f74c9575a21693d875cc7d5252516146d",
+      "https://github.com/angular/angular/commit/ed2d324f9cc12aab6cfa0569ef10b73243a62c65",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-32635",
+      "https://github.com/advisories/GHSA-g93w-mfhg-p222"
+    ],
+    "severity": "high",
+    "summary": "Angular vulnerable to XSS in i18n attribute bindings",
+    "updated_at": "2026-05-06T20:33:11Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "22.0.0-next.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-next.3"
+      },
+      {
+        "first_patched_version": "21.2.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.4"
+      },
+      {
+        "first_patched_version": "20.3.18",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0.0.0, < 20.3.18"
+      },
+      {
+        "first_patched_version": "22.0.0-next.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-next.3"
+      },
+      {
+        "first_patched_version": "21.2.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.4"
+      },
+      {
+        "first_patched_version": "20.3.18",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0.0.0, < 20.3.18"
+      },
+      {
+        "first_patched_version": "19.2.20",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.20"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 17.0.0-next.0, <= 18.2.14"
+      },
+      {
+        "first_patched_version": "19.2.20",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.20"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 17.0.0-next.0, <= 18.2.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-g93w-mfhg-p222",
+  "repo": null,
+  "repository": null
+}

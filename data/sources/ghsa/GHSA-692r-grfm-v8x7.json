@@ -1,0 +1,88 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-52725",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 5.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:P/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "An issue in the `@angular/core` package allows bypassing script-execution restrictions during dynamic component creation.\n\nSpecifically, the dynamic component instantiation mechanism (`createComponent`) failed to reject mounting components directly onto a `<script>` or namespaced script element (such as `<svg:script>`). This enabled the initialization of custom components on a tag that executes scripts, allowing attackers to hijack or inject script-executing hosts.\n\nThis flaw enables an attacker who can control the host element or selector parameter passed to `createComponent` to initialize or mount an Angular component directly onto a `<script>` tag, leading to execution of untrusted code or client-side Cross-Site Scripting (XSS).\n\n### Impact\nAny Angular application that registers dynamic components based on user-supplied parameters (like selectors or host elements) is vulnerable to this security bypass.\n\nOnce exploited, this allows a malicious actor to mount a dynamic component on a script tag, bypassing core dynamic component creation safeguards to execute arbitrary JavaScript within the target user's browser context. This could lead to session hijacking, sensitive data exposure, or unauthorized actions on behalf of the user.\n\n### Attack Preconditions\nTo successfully exploit these vulnerabilities, the following environment parameters and application states must all concurrently exist:\n1. **User-Controlled Host Selection:** The application must accept user-controlled inputs that are passed as a selector/host element to `createComponent`.\n2. **Absence of Additional Context Sanitization:** The application does not perform separate input sanitization before feeding values to the dynamic creation APIs.\n\n### Patches\n* 22.0.0-rc.2\n* 21.2.15\n* 20.3.22\n* 19.2.23",
+    "ghsa_id": "GHSA-692r-grfm-v8x7",
+    "html_url": "https://github.com/advisories/GHSA-692r-grfm-v8x7",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-692r-grfm-v8x7"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-52725"
+      }
+    ],
+    "published_at": "2026-06-15T16:51:35Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-692r-grfm-v8x7",
+      "https://github.com/angular/angular/pull/68686",
+      "https://github.com/angular/angular/pull/68713",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-52725",
+      "https://github.com/advisories/GHSA-692r-grfm-v8x7"
+    ],
+    "severity": "medium",
+    "summary": "@angular/core: Angular Template and Dynamic Component Namespace Bypass leading to Cross-Site Scripting (XSS)",
+    "updated_at": "2026-07-15T22:03:33Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "21.2.15",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.2.15"
+      },
+      {
+        "first_patched_version": "22.0.0-rc.2",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 22.0.0-next.0, < 22.0.0-rc.2"
+      },
+      {
+        "first_patched_version": "19.2.23",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.22"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      },
+      {
+        "first_patched_version": "20.3.22",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.22"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-692r-grfm-v8x7",
+  "repo": null,
+  "repository": null
+}
