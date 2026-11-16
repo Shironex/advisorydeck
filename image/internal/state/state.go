@@ -16,8 +16,9 @@ import (
 	"time"
 )
 
-// Version is the state file format version.
-const Version = 1
+// Version is the state file format version. Version 1 files (written before release
+// bundles and the first-start summary) are migrated on open: see migrate.
+const Version = 2
 
 // File is the on-disk shape.
 type File struct {
@@ -38,6 +39,9 @@ type Channel struct {
 	Digest map[string]string `json:"digest"`
 	// LastDigest is when the last digest slot was handled (sent or empty).
 	LastDigest time.Time `json:"last_digest,omitempty"`
+	// Started is when the channel got its first-start summary. Zero means it has not: the
+	// next cycle sends the summary instead of the backlog.
+	Started time.Time `json:"started,omitempty"`
 	// Disabled is set when the webhook answered 401/403/404/410.
 	Disabled *Disabled `json:"disabled,omitempty"`
 }
@@ -70,13 +74,34 @@ func Open(path string) (*Store, error) {
 	if err := json.Unmarshal(raw, &s.data); err != nil {
 		return nil, fmt.Errorf("state %s: %w", path, err)
 	}
-	if s.data.Version != Version {
-		return nil, fmt.Errorf("state %s: version %d, want %d", path, s.data.Version, Version)
-	}
 	if s.data.Channels == nil {
 		s.data.Channels = map[string]*Channel{}
 	}
+	if s.data.Version == 1 {
+		migrate(&s.data, time.Now())
+	}
+	if s.data.Version != Version {
+		return nil, fmt.Errorf("state %s: version %d, want %d (written by a newer image?)", path, s.data.Version, Version)
+	}
 	return s, nil
+}
+
+// migrate moves a version 1 file forward without resending anything. Every channel in it
+// already received its backlog one advisory at a time, so it counts as started: it gets no
+// summary. The sent revisions keep their keys (advisory id|product), which is what bundles
+// are checked against, so nothing already sent is pending. The file is written on the next
+// save.
+func migrate(f *File, now time.Time) {
+	for _, c := range f.Channels {
+		if c == nil || !c.Started.IsZero() {
+			continue
+		}
+		c.Started = now
+		if !c.LastDigest.IsZero() {
+			c.Started = c.LastDigest
+		}
+	}
+	f.Version = Version
 }
 
 // Read loads the state file without creating a Store, for the healthcheck.
