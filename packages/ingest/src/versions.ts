@@ -53,7 +53,7 @@ function upper(range: VersionRange, op: string, version: string): VersionRange {
 /**
  * Parses a range expression as GHSA and some CVE records write it: `>= 3.0.0, < 3.3.6`,
  * `< 29.9.3`, `<= 25.0.18, 26.0.0 - 29.8.1`, `10.6.1-10.6.27`, `= 1.2.3`, `All`. A comma joins a lower bound to the
- * upper bound that follows it and otherwise separates ranges. `> X` is read as `>= X` (one version
+ * upper bound that follows it and otherwise separates ranges; a space before `<` joins them too. `> X` is read as `>= X` (one version
  * too many rather than one too few). Returns undefined when any part cannot be read, so a caller
  * never publishes half a range.
  */
@@ -62,7 +62,8 @@ export function parseRangeExpression(expression: string): VersionRange[] | undef
   if (ANY.has(trimmed.toLowerCase())) return undefined;
   const ranges: VersionRange[] = [];
   let open: VersionRange | undefined;
-  for (const token of trimmed.split(/\s*(?:,|\|\|)\s*/)) {
+  // A space can also join a lower bound to its upper bound (">= 2.0.0 < 2.9.3", npm style).
+  for (const token of trimmed.split(/\s*(?:,|\|\|)\s*|\s+(?=<)/)) {
     if (token === '') continue;
     const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(token);
     if (hyphen !== null) {
