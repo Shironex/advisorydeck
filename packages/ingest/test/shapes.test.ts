@@ -453,4 +453,20 @@ describe('upper bounds of one expression in any order', () => {
     const facts = repoGhsa('repo-valkey.json', 'GHSA-jcj7-v34w-v9vv', 'valkey-io/valkey');
     expect(rangesOf(facts, 'valkey')).toEqual(matcherRanges('valkey', 'GHSA-jcj7-v34w-v9vv'));
   });
+
+  it('Valkey: one upper bound next to a patched list is read per patched branch', () => {
+    const facts = repoGhsa('repo-valkey.json', 'GHSA-c677-q3wr-gggq', 'valkey-io/valkey');
+    expect(rangesOf(facts, 'valkey')).toEqual(matcherRanges('valkey', 'CVE-2026-21863'));
+    expect(facts.warnings.join('\n')).toContain('read as one range per patched branch');
+  });
+
+  it('a patched list that does not close the upper bound leaves the range as written', () => {
+    expect(
+      ghsaRanges({
+        package: { ecosystem: '', name: 'valkey-server' },
+        vulnerable_version_range: '<= 9.0.2',
+        patched_versions: '9.1.0, 8.1.6',
+      }).ranges,
+    ).toEqual([{ introduced: '0', last_affected: '9.0.2' }]);
+  });
 });

@@ -423,6 +423,14 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
   if (open && branchFixes !== undefined) {
     return { ranges: perBranchRanges(only.introduced, branchFixes) };
   }
+  if (only.introduced === '0' && branchFixes !== undefined && newestFixCloses(only, branchFixes)) {
+    // "<= 9.0.2" patched in "9.0.3, 8.1.6, 8.0.7, 7.2.12" (Valkey): the bound names the newest
+    // branch only, and the list says where each older branch is fixed.
+    return {
+      ranges: perBranchRanges('0', branchFixes),
+      note: `upper bound "${expression}" with patched versions "${patchedRaw}": read as one range per patched branch`,
+    };
+  }
   const patched = singlePatchedVersion(patchedRaw);
   if (patched === undefined) return { ranges: parsed };
   if (open) return { ranges: [{ introduced: only.introduced, fixed: patched }] };
@@ -475,6 +483,28 @@ function readGhsaRange(expression: string, patchedRaw: string): RangeReading {
     };
   }
   return { ranges: parsed };
+}
+
+/**
+ * True when the newest of several patched versions closes the written upper bound: same branch,
+ * and later than a last affected bound or equal to a fixed one. The other patched versions are
+ * then older branches the bound does not name.
+ */
+function newestFixCloses(range: VersionRange, fixes: readonly string[]): boolean {
+  const newest = fixes.at(-1);
+  const upper = range.fixed ?? range.last_affected;
+  if (newest === undefined || upper === undefined) return false;
+  const a = branchOf(newest);
+  const b = branchOf(upper);
+  const order = compareSemverLike(newest, upper);
+  return (
+    a !== undefined &&
+    b !== undefined &&
+    a.major === b.major &&
+    a.minor === b.minor &&
+    order !== undefined &&
+    (range.fixed !== undefined ? order === 0 : order > 0)
+  );
 }
 
 /** True when patched is the release right after last (4.0.0-beta.473 then 4.0.0-beta.474, 3.7.17 then 3.7.18). */
