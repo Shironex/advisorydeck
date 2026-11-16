@@ -1,0 +1,113 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45063",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-290"
+    ],
+    "description": "### Description\n\n`X509Authenticator` implements client-certificate (mTLS) authentication: the web server validates the client's certificate against a trusted CA, then passes the certificate's Subject DN (Distinguished Name: a string like `CN=Alice,O=Example,emailAddress=alice@example.com`) to Symfony via `$_SERVER['SSL_CLIENT_S_DN']`. Symfony extracts the user identifier from that string.\n\nThe extraction uses an **unanchored** regex that matches `emailAddress=` anywhere in the DN string: including inside the *value* of a different RDN (Relative Distinguished Name: one `key=value` component of the DN), such as `CN`. An attacker who can obtain a certificate from a trusted CA with a free-text `CN` can smuggle `emailAddress=victim@target` inside the CN value and be authenticated as the victim.\n\n### Resolution\n\nThe `X509Authenticator` now uses a regex that anchors the match to an RDN boundary (start of string, or following a `,` / `/` separator).\n\nThe patch for this issue is available [here](https://github.com/symfony/symfony/commit/ccb3f724c7ff55670a6fe3521c7bf1514cceb478) for branch 5.4.\n\n### Credits\n\nSymfony would like to thank Claude Mythos Preview (via Project Glasswing) for reporting the issue and providing the fix.",
+    "ghsa_id": "GHSA-ph86-p8f6-f9r2",
+    "html_url": "https://github.com/advisories/GHSA-ph86-p8f6-f9r2",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-ph86-p8f6-f9r2"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45063"
+      }
+    ],
+    "published_at": "2026-05-27T16:50:42Z",
+    "references": [
+      "https://github.com/symfony/symfony/security/advisories/GHSA-ph86-p8f6-f9r2",
+      "https://github.com/symfony/symfony/commit/ccb3f724c7ff55670a6fe3521c7bf1514cceb478",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/security-http/CVE-2026-45063.yaml",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/symfony/CVE-2026-45063.yaml",
+      "https://symfony.com/cve-2026-45063",
+      "https://github.com/advisories/GHSA-ph86-p8f6-f9r2"
+    ],
+    "severity": "high",
+    "summary": "Symfony Vulnerable to Identity Spoofing via Unanchored DN Regex in X509Authenticator",
+    "updated_at": "2026-05-27T16:51:09Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.4.52",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/security-http"
+        },
+        "vulnerable_version_range": "< 5.4.52"
+      },
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/security-http"
+        },
+        "vulnerable_version_range": ">= 6.0.0-BETA1, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/security-http"
+        },
+        "vulnerable_version_range": ">= 7.0.0-BETA1, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/security-http"
+        },
+        "vulnerable_version_range": ">= 8.0.0-BETA1, < 8.0.12"
+      },
+      {
+        "first_patched_version": "5.4.52",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": "< 5.4.52"
+      },
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 6.0.0-BETA1, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 7.0.0-BETA1, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 8.0.0-BETA1, < 8.0.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-ph86-p8f6-f9r2",
+  "repo": null,
+  "repository": null
+}

@@ -1,0 +1,54 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-54286",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.9,
+        "vector_string": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-22"
+    ],
+    "description": "### Summary\n\nOn Windows hosts, an encoded backslash (`%5C`) in the request path decodes to `\\`, which the Windows path resolver treats as a separator. `serve-static` then resolves a single URL segment such as `admin\\secret.txt` into a nested file under the root and serves it, letting an attacker read static files meant to be protected behind prefix-mounted middleware. Directory escape (`..`) remains blocked.\n\n### Details\n\nThe router splits paths only on `/`, so `/admin%5Csecret.txt` is one segment and middleware on `/admin/*` does not run. The `serve-static` guard rejects `.`/`..` and consecutive separators but lets a lone `\\` through; on Windows the file resolver re-splits it into the protected subtree.\n\nThis affects Windows hosts serving static files via the Node, Bun, or Deno adapters that guard a static subtree with prefix-mounted middleware.\n\n### Impact\n\nAn unauthenticated attacker can read static files under a middleware-guarded prefix on Windows hosts. The read stays within the configured root; escape outside the root is not possible.",
+    "ghsa_id": "GHSA-wwfh-h76j-fc44",
+    "html_url": "https://github.com/advisories/GHSA-wwfh-h76j-fc44",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-wwfh-h76j-fc44"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-54286"
+      }
+    ],
+    "published_at": "2026-06-16T14:09:03Z",
+    "references": [
+      "https://github.com/honojs/hono/security/advisories/GHSA-wwfh-h76j-fc44",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-54286",
+      "https://github.com/advisories/GHSA-wwfh-h76j-fc44"
+    ],
+    "severity": "medium",
+    "summary": "hono: Path traversal in `serve-static` on Windows via encoded backslash (`%5C`)",
+    "updated_at": "2026-07-21T15:27:08Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.12.25",
+        "package": {
+          "ecosystem": "npm",
+          "name": "hono"
+        },
+        "vulnerable_version_range": "< 4.12.25"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-wwfh-h76j-fc44",
+  "repo": null,
+  "repository": null
+}

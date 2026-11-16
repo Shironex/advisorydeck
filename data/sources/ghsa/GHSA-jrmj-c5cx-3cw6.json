@@ -1,0 +1,130 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-22610",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 8.5,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:A/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [
+      "CWE-79"
+    ],
+    "description": "A Cross-Site Scripting (XSS) vulnerability has been identified in the Angular Template Compiler. The vulnerability exists because Angular’s internal sanitization schema fails to recognize the `href` and `xlink:href` attributes of SVG `<script>` elements as a **Resource URL** context.\n\nIn a standard security model, attributes that can load and execute code (like a script's source) should be strictly validated. However, because the compiler does not classify these specific SVG attributes correctly, it allows attackers to bypass Angular's built-in security protections.\n\nWhen template binding is used to assign user-controlled data to these attributes for example, `<script [attr.href]=\"userInput\">` the compiler treats the value as a standard string or a non-sensitive URL rather than a resource link. This enables an attacker to provide a malicious payload, such as a `data:text/javascript` URI or a link to an external malicious script.\n\n### Impact\nWhen successfully exploited, this vulnerability allows for **arbitrary JavaScript execution** within the context of the victim's browser session. This can lead to:\n- **Session Hijacking:** Stealing session cookies, localStorage data, or authentication tokens.\n- **Data Exfiltration:** Accessing and transmitting sensitive information displayed within the application.\n- **Unauthorized Actions:** Performing state-changing actions (like clicking buttons or submitting forms) on behalf of the authenticated user.\n\n### Attack Preconditions\n\n1. The victim application must explicitly use SVG `<script>` elements within its templates.\n2. The application must use property or attribute binding (interpolation) for the `href` or `xlink:href` attributes of those SVG scripts.\n3. The data bound to these attributes must be derived from an untrusted source (e.g., URL parameters, user-submitted database entries, or unsanitized API responses).\n\n### Patches\n- 19.2.18\n- 20.3.16\n- 21.0.7\n- 21.1.0-rc.0\n\n### Workarounds\nUntil the patch is applied, developers should:\n\n- **Avoid Dynamic Bindings**: Do not use Angular template binding (e.g., `[attr.href]`) for SVG `<script>` elements.\n- **Input Validation**: If dynamic values must be used, strictly validate the input against a strict allowlist of trusted URLs on the server side or before it reaches the template.\n\n### Resources\n\n- https://github.com/angular/angular/pull/66318",
+    "ghsa_id": "GHSA-jrmj-c5cx-3cw6",
+    "html_url": "https://github.com/advisories/GHSA-jrmj-c5cx-3cw6",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-jrmj-c5cx-3cw6"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-22610"
+      }
+    ],
+    "published_at": "2026-01-09T18:52:14Z",
+    "references": [
+      "https://github.com/angular/angular/security/advisories/GHSA-jrmj-c5cx-3cw6",
+      "https://github.com/angular/angular/pull/66318",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-22610",
+      "https://github.com/angular/angular/commit/91dc91bae4a1bbefc58bef6ef739d0e02ab44d56",
+      "https://cert-portal.siemens.com/productcert/html/ssa-253495.html",
+      "https://cert-portal.siemens.com/productcert/html/ssa-485750.html",
+      "https://github.com/advisories/GHSA-jrmj-c5cx-3cw6"
+    ],
+    "severity": "high",
+    "summary": "Angular has XSS Vulnerability via Unsanitized SVG Script Attributes",
+    "updated_at": "2026-06-09T10:56:10Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "21.1.0-rc.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 21.1.0-next.0, < 21.1.0-rc.0"
+      },
+      {
+        "first_patched_version": "21.1.0-rc.0",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 21.1.0-next.0, < 21.1.0-rc.0"
+      },
+      {
+        "first_patched_version": "21.0.7",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.0.7"
+      },
+      {
+        "first_patched_version": "21.0.7",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 21.0.0-next.0, < 21.0.7"
+      },
+      {
+        "first_patched_version": "20.3.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.16"
+      },
+      {
+        "first_patched_version": "20.3.16",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 20.0.0-next.0, < 20.3.16"
+      },
+      {
+        "first_patched_version": "19.2.18",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.18"
+      },
+      {
+        "first_patched_version": "19.2.18",
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": ">= 19.0.0-next.0, < 19.2.18"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/compiler"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      },
+      {
+        "first_patched_version": null,
+        "package": {
+          "ecosystem": "npm",
+          "name": "@angular/core"
+        },
+        "vulnerable_version_range": "<= 18.2.14"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-jrmj-c5cx-3cw6",
+  "repo": null,
+  "repository": null
+}

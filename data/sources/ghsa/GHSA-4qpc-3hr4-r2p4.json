@@ -1,0 +1,113 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45304",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 2.7,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N/E:U"
+      }
+    },
+    "cwe_ids": [
+      "CWE-776"
+    ],
+    "description": "### Description\n\n`Symfony\\Component\\Yaml\\Parser` resolves YAML aliases (`*anchor`) during parsing. Aliases that reference *collections* (arrays, `stdClass`, `TaggedValue`-wrapped collections) can themselves point to other collections containing aliases, creating exponential expansion at resolution time. A small input can blow up into a multi-gigabyte structure and exhaust memory: the classic \"Billion Laughs\" denial-of-service against any parser exposed to untrusted YAML.\n\n### Resolution\n\nThe `Parser` now counts collection alias resolutions in a shared `ParserState` object, with a default limit of **128**, following the [SnakeYAML model](https://github.com/snakeyaml/snakeyaml/blob/master/src/main/java/org/yaml/snakeyaml/LoaderOptions.java). Scalar aliases remain unrestricted since they cannot drive exponential growth. The limit is configurable via a new `$maxAliasesForCollections` argument on `Parser::__construct()`, `Yaml::parse()` and `Yaml::parseFile()`. A new `Yaml::PARSE_EXCEPTION_ON_ALIAS` flag also rejects all aliases outright when parsing fully untrusted input.\n\nThe patch for this issue is available [here](https://github.com/symfony/symfony/commit/e77391b2e4f18821198f010d573674c8ed4a970a) for branch 5.4.\n\n### Credits\n\nSymfony would like to thank Pietro Tirenna (Shielder) for reporting the issue and Nicolas Grekas for fixing it.",
+    "ghsa_id": "GHSA-4qpc-3hr4-r2p4",
+    "html_url": "https://github.com/advisories/GHSA-4qpc-3hr4-r2p4",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-4qpc-3hr4-r2p4"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45304"
+      }
+    ],
+    "published_at": "2026-05-27T21:33:50Z",
+    "references": [
+      "https://github.com/symfony/symfony/security/advisories/GHSA-4qpc-3hr4-r2p4",
+      "https://github.com/symfony/symfony/commit/e77391b2e4f18821198f010d573674c8ed4a970a",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/symfony/CVE-2026-45304.yaml",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/yaml/CVE-2026-45304.yaml",
+      "https://symfony.com/cve-2026-45304",
+      "https://github.com/advisories/GHSA-4qpc-3hr4-r2p4"
+    ],
+    "severity": "low",
+    "summary": "Symfony's YAML Parser Vulnerable to Exponential Memory Allocation via Recursive Collection-Alias Expansion (\"Billion Laughs\")",
+    "updated_at": "2026-05-27T21:33:52Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.4.52",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/yaml"
+        },
+        "vulnerable_version_range": "< 5.4.52"
+      },
+      {
+        "first_patched_version": "5.4.52",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": "< 5.4.52"
+      },
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 6.0.0, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 7.0.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      },
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/yaml"
+        },
+        "vulnerable_version_range": ">= 6.0.0, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/yaml"
+        },
+        "vulnerable_version_range": ">= 7.0.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/yaml"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-4qpc-3hr4-r2p4",
+  "repo": null,
+  "repository": null
+}

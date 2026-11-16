@@ -1,0 +1,57 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-3635",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.1,
+        "vector_string": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:C/C:H/I:N/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-348"
+    ],
+    "description": "## Summary\n\nWhen `trustProxy` is configured with a restrictive trust function (e.g., a specific IP like `trustProxy: '10.0.0.1'`, a subnet, a hop count, or a custom function), the `request.protocol` and `request.host` getters read `X-Forwarded-Proto` and `X-Forwarded-Host` headers from any connection - including connections from untrusted IPs. This allows an attacker connecting directly to Fastify (bypassing the proxy) to spoof both the protocol and host seen by the application.\n\n## Affected Versions\n\nfastify <= 5.8.2\n\n## Impact\n\nApplications using `request.protocol` or `request.host` for security decisions (HTTPS enforcement, secure cookie flags, CSRF origin checks, URL construction, host-based routing) are affected when `trustProxy` is configured with a restrictive trust function.\n\nWhen `trustProxy: true` (trust everything), both `host` and `protocol` trust all forwarded headers - this is expected behavior. The vulnerability only manifests with restrictive trust configurations.",
+    "ghsa_id": "GHSA-444r-cwp2-x5xf",
+    "html_url": "https://github.com/advisories/GHSA-444r-cwp2-x5xf",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-444r-cwp2-x5xf"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-3635"
+      }
+    ],
+    "published_at": "2026-03-25T19:32:28Z",
+    "references": [
+      "https://github.com/fastify/fastify/security/advisories/GHSA-444r-cwp2-x5xf",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-3635",
+      "https://cna.openjsf.org/security-advisories.html",
+      "https://github.com/fastify/fastify/releases/tag/v5.8.3",
+      "https://www.cve.org/CVERecord?id=CVE-2026-3635",
+      "https://github.com/advisories/GHSA-444r-cwp2-x5xf"
+    ],
+    "severity": "medium",
+    "summary": "fastify: request.protocol and request.host Spoofable via X-Forwarded-Proto/Host from Untrusted Connections",
+    "updated_at": "2026-03-25T19:32:29Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.8.3",
+        "package": {
+          "ecosystem": "npm",
+          "name": "fastify"
+        },
+        "vulnerable_version_range": "<= 5.8.2"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-444r-cwp2-x5xf",
+  "repo": null,
+  "repository": null
+}

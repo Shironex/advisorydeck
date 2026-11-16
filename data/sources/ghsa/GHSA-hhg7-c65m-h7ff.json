@@ -1,0 +1,98 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45753",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 1.2,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:P/VC:N/VI:N/VA:N/SC:L/SI:L/SA:N/E:U"
+      }
+    },
+    "cwe_ids": [
+      "CWE-184",
+      "CWE-79"
+    ],
+    "description": "### Description\n\n`symfony/html-sanitizer` lets applications sanitise untrusted HTML. `UrlAttributeSanitizer` is the visitor responsible for validating URL-valued attributes and stripping dangerous schemes from them; it runs on every element regardless of configuration. Whether an attribute is *kept* is decided by the element/attribute allow-list; validating the *scheme* of a URL attribute is solely `UrlAttributeSanitizer`'s responsibility.\n\n`UrlAttributeSanitizer::getSupportedAttributes()` returned only `['src', 'href', 'lowsrc', 'background', 'ping']`. The HTML URL-valued attributes `action` (`<form>`), `formaction` (`<button>`, `<input type=image>`), `poster` (`<video>`) and `cite` (`<blockquote>`, `<q>`, `<del>`, `<ins>`) were missing from that list, so `DomVisitor` never invoked scheme validation for them. As a result, when a configuration admits one of those attributes, a `javascript:` URI in it survived sanitisation.\n\n### Conditions for exploitation\n\n`allowSafeElements()` is **not** affected: `<form>` and the `formaction` attribute are both flagged unsafe in `W3CReference`, and `allowElement('form')` resets the element's attribute list. Reaching the vulnerable attributes requires a deliberately permissive configuration, for example:\n\n* `<form>` + `action`: `allowElement('form', '*')`, `allowElement('form', ['action', …])`, `allowElement('form')->allowAttribute('action', 'form')`, or the `allowStaticElements()` preset (whose docblock already warns the output \"may still contain other dangerous behaviors\");\n* `<button>` / `<input type=image>` + `formaction`: `allowElement(…, '*')`, `allowAttribute('formaction', …)`, or `allowStaticElements()`;\n* `<blockquote>` / `<q>` / `<del>` / `<ins>` + `cite`, or `<video>` + `poster`: similarly via `'*'`, `allowAttribute()`, or `allowStaticElements()`.\n\nFor the `action` / `formaction` cases the victim must additionally submit the form or click the button.\n\n### Resolution\n\n`UrlAttributeSanitizer` now also handles `action`, `formaction`, `cite` and `poster`. `action` / `formaction` / `cite` are validated against the link schemes (like `<a href>`, so `javascript:` is rejected and `data:` is dropped too); `poster` is validated against the media schemes (so `data:` images keep working). The behaviour of `<a href>` and `<img src>` is unchanged.\n\nOne behaviour change to be aware of: a relative `action=\"/submit\"` on an allowed `<form>` is now dropped by default (the same as `<a href>` / `<img src>` today); `->allowRelativeLinks()` re-enables it.\n\nThe patch for this issue is available [here](https://github.com/symfony/symfony/commit/26a598fcfc4f903cc55ff202f642ee621839825e) for branch 6.4.\n\n### Credits\n\nSymfony would like to thank Himanshu Anand and Rémi Pelloux for reporting the issue and Nicolas Grekas for providing the fix.",
+    "ghsa_id": "GHSA-hhg7-c65m-h7ff",
+    "html_url": "https://github.com/advisories/GHSA-hhg7-c65m-h7ff",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-hhg7-c65m-h7ff"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45753"
+      }
+    ],
+    "published_at": "2026-05-28T16:43:27Z",
+    "references": [
+      "https://github.com/symfony/symfony/security/advisories/GHSA-hhg7-c65m-h7ff",
+      "https://github.com/symfony/symfony/commit/26a598fcfc4f903cc55ff202f642ee621839825e",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/html-sanitizer/CVE-2026-45753.yaml",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/symfony/CVE-2026-45753.yaml",
+      "https://symfony.com/cve-2026-45753",
+      "https://github.com/advisories/GHSA-hhg7-c65m-h7ff"
+    ],
+    "severity": "low",
+    "summary": "Symfony's HtmlSanitizer UrlAttributeSanitizer Omits action/formaction/poster/cite - `javascript`: URI Survives Sanitization (XSS)",
+    "updated_at": "2026-05-28T16:43:28Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/html-sanitizer"
+        },
+        "vulnerable_version_range": ">= 6.1.0, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/html-sanitizer"
+        },
+        "vulnerable_version_range": ">= 7.0.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/html-sanitizer"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      },
+      {
+        "first_patched_version": "6.4.40",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 6.1.0, < 6.4.40"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 7.0.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-hhg7-c65m-h7ff",
+  "repo": null,
+  "repository": null
+}

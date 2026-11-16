@@ -1,0 +1,82 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-45755",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 0,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.6,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:H/VA:N/SC:N/SI:N/SA:N/E:U"
+      }
+    },
+    "cwe_ids": [
+      "CWE-306",
+      "CWE-347"
+    ],
+    "description": "### Description\n\nThe Mailtrap mailer bridge ships a webhook request parser used to authenticate and decode the event callbacks Mailtrap POSTs to an application's webhook endpoint. Its `doParse(Request $request, #[\\SensitiveParameter] string $secret)` method receives the configured webhook secret but never reads it; it decodes and returns the payload unconditionally, ignoring the `X-Mt-Signature` HMAC header Mailtrap sends with each request.\n\nAs a result, an application that wires up the Mailtrap webhook endpoint accepts **any** POST to that URL, even when a signing secret is configured (the recommended setup). An attacker who knows the endpoint exists can submit forged event payloads, fake delivery / bounce / open / click / spam events, leading to suppression-list corruption, delivery-metrics fraud, etc.\n\n### Resolution\n\n`MailtrapRequestParser::doParse()` now requires and verifies the `X-Mt-Signature` header, an HMAC-SHA256 of the raw request body keyed with the configured secret, before decoding the payload, using a constant-time comparison.\n\nWhen no secret is configured the behaviour is unchanged: signature verification remains opt-in, but it is now actually enforced once opted in.\n\nThe patch for this issue is available [here](https://github.com/symfony/symfony/commit/4e0467e4e182cf2e704a3d9e1bc1a6be65d52ab8) for branch 7.4.\n\n### Credits\n\nSymfony would like to thank Himanshu Anand for reporting the issue and Alexandre Daubois providing the fix.",
+    "ghsa_id": "GHSA-59f3-vp2f-mp9w",
+    "html_url": "https://github.com/advisories/GHSA-59f3-vp2f-mp9w",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-59f3-vp2f-mp9w"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-45755"
+      }
+    ],
+    "published_at": "2026-05-28T17:33:47Z",
+    "references": [
+      "https://github.com/symfony/symfony/security/advisories/GHSA-59f3-vp2f-mp9w",
+      "https://github.com/symfony/symfony/commit/4e0467e4e182cf2e704a3d9e1bc1a6be65d52ab8",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/mailtrap-mailer/CVE-2026-45755.yaml",
+      "https://github.com/FriendsOfPHP/security-advisories/blob/master/symfony/symfony/CVE-2026-45755.yaml",
+      "https://symfony.com/cve-2026-45755",
+      "https://github.com/advisories/GHSA-59f3-vp2f-mp9w"
+    ],
+    "severity": "medium",
+    "summary": "Symfony's Mailtrap Mailer Webhook Parser Never Verifies the X-Mt-Signature HMAC - Unauthenticated Webhook Event Injection",
+    "updated_at": "2026-05-28T17:33:48Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/mailtrap-mailer"
+        },
+        "vulnerable_version_range": ">= 7.2.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/mailtrap-mailer"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      },
+      {
+        "first_patched_version": "7.4.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 7.2.0, < 7.4.12"
+      },
+      {
+        "first_patched_version": "8.0.12",
+        "package": {
+          "ecosystem": "composer",
+          "name": "symfony/symfony"
+        },
+        "vulnerable_version_range": ">= 8.0.0, < 8.0.12"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-59f3-vp2f-mp9w",
+  "repo": null,
+  "repository": null
+}

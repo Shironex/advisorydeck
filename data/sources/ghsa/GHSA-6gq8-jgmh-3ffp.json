@@ -1,0 +1,67 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-114131",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 6.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-436",
+      "CWE-863"
+    ],
+    "description": "### Summary\n\nNuxt compared `routeRules` keys against the raw request path, without decoding percent-encoding, while the router decodes parameters when it resolves a route. A request whose path is percent-encoded can therefore resolve to a page while failing to match the route rule meant to protect it, so the rule's `appMiddleware` never runs, including during server rendering.\n\n### Impact\n\nFor a page served through a dynamic or catch-all route, an attacker can percent-encode a character in the path to skip the rule:\n\n```ts\nexport default defineNuxtConfig({\n  routeRules: {\n    '/users/admin': { appMiddleware: 'auth' },\n  },\n})\n```\n\nRequesting `/users/%61dmin` still renders `app/pages/users/[id].vue` with `id` decoded to `admin`, but the rule keyed `/users/admin` does not match, so `auth` does not run and the server renders and returns the gated page to an unauthenticated visitor. No privileges and no user interaction are required, and only ASCII characters are involved.\n\nPurely static ASCII routes are not affected: static segments are matched without decoding, so a request for `/%61dmin` does not resolve to the page registered at `/admin` and 404s instead of rendering.\n\nThe rule keys affected are the ones carried in the app manifest and consumed by the app: `appMiddleware`, `redirect`, `appLayout`, `ssr`, `prerender`, and the payload flags derived from `cache`, `isr` and `swr`.\n\nIf you have pinned or overridden dependency versions below what your Nuxt release declares, a release outside the affected ranges can still be exposed, so do not conclude from a single reproduction that you are unaffected.\n\n### Patches\n\nReleases from `4.4.4` and `3.21.4` are not affected, because their dependency floor requires a version of the underlying HTTP layer that normalises percent-encoding in the request path before routing, which removes the mismatch in a default install.\n\nThe comparison itself is fixed in `nuxt@4.5.2` and `nuxt@3.21.11`: route-rule keys and lookup paths are now decoded (and, unless `router.options.sensitive` is set, case-folded) before they are compared. Reserved escapes such as `%2F` are left encoded, so decoding cannot introduce extra path segments, and paths that cannot be decoded are matched verbatim. Upgrading to those releases is recommended, since it fixes the comparison rather than relying on a dependency to normalise the input, and it also restores route rules for pages whose paths contain non-ASCII characters.\n\n### Workarounds\n\nIf you cannot upgrade, do not rely on a `routeRules` key alone to protect a route. Attach the middleware to the page itself, which binds it to the resolved route rather than to the raw path string:\n\n```vue\n<script setup lang=\"ts\">\ndefinePageMeta({ middleware: 'auth' })\n</script>\n```\n\n### Credits\n\nThanks to @sushi-gif, whose report that route rules keyed with non-ASCII paths never match the routes generated for those pages prompted the review that found this issue.",
+    "ghsa_id": "GHSA-6gq8-jgmh-3ffp",
+    "html_url": "https://github.com/advisories/GHSA-6gq8-jgmh-3ffp",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-6gq8-jgmh-3ffp"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-114131"
+      }
+    ],
+    "published_at": "2026-10-22T16:50:53Z",
+    "references": [
+      "https://github.com/nuxt/nuxt/security/advisories/GHSA-6gq8-jgmh-3ffp",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-114131",
+      "https://github.com/nuxt/nuxt/commit/81f86ac5ee82bb1a9b887e59f3bc84624d711497",
+      "https://github.com/nuxt/nuxt/commit/9123ed850c468a7424a868c20d0d49a5507d32e5",
+      "https://github.com/nuxt/nuxt/releases/tag/v3.21.11",
+      "https://github.com/nuxt/nuxt/releases/tag/v4.5.2",
+      "https://github.com/advisories/GHSA-6gq8-jgmh-3ffp"
+    ],
+    "severity": "medium",
+    "summary": "Nuxt: Route rules are matched against the raw request path, so a percent-encoded segment can bypass `appMiddleware` on dynamic and catch-all routes",
+    "updated_at": "2026-10-22T16:50:54Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.4.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nuxt"
+        },
+        "vulnerable_version_range": ">= 4.0.0, < 4.4.4"
+      },
+      {
+        "first_patched_version": "3.21.4",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nuxt"
+        },
+        "vulnerable_version_range": ">= 3.11.0, < 3.21.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-6gq8-jgmh-3ffp",
+  "repo": null,
+  "repository": null
+}

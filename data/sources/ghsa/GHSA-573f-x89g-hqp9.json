@@ -1,0 +1,58 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-3419",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 5.3,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-185"
+    ],
+    "description": "# Description\n\nFastify incorrectly accepts malformed `Content-Type` headers containing trailing characters after the subtype token, in violation of [RFC 9110 §8.3.1](https://httpwg.org/specs/rfc9110.html#field.content-type). For example, a request sent with `Content-Type: application/json garbage` passes validation and is processed normally, rather than being rejected with `415 Unsupported Media Type`.\n\nWhen regex-based content-type parsers are in use (a documented Fastify feature), the malformed value is matched against registered parsers using the full string including the trailing garbage. This means a request with an invalid content-type may be routed to and processed by a parser it should never have reached.\n\n## Impact\n\nAn attacker can send requests with RFC-invalid `Content-Type` headers that bypass validity checks, reach content-type parser matching, and be processed by the server. Requests that should be rejected at the validation stage are instead handled as if the content-type were valid.\n\n## Workarounds\n\nDeploy a WAF rule to protect against this\n\n## Fix\n\nThe fix is available starting with v5.8.1.",
+    "ghsa_id": "GHSA-573f-x89g-hqp9",
+    "html_url": "https://github.com/advisories/GHSA-573f-x89g-hqp9",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-573f-x89g-hqp9"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-3419"
+      }
+    ],
+    "published_at": "2026-03-05T21:29:54Z",
+    "references": [
+      "https://github.com/fastify/fastify/security/advisories/GHSA-573f-x89g-hqp9",
+      "https://github.com/fastify/fastify/commit/67f6c9b32cb3623d3c9470cc17ed830dd2f083d7",
+      "https://httpwg.org/specs/rfc9110.html#field.content-type",
+      "https://nvd.nist.gov/vuln/detail/CVE-2026-3419",
+      "https://cna.openjsf.org/security-advisories.html",
+      "https://github.com/advisories/GHSA-573f-x89g-hqp9",
+      "https://www.cve.org/CVERecord?id=CVE-2026-3419"
+    ],
+    "severity": "medium",
+    "summary": "Fastify's Missing End Anchor in \"subtypeNameReg\" Allows Malformed Content-Types to Pass Validation",
+    "updated_at": "2026-03-06T22:44:35Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "5.8.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "fastify"
+        },
+        "vulnerable_version_range": ">= 5.7.2, <= 5.8.0"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-573f-x89g-hqp9",
+  "repo": null,
+  "repository": null
+}

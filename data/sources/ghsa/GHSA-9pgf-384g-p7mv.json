@@ -1,0 +1,66 @@
+{
+  "global": {
+    "cve_id": "CVE-2026-71321",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": 7.5,
+        "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cvss_v4": {
+        "score": 0,
+        "vector_string": null
+      }
+    },
+    "cwe_ids": [
+      "CWE-407",
+      "CWE-770"
+    ],
+    "description": "### Impact\n\nThe internal island renderer endpoint (`/__nuxt_island/...`) decodes and hashes attacker-controlled request input before it validates the URL-resident hash. An unauthenticated `POST /__nuxt_island/<name>_<anything>.json` with a large JSON body (for example ~4.6 MB / 150k keys) is fully read, `destr`-parsed, and run through `ohash` before the request is rejected with a 400. Because Nitro runs on a single event loop, this both wastes CPU on the doomed request and delays every concurrent request. A low request rate is enough to degrade or stall the server. No valid hash and no authentication are required.\n\n### Patches\n\nFixed in `nuxt@4.5.1` and `nuxt@3.21.10`. The island handler now enforces a raw body-size cap (`413`) and a JSON nesting-depth cap (`400`) before parsing or hashing, so oversized or deeply nested input is rejected cheaply.\n\n### Workarounds\n\nPut a small request-body limit in front of `/__nuxt_island/` at your reverse proxy / edge (islands legitimately send only a compact props payload), or disable server components if unused.",
+    "ghsa_id": "GHSA-9pgf-384g-p7mv",
+    "html_url": "https://github.com/advisories/GHSA-9pgf-384g-p7mv",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-9pgf-384g-p7mv"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-71321"
+      }
+    ],
+    "published_at": "2026-08-05T21:43:03Z",
+    "references": [
+      "https://github.com/nuxt/nuxt/security/advisories/GHSA-9pgf-384g-p7mv",
+      "https://github.com/nuxt/nuxt/commit/4e35ae9babd94be53246e31200232d48438bb34e",
+      "https://github.com/nuxt/nuxt/commit/668cdfdfda41849ed11c1ee5e2067a11fc103b22",
+      "https://github.com/nuxt/nuxt/releases/tag/v3.21.10",
+      "https://github.com/nuxt/nuxt/releases/tag/v4.5.1",
+      "https://github.com/advisories/GHSA-9pgf-384g-p7mv"
+    ],
+    "severity": "high",
+    "summary": "Nuxt: Unauthenticated CPU exhaustion parsing and hashing the Nuxt island endpoint body before hash validation",
+    "updated_at": "2026-08-05T21:43:07Z",
+    "vulnerabilities": [
+      {
+        "first_patched_version": "4.5.1",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nuxt"
+        },
+        "vulnerable_version_range": ">= 4.0.0, < 4.5.1"
+      },
+      {
+        "first_patched_version": "3.21.10",
+        "package": {
+          "ecosystem": "npm",
+          "name": "nuxt"
+        },
+        "vulnerable_version_range": ">= 3.1.0, < 3.21.10"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "id": "GHSA-9pgf-384g-p7mv",
+  "repo": null,
+  "repository": null
+}

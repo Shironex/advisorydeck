@@ -1,0 +1,397 @@
+{
+  "schema": "advisorydeck/v1/product-feed",
+  "generated_at": "2026-11-16T15:11:26Z",
+  "product": {
+    "slug": "phoenix",
+    "name": "Phoenix",
+    "category": "frameworks",
+    "homepage": "https://www.phoenixframework.org",
+    "version_scheme": "semver",
+    "branches": [
+      {
+        "name": "1.8",
+        "eol": false,
+        "eol_date": null,
+        "latest": "1.8.16"
+      },
+      {
+        "name": "1.7",
+        "eol": false,
+        "eol_date": null,
+        "latest": "1.7.24"
+      },
+      {
+        "name": "1.6",
+        "eol": false,
+        "eol_date": null,
+        "latest": "1.6.17"
+      },
+      {
+        "name": "1.5",
+        "eol": false,
+        "eol_date": null,
+        "latest": "1.5.15"
+      },
+      {
+        "name": "1.4",
+        "eol": true,
+        "eol_date": "2025-08-05",
+        "latest": "1.4.18"
+      },
+      {
+        "name": "1.3",
+        "eol": true,
+        "eol_date": "2023-02-24",
+        "latest": "1.3.5"
+      },
+      {
+        "name": "1.2",
+        "eol": true,
+        "eol_date": "2017-07-28",
+        "latest": "1.2.5"
+      },
+      {
+        "name": "1.1",
+        "eol": true,
+        "eol_date": "2017-05-15",
+        "latest": "1.1.9"
+      },
+      {
+        "name": "1.0",
+        "eol": true,
+        "eol_date": "2017-03-14",
+        "latest": "1.0.6"
+      }
+    ]
+  },
+  "advisories": [
+    {
+      "id": "CVE-2026-56812",
+      "aliases": [
+        "GHSA-63mc-hw7g-86rr"
+      ],
+      "title": "Phoenix JavaScript presence client crashes on presence keys colliding with Object.prototype members in Presence.syncState/syncDiff",
+      "summary": "Improper Check for Unusual or Exceptional Conditions vulnerability in phoenixframework phoenix (Presence JavaScript client) allows an attacker with ordinary channel access to cause a persistent client-side denial of service against every viewer of a presence channel topic.\n\nThis vulnerability is associated with program files assets/js/phoenix/presence.js and program routines Presence.syncState and Presence.syncDiff.\n\nThe Phoenix JavaScript presence client checks whether a presence already exists with a bare truthiness test (state[key]) instead of an own-property check. Presence keys can be attacker-controlled, because applications track presences under a username or id supplied by the client. A user who joins a channel choosing a key that is an Object.prototype member name (__proto__, constructor, toString, hasOwnProperty, and similar) makes that lookup return JavaScript's built-in Object.prototype instead of undefined. Because the prototype is truthy, the code treats it as an existing presence and reads .metas.map(...) off it, which throws an uncaught TypeError.\n\nThe exception propagates out of the presence message handler, so the local state is never updated and onSync() never fires. Because the malicious key is tracked on the server, it is re-pushed on every presence update and keeps re-throwing, so presence sync stays broken for every viewer of that channel topic until the attacker leaves. Both syncState and syncDiff use the same unsafe existence-check pattern. The impact is limited to the affected topic and is a read-time confusion of the prototype object, not a mutation of Object.prototype (it is not prototype pollution).\n\nThis issue affects phoenix: from 1.2.0-rc.0 before 1.5.15, from 1.6.0-rc.0 before 1.6.17, from 1.7.0-rc.0 before 1.7.24, and from 1.8.0-rc.0 before 1.8.9; phoenix: from 1.2.0-rc.0 before 1.5.15, from 1.6.0-rc.0 before 1.6.17, from 1.7.0-rc.0 before 1.7.24, and from 1.8.0-rc.0 before 1.8.9.",
+      "published_at": "2026-07-07T15:22:46.933Z",
+      "modified_at": "2026-09-24T21:29:18.181Z",
+      "severity": {
+        "level": "medium",
+        "score": 6.3,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:N/VI:N/VA:L/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00796,
+        "percentile": 0.57032,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-754"
+      ],
+      "affected": [
+        {
+          "product": "phoenix",
+          "ranges": [
+            {
+              "introduced": "1.2.0-rc.0",
+              "fixed": "1.5.15"
+            },
+            {
+              "introduced": "1.6.0-rc.0",
+              "fixed": "1.6.17"
+            },
+            {
+              "introduced": "1.7.0-rc.0",
+              "fixed": "1.7.24"
+            },
+            {
+              "introduced": "1.8.0-rc.0",
+              "fixed": "1.8.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/phoenixframework/phoenix/security/advisories/GHSA-63mc-hw7g-86rr",
+          "type": "advisory"
+        },
+        {
+          "url": "https://cna.erlef.org/cves/CVE-2026-56812.html",
+          "type": "web"
+        },
+        {
+          "url": "https://osv.dev/vulnerability/EEF-CVE-2026-56812",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/2270aaf21bd02c6a6a1022820564efb605a97655",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/7f7b971c1ea0994e3fbd1c11ddb05e780bd38ad8",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/89a1c4be161e436241e12b2378a719904b9bd96f",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/b90b22521465ece00eb5a19d5aa2b9465b209c85",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/beffc4da1e787e572121f68902c63daf4fe7d9c2",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-63mc-hw7g-86rr",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-56812",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-56812",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-56812",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-56812",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-56812",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-63mc-hw7g-86rr",
+          "url": "https://github.com/advisories/GHSA-63mc-hw7g-86rr",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b3fbdf51c30610850ed7ff1722d1d6c3dc542c52e5f5c8620cef11b45f8cdc14",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-56811",
+      "aliases": [
+        "GHSA-6983-jfq8-485w"
+      ],
+      "title": "Phoenix transports do not limit channel joins per connection, enabling process-exhaustion denial of service",
+      "summary": "Allocation of Resources Without Limits or Throttling vulnerability in phoenixframework phoenix (Phoenix.Socket module) allows an unauthenticated attacker to cause a denial of service against any endpoint that mounts a Phoenix socket with a reachable channel transport (WebSocket or LongPoll).\n\nThis vulnerability is associated with program files lib/phoenix/socket.ex and program routine 'Elixir.Phoenix.Socket':handle_in/4.\n\nPhoenix transports do not limit the number of channels that a single transport process may join. Every phx_join message a client sends over one connection starts a persistent channel process, and the socket process accepts an unbounded number of them. A single unauthenticated client can therefore open one WebSocket or LongPoll connection and stream a large number of phx_join messages, spawning hundreds of thousands of channel processes over that one connection and eventually reaching the BEAM maximum process limit. Once the process table is exhausted the virtual machine can no longer start new processes, denying service to legitimate traffic across the whole node. Because the amplification happens inside a single connection, network-layer connection caps and rate limiting do not mitigate it.\n\nThe fix adds a :max_channels_per_transport option (default 100) that bounds the number of channels a single transport process can join, forcing abusive clients to open many connections instead, where external load balancers and reverse proxies can throttle them.\n\nThis issue affects phoenix: from 0.11.0 before 1.5.15, from 1.6.0-rc.0 before 1.6.17, from 1.7.0-rc.0 before 1.7.24, and from 1.8.0-rc.0 before 1.8.9.",
+      "published_at": "2026-07-07T15:09:57.581Z",
+      "modified_at": "2026-09-24T21:28:45.227Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00775,
+        "percentile": 0.56341,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "phoenix",
+          "ranges": [
+            {
+              "introduced": "0.11.0",
+              "fixed": "1.5.15"
+            },
+            {
+              "introduced": "1.6.0-rc.0",
+              "fixed": "1.6.17"
+            },
+            {
+              "introduced": "1.7.0-rc.0",
+              "fixed": "1.7.24"
+            },
+            {
+              "introduced": "1.8.0-rc.0",
+              "fixed": "1.8.9"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/phoenixframework/phoenix/security/advisories/GHSA-6983-jfq8-485w",
+          "type": "advisory"
+        },
+        {
+          "url": "https://cna.erlef.org/cves/CVE-2026-56811.html",
+          "type": "web"
+        },
+        {
+          "url": "https://osv.dev/vulnerability/EEF-CVE-2026-56811",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/14a297e88023cb280a577962a49a0bbdeef9f4eb",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/c498ba8cf49f6accbbd0c643a5340b58db891218",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/d19ca0a8d9f82c130b7ed339b9f033433e2dea5e",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/a612100cd8a4279091abc1a2ef8fb98a6d01c0a1",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/16e295d2fccab185d1292322e2bee5d46c725c8a",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-6983-jfq8-485w",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-56811",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-56811",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-56811",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-56811",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-56811",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-6983-jfq8-485w",
+          "url": "https://github.com/advisories/GHSA-6983-jfq8-485w",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:b9f4040fa725d6b1275e151a2b4ac3e2941488707bb89d38e6d2a337b109e020",
+      "note": null
+    },
+    {
+      "id": "CVE-2026-32689",
+      "aliases": [
+        "GHSA-628h-q48j-jr6q"
+      ],
+      "title": "Long-poll NDJSON body splitting causes unbounded memory allocation in Phoenix",
+      "summary": "Allocation of Resources Without Limits or Throttling vulnerability in phoenixframework phoenix allows a denial of service via the long-poll transport's NDJSON body handling.\n\nIn 'Elixir.Phoenix.Transports.LongPoll':publish/4, when a POST request is received with Content-Type: application/x-ndjson, the request body is split on newline characters using String.split/2 with no limit on the number of resulting segments. An attacker can send a body consisting entirely of newline bytes, causing a 1:1 amplification into a list of empty binaries - a 1 MB body produces approximately one million list elements, an 8 MB body approximately 8.4 million. Each element is then walked by Enum.map, materializing another list of the same size. This exhausts BEAM memory and schedulers, crashing the node and terminating all active sessions.\n\nA session token required to reach the vulnerable endpoint is freely obtainable by any client via an unauthenticated GET request to the same URL with a matching Origin header, making this attack effectively unauthenticated.\n\nThis issue affects phoenix: from 1.7.0 before 1.7.22 and 1.8.6.",
+      "published_at": "2026-05-05T15:17:30.664Z",
+      "modified_at": "2026-05-08T20:24:16.000Z",
+      "severity": {
+        "level": "high",
+        "score": 8.7,
+        "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N",
+        "source": "cna"
+      },
+      "kev": {
+        "listed": false,
+        "added_at": null,
+        "checked": true
+      },
+      "epss": {
+        "score": 0.00469,
+        "percentile": 0.41099,
+        "date": "2026-11-15"
+      },
+      "cwes": [
+        "CWE-770"
+      ],
+      "affected": [
+        {
+          "product": "phoenix",
+          "ranges": [
+            {
+              "introduced": "1.7.0",
+              "fixed": "1.7.22"
+            },
+            {
+              "introduced": "1.8.0",
+              "fixed": "1.8.6"
+            }
+          ]
+        }
+      ],
+      "references": [
+        {
+          "url": "https://github.com/phoenixframework/phoenix/security/advisories/GHSA-628h-q48j-jr6q",
+          "type": "advisory"
+        },
+        {
+          "url": "https://cna.erlef.org/cves/CVE-2026-32689.html",
+          "type": "web"
+        },
+        {
+          "url": "https://osv.dev/vulnerability/EEF-CVE-2026-32689",
+          "type": "web"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/1a67c61ff9ce0a7711662ac7354861917a7c80f7",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/phoenixframework/phoenix/commit/912ea181fd247c21dbcc49fb97d0053b947d81bf",
+          "type": "fix"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-628h-q48j-jr6q",
+          "type": "advisory"
+        },
+        {
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-32689",
+          "type": "web"
+        }
+      ],
+      "sources": [
+        {
+          "type": "cve-cna",
+          "id": "CVE-2026-32689",
+          "url": "https://www.cve.org/CVERecord?id=CVE-2026-32689",
+          "license": "CVE-TOU"
+        },
+        {
+          "type": "epss",
+          "id": "CVE-2026-32689",
+          "url": "https://api.first.org/data/v1/epss?cve=CVE-2026-32689",
+          "license": "FIRST-EPSS"
+        },
+        {
+          "type": "ghsa",
+          "id": "GHSA-628h-q48j-jr6q",
+          "url": "https://github.com/advisories/GHSA-628h-q48j-jr6q",
+          "license": "CC-BY-4.0"
+        }
+      ],
+      "revision": "sha256:ffd10e9f53f7bb3e0669df0effbaa303dad1453241bb8d6ec16287048e5b71b9",
+      "note": null
+    }
+  ]
+}

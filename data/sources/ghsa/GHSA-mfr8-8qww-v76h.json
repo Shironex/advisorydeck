@@ -1,0 +1,48 @@
+{
+  "global": null,
+  "id": "GHSA-mfr8-8qww-v76h",
+  "repo": {
+    "cve_id": "CVE-2026-119790",
+    "cvss_severities": {
+      "cvss_v3": {
+        "score": null,
+        "vector_string": null
+      },
+      "cvss_v4": {
+        "score": 6.3,
+        "vector_string": "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N"
+      }
+    },
+    "cwe_ids": [],
+    "description": "<!-- https://linear.app/vercel/issue/NSEC-726 -->\r\nNext.js applications with `'use cache'` can disclose cached data across root params when the same `'use cache'` function is called both directly during rendering and through `unstable_cache()`, and that function reads a root param. Root params are route parameters of the root layout, and applications commonly use them to scope data, for example per locale.\r\n\r\nDuring a cold process start, a cross-request deduplication race allowed an `unstable_cache()` call to join the in-flight fill of a concurrent direct call and receive its result, bypassing the root param check that would normally reject it. `unstable_cache()` then stored that result under a cache key without root params, so subsequent requests for other root param values received the same entry until it is revalidated or evicted. Cached data produced for one root param value is returned to requests for other values.\r\n\r\nExploitation requires the `unstable_cache()` request to arrive while the function's first fill after a process start is still in flight. Outside this race, the nesting already throws an error: `'use cache' inside unstable_cache() is unsupported`, and avoiding it is a complete workaround.",
+    "ghsa_id": "GHSA-mfr8-8qww-v76h",
+    "html_url": "https://github.com/vercel/next.js/security/advisories/GHSA-mfr8-8qww-v76h",
+    "identifiers": [
+      {
+        "type": "GHSA",
+        "value": "GHSA-mfr8-8qww-v76h"
+      },
+      {
+        "type": "CVE",
+        "value": "CVE-2026-119790"
+      }
+    ],
+    "published_at": "2026-11-03T18:39:36Z",
+    "references": [],
+    "severity": "medium",
+    "summary": "Information disclosure across root params in Next.js when a 'use cache' function is called through unstable_cache()",
+    "updated_at": "2026-11-06T10:20:14Z",
+    "vulnerabilities": [
+      {
+        "package": {
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        "patched_versions": "16.4.5",
+        "vulnerable_version_range": ">= 16.3.0, <= 16.4.4"
+      }
+    ],
+    "withdrawn_at": null
+  },
+  "repository": "vercel/next.js"
+}
