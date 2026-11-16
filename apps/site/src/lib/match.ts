@@ -137,16 +137,39 @@ function parseSemver(input: string): Version {
     s = s.slice(0, plus);
   }
   const dash = s.indexOf('-');
-  const core = dash >= 0 ? s.slice(0, dash) : s;
+  let core = dash >= 0 ? s.slice(0, dash) : s;
+  let preText = dash >= 0 ? s.slice(dash + 1) : null;
+  if (preText === null) {
+    [core, preText] = cutPEP440(core);
+  }
   const nums = parseNums(core, 1, 3);
   const v = base('semver', raw);
-  if (dash >= 0) {
-    v.pre = parsePre(s.slice(dash + 1));
+  if (preText !== null) {
+    v.pre = parsePre(preText);
   } else if (nums.length < 3) {
     v.depth = nums.length;
   }
   v.nums = pad(nums, 3);
   return v;
+}
+
+/**
+ * Splits a PEP 440 prerelease written straight after the version (3.14.0rc1, 6.0a1, 3.15.0b2)
+ * into the version and the prerelease, so it compares like the semver prerelease 3.14.0-rc1.
+ * Anything else is returned whole, to fail as before.
+ */
+function cutPEP440(s: string): [string, string | null] {
+  const i = s.search(/[^0-9.]/);
+  if (i <= 0 || !isDigit(s.charAt(i - 1))) {
+    return [s, null];
+  }
+  const tag = s.slice(i);
+  for (const kind of ['rc', 'a', 'b']) {
+    if (tag.startsWith(kind) && isDigits(tag.slice(kind.length))) {
+      return [s.slice(0, i), tag];
+    }
+  }
+  return [s, null];
 }
 
 function splitPGPre(s: string): [string, string[] | null] {
