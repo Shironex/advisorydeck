@@ -92,6 +92,7 @@ const extra: CatalogEntry[] = [
   product('jenkins', [{ type: 'cve-cna', assigner: 'jenkins', products: ['Jenkins'] }]),
   product('portainer', [{ type: 'ghsa-repo', repo: 'portainer/portainer' }]),
   product('runc', [{ type: 'ghsa-repo', repo: 'opencontainers/runc' }]),
+  product('nextjs', [{ type: 'ghsa-repo', repo: 'vercel/next.js' }]),
   product('rocket-chat', [
     { type: 'cve-cna', assigner: 'hackerone', vendor: 'Rocket.Chat', products: ['Rocket.Chat'] },
   ]),
@@ -240,16 +241,36 @@ describe('lower bounds with a patched list (G3)', () => {
     expect(rangesOf(facts, 'nextcloud')).toEqual(matcherRanges('nextcloud', 'GHSA-f99w-3pm7-v4cv'));
   });
 
+  it('Next.js: four lower bounds and ten patches pair per branch', () => {
+    const facts = repoGhsa('repo-next.json', 'GHSA-5j59-xgg2-r9c4', 'vercel/next.js');
+    expect(rangesOf(facts, 'nextjs')).toEqual(matcherRanges('nextjs', 'GHSA-5j59-xgg2-r9c4'));
+  });
+
+  it('Next.js: a canary lower bound without a fix is affected up to the next lower bound', () => {
+    const facts = repoGhsa('repo-next.json', 'GHSA-9qr9-h5gf-34mp', 'vercel/next.js');
+    expect(rangesOf(facts, 'nextjs').slice(0, 2)).toEqual([
+      { introduced: '14.3.0-canary.77', last_affected: '14' },
+      { introduced: '15.0.0', fixed: '15.0.5' },
+    ]);
+  });
+
   it('lower bounds that do not pair with the patched list are unknown, not affected forever', () => {
-    // GHSA-5j59-xgg2-r9c4 (vercel/next.js) as published: four lower bounds, ten patches.
-    const reading = ghsaRanges({
+    // GHSA-5j59-xgg2-r9c4 with two fixes on one branch: which one ends the range is not clear.
+    const twice = ghsaRanges({
       package: { ecosystem: 'npm', name: 'next' },
       vulnerable_version_range: '>= 13.3, >= 14, >=15, >=16',
-      patched_versions:
-        '13.5.11, 14.2.35, 15.0.7, 15.1.11, 15.2.8, 15.3.8, 15.4.10, 15.5.9, 16.0.10, 16.1.1',
+      patched_versions: '14.2.35, 15.0.7, 15.0.9, 16.0.10',
     });
-    expect(reading.ranges).toBeUndefined();
-    expect(reading.note).toContain('do not pair');
+    expect(twice.ranges).toBeUndefined();
+    expect(twice.note).toContain('do not pair');
+    // A fix below every lower bound belongs to none of them.
+    expect(
+      ghsaRanges({
+        package: { ecosystem: 'npm', name: 'next' },
+        vulnerable_version_range: '>= 14, >= 15',
+        patched_versions: '13.5.11, 14.2.35, 15.0.7',
+      }).ranges,
+    ).toBeUndefined();
   });
 
   it('lower bounds with no patch yet stay open', () => {
