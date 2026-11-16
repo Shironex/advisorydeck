@@ -73,7 +73,9 @@ function branchFor(feed: CheckFeed, v: Version): BranchInfo | null {
     const b = tryParse(scheme, branch.name);
     if (b === null || !isBranch(b)) continue;
     const same = isBranch(v) && compareVersions(v, b) === 0 && v.depth === b.depth;
-    if (same || (!isBranch(v) && inBranch(v, b))) {
+    // A release, or a deeper floating tag (node 22.23 inside the endoflife.date branch 22).
+    const inside = (!isBranch(v) || v.depth > b.depth) && inBranch(v, b);
+    if (same || inside) {
       return {
         name: branch.name,
         eol: branch.eol,

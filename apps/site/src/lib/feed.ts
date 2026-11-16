@@ -31,22 +31,31 @@ export const SEVERITY_ORDER: readonly SeverityLevel[] = [
 export type Category = Product['category'];
 
 export const CATEGORY_LABELS: Record<Category, { name: string; blurb: string }> = {
-  databases: { name: 'Databases', blurb: 'Relational and key-value stores.' },
-  proxies: { name: 'Proxies', blurb: 'Reverse proxies and load balancers.' },
+  databases: {
+    name: 'Databases',
+    blurb: 'Relational, document and key-value stores, caches, queues and search engines.',
+  },
+  proxies: { name: 'Proxies', blurb: 'Web servers, reverse proxies and load balancers.' },
   os: { name: 'OS and kernel', blurb: 'Operating systems and kernels.' },
   paas: { name: 'Platforms', blurb: 'Self-hosted platforms that deploy your apps.' },
-  containers: { name: 'Containers', blurb: 'Container engines and tooling.' },
-  runtimes: { name: 'Runtimes', blurb: 'Language runtimes.' },
+  containers: { name: 'Containers', blurb: 'Container engines, orchestration and tooling.' },
+  runtimes: { name: 'Runtimes', blurb: 'Language runtimes your app containers run on.' },
   auth: {
     name: 'Identity and secrets',
-    blurb: 'Single sign-on, identity providers and password managers.',
+    blurb: 'Single sign-on, identity providers, password managers and secret stores.',
   },
-  monitoring: { name: 'Monitoring', blurb: 'Metrics, dashboards and uptime checks.' },
-  storage: { name: 'Files and media', blurb: 'Photo libraries, media servers and file storage.' },
-  devtools: { name: 'Developer tools', blurb: 'Git hosting and CI.' },
+  monitoring: { name: 'Monitoring', blurb: 'Metrics, logs, dashboards and uptime checks.' },
+  storage: {
+    name: 'Files and media',
+    blurb: 'Photo libraries, media servers, file and object storage and image registries.',
+  },
+  devtools: {
+    name: 'Developer tools',
+    blurb: 'Git hosting, CI and remote development environments.',
+  },
   apps: {
     name: 'Apps',
-    blurb: 'Applications deployed from templates: CMS, chat and AI front ends.',
+    blurb: 'Applications deployed from templates: CMS, chat, automation and AI front ends.',
   },
 };
 
