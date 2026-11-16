@@ -1,6 +1,7 @@
 import { loadCatalog, type CatalogEntry } from '@advisorydeck/contract';
 import { describe, expect, it } from 'vitest';
 import { buildSourceIndex } from '../src/index.ts';
+import { packageKeyOf } from '../src/source-index.ts';
 
 const catalog = loadCatalog();
 
@@ -21,6 +22,17 @@ describe('source index', () => {
     expect(github.every((claim) => claim.vendor !== undefined)).toBe(true);
     expect(index.ghsaPackages.get('go:code.gitea.io/gitea')).toBe('gitea');
     expect(index.ghsaRepos.has('go-gitea/gitea')).toBe(false);
+    expect(index.ghsaPackages.get('pip:django')).toBe('django');
+  });
+
+  it('compares PyPI package names normalized, other names as written', () => {
+    expect(packageKeyOf('pip', 'Django')).toBe('pip:django');
+    expect(packageKeyOf('PIP', ' open_webui ')).toBe('pip:open-webui');
+    expect(packageKeyOf('pip', 'zope.interface')).toBe('pip:zope-interface');
+    expect(packageKeyOf('npm', '@sveltejs/kit')).toBe('npm:@sveltejs/kit');
+    expect(packageKeyOf('maven', 'org.springframework:spring-web')).toBe(
+      'maven:org.springframework:spring-web',
+    );
   });
 
   it('reports two products claiming the same repository', () => {

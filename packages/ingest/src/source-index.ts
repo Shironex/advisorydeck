@@ -97,7 +97,13 @@ export function buildSourceIndex(entries: readonly CatalogEntry[]): {
           }
           break;
         case 'ghsa-package':
-          claim(index.ghsaPackages, `${source.ecosystem}:${source.package}`, slug, file, issues);
+          claim(
+            index.ghsaPackages,
+            packageKeyOf(source.ecosystem, source.package),
+            slug,
+            file,
+            issues,
+          );
           break;
         case 'osv':
           claim(index.osvPackages, `${source.ecosystem}:${source.package}`, slug, file, issues);
@@ -112,4 +118,15 @@ export function buildSourceIndex(entries: readonly CatalogEntry[]): {
     }
   }
   return { index, issues };
+}
+
+/**
+ * The key of a GHSA package entry: `<ecosystem>:<name>`. PyPI names compare normalized (PEP 503:
+ * lowercase, runs of `-`, `_` and `.` as one `-`), since advisories write both `Django` and
+ * `django`; other ecosystems compare the name as written.
+ */
+export function packageKeyOf(ecosystem: string, name: string): string {
+  const eco = ecosystem.trim().toLowerCase();
+  const trimmed = name.trim();
+  return `${eco}:${eco === 'pip' ? trimmed.toLowerCase().replace(/[-_.]+/g, '-') : trimmed}`;
 }
